@@ -1,54 +1,21 @@
 import { getConfig } from "../../../../config/loader.js";
 import {
-  type AttachmentContext,
-  isAttachmentVisible,
-} from "../../../../daemon/media-visibility-policy.js";
-import {
   generateImage,
   type ImageGenCredentials,
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
-import {
-  getAttachmentContent,
-  getAttachmentsByIds,
-} from "../../../../memory/attachments-store.js";
-import { getConversationType } from "../../../../memory/conversation-crud.js";
+import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
-import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
+import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-
-/**
- * Check whether an attachment is visible from the given context.
- * Mirrors the logic in tools/assets/search.ts:isAttachmentVisibleFromContext.
- */
-function isAttachmentAccessible(
-  attachmentId: string,
-  currentContext: AttachmentContext,
-): boolean {
-  const sources = getAttachmentSourceConversations(attachmentId);
-  if (sources.length === 0) {
-    return true; // orphan attachments are universally visible
-  }
-  const hasStandard = sources.some((s) => s.conversationType !== "private");
-  if (hasStandard) {
-    return true;
-  }
-  // All sources are private - visible only if the caller is in one of those conversations
-  return sources.some((s) =>
-    isAttachmentVisible(
-      { conversationId: s.conversationId, isPrivate: true },
-      currentContext,
-    ),
-  );
-}
 
 export async function run(
   input: Record<string, unknown>,
@@ -87,54 +54,57 @@ export async function run(
 
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
-  const attachmentIds = input.attachment_ids as string[] | undefined;
+  const sourcePaths = input.source_paths as string[] | undefined;
   const model =
     (input.model as string | undefined) ??
     config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
-  // Resolve source images from attachments for edit mode
+  // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
   let sourceImages: Array<{ mimeType: string; dataBase64: string }> | undefined;
 
-  if (attachmentIds && attachmentIds.length > 0) {
-    const attachments = getAttachmentsByIds(attachmentIds);
-
-    // Build visibility context for the current conversation
-    const conversationType = getConversationType(context.conversationId);
-    const currentContext: AttachmentContext = {
-      conversationId: context.conversationId,
-      isPrivate: conversationType === "private",
-    };
-
-    // Filter to only visible attachments using their originating context
-    const visibleAttachments = attachments.filter((att) =>
-      isAttachmentAccessible(att.id, currentContext),
-    );
-
-    if (visibleAttachments.length === 0 && attachmentIds.length > 0) {
+  if (mode === "edit" && sourcePaths && sourcePaths.length > 0) {
+    const errors: string[] = [];
+    const validPathImages: Array<{ mimeType: string; dataBase64: string }> = [];
+    for (const filePath of sourcePaths) {
+      let resolvedPath: string;
+      const pathCheck = sandboxPolicy(filePath, context.workingDir);
+      if (!pathCheck.ok) {
+        // Fallback: if the source path is outside the sandbox (e.g. an image
+        // attached from ~/Desktop), check if the attachment store has a
+        // workspace-internal copy stored under its original source_path.
+        const storedPath = getFilePathBySourcePath(filePath);
+        if (!storedPath) {
+          errors.push(pathCheck.error);
+          continue;
+        }
+        const fallbackCheck = sandboxPolicy(storedPath, context.workingDir);
+        if (!fallbackCheck.ok) {
+          errors.push(pathCheck.error);
+          continue;
+        }
+        resolvedPath = fallbackCheck.resolved;
+      } else {
+        resolvedPath = pathCheck.resolved;
+      }
+      const file = Bun.file(resolvedPath);
+      if (!(await file.exists())) {
+        errors.push(`File not found: ${filePath}`);
+        continue;
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      validPathImages.push({
+        mimeType: file.type,
+        dataBase64: buffer.toString("base64"),
+      });
+    }
+    if (validPathImages.length === 0) {
       return {
-        content:
-          "None of the specified attachments could be found or are accessible.",
+        content: `None of the specified file paths could be read.\n${errors.join("\n")}`,
         isError: true,
       };
     }
-
-    sourceImages = visibleAttachments
-      .map((att) => {
-        let buffer: Buffer | null | undefined;
-        try {
-          buffer = getAttachmentContent(att.id);
-        } catch {
-          // File-backed attachment may point to a missing or unreadable file
-          return undefined;
-        }
-        if (!buffer) return undefined;
-        return {
-          mimeType: att.mimeType,
-          dataBase64: buffer.toString("base64"),
-        };
-      })
-      .filter((img): img is NonNullable<typeof img> => img !== undefined);
+    sourceImages = validPathImages;
   }
 
   try {

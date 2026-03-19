@@ -36,7 +36,9 @@ worktrees/
 !.claude/commands/
 !.claude/phases/
 !.claude/skills/
+!.claude/hooks/
 !.claude/README.md
+!.claude/settings.json
 
 # Shared claude-skills symlinks are gitignored; only repo-local skills are tracked.
 .claude/skills/*

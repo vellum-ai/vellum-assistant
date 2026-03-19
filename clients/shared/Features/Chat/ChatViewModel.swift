@@ -734,17 +734,23 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - On-Demand Content Rehydration
 
+    /// Message IDs currently being rehydrated — prevents duplicate concurrent fetches.
+    private var rehydratingMessageIds: Set<UUID> = []
+
     /// Fetch full (untruncated) content for a message that was loaded with truncated
     /// text/tool results or had its heavy content stripped. No-ops if the message is
-    /// not found or doesn't need rehydration.
+    /// not found, doesn't need rehydration, or is already being fetched.
     public func rehydrateMessage(id: UUID) {
+        guard !rehydratingMessageIds.contains(id) else { return }
         guard let idx = messages.firstIndex(where: { $0.id == id }),
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         guard daemonClient.isConnected else { return }
+        rehydratingMessageIds.insert(id)
         Task { [weak self] in
             guard let self else { return }
+            defer { self.rehydratingMessageIds.remove(id) }
             if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
                 self.handleMessageContentResponse(response)
             }
@@ -799,6 +805,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let result = fullTC.result {
                     messages[idx].toolCalls[tcIdx].result = result
+                    messages[idx].toolCalls[tcIdx].resultLength = result.count
                 }
                 if let input = fullTC.input {
                     let formatted = ToolCallData.formatAllToolInput(input)
@@ -1165,7 +1172,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessageDisplayText = rawText
                 pendingUserMessageAutomated = hidden
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1246,7 +1253,7 @@ public final class ChatViewModel: ObservableObject {
         flushCoalescedPublish()
 
         let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -2132,15 +2139,20 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    /// Also removes the most recent inline error message from the message list.
+    /// Removes the most recent inline error message only if one was created.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        // Remove only the most recent inline error card (not all historical ones).
-        if let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
+        // Only remove the inline error card if the current error actually
+        // produced one. When shouldCreateInlineErrorMessage returned false
+        // (e.g. credits-exhausted on macOS), no card was appended, so
+        // removing the last .isError message would delete an unrelated
+        // historical error card.
+        if errorManager.isConversationErrorDisplayedInline,
+           let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
             messages.remove(at: lastErrorIndex)
         }
+        errorManager.isConversationErrorDisplayedInline = false
     }
 
     /// Copy conversation error details to the clipboard for debugging.

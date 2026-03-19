@@ -32,8 +32,8 @@ struct ContactDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
-                    .padding(VSpacing.lg)
-                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: displayContact,
@@ -43,13 +43,14 @@ struct ContactDetailView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 if let errorMessage {
                     VInlineMessage(errorMessage)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
             isPresented: $showDeleteConfirmation,
@@ -125,10 +126,11 @@ struct ContactDetailView: View {
             }
             Spacer()
             VButton(
-                label: "Delete Contact",
-                leftIcon: VIcon.trash.rawValue,
+                label: "Delete",
+                iconOnly: VIcon.trash.rawValue,
                 style: .dangerGhost,
-                isDisabled: isDeleting
+                isDisabled: isDeleting,
+                tooltip: "Delete Contact"
             ) {
                 // Skip confirmation for empty/placeholder contacts
                 if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {

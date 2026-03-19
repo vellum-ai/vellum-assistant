@@ -381,6 +381,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns ~/.vellum/workspace/conversations */
+export function getConversationsDir(): string {
+  return join(getWorkspaceDir(), "conversations");
+}
+
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
@@ -399,6 +404,7 @@ export function ensureDataDir(): void {
     join(root, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
+    join(workspace, "conversations"),
     // Data sub-dirs under workspace
     wsData,
     join(wsData, "db"),

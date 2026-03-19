@@ -79,6 +79,7 @@ struct MessageListView: View {
     let assistantActivityReason: String?
     let assistantStatusText: String?
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
@@ -92,6 +93,8 @@ struct MessageListView: View {
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -716,6 +719,8 @@ struct MessageListView: View {
                             onSurfaceAction: onSurfaceAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            showInspectButton: showInspectButton,
+                            onInspectMessage: onInspectMessage,
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
@@ -725,6 +730,7 @@ struct MessageListView: View {
                             onModelPickerSelect: onModelPickerSelect,
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
+                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders
                         )
                         .equatable()
@@ -814,6 +820,12 @@ struct MessageListView: View {
             .environment(\.suppressAutoScroll, { [self] in
                 expandSuppressionTask?.cancel()
                 if isNearBottom {
+                    // Clear any stale suppression left by a canceled off-bottom expansion,
+                    // but only when the resize guard isn't actively suppressing scroll.
+                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                    if !resizeActive {
+                        isSuppressingBottomScroll = false
+                    }
                     // When pinned to bottom, continuously re-pin on every frame
                     // of the expansion animation via the AnchorMinYKey handler.
                     scrollTracking.isPinningDuringExpansion = true
@@ -881,7 +893,9 @@ struct MessageListView: View {
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 // During content expansion while bottom-pinned, re-anchor to bottom
                 // on every frame so the viewport follows the growing content.
-                if scrollTracking.isPinningDuringExpansion {
+                // Gate on isNearBottom so that if the user scrolls away during
+                // the pinning window, we stop fighting their scroll.
+                if scrollTracking.isPinningDuringExpansion && isNearBottom {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
@@ -992,6 +1006,7 @@ struct MessageListView: View {
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
+                highlightedMessageId = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -1293,6 +1308,9 @@ private struct MessageCellView: View, Equatable {
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
+            && lhs.catalogModels.count == rhs.catalogModels.count
+            && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
+            && lhs.configuredProviders == rhs.configuredProviders
     }
 
     let message: ChatMessage
@@ -1320,6 +1338,8 @@ private struct MessageCellView: View, Equatable {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
@@ -1332,15 +1352,14 @@ private struct MessageCellView: View, Equatable {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
+            models: catalogModels,
             selectedModelId: selectedModel,
             onSelect: { modelId in
                 onModelPickerSelect?(msg.id, modelId)
@@ -1468,6 +1487,8 @@ private struct MessageCellView: View, Equatable {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                showInspectButton: showInspectButton,
+                onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,

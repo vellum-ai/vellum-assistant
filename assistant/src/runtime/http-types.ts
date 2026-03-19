@@ -157,6 +157,7 @@ export interface SendMessageDeps {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
 }
 

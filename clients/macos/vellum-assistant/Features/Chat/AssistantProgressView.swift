@@ -39,7 +39,7 @@ struct AssistantProgressView: View {
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
-    @State private var isExpanded: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+    @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
@@ -206,6 +206,15 @@ struct AssistantProgressView: View {
                 processingStartDate = Date()
                 startDate = Date()
             }
+            // Auto-expand when a step group completes, if the flag is enabled
+            if (newPhase == .complete || newPhase == .denied),
+               !isExpanded,
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
+            }
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded, onRehydrate != nil {
@@ -238,6 +247,16 @@ struct AssistantProgressView: View {
             // shows correct elapsed time after history restore.
             if let earliest = toolCalls.compactMap(\.startedAt).min() {
                 startDate = earliest
+            }
+            // Auto-expand completed step groups when the flag is enabled.
+            // Also triggers rehydration for stripped tool call data so
+            // expanded groups don't render with empty details.
+            if !isExpanded,
+               (phase == .complete || phase == .denied),
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                isExpanded = true
+                // Rehydration is handled by onChange(of: isExpanded) above.
             }
             // Auto-expand when a pending confirmation exists on appear
             if hasPendingConfirmation && !isExpanded {
@@ -502,7 +521,7 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
-@Environment(\.displayScale) private var displayScale
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
@@ -643,6 +662,8 @@ private struct StepDetailRow: View {
                                 cachedInputFull = ToolCallData.formatAllToolInput(dict)
                             }
                         }
+                        // Trigger on-demand rehydration when expanding truncated content.
+                        onRehydrate?()
                     }
             }
         }
@@ -756,7 +777,7 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block — shows full text with a copy button.
+    /// Reusable output block with a height-bounded ScrollView for long outputs.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -764,9 +785,17 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
+        let lineCount = copyText.components(separatedBy: "\n").count
+
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if let attrText = attributedText {
+                if lineCount > 500 {
+                    // Long outputs get a height-bounded ScrollView
+                    ScrollView {
+                        outputTextView(text: text, attributedText: attributedText)
+                    }
+                    .frame(maxHeight: 400)
+                } else if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.monoSmall)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -796,6 +825,26 @@ private struct StepDetailRow: View {
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
             .padding(VSpacing.xs)
+        }
+    }
+
+    /// Text view used inside the ScrollView for long outputs.
+    @ViewBuilder
+    private func outputTextView(
+        text: String?,
+        attributedText: AttributedString?
+    ) -> some View {
+        if let attrText = attributedText {
+            Text(attrText)
+                .font(VFont.monoSmall)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else if let plainText = text {
+            Text(plainText)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 

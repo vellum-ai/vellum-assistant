@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -15,6 +15,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   getRootDir: () => testDir,
+  getWorkspaceDir: () => join(testDir, "workspace"),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -40,8 +41,10 @@ import {
   deleteAttachment,
   deleteOrphanAttachments,
   getAttachmentById,
+  getAttachmentContent,
   getAttachmentsByIds,
   getAttachmentsForMessage,
+  getFilePathForAttachment,
   isValidBase64,
   linkAttachmentToMessage,
   MAX_UPLOAD_BYTES,
@@ -49,7 +52,7 @@ import {
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawGet, resetDb } from "../memory/db.js";
 
 initializeDb();
 
@@ -71,7 +74,7 @@ function resetTables() {
 }
 
 // ---------------------------------------------------------------------------
-// uploadAttachment
+// uploadAttachment — always writes to disk
 // ---------------------------------------------------------------------------
 
 describe("uploadAttachment", () => {
@@ -86,6 +89,34 @@ describe("uploadAttachment", () => {
     expect(stored.kind).toBe("image");
     expect(stored.sizeBytes).toBeGreaterThan(0);
     expect(stored.createdAt).toBeGreaterThan(0);
+  });
+
+  test("always writes file to disk", () => {
+    const stored = uploadAttachment("small.txt", "text/plain", "aGVsbG8=");
+    const filePath = getFilePathForAttachment(stored.id);
+
+    expect(filePath).toBeTruthy();
+    expect(existsSync(filePath!)).toBe(true);
+
+    // The on-disk file should contain the decoded bytes
+    const content = readFileSync(filePath!);
+    expect(content.toString()).toBe("hello");
+  });
+
+  test("stores empty dataBase64 in DB row but hydrates on read", () => {
+    const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
+
+    // The raw DB row stores empty dataBase64 since content is on disk
+    const rawRow = rawGet<{ data_base64: string }>(
+      "SELECT data_base64 FROM attachments WHERE id = ?",
+      stored.id,
+    );
+    expect(rawRow!.data_base64).toBe("");
+
+    // But getAttachmentById hydrates from disk
+    const row = getAttachmentById(stored.id, { hydrateFileData: true });
+    expect(row).not.toBeNull();
+    expect(row!.dataBase64).toBe("dGVzdA==");
   });
 
   test("classifies image MIME as image kind", () => {
@@ -105,7 +136,7 @@ describe("uploadAttachment", () => {
   });
 
   test("computes sizeBytes from base64 correctly", () => {
-    // "hello" = "aGVsbG8=" (8 chars, 1 pad → 5 bytes)
+    // "hello" = "aGVsbG8=" (8 chars, 1 pad -> 5 bytes)
     const stored = uploadAttachment("hello.txt", "text/plain", "aGVsbG8=");
     expect(stored.sizeBytes).toBe(5);
   });
@@ -146,7 +177,7 @@ describe("uploadAttachment", () => {
 
   test("rejects payloads exceeding MAX_UPLOAD_BYTES", () => {
     // Build a base64 string that decodes to just over the limit.
-    // 4 base64 chars → 3 bytes, so we need ceil((MAX_UPLOAD_BYTES+1)/3)*4 chars.
+    // 4 base64 chars -> 3 bytes, so we need ceil((MAX_UPLOAD_BYTES+1)/3)*4 chars.
     const oversizedLength = Math.ceil((MAX_UPLOAD_BYTES + 1) / 3) * 4;
     const oversizedData = "A".repeat(oversizedLength);
 
@@ -162,7 +193,7 @@ describe("uploadAttachment", () => {
   });
 
   test("accepts base64 with non-standard padding/length", () => {
-    // Lenient on length — only character set is validated
+    // Lenient on length -- only character set is validated
     expect(() => uploadAttachment("ok.txt", "text/plain", "AAA")).not.toThrow();
   });
 
@@ -175,6 +206,38 @@ describe("uploadAttachment", () => {
     expect(() =>
       uploadAttachment("exact.bin", "application/octet-stream", exactData),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getAttachmentContent — always reads from disk
+// ---------------------------------------------------------------------------
+
+describe("getAttachmentContent", () => {
+  beforeEach(resetTables);
+
+  test("reads content from on-disk file", () => {
+    const stored = uploadAttachment("hello.txt", "text/plain", "aGVsbG8=");
+    const content = getAttachmentContent(stored.id);
+
+    expect(content).not.toBeNull();
+    expect(content!.toString()).toBe("hello");
+  });
+
+  test("returns null for nonexistent attachment", () => {
+    const content = getAttachmentContent("no-such-id");
+    expect(content).toBeNull();
+  });
+
+  test("returns null when on-disk file is missing (ENOENT)", () => {
+    const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
+    const filePath = getFilePathForAttachment(stored.id);
+
+    // Remove the file to simulate ENOENT
+    rmSync(filePath!);
+
+    const content = getAttachmentContent(stored.id);
+    expect(content).toBeNull();
   });
 });
 
@@ -219,6 +282,15 @@ describe("deleteAttachment", () => {
     expect(fetched).toBeNull();
   });
 
+  test("cleans up on-disk file when deleting", () => {
+    const stored = uploadAttachment("cleanup.txt", "text/plain", "dGVzdA==");
+    const filePath = getFilePathForAttachment(stored.id);
+    expect(existsSync(filePath!)).toBe(true);
+
+    deleteAttachment(stored.id);
+    expect(existsSync(filePath!)).toBe(false);
+  });
+
   test("returns not_found for nonexistent attachment", () => {
     const result = deleteAttachment("nonexistent-id");
     expect(result).toBe("not_found");
@@ -254,7 +326,7 @@ describe("deleteAttachment", () => {
 
   test("deletes attachment when no messages reference it", () => {
     const stored = uploadAttachment("lonely.txt", "text/plain", "UNREFERENCED");
-    // No linkAttachmentToMessage call — zero references
+    // No linkAttachmentToMessage call -- zero references
     const result = deleteAttachment(stored.id);
     expect(result).toBe("deleted");
 
@@ -270,12 +342,13 @@ describe("deleteAttachment", () => {
 describe("getAttachmentsByIds", () => {
   beforeEach(resetTables);
 
-  test("returns matching attachments with data", () => {
+  test("returns matching attachments with hydrated dataBase64", () => {
     const a = uploadAttachment("a.txt", "text/plain", "AAAA");
     const b = uploadAttachment("b.txt", "text/plain", "BBBB");
 
-    const results = getAttachmentsByIds([a.id, b.id]);
+    const results = getAttachmentsByIds([a.id, b.id], { hydrateFileData: true });
     expect(results).toHaveLength(2);
+    // dataBase64 is hydrated from on-disk files
     expect(results[0].dataBase64).toBe("AAAA");
     expect(results[1].dataBase64).toBe("BBBB");
   });
@@ -299,14 +372,15 @@ describe("getAttachmentsByIds", () => {
 describe("getAttachmentById", () => {
   beforeEach(resetTables);
 
-  test("returns attachment with data when found", () => {
+  test("returns attachment with hydrated dataBase64 when found", () => {
     const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
-    const result = getAttachmentById(stored.id);
+    const result = getAttachmentById(stored.id, { hydrateFileData: true });
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(stored.id);
     expect(result!.originalFilename).toBe("report.pdf");
-    expect(result!.dataBase64).toBe("JVBER");
+    // dataBase64 is hydrated from on-disk file (round-trips via binary)
+    expect(result!.dataBase64).toBe("JVBE");
   });
 
   test("returns null for nonexistent ID", () => {
@@ -333,6 +407,7 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(linked).toHaveLength(1);
     expect(linked[0].id).toBe(stored.id);
     expect(linked[0].originalFilename).toBe("chart.png");
+    // dataBase64 is hydrated from on-disk file
     expect(linked[0].dataBase64).toBe("iVBORw0K");
   });
 
@@ -373,6 +448,15 @@ describe("deleteOrphanAttachments", () => {
 
     const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(1);
+  });
+
+  test("cleans up on-disk files when removing orphans", () => {
+    const stored = uploadAttachment("orphan.txt", "text/plain", "ZGF0YQ==");
+    const filePath = getFilePathForAttachment(stored.id);
+    expect(existsSync(filePath!)).toBe(true);
+
+    deleteOrphanAttachments([stored.id]);
+    expect(existsSync(filePath!)).toBe(false);
   });
 
   test("preserves attachments that are still linked", async () => {
@@ -500,7 +584,7 @@ describe("validateAttachmentUpload", () => {
   });
 
   test("handles filenames without extensions", () => {
-    // No extension — only MIME check applies
+    // No extension -- only MIME check applies
     expect(validateAttachmentUpload("Makefile", "text/plain").ok).toBe(true);
     expect(validateAttachmentUpload("Makefile", "application/x-evil").ok).toBe(
       false,

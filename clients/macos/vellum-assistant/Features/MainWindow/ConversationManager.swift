@@ -148,7 +148,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     /// Set by MessageListView when it scrolls to the anchor, cleared after the flash animation.
-    @Published var highlightedMessageId: UUID?
+    /// Not @Published — this is a transient visual effect only consumed by MessageListView via
+    /// a direct Binding, so it does not need to fire objectWillChange on the entire subscriber tree.
+    var highlightedMessageId: UUID?
     /// Tracks which conversation the pending anchor belongs to so stale anchors are
     /// cleared automatically when the user switches to a different conversation.
     private var pendingAnchorConversationId: UUID?
@@ -156,6 +158,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private var pendingSeenConversationIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
     private var pendingSeenSignalTask: Task<Void, Never>?
+    /// Daemon conversation IDs that need a notification catch-up (history fetch)
+    /// once the associated ChatViewModel finishes its current send/think cycle.
+    /// Populated when a notification_intent arrives while the VM is busy.
+    private var pendingNotificationCatchUpIds: Set<String> = []
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -465,8 +471,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Shared creation path for conversations spawned by background processes
-    /// (schedules, task runs, notifications). All background conversations start
-    /// with the unread badge set, ensuring the user sees new activity.
+    /// (schedules, task runs, notifications). The unread badge is NOT set at
+    /// creation time — it is deferred until an actual assistant message arrives
+    /// via `subscribeToAssistantActivity`, preventing false unread dots when the
+    /// background process fails before generating a reply.
     ///
     /// - Parameters:
     ///   - conversationId: Daemon conversation ID to bind.
@@ -492,8 +500,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         var conversation = ConversationModel(title: title, conversationId: conversationId)
         if let source { conversation.source = source }
         if let scheduleJobId { conversation.scheduleJobId = scheduleJobId }
-        conversation.hasUnseenLatestAssistantMessage = true
-
         let viewModel = makeViewModel()
         viewModel.conversationId = conversationId
         if markHistoryLoaded {
@@ -1367,33 +1373,52 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Handle a `notification_intent` that targets a conversation the client already
-    /// knows about (reuse case). Two effects:
+    /// knows about (reuse case). Three effects:
     ///
     /// 1. **Unseen badge** — marks the conversation as having unseen content (if it's
     ///    not the active conversation). Does NOT send a signal to the daemon because
     ///    the server already advanced the attention cursor via `projectAssistantMessage`.
+    ///    Also removes the conversation from `pendingSeenConversationIds` so a
+    ///    concurrent mark-all-seen undo window doesn't re-send a stale seen signal.
     ///
-    /// 2. **Message visibility** — triggers a reconnect-style history fetch so the
+    /// 2. **Recency** — updates `lastInteractedAt` so the conversation sorts to the
+    ///    top of the sidebar, matching the contract for incoming messages.
+    ///
+    /// 3. **Message visibility** — triggers a reconnect-style history fetch so the
     ///    notification seed message appears in the chat view. Only fires when a
     ///    ViewModel exists and is idle (not mid-response), to avoid disrupting
-    ///    active streaming. For inactive conversations without a ViewModel, the
-    ///    message will load normally when the user opens the conversation.
+    ///    active streaming. When the VM is busy, the daemon conversation ID is queued
+    ///    in `pendingNotificationCatchUpIds` and drained when the VM becomes idle
+    ///    (via `subscribeToBusyState`). For inactive conversations without a ViewModel,
+    ///    the message will load normally when the user opens the conversation.
     func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
         guard let idx = conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
         let localId = conversations[idx].id
+
+        // Always update recency so the conversation surfaces in the sidebar.
+        conversations[idx].lastInteractedAt = Date()
 
         if localId != activeConversationId {
             // Background conversation: mark unseen. Message loads on activation.
             conversations[idx].hasUnseenLatestAssistantMessage = true
             conversations[idx].latestAssistantMessageAt = Date()
+
+            // Prevent a concurrent mark-all-seen undo window from sending a
+            // stale seen signal that would conflict with the server's
+            // notification-driven unseen state.
+            pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
 
         // Trigger history catch-up so the new message appears in the chat view.
         // Guard: only when a ViewModel exists and is idle — triggering populateFromHistory
         // mid-stream would discard the in-flight streaming buffer (line 2709 of ChatViewModel).
         if let vm = chatViewModels[localId], !vm.isThinking, !vm.isSending {
+            pendingNotificationCatchUpIds.remove(daemonConversationId)
             vm.prepareForNotificationCatchUp()
             conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+        } else if chatViewModels[localId] != nil {
+            // VM exists but is busy — queue for retry when it becomes idle.
+            pendingNotificationCatchUpIds.insert(daemonConversationId)
         }
     }
 
@@ -1881,11 +1906,22 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 self.busyConversationIds.insert(conversationId)
             } else {
                 self.busyConversationIds.remove(conversationId)
+                self.drainPendingNotificationCatchUp(for: conversationId)
             }
         }
         .store(in: &subs)
 
         busyStateCancellables[conversationId] = subs
+    }
+
+    /// If `conversationId` has a queued notification catch-up, trigger it now
+    /// that the VM is idle.
+    private func drainPendingNotificationCatchUp(for conversationId: UUID) {
+        guard let daemonId = conversations.first(where: { $0.id == conversationId })?.conversationId,
+              pendingNotificationCatchUpIds.remove(daemonId) != nil,
+              let vm = chatViewModels[conversationId] else { return }
+        vm.prepareForNotificationCatchUp()
+        conversationRestorer.requestReconnectHistory(conversationId: daemonId)
     }
 
     /// Subscribe to assistant activity for a conversation.

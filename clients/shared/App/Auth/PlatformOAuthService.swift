@@ -51,24 +51,13 @@ public final class PlatformOAuthService {
 
     // MARK: - Private Helpers
 
-    /// Resolve the platform base URL for the connected assistant.
+    /// Resolve the platform base URL for OAuth endpoints.
     ///
-    /// On macOS, reads the lockfile `runtimeUrl` for the connected assistant
-    /// (same resolution as `GatewayHTTPClient`) so that staging, self-hosted,
-    /// or `VELLUM_PLATFORM_URL`-overridden connections hit the correct host.
-    /// Falls back to `AuthService.shared.baseURL` when no override is stored.
+    /// Uses `AuthService.shared.baseURL` which respects `VELLUM_PLATFORM_URL`
+    /// env override, daemon-configured URL, and debug defaults.
+    /// Note: the lockfile `runtimeUrl` is the daemon URL (e.g. localhost:7821),
+    /// NOT the platform URL — it must not be used for platform API calls.
     private func resolvePlatformBaseURL() -> String {
-        #if os(macOS)
-        if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty,
-           let assistant = LockfileAssistant.loadByName(id),
-           let runtimeUrl = assistant.runtimeUrl {
-            return runtimeUrl
-        }
-        #else
-        if let url = UserDefaults.standard.string(forKey: "managed_platform_base_url"), !url.isEmpty {
-            return url
-        }
-        #endif
         return AuthService.shared.baseURL
     }
 

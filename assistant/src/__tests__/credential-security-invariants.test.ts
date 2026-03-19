@@ -252,6 +252,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "cli/commands/avatar.ts", // CLI avatar generation API key lookup
       "config/bundled-skills/slack/tools/shared.ts", // Slack skill bot token lookup
+      "daemon/conversation-process.ts", // masked provider key display
+      "daemon/handlers/config-model.ts", // masked provider key display
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

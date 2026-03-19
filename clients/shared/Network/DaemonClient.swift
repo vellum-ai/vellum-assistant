@@ -254,6 +254,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
 
+    /// Whether the connected daemon's major.minor version differs from this client's version.
+    /// Set automatically when `daemon_status` is received. Does not block the connection.
+    @Published public internal(set) var versionMismatch: Bool = false
+
+    /// Whether a planned service group update is in progress.
+    /// Set when a `service_group_update_starting` event is received,
+    /// cleared when reconnected and `daemon_status` confirms the new version.
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+
+    /// The version being upgraded to, if an update is in progress.
+    @Published public internal(set) var updateTargetVersion: String?
+
+    /// Deadline after which `isUpdateInProgress` is considered stale.
+    /// Computed from `expectedDowntimeSeconds` (with a 2x safety buffer)
+    /// when a `service_group_update_starting` event arrives. If the update
+    /// hasn't completed by this time, auto-wake suppression expires so the
+    /// client can recover from a crashed update.
+    var updateExpiresAt: Date?
+
     /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
     /// Used to detect instance switches — if this changes, the stored actor token is stale.
     @Published public internal(set) var keyFingerprint: String?
@@ -339,6 +358,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update is starting.
+    public var onServiceGroupUpdateStarting: ((ServiceGroupUpdateStartingMessage) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update has completed.
+    public var onServiceGroupUpdateComplete: ((ServiceGroupUpdateCompleteMessage) -> Void)?
 
     /// Called when the server-assigned conversation ID differs from the
     /// client-local ID. Parameters: (localId, serverId).
@@ -542,12 +567,43 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         isAuthenticated = false
         httpPort = nil
         daemonVersion = nil
+        versionMismatch = false
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
+    }
+
+    /// Extract (major, minor) from a semver string like "1.2.3" or "v1.2.3".
+    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
+        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
+        let components = cleaned.split(separator: ".").compactMap { Int($0) }
+        guard components.count >= 2 else { return nil }
+        return (components[0], components[1])
+    }
+
+    /// Compare client and daemon major.minor versions. Logs a warning and sets
+    /// `versionMismatch` if they differ. Patch version differences are tolerated.
+    func checkVersionCompatibility(daemonVersion: String) {
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
+            return
+        }
+        guard let (daemonMajor, daemonMinor) = parseMajorMinor(daemonVersion),
+              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
+            return
+        }
+        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        if mismatch != versionMismatch {
+            versionMismatch = mismatch
+        }
+        if mismatch {
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public) — major.minor differs, features may not work correctly")
+        }
     }
 
     deinit {

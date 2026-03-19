@@ -1182,6 +1182,7 @@ export async function runAgentLoopImpl(
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
+        yieldedForBudget = false;
 
         updatedHistory = await ctx.agentLoop.run(
           runMessages,
@@ -1204,6 +1205,15 @@ export async function runAgentLoopImpl(
             "Post-convergence rerun still yielded at checkpoint — continuing reduction",
           );
           state.contextTooLargeDetected = true;
+
+          // Fold rerun progress into ctx.messages so the next reducer
+          // tier operates on up-to-date history instead of stale
+          // pre-rerun messages.
+          if (updatedHistory.length > preRunHistoryLength) {
+            ctx.messages = stripInjectedContext(updatedHistory);
+            preRepairMessages = updatedHistory;
+            preRunHistoryLength = updatedHistory.length;
+          }
         }
       }
 

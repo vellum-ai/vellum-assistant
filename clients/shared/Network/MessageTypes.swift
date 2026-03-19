@@ -1296,6 +1296,14 @@ public struct ConversationErrorMessage: Decodable, Sendable {
 /// Backed by generated `NotificationIntent`.
 public typealias NotificationIntentMessage = NotificationIntent
 
+/// Broadcast when a service group update is starting.
+/// Backed by generated `ServiceGroupUpdateStarting`.
+public typealias ServiceGroupUpdateStartingMessage = ServiceGroupUpdateStarting
+
+/// Broadcast when a service group update has completed.
+/// Backed by generated `ServiceGroupUpdateComplete`.
+public typealias ServiceGroupUpdateCompleteMessage = ServiceGroupUpdateComplete
+
 /// Watch session started notification from daemon.
 /// Backed by generated `WatchStarted`.
 public typealias WatchStartedMessage = WatchStarted
@@ -2215,6 +2223,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileRequest(HostFileRequest)
     case hostCuRequest(HostCuRequest)
     case usageUpdate(UsageUpdate)
+    case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
+    case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case pong
     case unknown(String)
 
@@ -2641,6 +2651,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
+        case "service_group_update_starting":
+            let message = try ServiceGroupUpdateStartingMessage(from: decoder)
+            self = .serviceGroupUpdateStarting(message)
+        case "service_group_update_complete":
+            let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
+            self = .serviceGroupUpdateComplete(message)
         case "pong":
             self = .pong
         default:
