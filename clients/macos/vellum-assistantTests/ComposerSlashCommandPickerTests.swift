@@ -26,5 +26,10 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
         XCTAssertEqual(command.selectedInputText, "/pair")
         XCTAssertTrue(command.shouldAutoSendOnSelect)
     }
+
+    func testBtwTabCompletionUsesSelectionInsertionText() {
+        let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "btw" }))
+        XCTAssertEqual(ComposerView.slashCommandInputTextForSelection(command), "/btw ")
+    }
 }
 #endif

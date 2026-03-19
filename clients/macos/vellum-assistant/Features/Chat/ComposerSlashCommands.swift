@@ -49,6 +49,10 @@ enum SlashNavigation {
 // MARK: - Slash Command Logic (ComposerView extension)
 
 extension ComposerView {
+    static func slashCommandInputTextForSelection(_ command: SlashCommand) -> String {
+        command.selectedInputText
+    }
+
     /// Range of a slash command token (e.g. `/model`) at the start of input.
     var slashCommandRange: Range<String.Index>? {
         guard !inputText.isEmpty else { return nil }
@@ -104,7 +108,7 @@ extension ComposerView {
     func selectSlashCommand(_ command: SlashCommand) {
         withAnimation(VAnimation.fast) { showSlashMenu = false }
         slashSelectedIndex = 0
-        inputText = command.selectedInputText
+        inputText = Self.slashCommandInputTextForSelection(command)
         if command.shouldAutoSendOnSelect {
             onSend()
         }
@@ -123,7 +127,7 @@ extension ComposerView {
                 selectSlashCommand(filtered[slashSelectedIndex])
             case .tab:
                 let command = filtered[slashSelectedIndex]
-                let newText = "/\(command.name)"
+                let newText = Self.slashCommandInputTextForSelection(command)
                 if inputText != newText {
                     suppressSlashReopen = true
                 }
