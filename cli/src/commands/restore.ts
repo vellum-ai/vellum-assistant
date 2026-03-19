@@ -141,7 +141,7 @@ export async function restore(): Promise<void> {
   }
 
   // Read the .vbundle file
-  const bundleData = readFileSync(fromPath) as unknown as Uint8Array;
+  const bundleData = readFileSync(fromPath);
   const sizeMB = (bundleData.byteLength / (1024 * 1024)).toFixed(2);
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
 
