@@ -296,6 +296,36 @@ struct ConversationRestorerTests {
         #expect(delegate.conversations[0].title == "Untitled")
     }
 
+    @Test @MainActor
+    func cachedForkParentIsClearedWhenServerOmitsIt() {
+        let dc = DaemonClient()
+        let restorer = ConversationRestorer(daemonClient: dc)
+        let delegate = MockConversationRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let conversation = ConversationModel(
+            title: "Cached thread",
+            conversationId: "session-1",
+            forkParent: ConversationForkParent(
+                conversationId: "session-parent",
+                messageId: "msg-parent",
+                title: "Parent"
+            )
+        )
+        let vm = delegate.makeViewModel()
+        vm.conversationId = "session-1"
+        delegate.conversations = [conversation]
+        delegate.viewModels[conversation.id] = vm
+
+        restorer.handleConversationListResponse(
+            makeConversationListResponse(conversations: [
+                (id: "session-1", title: "Cached thread", updatedAt: 1_700_000_100, conversationType: "standard")
+            ])
+        )
+
+        #expect(delegate.conversations[0].forkParent == nil)
+    }
+
     // MARK: - Conversation List Restoration
 
     @Test @MainActor
