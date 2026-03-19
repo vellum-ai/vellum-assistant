@@ -299,6 +299,7 @@ extension AppDelegate {
         daemonClient.onClientSettingsUpdate = { msg in
             if msg.key == "ttsVoiceId" {
                 OpenAIVoiceService.overrideVoiceId = msg.value
+                UserDefaults.standard.set(msg.value, forKey: msg.key)
             } else if msg.key == "voiceConversationTimeoutSeconds" {
                 VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
             } else {
