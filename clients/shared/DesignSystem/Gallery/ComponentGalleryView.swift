@@ -4,7 +4,6 @@ import SwiftUI
 // MARK: - Data Model
 
 enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
-    case appIcons = "App Icons"
     case buttons = "Buttons"
     case chat = "Chat"
     case display = "Display"
@@ -20,7 +19,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
 
     var vIcon: VIcon {
         switch self {
-        case .appIcons: return .layoutGrid
         case .buttons: return .mousePointerClick
         case .chat: return .messagesSquare
         case .display: return .layers
@@ -36,8 +34,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
 
     var components: [(id: String, title: String)] {
         switch self {
-        case .appIcons:
-            return []
         case .buttons:
             return [
                 ("vButton", "VButton"),
@@ -78,7 +74,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vInfoTooltip", "VInfoTooltip"),
             ]
         case .icons:
-            return []
+            return [
+                ("vAppIconGenerator", "VAppIconGenerator"),
+                ("iconTokens", "Icon Tokens"),
+            ]
         case .inputs:
             return [
                 ("vTextField", "VTextField"),
@@ -253,6 +252,7 @@ struct ComponentGalleryView: View {
                 .padding(VSpacing.xxl)
             }
             .id(selectedPage)
+            .textSelection(.enabled)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.surfaceOverlay)
         }
@@ -286,7 +286,6 @@ struct ComponentGalleryView: View {
     @ViewBuilder
     private func overviewContent(for category: ComponentGalleryCategory) -> some View {
         switch category {
-        case .appIcons: AppIconGallerySection()
         case .buttons: ButtonsGallerySection()
         case .chat: ChatGallerySection()
         case .display: DisplayGallerySection()
@@ -303,12 +302,11 @@ struct ComponentGalleryView: View {
     @ViewBuilder
     private func componentContent(for category: ComponentGalleryCategory, componentID: String) -> some View {
         switch category {
-        case .appIcons: AppIconGallerySection()
         case .buttons: ButtonsGallerySection.componentPage(componentID)
         case .chat: ChatGallerySection.componentPage(componentID)
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
-        case .icons: IconsGallerySection()
+        case .icons: IconsGallerySection.componentPage(componentID)
         case .inputs: InputsGallerySection.componentPage(componentID)
         case .layout: LayoutGallerySection.componentPage(componentID)
         case .modifiers: ModifiersGallerySection.componentPage(componentID)
