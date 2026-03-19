@@ -602,11 +602,12 @@ public final class SettingsStore: ObservableObject {
             self.applyChannelVerificationResponse(response)
         }
 
-        // Only fetch remote state when an assistant is already connected.
-        // During initial setup there is no assistant yet, so these calls
-        // would all fail with "No connected assistant" errors.
-        let hasConnectedAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") != nil
-        if hasConnectedAssistant {
+        // Only fetch remote state when the daemon is already connected.
+        // At startup the daemon may still be hatching, so HTTP requests to
+        // the gateway would fail with connection-refused errors. The
+        // .daemonDidReconnect handler above fires the same refreshes once
+        // the daemon is ready, covering the common startup path.
+        if daemonClient?.isConnected == true {
             refreshVercelKeyState()
             refreshModelInfo()
             refreshTelegramStatus()
@@ -614,8 +615,6 @@ public final class SettingsStore: ObservableObject {
             refreshChannelVerificationStatus(channel: "telegram")
             refreshChannelVerificationStatus(channel: "phone")
             refreshChannelVerificationStatus(channel: "slack")
-
-            // Fetch provider routing sources (managed vs BYO) on init
             loadProviderRoutingSources()
         }
     }
