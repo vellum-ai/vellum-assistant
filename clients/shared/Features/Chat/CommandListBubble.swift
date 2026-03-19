@@ -19,9 +19,23 @@ public struct CommandListBubble: View {
     }
 
     public static func parsedEntries(from assistantText: String) -> [CommandEntry]? {
-        let commands = assistantText
-            .split(whereSeparator: \.isNewline)
-            .compactMap(parseEntry(from:))
+        var commands: [CommandEntry] = []
+
+        for rawLine in assistantText.split(
+            omittingEmptySubsequences: false,
+            whereSeparator: \.isNewline
+        ) {
+            let trimmed = String(rawLine).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if trimmed.caseInsensitiveCompare("COMMANDS") == .orderedSame {
+                continue
+            }
+            guard let entry = parseEntry(from: Substring(trimmed)) else {
+                return nil
+            }
+            commands.append(entry)
+        }
+
         return commands.isEmpty ? nil : commands
     }
 
@@ -69,14 +83,17 @@ public struct CommandListBubble: View {
         guard !trimmed.isEmpty else { return nil }
 
         let stripped = trimmed.trimmingLeadingListMarker()
-        guard stripped.hasPrefix("/") else { return nil }
+        let unwrapped = stripped.trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        guard unwrapped.hasPrefix("/") else { return nil }
 
-        let commandEnd = stripped.firstIndex(where: { $0.isWhitespace || $0 == "-" || $0 == "–" || $0 == "—" || $0 == ":" }) ?? stripped.endIndex
-        let commandToken = String(stripped[..<commandEnd]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        let commandEnd = unwrapped.firstIndex(where: {
+            $0.isWhitespace || $0 == "-" || $0 == "–" || $0 == "—" || $0 == ":" || $0 == "`"
+        }) ?? unwrapped.endIndex
+        let commandToken = String(unwrapped[..<commandEnd]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
         guard commandToken.count > 1 else { return nil }
 
-        let description = String(stripped[commandEnd...])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = String(unwrapped[commandEnd...])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "`").union(.whitespacesAndNewlines))
             .trimmingLeadingListMarker()
         guard !description.isEmpty else { return nil }
 

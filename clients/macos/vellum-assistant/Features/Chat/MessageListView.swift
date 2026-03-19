@@ -1423,10 +1423,8 @@ private struct MessageCellView: View, Equatable {
         if let commandEntries = CommandListBubble.parsedEntries(from: message.text) {
             CommandListBubble(commands: commandEntries)
         } else {
-            var fallbackMessage = message
-            fallbackMessage.commandList = nil
             ChatBubble(
-                message: fallbackMessage,
+                message: commandListFallbackMessage(from: message),
                 decidedConfirmation: nextDecidedConfirmation,
                 onSurfaceAction: onSurfaceAction,
                 onDismissDocumentWidget: { surfaceId in
@@ -1453,6 +1451,12 @@ private struct MessageCellView: View, Equatable {
                 activeSurfaceId: activeSurfaceId
             )
         }
+    }
+
+    private func commandListFallbackMessage(from message: ChatMessage) -> ChatMessage {
+        var fallbackMessage = message
+        fallbackMessage.commandList = nil
+        return fallbackMessage
     }
 
     @ViewBuilder

@@ -79,6 +79,13 @@ public struct ChatSlashCommandDescriptor: Hashable {
 
 public enum ChatSlashCommandCatalog {
     private static let allPlatforms: Set<ChatSlashCommandPlatform> = [.macos, .ios]
+    private static let deprecatedModelShortcutCommands: Set<String> = [
+        "opus",
+        "sonnet",
+        "haiku",
+        "grok-beta",
+        "grok-multi",
+    ]
 
     public static let allCommands: [ChatSlashCommandDescriptor] = [
         ChatSlashCommandDescriptor(
@@ -217,6 +224,27 @@ public enum ChatSlashCommandCatalog {
         surface: ChatSlashCommandSurface? = nil
     ) -> Bool {
         descriptor(forRawInput: rawInput, platform: platform, surface: surface) != nil
+    }
+
+    static func shouldBypassWorkspaceRefinement(
+        forRawInput rawInput: String,
+        platform: ChatSlashCommandPlatform
+    ) -> Bool {
+        if isRecognizedSlashCommand(rawInput, platform: platform, surface: .sendPath) {
+            return true
+        }
+
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "/model" || (trimmed.hasPrefix("/model ") && trimmed != "/models") {
+            return true
+        }
+
+        guard trimmed.hasPrefix("/") else { return false }
+        guard let commandToken = trimmed.dropFirst().split(whereSeparator: \.isWhitespace).first else {
+            return false
+        }
+
+        return deprecatedModelShortcutCommands.contains(String(commandToken).lowercased())
     }
 
     public static func shouldRefreshModelMetadata(forRawInput rawInput: String) -> Bool {
