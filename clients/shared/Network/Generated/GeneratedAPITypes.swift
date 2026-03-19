@@ -1691,14 +1691,16 @@ public struct GenerationHandoff: Codable, Sendable {
     public let requestId: String?
     public let queuedCount: Int
     public let attachments: [UserMessageAttachment]?
+    public let attachmentWarnings: [String]?
     public let messageId: String?
 
-    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
         self.queuedCount = queuedCount
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
     }
 }
@@ -2545,12 +2547,14 @@ public struct MessageComplete: Codable, Sendable {
     public let type: String
     public let conversationId: String?
     public let attachments: [UserMessageAttachment]?
+    public let attachmentWarnings: [String]?
     public let messageId: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
     }
 }
@@ -4903,6 +4907,8 @@ public struct UserMessageAttachment: Codable, Sendable {
     public let filename: String
     public let mimeType: String
     public let data: String
+    /// Origin of the attachment on the daemon side, when known.
+    public let sourceType: String?
     public let extractedText: String?
     /// Original file size in bytes. Present when data was omitted from history_response to reduce payload size.
     public let sizeBytes: Int?
@@ -4913,11 +4919,12 @@ public struct UserMessageAttachment: Codable, Sendable {
     /// True when the attachment is file-backed and clients should hydrate via the /content endpoint.
     public let fileBacked: Bool?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, sourceType: String? = nil, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
         self.data = data
+        self.sourceType = sourceType
         self.extractedText = extractedText
         self.sizeBytes = sizeBytes
         self.thumbnailData = thumbnailData

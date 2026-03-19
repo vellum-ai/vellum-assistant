@@ -673,8 +673,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, messageId: messageId)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
     }
 }
 
@@ -840,8 +840,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, messageId: messageId)
+    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
     }
 }
 

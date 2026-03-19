@@ -1711,16 +1711,18 @@ final class ChatViewModelTests: XCTestCase {
         // Complete with attachments
         let attachment = UserMessageAttachment(
             id: "att-1", filename: "photo.png", mimeType: "image/png",
-            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
+            data: "iVBORw0KGgo=", sourceType: "tool_block", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(conversationId: nil, attachments: [attachment])
+            MessageCompleteMessage(conversationId: nil, attachments: [attachment], attachmentWarnings: ["Attachment was sanitized"])
         ))
 
         XCTAssertEqual(viewModel.messages.count, 1, "Should add attachments to existing message, not create new")
         XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
         XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "photo.png")
         XCTAssertEqual(viewModel.messages[0].attachments[0].id, "att-1")
+        XCTAssertEqual(viewModel.messages[0].attachments[0].sourceType, "tool_block")
+        XCTAssertEqual(viewModel.messages[0].attachmentWarnings, ["Attachment was sanitized"])
         XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
@@ -1757,11 +1759,18 @@ final class ChatViewModelTests: XCTestCase {
             data: "Y29sQQ==", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.generationHandoff(
-            GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
+            GenerationHandoffMessage(
+                conversationId: "sess-1",
+                requestId: nil,
+                queuedCount: 1,
+                attachments: [attachment],
+                attachmentWarnings: ["Generated attachment is truncated"]
+            )
         ))
 
         XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
         XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "output.csv")
+        XCTAssertEqual(viewModel.messages[0].attachmentWarnings, ["Generated attachment is truncated"])
         XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 

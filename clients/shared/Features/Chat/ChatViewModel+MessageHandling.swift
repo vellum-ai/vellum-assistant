@@ -354,13 +354,13 @@ extension ChatViewModel {
                 id: id,
                 filename: attachment.filename,
                 mimeType: attachment.mimeType,
-                sourceType: attachment.sourceType,
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath
+                filePath: attachment.filePath,
+                sourceType: attachment.sourceType
             )
         }
     }
