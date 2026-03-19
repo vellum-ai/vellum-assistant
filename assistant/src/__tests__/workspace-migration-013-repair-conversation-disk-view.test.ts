@@ -270,4 +270,70 @@ describe("013-repair-conversation-disk-view migration", () => {
     expect(readFileSync(messagesPath, "utf-8")).toBe(firstRunMessages);
     expect(readdirSync(attachmentsDir).sort()).toEqual(["transcript.txt"]);
   });
+
+  test("converges duplicate legacy/canonical directories to canonical after repair rebuild", () => {
+    const { conversationId, conversationCreatedAt, conversationUpdatedAt } =
+      seedConversationRows();
+    const timestamp = toConversationTimestamp(conversationCreatedAt);
+    const canonicalDirName = `${timestamp}_${conversationId}`;
+    const canonicalDirPath = join(conversationsDir, canonicalDirName);
+    const legacyDirPath = join(
+      conversationsDir,
+      `${conversationId}_${timestamp}`,
+    );
+    const canonicalMessagesPath = join(canonicalDirPath, "messages.jsonl");
+    const canonicalAttachmentsDir = join(canonicalDirPath, "attachments");
+
+    mkdirSync(canonicalAttachmentsDir, { recursive: true });
+    writeFileSync(
+      join(canonicalDirPath, "meta.json"),
+      JSON.stringify(
+        {
+          id: conversationId,
+          title: "Repair Test",
+          type: "standard",
+          channel: "desktop",
+          createdAt: new Date(conversationCreatedAt).toISOString(),
+          updatedAt: new Date(conversationUpdatedAt - 1000).toISOString(),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    writeFileSync(canonicalMessagesPath, '{"role":"user","content":"stale"}\n');
+    writeFileSync(join(canonicalAttachmentsDir, "stale.txt"), "stale");
+
+    const legacyAttachmentsDir = join(legacyDirPath, "attachments");
+    mkdirSync(legacyAttachmentsDir, { recursive: true });
+    writeFileSync(join(legacyDirPath, "meta.json"), "{\"legacy\":true}\n");
+    writeFileSync(join(legacyDirPath, "messages.jsonl"), "{\"legacy\":true}\n");
+    writeFileSync(join(legacyAttachmentsDir, "legacy.txt"), "legacy");
+
+    repairConversationDiskViewMigration.run(workspaceDir);
+
+    expect(readdirSync(conversationsDir).sort()).toEqual([canonicalDirName]);
+    expect(existsSync(canonicalDirPath)).toBe(true);
+    expect(existsSync(legacyDirPath)).toBe(false);
+    expect(
+      JSON.parse(readFileSync(join(canonicalDirPath, "meta.json"), "utf-8"))
+        .updatedAt,
+    ).toBe(new Date(conversationUpdatedAt).toISOString());
+    expect(
+      readFileSync(canonicalMessagesPath, "utf-8").trim().split("\n"),
+    ).toHaveLength(1);
+    expect(JSON.parse(readFileSync(canonicalMessagesPath, "utf-8").trim())).toEqual(
+      {
+        role: "user",
+        ts: "2026-03-18T16:01:00.000Z",
+        content: "Repair missing disk view",
+        attachments: ["transcript.txt"],
+      },
+    );
+    expect(readdirSync(canonicalAttachmentsDir).sort()).toEqual([
+      "transcript.txt",
+    ]);
+    expect(
+      readFileSync(join(canonicalAttachmentsDir, "transcript.txt"), "utf-8"),
+    ).toBe("hello world");
+  });
 });

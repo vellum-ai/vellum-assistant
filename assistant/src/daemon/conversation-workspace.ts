@@ -1,5 +1,7 @@
+import { join } from "node:path";
+
 import { getConversation } from "../memory/conversation-crud.js";
-import { getConversationDirName } from "../memory/conversation-disk-view.js";
+import { resolveConversationDirectoryPaths } from "../memory/conversation-directories.js";
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
 
@@ -21,10 +23,15 @@ export function refreshWorkspaceTopLevelContextIfNeeded(
     return;
   const snapshot = scanTopLevelDirectories(ctx.workingDir);
   const conversation = getConversation(ctx.conversationId);
-  const currentConversationPath =
-    conversation && typeof conversation.createdAt === "number"
-      ? `conversations/${getConversationDirName(conversation.id, conversation.createdAt)}/`
-      : null;
+  let currentConversationPath: string | null = null;
+  if (conversation && typeof conversation.createdAt === "number") {
+    const { resolvedDirName } = resolveConversationDirectoryPaths(
+      conversation.id,
+      conversation.createdAt,
+      join(ctx.workingDir, "conversations"),
+    );
+    currentConversationPath = `conversations/${resolvedDirName}/`;
+  }
   ctx.workspaceTopLevelContext = renderWorkspaceTopLevelContext(snapshot, {
     currentConversationPath,
     currentConversationAttachmentsPath: currentConversationPath

@@ -47,6 +47,53 @@ export function getLegacyConversationDirPath(
   );
 }
 
+export interface ResolvedConversationDirectoryPaths {
+  canonicalDirPath: string;
+  canonicalDirName: string;
+  legacyDirPath: string;
+  legacyDirName: string;
+  resolvedDirPath: string;
+  resolvedDirName: string;
+  hasCanonicalDir: boolean;
+  hasLegacyDir: boolean;
+}
+
+export function resolveConversationDirectoryPaths(
+  id: string,
+  createdAtMs: number,
+  conversationsDir: string = getConversationsDir(),
+): ResolvedConversationDirectoryPaths {
+  const canonicalDirName = getConversationDirName(id, createdAtMs);
+  const canonicalDirPath = join(conversationsDir, canonicalDirName);
+  const hasCanonicalDir = existsSync(canonicalDirPath);
+
+  const legacyDirName = getLegacyConversationDirName(id, createdAtMs);
+  const legacyDirPath = join(conversationsDir, legacyDirName);
+  const hasLegacyDir = existsSync(legacyDirPath);
+
+  const resolvedDirPath = hasCanonicalDir
+    ? canonicalDirPath
+    : hasLegacyDir
+      ? legacyDirPath
+      : canonicalDirPath;
+  const resolvedDirName = hasCanonicalDir
+    ? canonicalDirName
+    : hasLegacyDir
+      ? legacyDirName
+      : canonicalDirName;
+
+  return {
+    canonicalDirPath,
+    canonicalDirName,
+    legacyDirPath,
+    legacyDirName,
+    resolvedDirPath,
+    resolvedDirName,
+    hasCanonicalDir,
+    hasLegacyDir,
+  };
+}
+
 /**
  * Resolve the active conversation directory path:
  * 1) prefer timestamp-first when it exists;
@@ -57,13 +104,14 @@ export function getResolvedConversationDirPath(
   id: string,
   createdAtMs: number,
 ): string {
-  const dirPath = getConversationDirPath(id, createdAtMs);
-  if (existsSync(dirPath)) return dirPath;
+  return resolveConversationDirectoryPaths(id, createdAtMs).resolvedDirPath;
+}
 
-  const legacyDirPath = getLegacyConversationDirPath(id, createdAtMs);
-  if (existsSync(legacyDirPath)) return legacyDirPath;
-
-  return dirPath;
+export function getResolvedConversationDirName(
+  id: string,
+  createdAtMs: number,
+): string {
+  return resolveConversationDirectoryPaths(id, createdAtMs).resolvedDirName;
 }
 
 export function getConversationAttachmentsDirPath(

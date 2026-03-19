@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
@@ -177,7 +180,7 @@ import { Conversation } from "../daemon/conversation.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeConversation(): Conversation {
+function makeConversation(workingDir = "/tmp"): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -195,7 +198,7 @@ function makeConversation(): Conversation {
     "system prompt",
     4096,
     () => {},
-    "/tmp",
+    workingDir,
   );
 }
 
@@ -271,5 +274,29 @@ describe("Conversation workspace cache state", () => {
       "<workspace_top_level>",
     );
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+  });
+
+  test("workspace hints follow the resolved legacy directory when canonical is absent", () => {
+    const workspaceRoot = mkdtempSync(
+      join(tmpdir(), "conversation-workspace-cache-state-"),
+    );
+    const legacyDirName = `conv-1_2026-03-19T12-00-00.000Z`;
+    mkdirSync(join(workspaceRoot, "conversations", legacyDirName), {
+      recursive: true,
+    });
+
+    try {
+      const tempConversation = makeConversation(workspaceRoot);
+      tempConversation.refreshWorkspaceTopLevelContextIfNeeded();
+
+      expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
+        `Current conversation folder: conversations/${legacyDirName}/`,
+      );
+      expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
+        `Attachment files: conversations/${legacyDirName}/attachments/`,
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 });

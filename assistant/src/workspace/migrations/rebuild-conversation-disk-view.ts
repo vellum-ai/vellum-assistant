@@ -4,16 +4,45 @@ import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 
 import {
-  getResolvedConversationDirPath,
   initConversationDir,
   syncMessageToDisk,
   updateMetaFile,
 } from "../../memory/conversation-disk-view.js";
+import { resolveConversationDirectoryPaths } from "../../memory/conversation-directories.js";
 import { getDb } from "../../memory/db.js";
 import { conversations, messages } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("workspace-migrations");
+
+function hasExpectedDiskViewArtifacts(
+  conv: { updatedAt: number },
+  dirPath: string,
+): boolean {
+  const metaPath = join(dirPath, "meta.json");
+  const messagesPath = join(dirPath, "messages.jsonl");
+  const attachDir = join(dirPath, "attachments");
+  if (!existsSync(metaPath) || !existsSync(messagesPath) || !existsSync(attachDir))
+    return false;
+
+  try {
+    const existing = JSON.parse(readFileSync(metaPath, "utf-8"));
+    const expectedUpdatedAt = new Date(conv.updatedAt).toISOString();
+    return existing.updatedAt === expectedUpdatedAt;
+  } catch {
+    return false;
+  }
+}
+
+function convergeDualConversationDirsToCanonical(
+  conv: { updatedAt: number },
+  canonicalDirPath: string,
+  legacyDirPath: string,
+): void {
+  if (!existsSync(canonicalDirPath) || !existsSync(legacyDirPath)) return;
+  if (!hasExpectedDiskViewArtifacts(conv, canonicalDirPath)) return;
+  rmSync(legacyDirPath, { recursive: true, force: true });
+}
 
 /**
  * Rebuild the conversation disk view for all persisted conversations.
@@ -34,28 +63,26 @@ export function rebuildConversationDiskViewFromDb(): void {
   let processed = 0;
 
   for (const conv of allConversations) {
-    const dirPath = getResolvedConversationDirPath(conv.id, conv.createdAt);
+    const { canonicalDirPath, legacyDirPath, resolvedDirPath: dirPath } =
+      resolveConversationDirectoryPaths(conv.id, conv.createdAt);
     const metaPath = join(dirPath, "meta.json");
     const messagesPath = join(dirPath, "messages.jsonl");
     const attachDir = join(dirPath, "attachments");
 
     // Check if already migrated (idempotent)
-    if (existsSync(metaPath)) {
-      try {
-        const existing = JSON.parse(readFileSync(metaPath, "utf-8"));
-        const expectedUpdatedAt = new Date(conv.updatedAt).toISOString();
-        const hasRequiredArtifacts =
-          existsSync(messagesPath) && existsSync(attachDir);
-        if (existing.updatedAt === expectedUpdatedAt && hasRequiredArtifacts) {
-          processed++;
-          if (processed % 50 === 0) {
-            log.info(`Backfilled ${processed}/${total} conversations to disk`);
-          }
-          continue;
-        }
-      } catch {
-        // meta.json exists but is unreadable/malformed — re-create it
+    if (existsSync(metaPath) && hasExpectedDiskViewArtifacts(conv, dirPath)) {
+      // Prefer the timestamp-first canonical directory whenever both sibling
+      // directories exist and the canonical projection is complete.
+      convergeDualConversationDirsToCanonical(
+        conv,
+        canonicalDirPath,
+        legacyDirPath,
+      );
+      processed++;
+      if (processed % 50 === 0) {
+        log.info(`Backfilled ${processed}/${total} conversations to disk`);
       }
+      continue;
     }
 
     // Create dir + meta.json (initConversationDir sets updatedAt = createdAt)
@@ -88,6 +115,7 @@ export function rebuildConversationDiskViewFromDb(): void {
     // idempotency check won't skip a conversation with incomplete messages
     // if the migration is interrupted mid-loop.
     updateMetaFile(conv);
+    convergeDualConversationDirsToCanonical(conv, canonicalDirPath, legacyDirPath);
 
     processed++;
     if (processed % 50 === 0) {
