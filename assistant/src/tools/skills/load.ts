@@ -99,7 +99,7 @@ function formatToolSchemas(
           : "optional";
         const descPart =
           typeof paramDef.description === "string"
-            ? `: ${paramDef.description}`
+            ? `: ${paramDef.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay())}`
             : "";
         lines.push(
           `- ${paramName} (${paramType}, ${requiredLabel})${descPart}`,

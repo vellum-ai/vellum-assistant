@@ -448,6 +448,7 @@ private class ClickReportingTextView: NSTextView {
         // loop for text selection). Detect click vs drag here, not in mouseUp
         // which is never called through the normal responder chain.
         guard let currentEvent = window?.currentEvent else { return }
+        guard event.clickCount == 1 else { return }
         let upLocation = currentEvent.locationInWindow
         let dx = abs(upLocation.x - downLocation.x)
         let dy = abs(upLocation.y - downLocation.y)

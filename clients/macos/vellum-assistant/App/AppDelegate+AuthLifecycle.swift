@@ -524,12 +524,6 @@ extension AppDelegate {
             _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
         }
 
-        // ElevenLabs uses the credential type, not api_key
-        if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
-            let body: [String: Any] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
-        }
-
         log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
     }
 

@@ -200,8 +200,17 @@ struct InferenceServiceCard: View {
             // not flag a stale diff against the old provider's model.
             // Flag the update so onChange(of: draftProvider) skips the
             // model/key reset that is only appropriate for user picks.
+            let alreadyEqual = draftProvider == newValue
             isSyncingProviderFromStore = true
             draftProvider = newValue
+            // If draftProvider already held this value, SwiftUI's
+            // onChange(of: draftProvider) won't fire (it only fires on
+            // actual value transitions), so clear the flag immediately
+            // to prevent the next user-initiated change from being
+            // misclassified as a store sync.
+            if alreadyEqual {
+                isSyncingProviderFromStore = false
+            }
             initialProvider = newValue
             draftModel = store.selectedModel
             initialModel = store.selectedModel
