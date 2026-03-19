@@ -36,8 +36,8 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
-  type Confidence,
   type AttentionState,
+  type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
   recordConversationSeenSignal,
@@ -53,8 +53,8 @@ import {
   countConversations,
   listConversations,
 } from "../memory/conversation-queries.js";
-import * as externalConversationStore from "../memory/external-conversation-store.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
+import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
   consumeCallbackError,
