@@ -230,6 +230,15 @@ struct InferenceServiceCard: View {
                     let defaultModel = store.dynamicProviderDefaultModel("anthropic")
                     draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
                 }
+            } else if newMode == "your-own" && isCustomProviderEnabled {
+                let providerModels = store.dynamicProviderModels(draftProvider)
+                let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
+                if !isCurrentModelValid {
+                    let defaultModel = store.dynamicProviderDefaultModel(draftProvider)
+                    draftModel = defaultModel.isEmpty
+                        ? (providerModels.first?.id ?? "")
+                        : defaultModel
+                }
             }
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
@@ -374,14 +383,21 @@ struct InferenceServiceCard: View {
     private func performSave() {
         store.apiKeySaveError = nil
 
+        // Detect mode change before persisting so downstream logic can
+        // force-persist provider/model even when IDs happen to match.
+        let modeChanged = draftMode != store.inferenceMode
+
         // Persist mode if changed
-        if draftMode != store.inferenceMode {
+        if modeChanged {
             store.setInferenceMode(draftMode)
         }
 
-        // Persist provider if changed and flag is on
+        // Persist provider if changed and flag is on. Also re-persist when
+        // the mode changed — switching between managed and your-own implies
+        // a provider change even if the resolved provider ID happens to
+        // match initialProvider (ensures config stays consistent).
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        if isCustomProviderEnabled && persistProvider != initialProvider {
+        if isCustomProviderEnabled && (persistProvider != initialProvider || modeChanged) {
             store.setInferenceProvider(persistProvider)
             initialProvider = persistProvider
         }
@@ -406,13 +422,15 @@ struct InferenceServiceCard: View {
             }
         }
 
-        // Persist model selection
+        // Persist model selection. Force-send to daemon when the mode
+        // changed so the model+provider pair is always re-persisted,
+        // even if IDs happen to match the daemon's cached state.
         store.selectedModel = draftModel
         if isCustomProviderEnabled {
             let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
-            store.setModel(draftModel, provider: saveProvider)
+            store.setModel(draftModel, provider: saveProvider, force: modeChanged)
         } else {
-            store.setModel(draftModel)
+            store.setModel(draftModel, force: modeChanged)
         }
         initialModel = draftModel
     }

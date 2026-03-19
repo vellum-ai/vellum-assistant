@@ -2796,11 +2796,15 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Actions
 
-    func setModel(_ model: String, provider: String? = nil) {
-        // Skip if neither model nor provider changed
-        let modelUnchanged = model == lastDaemonModel
-        let providerUnchanged = provider == nil || provider == lastDaemonProvider
-        guard !modelUnchanged || !providerUnchanged else { return }
+    func setModel(_ model: String, provider: String? = nil, force: Bool = false) {
+        // Skip if neither model nor provider changed (unless forced,
+        // e.g. after an inference-mode switch that requires re-persisting
+        // the model+provider pair even when IDs haven't changed).
+        if !force {
+            let modelUnchanged = model == lastDaemonModel
+            let providerUnchanged = provider == nil || provider == lastDaemonProvider
+            guard !modelUnchanged || !providerUnchanged else { return }
+        }
         lastDaemonModel = model
         if let provider { lastDaemonProvider = provider }
         Task {
