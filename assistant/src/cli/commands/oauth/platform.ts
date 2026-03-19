@@ -5,8 +5,8 @@ import {
   type Services,
   ServicesSchema,
 } from "../../../config/schemas/services.js";
-import { fetchManagedCatalog } from "../../../credential-execution/managed-catalog.js";
 import { getProvider } from "../../../oauth/oauth-store.js";
+import { VellumPlatformClient } from "../../../platform/client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -101,27 +101,49 @@ Examples:
             return;
           }
 
-          // 3. Fetch active connections via the managed catalog endpoint
-          const catalogResult = await fetchManagedCatalog();
-
-          if (!catalogResult.ok) {
+          // 3. Fetch active connections from the platform
+          const client = await VellumPlatformClient.create();
+          if (!client || !client.platformAssistantId) {
             writeOutput(cmd, {
               ok: false,
-              error: catalogResult.error ?? "Failed to fetch managed catalog",
+              error:
+                "Platform prerequisites not met (not logged in or missing assistant ID)",
             });
             process.exitCode = 1;
             return;
           }
 
-          // Filter catalog to the requested provider
-          const connections = catalogResult.descriptors
-            .filter((d) => d.provider.toLowerCase() === provider.toLowerCase())
-            .map((d) => ({
-              id: d.connectionId,
-              accountLabel: d.accountInfo,
-              scopesGranted: d.grantedScopes,
-              status: d.status,
-            }));
+          const params = new URLSearchParams();
+          params.set("provider", provider);
+          params.set("status", "ACTIVE");
+
+          const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
+          const response = await client.fetch(path);
+
+          if (!response.ok) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Platform returned HTTP ${response.status}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const body = (await response.json()) as {
+            results?: Array<{
+              id: string;
+              account_label?: string;
+              scopes_granted?: string[];
+              status?: string;
+            }>;
+          };
+
+          const connections = (body.results ?? []).map((c) => ({
+            id: c.id,
+            accountLabel: c.account_label ?? null,
+            scopesGranted: c.scopes_granted ?? [],
+            status: c.status ?? "ACTIVE",
+          }));
 
           writeOutput(cmd, {
             ok: true,
