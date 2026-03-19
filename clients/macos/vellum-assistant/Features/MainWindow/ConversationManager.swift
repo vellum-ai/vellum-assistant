@@ -148,7 +148,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     /// Set by MessageListView when it scrolls to the anchor, cleared after the flash animation.
-    @Published var highlightedMessageId: UUID?
+    /// Not @Published — this is a transient visual effect only consumed by MessageListView via
+    /// a direct Binding, so it does not need to fire objectWillChange on the entire subscriber tree.
+    var highlightedMessageId: UUID?
     /// Tracks which conversation the pending anchor belongs to so stale anchors are
     /// cleared automatically when the user switches to a different conversation.
     private var pendingAnchorConversationId: UUID?

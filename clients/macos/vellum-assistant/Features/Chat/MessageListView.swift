@@ -1004,6 +1004,7 @@ struct MessageListView: View {
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
+                highlightedMessageId = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -1305,6 +1306,7 @@ private struct MessageCellView: View, Equatable {
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
+            && lhs.configuredProviders == rhs.configuredProviders
     }
 
     let message: ChatMessage
