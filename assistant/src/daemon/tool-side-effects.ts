@@ -145,17 +145,6 @@ registerHook(
   },
 );
 
-// Auto-refresh workspace surfaces when a persisted app is updated.
-registerHook(
-  "app_update",
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients);
-    }
-  },
-);
-
 // Broadcast app_files_changed when an app is deleted so clients remove it
 // from their cached app lists.
 registerHook(
@@ -185,21 +174,6 @@ registerHook(
   ["task_list_add", "task_list_update", "task_list_remove", "task_queue_run"],
   (_name, _input, _result, { broadcastToAllClients }) => {
     broadcastToAllClients?.({ type: "tasks_changed" });
-  },
-);
-
-// Auto-refresh workspace surfaces when app files are edited.
-registerHook(
-  ["app_file_edit", "app_file_write"],
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    const status = input.status as string | undefined;
-    if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients, {
-        fileChange: true,
-        status,
-      });
-    }
   },
 );
 

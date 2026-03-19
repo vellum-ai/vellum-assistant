@@ -2,11 +2,10 @@
  * Regression tests for app surface refresh and eventing side effects in
  * createToolExecutor (conversation-tool-setup.ts).
  *
- * After the App Builder tools source swap (PR 8), app tools like app_update,
- * app_file_edit, and app_file_write are provided by the app-builder skill
- * rather than core registration. The afterExecute hooks in createToolExecutor
- * fire based on tool *name* matching, so they must continue to work for
- * skill-origin tools. These tests verify that contract.
+ * The app_refresh hook is the sole hook for app change refresh. These tests
+ * verify that app_refresh, app_create, and app_delete hooks fire correctly,
+ * and that removed hooks (app_update, app_file_edit, app_file_write) no
+ * longer trigger side effects.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -108,124 +107,6 @@ describe("session-tool-setup app refresh side effects", () => {
   beforeEach(() => {
     refreshSpy.mockClear();
     updatePublishedSpy.mockClear();
-  });
-
-  // ── app_update ──────────────────────────────────────────────────────
-
-  describe("app_update", () => {
-    test("triggers refreshSurfacesForApp when result is not an error", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: '{"id":"app-1"}',
-        isError: false,
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_update", { app_id: "app-1", name: "New Name" });
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSpy.mock.calls as unknown[][])[0][0]).toBe(ctx);
-      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-1");
-    });
-
-    test("broadcasts app_files_changed with correct appId", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_update", { app_id: "app-42" });
-
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
-        type: "app_files_changed",
-        appId: "app-42",
-      });
-    });
-
-    test("calls updatePublishedAppDeployment", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("app_update", { app_id: "app-publish" });
-
-      // updatePublishedAppDeployment is called with void (fire-and-forget),
-      // so just verify it was invoked.
-      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
-        "app-publish",
-      );
-    });
-
-    test("skips side effects when result is an error", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: "Error: not found",
-        isError: true,
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_update", { app_id: "app-err" });
-
-      expect(refreshSpy).not.toHaveBeenCalled();
-      expect(broadcastSpy).not.toHaveBeenCalled();
-      expect(updatePublishedSpy).not.toHaveBeenCalled();
-    });
-
-    test("skips side effects when app_id is missing", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_update", {});
-
-      expect(refreshSpy).not.toHaveBeenCalled();
-      expect(broadcastSpy).not.toHaveBeenCalled();
-    });
   });
 
   // ── app_refresh ─────────────────────────────────────────────────────
@@ -346,296 +227,6 @@ describe("session-tool-setup app refresh side effects", () => {
     });
   });
 
-  // ── app_file_edit ───────────────────────────────────────────────────
-
-  describe("app_file_edit", () => {
-    test("triggers refreshSurfacesForApp with fileChange flag", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: '{"ok":true}',
-        isError: false,
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_edit", {
-        app_id: "app-edit",
-        path: "index.html",
-        old_string: "old",
-        new_string: "new",
-      });
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-edit");
-      // Verify opts include fileChange: true
-      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
-        fileChange: true,
-        status: undefined,
-      });
-    });
-
-    test("propagates status field through refresh opts", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: '{"ok":true}',
-        isError: false,
-      });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("app_file_edit", {
-        app_id: "app-status",
-        path: "styles.css",
-        old_string: "x",
-        new_string: "y",
-        status: "updating styles",
-      });
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
-        fileChange: true,
-        status: "updating styles",
-      });
-    });
-
-    test("broadcasts app_files_changed for file edit", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_edit", {
-        app_id: "app-edit-bc",
-        path: "f",
-        old_string: "a",
-        new_string: "b",
-      });
-
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
-        type: "app_files_changed",
-        appId: "app-edit-bc",
-      });
-    });
-
-    test("calls updatePublishedAppDeployment for file edit", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("app_file_edit", {
-        app_id: "app-pub-edit",
-        path: "f",
-        old_string: "a",
-        new_string: "b",
-      });
-
-      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
-        "app-pub-edit",
-      );
-    });
-
-    test("skips side effects when result is an error", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "Error", isError: true });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_edit", {
-        app_id: "app-err",
-        path: "f",
-        old_string: "a",
-        new_string: "b",
-      });
-
-      expect(refreshSpy).not.toHaveBeenCalled();
-      expect(broadcastSpy).not.toHaveBeenCalled();
-      expect(updatePublishedSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  // ── app_file_write ──────────────────────────────────────────────────
-
-  describe("app_file_write", () => {
-    test("triggers refreshSurfacesForApp with fileChange flag", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: '{"written":true}',
-        isError: false,
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_write", {
-        app_id: "app-write",
-        path: "new.html",
-        content: "<div/>",
-      });
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-write");
-      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
-        fileChange: true,
-        status: undefined,
-      });
-    });
-
-    test("propagates status field through refresh opts", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: '{"written":true}',
-        isError: false,
-      });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("app_file_write", {
-        app_id: "app-ws",
-        path: "f.txt",
-        content: "hi",
-        status: "adding dark mode",
-      });
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
-        fileChange: true,
-        status: "adding dark mode",
-      });
-    });
-
-    test("broadcasts app_files_changed for file write", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_write", {
-        app_id: "app-write-bc",
-        path: "f",
-        content: "x",
-      });
-
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
-        type: "app_files_changed",
-        appId: "app-write-bc",
-      });
-    });
-
-    test("calls updatePublishedAppDeployment for file write", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("app_file_write", {
-        app_id: "app-pub-write",
-        path: "f",
-        content: "x",
-      });
-
-      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
-        "app-pub-write",
-      );
-    });
-
-    test("skips side effects when result is an error", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "Error", isError: true });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("app_file_write", {
-        app_id: "app-err",
-        path: "f",
-        content: "x",
-      });
-
-      expect(refreshSpy).not.toHaveBeenCalled();
-      expect(broadcastSpy).not.toHaveBeenCalled();
-      expect(updatePublishedSpy).not.toHaveBeenCalled();
-    });
-  });
-
   // ── app_create side effects ─────────────────────────────────────────
 
   describe("app_create side effects", () => {
@@ -735,7 +326,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
   describe("name-based hooks fire for skill-origin tools", () => {
     test("hooks fire purely on tool name, regardless of tool origin", async () => {
-      // The key invariant: createToolExecutor uses `name === 'app_update'`
+      // The key invariant: createToolExecutor uses `name === 'app_refresh'`
       // string comparison, not tool metadata or origin. This means skill-
       // projected tools with the same name trigger the same afterExecute
       // hooks as core tools.
@@ -752,22 +343,14 @@ describe("session-tool-setup app refresh side effects", () => {
         broadcastSpy,
       );
 
-      // Simulate calling each app tool by name (as the agent loop does)
-      for (const toolName of [
-        "app_update",
-        "app_file_edit",
-        "app_file_write",
-      ]) {
+      // Simulate calling app_refresh by name (as the agent loop does)
+      for (const toolName of ["app_refresh"]) {
         refreshSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
 
         await toolFn(toolName, {
           app_id: "skill-app",
-          path: "f",
-          old_string: "a",
-          new_string: "b",
-          content: "x",
         });
 
         expect(refreshSpy).toHaveBeenCalledTimes(1);
@@ -794,7 +377,15 @@ describe("session-tool-setup app refresh side effects", () => {
         broadcastSpy,
       );
 
-      for (const toolName of ["read_file", "write_file", "shell", "app_list"]) {
+      for (const toolName of [
+        "read_file",
+        "write_file",
+        "shell",
+        "app_list",
+        "app_update",
+        "app_file_edit",
+        "app_file_write",
+      ]) {
         refreshSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
@@ -825,7 +416,7 @@ describe("session-tool-setup app refresh side effects", () => {
       );
 
       // Should not throw even though broadcastToAllClients is undefined
-      const result = await toolFn("app_update", { app_id: "app-no-bc" });
+      const result = await toolFn("app_refresh", { app_id: "app-no-bc" });
 
       expect(result.isError).toBe(false);
       expect(refreshSpy).toHaveBeenCalledTimes(1);
