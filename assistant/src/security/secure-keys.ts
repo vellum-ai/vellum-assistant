@@ -211,7 +211,7 @@ export async function getMaskedProviderKey(
   const maxVisible = Math.max(1, key.length - minHidden);
   const prefixLen = Math.min(10, maxVisible);
   const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
-  return `${key.slice(0, prefixLen)}...${key.slice(-suffixLen || undefined)}`;
+  return `${key.slice(0, prefixLen)}...${suffixLen > 0 ? key.slice(-suffixLen) : ""}`;
 }
 
 // ---------------------------------------------------------------------------
