@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - 'release/v*'
-      - 'codex/release-debug-*'
-  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') && 'release' || format('release-debug-{0}', github.ref_name) }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -17,33 +15,15 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.extract.outputs.version }}
-      debug_run: ${{ steps.extract.outputs.debug_run }}
     steps:
-      - name: Extract version for release or debug run
+      - name: Extract version from release branch
         id: extract
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${BRANCH}" == release/v* ]]; then
-            VERSION="${BRANCH#release/v}"
-            DEBUG_RUN=false
-          else
-            SAFE_BRANCH=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | tr -cd '[:alnum:]-')
-            SAFE_BRANCH="${SAFE_BRANCH:0:40}"
-            SAFE_BRANCH="${SAFE_BRANCH#-}"
-            SAFE_BRANCH="${SAFE_BRANCH%-}"
-            if [[ -z "$SAFE_BRANCH" ]]; then
-              SAFE_BRANCH="manual"
-            fi
-            VERSION="debug-${SAFE_BRANCH}-${SHORT_SHA}"
-            DEBUG_RUN=true
-          fi
+          VERSION="${GITHUB_REF_NAME#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "debug_run=$DEBUG_RUN" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -118,7 +98,7 @@ jobs:
     needs: [extract-version, push-assistant-image]
     # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -170,15 +150,9 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-
-          if [ "$DEBUG_RUN" = "true" ]; then
-            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-          else
-            GCP_TAGS="${GCP_IMAGE}:${SHA}"
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-          fi
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -202,12 +176,7 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-          if [ "$DEBUG_RUN" = "true" ]; then
-            TAG="$VERSION"
-          else
-            TAG="v${VERSION}"
-          fi
+          TAG="v${VERSION}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -234,15 +203,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
-            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -314,7 +278,6 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -386,7 +349,7 @@ jobs:
     needs: [extract-version, push-gateway-image]
     # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -438,15 +401,9 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-
-          if [ "$DEBUG_RUN" = "true" ]; then
-            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-          else
-            GCP_TAGS="${GCP_IMAGE}:${SHA}"
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-          fi
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -470,12 +427,7 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-          if [ "$DEBUG_RUN" = "true" ]; then
-            TAG="$VERSION"
-          else
-            TAG="v${VERSION}"
-          fi
+          TAG="v${VERSION}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -502,17 +454,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
-            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
     # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -564,15 +512,9 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-
-          if [ "$DEBUG_RUN" = "true" ]; then
-            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-          else
-            GCP_TAGS="${GCP_IMAGE}:${SHA}"
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-          fi
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -596,12 +538,7 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
-          if [ "$DEBUG_RUN" = "true" ]; then
-            TAG="$VERSION"
-          else
-            TAG="v${VERSION}"
-          fi
+          TAG="v${VERSION}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -628,11 +565,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
-            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
@@ -686,12 +619,8 @@ jobs:
           IMAGE_NAME="${{ matrix.dockerhub_image_name }}"
           IMAGE="vellumai/${IMAGE_NAME}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
-            TAGS="${IMAGE}:${VERSION}"
-          else
-            TAGS="${IMAGE}:v${VERSION}"
-            TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
-          fi
+          TAGS="${IMAGE}:v${VERSION}"
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$TAGS" >> "$GITHUB_OUTPUT"
@@ -715,17 +644,11 @@ jobs:
         run: |
           echo "## Docker Hub Image Published (${{ matrix.service }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
-            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -870,7 +793,6 @@ jobs:
 
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -905,7 +827,6 @@ jobs:
 
   publish-meta:
     needs: [extract-version, publish-npm]
-    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -2138,7 +2059,7 @@ jobs:
 
   notify-release:
     name: Slack Notification (Release)
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.debug_run != 'true' }}
+    if: ${{ always() && !cancelled() }}
     needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2187,6 +2108,7 @@ jobs:
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
+          DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -2195,7 +2117,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release
