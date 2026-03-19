@@ -41,7 +41,7 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         XCTAssertEqual(content.identityRows.map(\.label), ["Provider", "Model", "Created"])
         XCTAssertEqual(content.identityRows.map(\.value)[0], "OpenAI")
         XCTAssertEqual(content.identityRows.map(\.value)[1], "gpt-4.1")
-        XCTAssertTrue(content.identityRows.map(\.value)[2].contains("1970"))
+        XCTAssertEqual(content.identityRows.map(\.value)[2], MessageInspectorSummaryFormatters.formattedCreatedAt(0))
 
         XCTAssertEqual(content.usageRows.map(\.label), ["Input tokens", "Output tokens", "Cache tokens", "Request messages", "Tool count"])
         XCTAssertEqual(content.usageRows.map(\.value), ["321", "54", "Unavailable", "2", "2"])
@@ -148,7 +148,7 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         XCTAssertNil(content.toolCallNames)
         XCTAssertNotNil(content.fallbackMessage)
         XCTAssertTrue(content.fallbackMessage?.contains("Raw tab") == true)
-        XCTAssertTrue(content.fallbackMessage?.contains("1970") == true)
+        XCTAssertTrue(content.fallbackMessage?.contains(MessageInspectorSummaryFormatters.formattedCreatedAt(0)) == true)
     }
 
     func testFormatterHelpersTruncateAndCompactValues() {
@@ -166,6 +166,6 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
     }
 
     private func decodeEntry(_ json: String) throws -> LLMRequestLogEntry {
-        try JSONDecoder().decode(LLMContextResponse.self, from: Data(json.utf8)).logs[0]
+        try JSONDecoder().decode(LLMRequestLogEntry.self, from: Data(json.utf8))
     }
 }
