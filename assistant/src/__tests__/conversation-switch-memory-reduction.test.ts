@@ -214,9 +214,8 @@ describe("findMostRecentDirtyConversation", () => {
     insertConversation("conv-target", { updatedAt: NOW + 1000 });
 
     const result = findMostRecentDirtyConversation("conv-target");
-    // Should return the oldest dirty conversation first (ordered by updatedAt ASC)
-    // since we want to reduce the least-recently-updated dirty conversation
-    expect(result).toBe("conv-old");
+    // Should return the most recently updated dirty conversation (ordered by updatedAt DESC)
+    expect(result).toBe("conv-recent");
   });
 
   test("excludes the target conversation", () => {
@@ -389,8 +388,8 @@ describe("reduceBeforeSwitch — new conversation", () => {
 });
 
 describe("reduceBeforeSwitch — most recent dirty selection", () => {
-  test("selects the earliest-updated dirty conversation when multiple exist", async () => {
-    // Two dirty conversations — conv-older is less recently updated
+  test("selects the most recently updated dirty conversation when multiple exist", async () => {
+    // Two dirty conversations — conv-newer is more recently updated
     insertConversation("conv-older", {
       dirtyTailMessageId: "msg-older",
       updatedAt: NOW - 10_000,
@@ -420,13 +419,13 @@ describe("reduceBeforeSwitch — most recent dirty selection", () => {
     mockReducerResult = makeReducerResult();
 
     // Even though two are dirty, we only reduce one per switch.
-    // The function picks the earliest (by updatedAt ASC).
+    // The function picks the most recently updated (by updatedAt DESC).
     const result = await reduceBeforeSwitch("conv-target");
 
-    // Should pick the oldest dirty conversation
-    expect(result).toBe("conv-older");
+    // Should pick the most recently updated dirty conversation
+    expect(result).toBe("conv-newer");
     expect(reducerCallCount).toBe(1);
-    expect(lastReducerInput?.conversationId).toBe("conv-older");
+    expect(lastReducerInput?.conversationId).toBe("conv-newer");
   });
 });
 
