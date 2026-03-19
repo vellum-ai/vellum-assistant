@@ -81,7 +81,10 @@ final class AssistantCli {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
-        "ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+        // Inference provider API keys
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+        "FIREWORKS_API_KEY", "OPENROUTER_API_KEY",
+        "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
         // Cloud provider auth — needed by hatch and retire flows.
@@ -332,6 +335,16 @@ final class AssistantCli {
 
     // MARK: - Remote Hatch (pass-through to CLI)
 
+    /// Maps inference provider IDs to the environment variable name
+    /// the daemon expects for that provider's API key.
+    nonisolated private static let providerEnvVars: [String: String] = [
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "fireworks": "FIREWORKS_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    ]
+
     struct RemoteHatchConfig {
         let remote: String
         var gcpProjectId: String = ""
@@ -341,7 +354,10 @@ final class AssistantCli {
         var sshHost: String = ""
         var sshUser: String = ""
         var sshPrivateKey: String = ""
-        var anthropicApiKey: String = ""
+        /// The inference provider selected during onboarding (e.g. "anthropic", "openai").
+        var inferenceProvider: String = "anthropic"
+        /// The API key for the selected inference provider.
+        var inferenceApiKey: String = ""
     }
 
     func runRemoteHatch(
@@ -388,8 +404,9 @@ final class AssistantCli {
             #endif
         }
 
-        if !config.anthropicApiKey.isEmpty {
-            env["ANTHROPIC_API_KEY"] = config.anthropicApiKey
+        if !config.inferenceApiKey.isEmpty {
+            let envVar = Self.providerEnvVars[config.inferenceProvider] ?? "ANTHROPIC_API_KEY"
+            env[envVar] = config.inferenceApiKey
         }
 
         if config.remote == "gcp" {
@@ -664,13 +681,15 @@ final class AssistantCli {
                let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
-            // Fall back to credential storage for the Anthropic API key
-            // when it's not in the process environment (e.g. app launched
-            // from Finder, not a terminal with ANTHROPIC_API_KEY set).
-            if env["ANTHROPIC_API_KEY"] == nil,
-               let storedKey = APIKeyManager.getKey(for: "anthropic"),
-               !storedKey.isEmpty {
-                env["ANTHROPIC_API_KEY"] = storedKey
+            // Fall back to credential storage for provider API keys
+            // when they're not in the process environment (e.g. app launched
+            // from Finder, not a terminal with API key env vars set).
+            for (provider, envVar) in AssistantCli.providerEnvVars {
+                if env[envVar] == nil,
+                   let storedKey = APIKeyManager.getKey(for: provider),
+                   !storedKey.isEmpty {
+                    env[envVar] = storedKey
+                }
             }
             proc.environment = env
 

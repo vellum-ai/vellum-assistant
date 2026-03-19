@@ -264,7 +264,8 @@ struct HatchingStepView: View {
     private static let dockerReadySentinel = "Docker containers are up and running"
 
     private func startRemoteHatch() {
-        let apiKey = APIKeyManager.getKey(for: "anthropic") ?? ""
+        let provider = state.selectedProvider.isEmpty ? "anthropic" : state.selectedProvider
+        let apiKey = APIKeyManager.getKey(for: provider) ?? ""
 
         let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
@@ -275,7 +276,8 @@ struct HatchingStepView: View {
             sshHost: state.sshHost,
             sshUser: state.sshUser,
             sshPrivateKey: state.sshPrivateKey,
-            anthropicApiKey: apiKey
+            inferenceProvider: provider,
+            inferenceApiKey: apiKey
         )
 
         Task {

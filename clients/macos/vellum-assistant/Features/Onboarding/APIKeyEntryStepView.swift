@@ -166,6 +166,8 @@ struct APIKeyEntryStepView: View {
                 selectedModel = entry.defaultModel
             }
             apiKey = ""
+            hasExistingKey = false
+            isEditing = false
         }
     }
 
