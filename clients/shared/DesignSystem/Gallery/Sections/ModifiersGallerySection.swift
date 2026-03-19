@@ -65,32 +65,6 @@ struct ModifiersGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
-            // MARK: - .vHover()
-            GallerySectionHeader(
-                title: ".vHover()",
-                description: "Adds a subtle background highlight on mouse hover."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Hover over the items below:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-
-                    ForEach(["First item", "Second item", "Third item"], id: \.self) { item in
-                        Text(item)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(VSpacing.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .vHover()
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
             // MARK: - .pointerCursor()
             GallerySectionHeader(
                 title: ".pointerCursor()",

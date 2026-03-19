@@ -76,24 +76,6 @@ struct LayoutGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
-            // MARK: - VToolbar
-            GallerySectionHeader(
-                title: "VToolbar",
-                description: "Horizontal toolbar container for icon buttons and actions."
-            )
-
-            VCard(padding: 0) {
-                VToolbar {
-                    VButton(label: "Home", icon: VIcon.house.rawValue, style: .ghost) {}
-                    VButton(label: "Search", icon: VIcon.search.rawValue, style: .ghost) {}
-                    VButton(label: "Settings", icon: VIcon.settings.rawValue, style: .ghost, isActive: true) {}
-                    Spacer()
-                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost) {}
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
             // MARK: - VSidePanel
             GallerySectionHeader(
                 title: "VSidePanel",
