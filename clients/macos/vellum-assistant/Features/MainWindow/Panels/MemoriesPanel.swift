@@ -418,7 +418,13 @@ struct MemoriesPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: VSpacing.sm) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: VSpacing.md),
+                        GridItem(.flexible(), spacing: VSpacing.md)
+                    ],
+                    spacing: VSpacing.md
+                ) {
                     ForEach(filteredItems) { item in
                         MemoryItemRow(
                             item: item,
