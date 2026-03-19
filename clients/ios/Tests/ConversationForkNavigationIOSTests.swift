@@ -39,7 +39,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
         store.conversations = [child]
 
-        let parentLocalId = try XCTUnwrap(await store.openForkParent(of: child.id))
+        let openedParentLocalId = await store.openForkParent(of: child.id)
+        let parentLocalId = try XCTUnwrap(openedParentLocalId)
 
         XCTAssertEqual(detailClient.requests, ["conv-parent"])
         XCTAssertEqual(store.selectionRequest?.conversationLocalId, parentLocalId)
