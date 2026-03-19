@@ -2,6 +2,8 @@ import { and, eq, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { buildArchiveRecall } from "../../memory/archive-recall.js";
+import { insertObservation } from "../../memory/archive-store.js";
 import { getDb } from "../../memory/db.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
@@ -18,7 +20,7 @@ const log = getLogger("memory-tools");
 
 export async function handleMemorySave(
   args: Record<string, unknown>,
-  _config: AssistantConfig,
+  config: AssistantConfig,
   conversationId: string,
   messageId: string | undefined,
   scopeId: string = "default",
@@ -62,6 +64,19 @@ export async function handleMemorySave(
     typeof args.subject === "string" && args.subject.trim().length > 0
       ? truncate(args.subject.trim(), 80, "")
       : inferSubjectFromStatement(statement.trim());
+
+  // When simplified memory is enabled, save directly to the simplified
+  // observation/chunk tables instead of the legacy memory_items table.
+  if (config.memory.simplified.enabled) {
+    return handleSimplifiedMemorySave(
+      kind,
+      subject,
+      statement.trim(),
+      conversationId,
+      messageId,
+      scopeId,
+    );
+  }
 
   try {
     const db = getDb();
@@ -275,6 +290,12 @@ export async function handleMemoryRecall(
       ? args.scope.trim()
       : "default";
 
+  // When simplified memory is enabled, use the archive recall path
+  // instead of the legacy hybrid retriever.
+  if (config.memory.simplified.enabled) {
+    return handleSimplifiedMemoryRecall(query.trim(), scopeId ?? "default");
+  }
+
   // Scope policy: "conversation" means strict (only that scope),
   // anything else allows fallback to the default scope.
   const scopePolicyOverride: ScopePolicyOverride | undefined = scopeId
@@ -408,6 +429,113 @@ export async function handleMemoryDelete(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, memoryId }, "memory_delete failed");
     return { content: `Error: Failed to delete memory: ${msg}`, isError: true };
+  }
+}
+
+// ── Simplified memory helpers ────────────────────────────────────────
+
+/**
+ * Save a memory item as an observation + chunk in the simplified system.
+ * This is used when simplified memory is enabled instead of writing to
+ * the legacy memory_items table.
+ */
+function handleSimplifiedMemorySave(
+  kind: string,
+  subject: string,
+  statement: string,
+  conversationId: string,
+  messageId: string | undefined,
+  scopeId: string,
+): ToolExecutionResult {
+  try {
+    const trimmedStatement = truncate(statement, 500, "");
+    const content = `[${kind}] ${subject}: ${trimmedStatement}`;
+
+    const result = insertObservation({
+      conversationId,
+      messageId: messageId ?? null,
+      role: "user",
+      content,
+      scopeId,
+      modality: "text",
+      source: "tool:memory_save",
+    });
+
+    log.debug(
+      {
+        observationId: result.observationId,
+        chunkId: result.chunkId,
+        kind,
+        subject,
+        conversationId,
+        messageId,
+      },
+      "Memory saved via simplified system",
+    );
+
+    return {
+      content: `Saved to memory (ID: ${result.observationId}).\nKind: ${kind}\nSubject: ${subject}\nStatement: ${trimmedStatement}`,
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "simplified memory_save failed");
+    return { content: `Error: Failed to save memory: ${msg}`, isError: true };
+  }
+}
+
+/**
+ * Recall memories using the simplified archive recall path instead of
+ * the legacy hybrid retriever.
+ */
+function handleSimplifiedMemoryRecall(
+  query: string,
+  scopeId: string,
+): ToolExecutionResult {
+  try {
+    const recallResult = buildArchiveRecall(scopeId, query);
+
+    if (recallResult.bullets.length === 0) {
+      return {
+        content: JSON.stringify({
+          text: "No matching memories found.",
+          resultCount: 0,
+          degraded: false,
+          items: [],
+          sources: { semantic: 0, recency: 0 },
+        }),
+        isError: false,
+      };
+    }
+
+    const items = recallResult.bullets.map((b) => ({
+      id: b.sourceId,
+      type: b.source,
+      kind: b.source,
+    }));
+
+    const result = {
+      text: recallResult.text,
+      resultCount: recallResult.bullets.length,
+      degraded: false,
+      items,
+      sources: {
+        semantic: recallResult.prefetchHitCount,
+        recency: 0,
+      },
+    };
+
+    return {
+      content: JSON.stringify(result),
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, query }, "simplified memory_recall failed");
+    return {
+      content: `Error: Memory recall failed: ${msg}`,
+      isError: true,
+    };
   }
 }
 
