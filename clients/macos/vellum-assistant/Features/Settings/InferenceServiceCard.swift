@@ -20,6 +20,8 @@ struct InferenceServiceCard: View {
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
+    /// Local draft of the model selection — only persisted on Save.
+    @State private var draftModel: String = ""
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
     /// Whether to show the web search impact confirmation alert.
@@ -81,12 +83,12 @@ struct InferenceServiceCard: View {
             return false
         }
         // A valid model must be selected to save.
-        if store.selectedModel.isEmpty {
+        if draftModel.isEmpty {
             return false
         }
         let modeChanged = draftMode != store.inferenceMode
-        let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let modelChanged = store.selectedModel != initialModel
+        let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let modelChanged = draftModel != initialModel
         let providerChanged = isCustomProviderEnabled && draftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
     }
@@ -131,33 +133,82 @@ struct InferenceServiceCard: View {
         )
         .onAppear {
             draftMode = store.inferenceMode
+            draftModel = store.selectedModel
             initialModel = store.selectedModel
             draftProvider = store.selectedInferenceProvider
             initialProvider = store.selectedInferenceProvider
+
+            // If the user is not authenticated and the persisted mode is
+            // "managed", reset the draft so the UI shows "your-own".
+            // When auth is still loading (startup), only reset the draft —
+            // the persisted mode is preserved so it can be restored when
+            // auth completes. When auth is confirmed absent, also persist
+            // the reset so the daemon doesn't attempt managed-proxy routing.
+            if !isLoggedIn && draftMode == "managed" {
+                draftMode = "your-own"
+                if !authManager.isLoading {
+                    store.setInferenceMode("your-own")
+                }
+            }
         }
         .onChange(of: store.inferenceMode) { _, newValue in
-            // Sync draft when external changes arrive (e.g. daemon reload)
-            draftMode = newValue
+            // Sync draft when external changes arrive (e.g. daemon reload),
+            // but guard against adopting managed mode while unauthenticated.
+            if newValue == "managed" && !isLoggedIn {
+                draftMode = "your-own"
+            } else {
+                draftMode = newValue
+            }
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if !isAuthenticated && draftMode == "managed" {
+                // When the user logs out while this card is mounted, reset
+                // both the draft and the persisted mode so the daemon doesn't
+                // attempt managed-proxy routing while unauthenticated.
+                draftMode = "your-own"
+                store.setInferenceMode("your-own")
+            } else if isAuthenticated && store.inferenceMode == "managed" {
+                // When auth becomes available (e.g. startup transition from
+                // loading to authenticated), restore the persisted managed
+                // mode that onAppear may have temporarily overridden.
+                draftMode = "managed"
+            }
+        }
+        .onChange(of: authManager.isLoading) { _, isLoading in
+            // When auth finishes loading without authenticating, persist
+            // the mode reset that onAppear deferred during the loading
+            // state. Without this, the persisted mode stays "managed"
+            // while the UI shows "your-own" — pressing Save for unrelated
+            // edits would not trigger a mode change since draftMode already
+            // equals the visual state.
+            if !isLoading && !isLoggedIn && store.inferenceMode == "managed" {
+                store.setInferenceMode("your-own")
+            }
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
             draftProvider = newValue
             initialProvider = newValue
         }
+        .onChange(of: store.selectedModel) { _, newValue in
+            // Sync draft & baseline when external changes arrive (e.g. daemon model info refresh)
+            draftModel = newValue
+            initialModel = newValue
+        }
         .onChange(of: draftProvider) { _, newProvider in
             if isCustomProviderEnabled {
                 let defaultModel = store.dynamicProviderDefaultModel(newProvider)
                 let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
-                store.selectedModel = defaultModel.isEmpty ? fallback : defaultModel
+                draftModel = defaultModel.isEmpty ? fallback : defaultModel
             }
             apiKeyText = ""
         }
         .onChange(of: draftMode) { _, newMode in
             if newMode == "managed" && isCustomProviderEnabled {
                 let anthropicModels = store.dynamicProviderModels("anthropic")
-                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == store.selectedModel }
+                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
                 if !isCurrentModelAnthropic {
                     let defaultModel = store.dynamicProviderDefaultModel("anthropic")
-                    store.selectedModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
+                    draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
                 }
             }
         }
@@ -268,10 +319,7 @@ struct InferenceServiceCard: View {
     private var defaultModelPicker: some View {
         VDropdown(
             placeholder: "Select a model\u{2026}",
-            selection: Binding(
-                get: { store.selectedModel },
-                set: { store.selectedModel = $0 }
-            ),
+            selection: $draftModel,
             options: store.dynamicProviderModels("anthropic").map { model in
                 (label: model.displayName, value: model.id)
             }
@@ -283,10 +331,7 @@ struct InferenceServiceCard: View {
         let provider = draftMode == "managed" ? "anthropic" : draftProvider
         return VDropdown(
             placeholder: "Select a model\u{2026}",
-            selection: Binding(
-                get: { store.selectedModel },
-                set: { store.selectedModel = $0 }
-            ),
+            selection: $draftModel,
             options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
             }
@@ -339,12 +384,13 @@ struct InferenceServiceCard: View {
         }
 
         // Persist model selection
+        store.selectedModel = draftModel
         if isCustomProviderEnabled {
             let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
-            store.setModel(store.selectedModel, provider: saveProvider)
+            store.setModel(draftModel, provider: saveProvider)
         } else {
-            store.setModel(store.selectedModel)
+            store.setModel(draftModel)
         }
-        initialModel = store.selectedModel
+        initialModel = draftModel
     }
 }

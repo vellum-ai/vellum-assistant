@@ -1026,7 +1026,7 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === "/sessions" || content === "/conversations") {
+    if (content === "/conversations") {
       pendingSessionPick = true;
       try {
         const rows = listConversations(20);
@@ -1060,7 +1060,7 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === "/copy-session" || content === "/copy-conversation") {
+    if (content === "/copy-conversation") {
       try {
         const mapping = getConversationByKey(conversationKey);
         if (!mapping) {
@@ -1263,26 +1263,26 @@ export async function startCli(): Promise<void> {
 
     if (content === "/help") {
       process.stdout.write("\n  Available commands:\n");
-      process.stdout.write("  /new              Start a new conversation\n");
+      process.stdout.write("  /new                Start a new conversation\n");
       process.stdout.write(
-        "  /conversations    Switch between conversations\n",
+        "  /conversations      Switch between conversations\n",
       );
-      process.stdout.write("  /clear            Clear the screen\n");
-      process.stdout.write("  /history          Show conversation history\n");
+      process.stdout.write("  /clear              Clear the screen\n");
+      process.stdout.write("  /history            Show conversation history\n");
       process.stdout.write(
-        "  /undo             Remove last message exchange\n",
+        "  /undo               Remove last message exchange\n",
       );
-      process.stdout.write("  /usage            Show token usage and cost\n");
+      process.stdout.write("  /usage              Show token usage and cost\n");
       process.stdout.write(
-        "  /copy             Copy last response to clipboard\n",
-      );
-      process.stdout.write(
-        "  /copy-code        Copy last code block to clipboard\n",
+        "  /copy               Copy last response to clipboard\n",
       );
       process.stdout.write(
-        "  /copy-conversation Copy entire conversation to clipboard\n",
+        "  /copy-code          Copy last code block to clipboard\n",
       );
-      process.stdout.write("  /help             Show this help\n");
+      process.stdout.write(
+        "  /copy-conversation  Copy entire conversation to clipboard\n",
+      );
+      process.stdout.write("  /help               Show this help\n");
       process.stdout.write("\n");
       prompt();
       return;

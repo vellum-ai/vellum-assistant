@@ -58,7 +58,14 @@ struct FileContentView: View {
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
     @Binding var isActivelyEditing: Bool
+    /// Unique identity for the file, used to force SwiftUI to recreate the
+    /// HighlightedTextView when the underlying file changes. Defaults to
+    /// `fileName`, but callers should pass a full path when the display name
+    /// alone is not unique (e.g. files with the same basename in different
+    /// directories).
+    var fileIdentity: String? = nil
     @State private var isContentHovered = false
+    @State private var isOverlayHovered = false
     @State private var expandAllTrigger = 0
     @State private var collapseAllTrigger = 0
     @State private var isTreeExpanded = false
@@ -107,7 +114,7 @@ struct FileContentView: View {
                         isActivelyEditing: $isActivelyEditing,
                         onTextChange: onTextChange
                     )
-                    .id(fileName)
+                    .id(fileIdentity ?? fileName)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .preview:
                     MarkdownPreviewView(content: content)
@@ -189,58 +196,28 @@ struct FileContentView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay.opacity(0.9))
         )
-        .overlay(PointerCursorOverlay().allowsHitTesting(false))
+        .onHover { hovering in
+            // Use NSCursor.push()/pop() to force the pointing-hand cursor.
+            // SwiftUI's .pointerStyle/.pointerCursor() and NSViewRepresentable
+            // cursor-rect approaches are all overridden by NSTextView's own
+            // cursor tracking when the overlay sits above a VCodeView. The
+            // application cursor stack (push/pop) operates at a higher level
+            // and is not subject to cursor-rect priority ordering.
+            if hovering {
+                NSCursor.pointingHand.push()
+                isOverlayHovered = true
+            } else if isOverlayHovered {
+                NSCursor.pop()
+                isOverlayHovered = false
+            }
+        }
+        .onDisappear {
+            if isOverlayHovered {
+                NSCursor.pop()
+                isOverlayHovered = false
+            }
+        }
         .padding(VSpacing.sm)
-    }
-}
-
-// MARK: - Pointer Cursor Override
-
-/// An AppKit-level cursor rect that forces the pointing-hand cursor.
-///
-/// SwiftUI's `.pointerCursor()` modifier is overridden by NSTextView's
-/// cursor tracking areas when the overlay sits above a VCodeView. This
-/// uses Apple's recommended `NSTrackingArea` + `resetCursorRects` +
-/// `invalidateCursorRects(for:)` pattern (see "Managing Cursor-Update
-/// Events" in Apple docs).
-///
-/// Applied as `.overlay()` (not `.background()`) so the backing NSView
-/// sits in front of the NSTextView in AppKit's view hierarchy, giving
-/// its cursor rects higher priority. `hitTest` returns `nil` so mouse
-/// clicks pass through to the SwiftUI buttons underneath.
-private struct PointerCursorOverlay: NSViewRepresentable {
-    func makeNSView(context: Context) -> PointerTrackingView {
-        PointerTrackingView()
-    }
-
-    func updateNSView(_ nsView: PointerTrackingView, context: Context) {}
-}
-
-private class PointerTrackingView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // Click-transparent: let mouse events pass through to SwiftUI
-        // buttons underneath while still handling cursor tracking.
-        nil
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        window?.invalidateCursorRects(for: self)
-    }
-
-    override func resetCursorRects() {
-        discardCursorRects()
-        addCursorRect(visibleRect, cursor: .pointingHand)
     }
 }
 

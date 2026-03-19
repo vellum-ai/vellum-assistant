@@ -163,8 +163,9 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
-            // Capture assistant ID before logout clears it from UserDefaults
+            // Capture assistant/org IDs before logout clears them from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let connectedOrganizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -232,11 +233,15 @@ extension AppDelegate {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
 
-                // Restore connectedAssistantId — authManager.logout() clears it
-                // from UserDefaults, but the app stays running in this path and
-                // subsystems (avatar, gateway resolution, API key sync) need it.
+                // Restore connectedAssistantId and connectedOrganizationId —
+                // authManager.logout() clears both from UserDefaults, but the
+                // app stays running in this path and subsystems (avatar, gateway
+                // resolution, API key sync, Sentry tagging, billing) need them.
                 if let connectedAssistantId {
                     UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                }
+                if let connectedOrganizationId {
+                    UserDefaults.standard.set(connectedOrganizationId, forKey: "connectedOrganizationId")
                 }
 
                 actorTokenBootstrapTask?.cancel()
@@ -458,6 +463,10 @@ extension AppDelegate {
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
+        // to skip the wait. Mirrors the reset in proceedToApp().
+        localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
         // 6. Sync locally-stored API keys to the new daemon. The daemon may

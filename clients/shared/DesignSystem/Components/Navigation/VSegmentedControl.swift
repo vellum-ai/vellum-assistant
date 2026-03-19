@@ -65,8 +65,8 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                 .accessibilityLabel(item.label)
                 .accessibilityAddTraits(selection == item.tag ? .isSelected : [])
             }
-            Spacer()
         }
+        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, VSpacing.sm)
     }
 

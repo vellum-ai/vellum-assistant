@@ -34,6 +34,11 @@ public struct VCodeView: View {
     /// text mutation that doesn't change the string identity).
     public var highlightVersion: UInt64 = 0
 
+    /// Called when the user single-clicks the code content area (not a drag
+    /// for text selection). Useful for entering edit mode without an overlay
+    /// that would block text selection or steal clicks from child controls.
+    public var onContentClick: (() -> Void)?
+
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
@@ -42,11 +47,13 @@ public struct VCodeView: View {
     public init(
         text: String,
         highlighter: ((String, NSParagraphStyle?) -> NSAttributedString)? = nil,
-        highlightVersion: UInt64 = 0
+        highlightVersion: UInt64 = 0,
+        onContentClick: (() -> Void)? = nil
     ) {
         self.text = text
         self.highlighter = highlighter
         self.highlightVersion = highlightVersion
+        self.onContentClick = onContentClick
     }
 
     public var body: some View {
@@ -114,7 +121,8 @@ public struct VCodeView: View {
                         searchQuery: searchQuery,
                         currentMatchIndex: currentMatchIndex,
                         matchRanges: isSearchVisible
-                            ? Self.findMatchRanges(in: text, query: searchQuery) : []
+                            ? Self.findMatchRanges(in: text, query: searchQuery) : [],
+                        onContentClick: onContentClick
                     )
                     .frame(minWidth: geometry.size.width - gutterWidth)
                 }
@@ -212,6 +220,7 @@ struct VCodeTextView: NSViewRepresentable {
     let searchQuery: String
     let currentMatchIndex: Int
     let matchRanges: [Range<String.Index>]
+    var onContentClick: (() -> Void)?
 
     /// The monospaced font used for code display, sourced from the design system.
     private static let codeFont: NSFont = VFont.nsMono
@@ -229,7 +238,8 @@ struct VCodeTextView: NSViewRepresentable {
         textContainer.lineFragmentPadding = VSpacing.md
         layoutManager.addTextContainer(textContainer)
 
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = ClickReportingTextView(frame: .zero, textContainer: textContainer)
+        textView.onContentClick = onContentClick
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
@@ -272,7 +282,8 @@ struct VCodeTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: VCodeHorizontalScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? ClickReportingTextView else { return }
+        textView.onContentClick = onContentClick
 
         let needsUpdate = context.coordinator.lastText != text
             || context.coordinator.lastVersion != highlightVersion
@@ -304,7 +315,7 @@ struct VCodeTextView: NSViewRepresentable {
         nsView: VCodeHorizontalScrollView,
         context: Context
     ) -> CGSize? {
-        guard let textView = nsView.documentView as? NSTextView,
+        guard let textView = nsView.documentView as? ClickReportingTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return nil }
         layoutManager.ensureLayout(for: textContainer)
@@ -415,6 +426,42 @@ struct VCodeTextView: NSViewRepresentable {
             if !matchRanges.isEmpty, currentIndex < matchRanges.count {
                 let currentRange = NSRange(matchRanges[currentIndex], in: storage.string)
                 textView.scrollRangeToVisible(currentRange)
+            }
+        }
+    }
+}
+
+// MARK: - ClickReportingTextView
+
+/// NSTextView subclass that detects single clicks (without drag) on the text
+/// content and forwards them via an `onContentClick` closure. This lets
+/// callers respond to clicks on the code area specifically, without an
+/// overlay that would block text selection or steal events from sibling
+/// controls like the search bar.
+private class ClickReportingTextView: NSTextView {
+    var onContentClick: (() -> Void)?
+
+    /// Location where the current mouseDown started, used to distinguish
+    /// a stationary click from a drag-to-select gesture.
+    private var mouseDownLocation: NSPoint?
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = event.locationInWindow
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { mouseDownLocation = nil }
+        super.mouseUp(with: event)
+
+        // Only fire if the mouse didn't move significantly (i.e. not a drag
+        // for text selection). A 3-point threshold accounts for minor jitter.
+        if let down = mouseDownLocation {
+            let up = event.locationInWindow
+            let dx = abs(up.x - down.x)
+            let dy = abs(up.y - down.y)
+            if dx < 3 && dy < 3 {
+                onContentClick?()
             }
         }
     }

@@ -356,6 +356,10 @@ struct SettingsPanel: View {
                 if !(AppDelegate.shared?.isCurrentAssistantManaged ?? false) {
                     AppDelegate.shared?.ensureActorCredentials()
                 }
+                // Reset before provisioning so a stale flag from a previous
+                // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
+                // to skip the wait. Mirrors the reset in proceedToApp().
+                AppDelegate.shared?.localBootstrapDidComplete = false
                 AppDelegate.shared?.ensureLocalAssistantApiKey()
             })
         case .modelsAndServices:

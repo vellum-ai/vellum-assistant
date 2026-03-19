@@ -47,7 +47,7 @@ struct HighlightedTextView: View {
                     if isActivelyEditing {
                         editableView
                     } else {
-                        readOnlyView
+                        editableReadOnlyView
                     }
                 } else {
                     readOnlyView
@@ -137,6 +137,27 @@ struct HighlightedTextView: View {
     }
 
     // MARK: - Read-Only Mode
+
+    /// Read-only view for editable files. Clicking the code content area
+    /// (not the search bar or gutter) enters edit mode. Uses `VCodeView`'s
+    /// `onContentClick` callback so the click target is scoped to the
+    /// NSTextView content, preserving text selection and child controls.
+    private var editableReadOnlyView: some View {
+        VCodeView(
+            text: text,
+            highlighter: { text, paragraphStyle in
+                SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
+            },
+            highlightVersion: highlightVersion,
+            onContentClick: {
+                isActivelyEditing = true
+            }
+        )
+        .onChange(of: text) { _, _ in
+            highlightVersion &+= 1
+            cachedLineCount = VCodeView.countLines(in: text)
+        }
+    }
 
     /// Read-only view using `VCodeView` from the design system. Passes
     /// `SyntaxTheme.highlightNS` as the pluggable syntax highlighter.

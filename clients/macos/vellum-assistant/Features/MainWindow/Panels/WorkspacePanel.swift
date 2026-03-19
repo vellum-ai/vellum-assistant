@@ -80,9 +80,13 @@ final class WorkspaceBrowserState {
             isSaving = false
             isLoadingFile = false
 
-            // Default view mode using both file name and MIME type from the response
+            // Sync view mode using MIME type from the response, respecting
+            // the user's saved preference that was already applied above.
             if let detail {
-                viewMode = defaultViewMode(for: detail.name, mimeType: detail.mimeType)
+                let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+                if !modes.contains(viewMode) {
+                    viewMode = modes.first ?? .source
+                }
             }
         }
         fileLoadTask = task
@@ -762,7 +766,8 @@ private struct WorkspaceFileViewer: View {
                     isActivelyEditing: Binding(
                         get: { state.isActivelyEditing },
                         set: { state.isActivelyEditing = $0 }
-                    )
+                    ),
+                    fileIdentity: detail.path
                 )
             } else {
                 FileContentHeaderBar(
