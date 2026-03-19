@@ -2128,6 +2128,196 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/trust-rules": {
+        get: {
+          summary: "List trust rules",
+          description:
+            "Authenticated gateway endpoint that lists all trust rules via the assistant runtime.",
+          operationId: "trustRulesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Trust rules returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Add a trust rule",
+          description:
+            "Authenticated gateway endpoint that adds a new trust rule via the assistant runtime.",
+          operationId: "trustRulesPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule added" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/clear": {
+        post: {
+          summary: "Clear all user trust rules",
+          description:
+            "Authenticated gateway endpoint that clears all user-defined trust rules via the assistant runtime.",
+          operationId: "trustRulesClearPost",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Trust rules cleared" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/match": {
+        get: {
+          summary: "Query matching trust rule",
+          description:
+            "Authenticated gateway endpoint that queries for a matching trust rule via the assistant runtime.",
+          operationId: "trustRulesMatchGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "tool",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Tool name to match against.",
+            },
+            {
+              name: "pattern",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Pattern to match against.",
+            },
+            {
+              name: "scope",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Scope to match against.",
+            },
+          ],
+          responses: {
+            "200": { description: "Matching trust rule returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/starter-bundle": {
+        post: {
+          summary: "Accept starter trust rule bundle",
+          description:
+            "Authenticated gateway endpoint that accepts a starter bundle of trust rules via the assistant runtime.",
+          operationId: "trustRulesStarterBundlePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Starter bundle accepted" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/{ruleId}": {
+        patch: {
+          summary: "Update a trust rule",
+          description:
+            "Authenticated gateway endpoint that updates a trust rule by ID via the assistant runtime.",
+          operationId: "trustRulesPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Trust rule not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Delete a trust rule",
+          description:
+            "Authenticated gateway endpoint that deletes a trust rule by ID via the assistant runtime.",
+          operationId: "trustRulesDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Trust rule deleted" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Trust rule not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",
