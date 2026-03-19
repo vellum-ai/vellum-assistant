@@ -239,15 +239,26 @@ struct MessageInspectorResponseTabModel: Equatable {
         summary: LLMCallSummary?,
         sections: [MessageInspectorResponseSectionModel]
     ) -> String? {
-        if let responseToolCallCount = summary?.responseToolCallCount {
-            return responseToolCallCount > 0 ? "Tool-calling response" : "Text-only response"
+        if let responseToolCallCount = summary?.responseToolCallCount, responseToolCallCount > 0 {
+            return "Tool-calling response"
         }
 
         if sections.contains(where: { $0.isToolCallSection }) {
             return "Tool-calling response"
         }
 
-        return sections.isEmpty ? nil : "Text-only response"
+        let hasAssistantText = sections.contains(where: { $0.presentationKind == .assistantText })
+        let hasResultSection = sections.contains(where: { $0.isResultSection })
+
+        if hasAssistantText && !hasResultSection {
+            return "Text-only response"
+        }
+
+        if hasResultSection && !hasAssistantText {
+            return "Result-only response"
+        }
+
+        return nil
     }
 
     private static func deriveStopReasonLabel(summary: LLMCallSummary?) -> String? {
@@ -275,6 +286,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
     let copyText: String
     let presentationKind: PresentationKind
     let isToolCallSection: Bool
+    let isResultSection: Bool
 
     var showsRawPayloadHint: Bool {
         presentationKind == .toolCall
@@ -292,6 +304,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         case .tool, .toolUse, .functionCall:
             presentationKind = .toolCall
             isToolCallSection = true
+            isResultSection = false
             kindLabel = "Tool call"
             let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
@@ -300,6 +313,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         case .toolResult, .functionResponse:
             presentationKind = .other
             isToolCallSection = false
+            isResultSection = true
             kindLabel = section.kind == .functionResponse ? "Function response" : "Tool result"
             let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
@@ -307,6 +321,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         case .assistant, .message, .text, .output, .completion, .reasoning, .markdown, .code, .json:
             presentationKind = .assistantText
             isToolCallSection = false
+            isResultSection = false
             kindLabel = "Assistant text"
             bodyText = section.text ?? Self.previewText(for: section.data)
             copyText = bodyText ?? title
@@ -314,6 +329,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             let preview = section.text ?? Self.previewText(for: section.data)
             presentationKind = preview == nil ? .other : .assistantText
             isToolCallSection = false
+            isResultSection = false
             kindLabel = section.kind.rawValue
             bodyText = preview
             copyText = bodyText ?? title

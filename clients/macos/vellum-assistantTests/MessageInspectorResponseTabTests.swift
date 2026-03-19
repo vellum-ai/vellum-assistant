@@ -106,7 +106,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections[2].copyText, model.sections[2].bodyText)
     }
 
-    func testResponseTabModelDerivesTextOnlyMetadataForNormalizedSections() {
+    func testResponseTabModelDerivesTextOnlyMetadataForAssistantTextOnlySections() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
                 responsePayload: AnyCodable([
@@ -132,7 +132,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections.count, 1)
     }
 
-    func testResponseTabModelDoesNotTreatResultOnlySectionsAsToolCalling() {
+    func testResponseTabModelLabelsResultOnlySectionsAsResultOnlyResponse() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
                 responsePayload: AnyCodable([
@@ -170,10 +170,45 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
         XCTAssertTrue(model.hasNormalizedSections)
         XCTAssertEqual(model.responseStopReason, "function_response")
-        XCTAssertEqual(model.responseModeLabel, "Text-only response")
+        XCTAssertEqual(model.responseModeLabel, "Result-only response")
         XCTAssertEqual(model.sections.count, 2)
         XCTAssertEqual(model.sections[0].presentationKind, .other)
         XCTAssertEqual(model.sections[1].presentationKind, .other)
+    }
+
+    func testResponseTabModelDoesNotCallMixedAssistantTextAndResultSectionsTextOnly() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "stop_reason": "function_response"
+                ]),
+                summary: LLMCallSummary(
+                    stopReason: "function_response"
+                ),
+                responseSections: [
+                    LLMContextSection(
+                        kind: .assistant,
+                        label: "Assistant response",
+                        role: "assistant",
+                        text: "Normalized assistant text"
+                    ),
+                    LLMContextSection(
+                        kind: .functionResponse,
+                        label: "Function response 1",
+                        role: "assistant",
+                        text: "function response preview",
+                        toolName: "search_web",
+                        data: AnyCodable([
+                            "status": "ok"
+                        ])
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertNil(model.responseModeLabel)
+        XCTAssertEqual(model.sections.count, 2)
     }
 
     func testResponseTabModelUsesExplicitSummaryToolCallCountForToolCalling() {
