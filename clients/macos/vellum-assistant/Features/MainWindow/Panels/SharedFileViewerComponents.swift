@@ -189,7 +189,7 @@ struct FileContentView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay.opacity(0.9))
         )
-        .background(PointerCursorOverlay())
+        .overlay(PointerCursorOverlay().allowsHitTesting(false))
         .padding(VSpacing.sm)
     }
 }
@@ -201,13 +201,13 @@ struct FileContentView: View {
 /// SwiftUI's `.pointerCursor()` modifier is overridden by NSTextView's
 /// cursor tracking areas when the overlay sits above a VCodeView. This
 /// uses Apple's recommended `NSTrackingArea` + `resetCursorRects` +
-/// `invalidateCursorRects(for:)` pattern so the frontmost view's cursor
-/// rect takes priority over the I-beam cursor underneath.
+/// `invalidateCursorRects(for:)` pattern (see "Managing Cursor-Update
+/// Events" in Apple docs).
 ///
-/// Reference: Apple docs on "Managing Cursor-Update Events" —
-/// `mouseEntered` triggers `invalidateCursorRects(for:)` which causes
-/// the system to call `resetCursorRects`, where we register our
-/// pointing-hand cursor rect via `addCursorRect(_:cursor:)`.
+/// Applied as `.overlay()` (not `.background()`) so the backing NSView
+/// sits in front of the NSTextView in AppKit's view hierarchy, giving
+/// its cursor rects higher priority. `hitTest` returns `nil` so mouse
+/// clicks pass through to the SwiftUI buttons underneath.
 private struct PointerCursorOverlay: NSViewRepresentable {
     func makeNSView(context: Context) -> PointerTrackingView {
         PointerTrackingView()
@@ -217,9 +217,14 @@ private struct PointerCursorOverlay: NSViewRepresentable {
 }
 
 private class PointerTrackingView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Click-transparent: let mouse events pass through to SwiftUI
+        // buttons underneath while still handling cursor tracking.
+        nil
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        // Remove stale tracking areas before adding a fresh one
         for area in trackingAreas { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
