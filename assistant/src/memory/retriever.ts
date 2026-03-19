@@ -373,7 +373,7 @@ export async function buildMemoryRecall(
   // those messages are no longer in the conversation history and memory is
   // the only way they can influence the response.
   if (conversationId) {
-    const inContextMessageIds = getInContextMessageIds(conversationId);
+    const inContextMessageIds = getEffectiveInContextMessageIds(conversationId);
     if (inContextMessageIds) {
       for (const [key, c] of candidateMap) {
         if (c.type === "segment") {
@@ -619,14 +619,22 @@ export async function buildMemoryRecall(
 }
 
 /**
- * Get the set of message IDs that are still in the conversation's context
- * window (i.e., not compacted away). Uses `contextCompactedMessageCount` to
- * determine the offset: messages ordered by createdAt after that count are
- * still visible to the model.
+ * Get the set of message IDs that are effectively in the conversation's
+ * context window. This includes:
+ *   1. Messages still visible (not compacted) in the conversation history.
+ *   2. Fork-source message IDs — when a conversation is forked, messages are
+ *      copied with new IDs but their metadata stores the original parent
+ *      message ID as `forkSourceMessageId`. Segments sourced from those parent
+ *      messages are redundant because the fork already contains their content.
+ *
+ * Uses `contextCompactedMessageCount` to determine the compaction offset:
+ * messages ordered by createdAt after that count are still visible to the model.
  *
  * Returns `null` if the conversation is not found (deleted, or no DB row).
  */
-function getInContextMessageIds(conversationId: string): Set<string> | null {
+function getEffectiveInContextMessageIds(
+  conversationId: string,
+): Set<string> | null {
   try {
     const db = getDb();
 
@@ -644,9 +652,9 @@ function getInContextMessageIds(conversationId: string): Set<string> | null {
 
     const offset = conv.contextCompactedMessageCount;
 
-    // Fetch message IDs ordered by creation time, skipping compacted ones
+    // Fetch message IDs and metadata ordered by creation time
     const rows = db
-      .select({ id: messages.id })
+      .select({ id: messages.id, metadata: messages.metadata })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt))
@@ -654,7 +662,30 @@ function getInContextMessageIds(conversationId: string): Set<string> | null {
 
     // Messages up to `offset` have been compacted out of context
     const inContextRows = rows.slice(offset);
-    return new Set(inContextRows.map((r) => r.id));
+    const idSet = new Set(inContextRows.map((r) => r.id));
+
+    // Also include fork-source message IDs from in-context messages.
+    // When a conversation is forked, each copied message's metadata contains
+    // `forkSourceMessageId` pointing to the original (parent or grandparent)
+    // message ID. Segments sourced from those original messages are redundant.
+    for (const row of inContextRows) {
+      if (!row.metadata) continue;
+      try {
+        const parsed = JSON.parse(row.metadata);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          typeof parsed.forkSourceMessageId === "string"
+        ) {
+          idSet.add(parsed.forkSourceMessageId);
+        }
+      } catch {
+        // Invalid metadata JSON — skip, don't break filtering.
+      }
+    }
+
+    return idSet;
   } catch (err) {
     log.warn(
       { err },
