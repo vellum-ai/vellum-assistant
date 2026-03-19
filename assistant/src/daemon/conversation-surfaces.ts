@@ -582,17 +582,60 @@ export function handleSurfaceAction(
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is
-  // no in-memory pendingSurfaceActions entry.  For relay_prompt / agent_prompt
-  // actions the client already sends the full payload (including { prompt }),
-  // so we can handle them without stored state.
+  // no in-memory pendingSurfaceActions entry.  Handle non-terminal actions
+  // directly, and forward custom/relay actions to the LLM.
   if (!pending) {
+    // Non-terminal actions don't need stored state — handle directly.
+    if (actionId === "selection_changed") {
+      log.debug(
+        { surfaceId, data },
+        "Selection changed (history-restored, not forwarding)",
+      );
+      return;
+    }
+    if (actionId === "content_changed") {
+      log.debug(
+        { surfaceId },
+        "Content changed (history-restored, no surface state — skipping)",
+      );
+      return;
+    }
+    if (actionId === "state_update") {
+      if (data) {
+        const existing = ctx.accumulatedSurfaceState.get(surfaceId) ?? {};
+        ctx.accumulatedSurfaceState.set(surfaceId, { ...existing, ...data });
+      }
+      log.debug(
+        { surfaceId, data },
+        "Silent state accumulated (history-restored)",
+      );
+      return;
+    }
+
+    // Determine message content from the action.
     const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
     const prompt =
       isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
 
-    if (!prompt) {
-      log.warn({ surfaceId, actionId }, "No pending surface action found");
-      return;
+    let content: string;
+    let displayContent: string | undefined;
+    if (prompt) {
+      content = prompt;
+    } else {
+      // Custom action from an app (e.g. sendAction('answer_selected', {...}))
+      const summary = actionId
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      content = `[User action on app: ${summary}]`;
+      if (data && Object.keys(data).length > 0) {
+        content += `\n\nAction data: ${JSON.stringify(data)}`;
+      }
+      const accState = ctx.accumulatedSurfaceState.get(surfaceId);
+      if (accState && Object.keys(accState).length > 0) {
+        content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
+        ctx.accumulatedSurfaceState.delete(surfaceId);
+      }
+      displayContent = summary;
     }
 
     const requestId = uuid();
@@ -606,11 +649,15 @@ export function handleSurfaceAction(
     });
 
     const result = ctx.enqueueMessage(
-      prompt,
+      content,
       [],
       onEvent,
       requestId,
       surfaceId,
+      undefined,
+      undefined,
+      undefined,
+      displayContent,
     );
 
     if (result.rejected) {
@@ -620,16 +667,18 @@ export function handleSurfaceAction(
 
     // Echo the prompt to the client so it appears in the chat UI.
     // Deferred until after rejection check to avoid ghost messages.
-    ctx.sendToClient({
-      type: "user_message_echo",
-      text: prompt,
-      conversationId: ctx.conversationId,
-    });
+    if (prompt) {
+      ctx.sendToClient({
+        type: "user_message_echo",
+        text: prompt,
+        conversationId: ctx.conversationId,
+      });
+    }
 
     if (result.queued) {
       log.info(
         { surfaceId, actionId, requestId },
-        "Relay prompt queued (conversation busy, history-restored)",
+        "Surface action queued (conversation busy, history-restored)",
       );
       return;
     }
@@ -637,22 +686,31 @@ export function handleSurfaceAction(
     // Conversation is idle — process the message immediately.
     log.info(
       { surfaceId, actionId, requestId },
-      "Processing relay prompt immediately (history-restored)",
+      "Processing surface action immediately (history-restored)",
     );
     ctx
-      .processMessage(prompt, [], onEvent, requestId, surfaceId)
+      .processMessage(
+        content,
+        [],
+        onEvent,
+        requestId,
+        surfaceId,
+        undefined,
+        undefined,
+        displayContent,
+      )
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(
           { err, surfaceId, actionId },
-          "Failed to process history-restored relay prompt",
+          "Failed to process history-restored surface action",
         );
         onEvent(
           buildConversationErrorMessage(ctx.conversationId, {
             code: "CONVERSATION_PROCESSING_FAILED",
             userMessage: `Something went wrong: ${message}`,
             retryable: false,
-            debugDetails: `History-restored relay prompt processing failed: ${message}`,
+            debugDetails: `History-restored surface action processing failed: ${message}`,
             errorCategory: "processing_failed",
           }),
         );
