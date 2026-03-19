@@ -204,6 +204,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     func testSessionCapsRetries() {
         var session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: UUID(),
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -223,6 +224,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     func testExhaustedSessionDoesNotCoalesce() {
         var session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: UUID(),
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -307,6 +309,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convA = UUID()
         let convB = UUID()
         let session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: convA,
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -319,6 +322,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
     func testSessionCoalesceRequiresSameReason() {
         let convId = UUID()
         let session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: convId,
             reason: .streaming,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -383,5 +387,197 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         // No more attempts after detach.
         XCTAssertEqual(callCount, countAfterDetach)
         XCTAssertNil(coordinator.activeSession)
+    }
+
+    // MARK: - Session ID Stability
+
+    func testSessionHasStableSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        let sessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(sessionId, "Active session should have a stable sessionId")
+    }
+
+    func testCoalescingPreservesSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        let originalSessionId = coordinator.activeSession?.sessionId
+
+        // Second request with same reason coalesces.
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+
+        XCTAssertEqual(coordinator.activeSession?.sessionId, originalSessionId,
+                       "Coalesced request should preserve the original sessionId")
+    }
+
+    func testNewSessionGetsDistinctSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        let firstSessionId = coordinator.activeSession?.sessionId
+
+        // Different reason triggers a new session.
+        coordinator.requestPin(reason: .resize, conversationId: convId)
+        let secondSessionId = coordinator.activeSession?.sessionId
+
+        XCTAssertNotNil(firstSessionId)
+        XCTAssertNotNil(secondSessionId)
+        XCTAssertNotEqual(firstSessionId, secondSessionId,
+                          "A new session should get a distinct sessionId")
+    }
+
+    // MARK: - Timeout
+
+    func testSessionTimesOutAfterDeadline() async throws {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        // Wait longer than sessionTimeout (0.5s) + retry interval headroom.
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        // Session should have self-terminated via timeout.
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should be nil after timeout expires")
+    }
+
+    // MARK: - Cancel on Detach
+
+    func testDetachCancelsActiveSessionAndSuppressesFutureRequests() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        coordinator.detach(trigger: .userScrollUp)
+
+        XCTAssertNil(coordinator.activeSession,
+                     "Detach should cancel the active session")
+        XCTAssertFalse(coordinator.isFollowingBottom)
+
+        // Subsequent requests should be suppressed.
+        let countBefore = pinRequestCount
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
+        XCTAssertEqual(pinRequestCount, countBefore,
+                       "Pin requests should be suppressed while detached")
+    }
+
+    func testCancelOnDetachDuringRetryLoop() async throws {
+        let convId = UUID()
+        var callCount = 0
+        pinShouldSucceed = false
+
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return false
+        }
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        // Let a retry or two fire.
+        try await Task.sleep(nanoseconds: 120_000_000)
+        let countBeforeDetach = callCount
+
+        // Detach mid-retry loop.
+        coordinator.detach(trigger: .userScrollUp)
+
+        // Wait for the task to observe cancellation.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertNil(coordinator.activeSession)
+        // No additional pin attempts should have been made after detach.
+        XCTAssertEqual(callCount, countBeforeDetach,
+                       "No retries should fire after detach")
+    }
+
+    // MARK: - Stale Task Cleanup (Generation Mismatch)
+
+    func testStaleTaskDoesNotClobberNewerSession() async throws {
+        let conv1 = UUID()
+        let conv2 = UUID()
+        pinShouldSucceed = false
+
+        // Start a session that will enter the retry loop.
+        coordinator.requestPin(reason: .streaming, conversationId: conv1)
+        let firstSessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(firstSessionId)
+
+        // Immediately start a new session for a different conversation,
+        // which bumps the generation counter and invalidates the first task.
+        coordinator.requestPin(reason: .expansion, conversationId: conv2)
+        let secondSessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(secondSessionId)
+        XCTAssertNotEqual(firstSessionId, secondSessionId)
+
+        // Let async tasks run to completion.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // The stale first task should not have cleared the second session.
+        // The second session either completed normally or timed out on its own.
+        // Either way, no leftover state from the first session should remain.
+        if let remaining = coordinator.activeSession {
+            XCTAssertEqual(remaining.sessionId, secondSessionId,
+                           "If a session remains, it must be the newer one")
+        }
+    }
+
+    func testRapidRequestsOnlyKeepLatestSession() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        // Fire multiple requests with different reasons in rapid succession.
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        coordinator.requestPin(reason: .resize, conversationId: convId)
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        // Only the last session should be active.
+        XCTAssertEqual(coordinator.activeSession?.reason, .streaming,
+                       "Only the most recent session should remain active")
+    }
+
+    // MARK: - Completion Path
+
+    func testSuccessfulRetryCompletesSession() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            // Succeed on the second attempt (first retry).
+            return callCount >= 2
+        }
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+
+        // First attempt fails synchronously; retry loop should succeed.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertGreaterThanOrEqual(callCount, 2)
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should be cleared after successful retry")
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Coordinator should still be following bottom after success")
+    }
+
+    func testSessionElapsedMsIsNonNegative() {
+        let session = BottomPinSession(
+            sessionId: UUID(),
+            conversationId: UUID(),
+            reason: .streaming,
+            startTime: CFAbsoluteTimeGetCurrent()
+        )
+
+        XCTAssertGreaterThanOrEqual(session.elapsedMs, 0,
+                                    "elapsedMs should be non-negative for a freshly created session")
     }
 }

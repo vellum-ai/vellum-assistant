@@ -63,6 +63,8 @@ struct MainWindowView: View {
     /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
+    /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
+    @State private var isInFullscreen: Bool = false
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -93,10 +95,10 @@ struct MainWindowView: View {
     // MARK: - Layout Constants
 
     /// Leading padding to account for macOS traffic light buttons (red/yellow/green).
-    /// Note: This is a fixed value that may not be accurate for all window styles or
-    /// if Apple changes the traffic light spacing. Dynamic measurement would be better
-    /// but requires complex window geometry inspection.
-    let trafficLightPadding: CGFloat = 78
+    /// In native fullscreen the traffic lights are hidden, so we use standard padding.
+    var trafficLightPadding: CGFloat {
+        isInFullscreen ? VSpacing.lg : 78
+    }
 
     func toggleVoiceMode() {
         if voiceModeManager.state != .off {
@@ -629,6 +631,14 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 conversationManager.markActiveConversationSeenIfNeeded()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
+                isInFullscreen = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
+                isInFullscreen = false
+            }
     }
 
     private func applyConversationSelectionModifiers<Content: View>(to content: Content) -> some View {
@@ -679,6 +689,10 @@ struct MainWindowView: View {
     }
 
     private func handleCoreLayoutAppear() {
+        // Sync fullscreen state for windows restored into fullscreen by macOS state restoration.
+        if let window = NSApp.windows.first(where: { $0 is TitleBarZoomableWindow }) {
+            isInFullscreen = window.styleMask.contains(.fullScreen)
+        }
         // Reset stale chat-dock state for users upgrading from older versions.
         // Without this, isAppChatOpen could remain persisted as true with
         // no UI to disable it, leaving panels stuck in split mode.

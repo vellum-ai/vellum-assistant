@@ -34,6 +34,7 @@ export async function embedSegmentJob(
     conversation_id: segment.conversationId,
     message_id: segment.messageId,
     created_at: segment.createdAt,
+    memory_scope_id: segment.scopeId,
   });
 }
 
@@ -58,6 +59,7 @@ export async function embedItemJob(
     confidence: item.confidence,
     created_at: item.firstSeenAt,
     last_seen_at: item.lastSeenAt,
+    memory_scope_id: item.scopeId,
   });
 }
 
@@ -83,6 +85,7 @@ export async function embedSummaryJob(
       kind: summary.scope,
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
+      memory_scope_id: summary.scopeId,
     },
   );
 }
@@ -116,6 +119,7 @@ export async function embedMediaJob(
     created_at: asset.createdAt,
     kind: asset.mediaType,
     subject: asset.title,
+    memory_scope_id: "default",
   });
 }
 

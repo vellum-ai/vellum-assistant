@@ -791,16 +791,16 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        syncCredentialToDaemon(name: "elevenlabs:api_key", value: trimmed)
+        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
+        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        addDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        deleteCredentialFromDaemon(name: "elevenlabs:api_key")
+        addDeletionTombstone(type: "api_key", name: "elevenlabs")
+        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -1246,11 +1246,6 @@ public final class SettingsStore: ObservableObject {
                 if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
-            }
-
-            // ElevenLabs uses the credential type, not api_key
-            if let key = APIKeyManager.getKey(for: "elevenlabs") {
-                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
             }
 
             replayDeletionTombstones()
@@ -2390,9 +2385,11 @@ public final class SettingsStore: ObservableObject {
                     let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
                     managedOAuthError[providerKey] = errorCode ?? "OAuth connection failed"
                 }
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                log.info("User cancelled managed OAuth connect for \(providerKey)")
             } catch {
                 log.error("Managed OAuth connect failed for \(providerKey): \(error)")
-                managedOAuthError[providerKey] = error.localizedDescription
+                managedOAuthError[providerKey] = "Unable to connect your account. Please try again."
             }
         }
     }
@@ -2406,7 +2403,8 @@ public final class SettingsStore: ObservableObject {
 
             do {
                 try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
-                await fetchManagedOAuthConnections(providerKey: providerKey, userId: userId)
+                // Optimistically remove the connection from local state
+                managedOAuthConnections[providerKey]?.removeAll { $0.id == connectionId }
             } catch {
                 log.error("Failed to disconnect managed OAuth connection for \(providerKey): \(error)")
                 managedOAuthError[providerKey] = error.localizedDescription
@@ -2563,7 +2561,7 @@ public final class SettingsStore: ObservableObject {
                         errorMsg = "HTTP \(response.statusCode)"
                     }
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(errorMsg)" }
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
@@ -2572,7 +2570,7 @@ public final class SettingsStore: ObservableObject {
 
                 guard let authURL = URL(string: connectResponse.auth_url) else {
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Invalid auth URL" }
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
@@ -2606,12 +2604,12 @@ public final class SettingsStore: ObservableObject {
                         if elapsed >= timeout { break }
                     }
 
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                 }
             } catch {
                 log.error("Failed to start Your Own OAuth connect: \(error)")
                 if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(error.localizedDescription)" }
-                self.yourOwnOAuthConnectingAppId = nil
+                if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
             }
         }
     }

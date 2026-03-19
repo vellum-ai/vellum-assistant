@@ -61,6 +61,20 @@ extension MemoryItemDetailSheet {
                 }
             }
 
+            if let scopeLabel = displayItem.scopeLabel {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Scope")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 110, alignment: .leading)
+                    VIconView(.lock, size: 12)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text(scopeLabel)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+            }
+
             metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
             metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
             if let lastUsedDate = displayItem.lastUsedDate {

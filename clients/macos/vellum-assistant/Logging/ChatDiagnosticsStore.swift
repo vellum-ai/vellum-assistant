@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import os
 
@@ -5,6 +6,43 @@ private let log = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: "ChatDiagnostics"
 )
+
+// MARK: - Numeric Sanitization
+
+/// Collects the names of fields whose values were non-finite (nan, inf, -inf)
+/// so they can be reported downstream without crashing JSON encoding.
+struct NumericSanitizer: Sendable {
+    /// Names of fields that were dropped because their value was non-finite.
+    private(set) var droppedFields: [String] = []
+
+    /// Returns a finite `Double` if the input is finite, otherwise records the
+    /// field name and returns `nil`.
+    mutating func sanitize(_ value: CGFloat?, field: String) -> Double? {
+        guard let v = value else { return nil }
+        let d = Double(v)
+        guard d.isFinite else {
+            droppedFields.append(field)
+            return nil
+        }
+        return d
+    }
+
+    /// Returns a finite `Double` if the input is finite, otherwise records the
+    /// field name and returns `nil`.
+    mutating func sanitize(_ value: Double?, field: String) -> Double? {
+        guard let v = value else { return nil }
+        guard v.isFinite else {
+            droppedFields.append(field)
+            return nil
+        }
+        return v
+    }
+
+    /// The list of dropped field names, or `nil` if no fields were dropped.
+    var nonFiniteFields: [String]? {
+        droppedFields.isEmpty ? nil : droppedFields
+    }
+}
 
 // MARK: - Event Payloads
 
@@ -19,6 +57,9 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case appLifecycle
     case scrollWheelUntether
     case scrollWheelRetether
+    case detectorInstall
+    case detectorUpdate
+    case detectorRemove
 }
 
 /// Content-safe diagnostic event.
@@ -58,6 +99,12 @@ struct ChatDiagnosticEvent: Codable, Sendable {
     /// Viewport height at event time.
     let viewportHeight: Double?
 
+    // MARK: Sanitization metadata
+
+    /// Names of geometry fields whose original values were non-finite
+    /// (nan, inf, -inf) and were replaced with `nil` during construction.
+    let nonFiniteFields: [String]?
+
     init(
         kind: ChatDiagnosticEventKind,
         conversationId: String? = nil,
@@ -68,7 +115,8 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         isUserScrolling: Bool? = nil,
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
-        viewportHeight: Double? = nil
+        viewportHeight: Double? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.id = UUID().uuidString
         self.timestamp = Date()
@@ -82,6 +130,7 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.nonFiniteFields = nonFiniteFields
     }
 
     /// Test-only initializer that allows setting id and timestamp explicitly.
@@ -97,7 +146,8 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         isUserScrolling: Bool? = nil,
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
-        viewportHeight: Double? = nil
+        viewportHeight: Double? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -111,6 +161,7 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.nonFiniteFields = nonFiniteFields
     }
 }
 
@@ -160,6 +211,12 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     /// Timestamp of the last scroll-loop warning from `ChatScrollLoopGuard`.
     let lastLoopWarningTimestamp: Date?
 
+    // MARK: Sanitization metadata
+
+    /// Names of geometry fields whose original values were non-finite
+    /// (nan, inf, -inf) and were replaced with `nil` during construction.
+    let nonFiniteFields: [String]?
+
     init(
         conversationId: String,
         capturedAt: Date,
@@ -181,7 +238,8 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         scrollViewportHeight: Double? = nil,
         containerWidth: Double? = nil,
         lastScrollToReason: String? = nil,
-        lastLoopWarningTimestamp: Date? = nil
+        lastLoopWarningTimestamp: Date? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.conversationId = conversationId
         self.capturedAt = capturedAt
@@ -204,6 +262,7 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.containerWidth = containerWidth
         self.lastScrollToReason = lastScrollToReason
         self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
+        self.nonFiniteFields = nonFiniteFields
     }
 }
 

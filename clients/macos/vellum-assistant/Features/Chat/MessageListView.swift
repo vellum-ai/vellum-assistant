@@ -237,6 +237,10 @@ struct MessageListView: View {
     /// from genuine turn endings, so the `onChange(of: isSending)` handler can decide
     /// whether to reattach the scroll position on the next `isSending = true` transition.
     @State private var phaseWhenSendingStopped: String = ""
+    /// One-shot flag: logs a warning the first time anchor, tail, or viewport
+    /// geometry is non-finite during a render pass. Visible even if the JSONL
+    /// session log later fails for an unrelated reason.
+    @State private var hasLoggedNonFiniteGeometry: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -626,8 +630,12 @@ struct MessageListView: View {
         log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
         paginationTask = Task {
             defer {
-                isPaginationInFlight = false
-                paginationTask = nil
+                if !Task.isCancelled {
+                    isPaginationInFlight = false
+                    paginationTask = nil
+                } else if paginationTask == nil {
+                    isPaginationInFlight = false
+                }
             }
             let hadMore = await loadPreviousMessagePage?() ?? false
             log.debug("[pagination] loadPreviousMessagePage returned hadMore=\(hadMore)")
@@ -684,14 +692,19 @@ struct MessageListView: View {
             log.warning(
                 "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(countsDescription) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) anchorLastMinY=\(anchorTracker.lastMinY) viewportHeight=\(scrollViewportHeight)"
             )
+            var sanitizer = NumericSanitizer()
+            let safeScrollOffsetY = sanitizer.sanitize(anchorTracker.lastMinY, field: "scrollOffsetY")
+            let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "viewportHeight")
+            logNonFiniteGeometryOnce(sanitizer: sanitizer)
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .scrollLoopDetected,
                 conversationId: convId,
                 reason: "trippedBy=\(snapshot.trippedBy.rawValue) \(countsDescription)",
                 isPinnedToBottom: isNearBottom,
                 isUserScrolling: hasReceivedScrollEvent,
-                scrollOffsetY: Double(anchorTracker.lastMinY),
-                viewportHeight: Double(scrollViewportHeight)
+                scrollOffsetY: safeScrollOffsetY,
+                viewportHeight: safeViewportHeight,
+                nonFiniteFields: sanitizer.nonFiniteFields
             ))
         }
     }
@@ -716,13 +729,16 @@ struct MessageListView: View {
         let msgs = messages
         let totalToolCalls = msgs.reduce(0) { $0 + $1.toolCalls.count }
 
-        // Clamp non-finite geometry to nil so JSONEncoder doesn't reject the
-        // snapshot during DebugStateWriter / HangContextWriter serialization.
+        // Route all geometry through NumericSanitizer so non-finite values
+        // (inf, -inf, NaN) are replaced with nil and tracked in nonFiniteFields.
         // scrollViewportHeight and lastTailAnchorY start as .infinity before
         // their preference callbacks run.
-        let clampedAnchorMinY = anchorTracker.lastMinY.isFinite ? Double(anchorTracker.lastMinY) : nil
-        let clampedTailAnchorY = scrollTracking.lastTailAnchorY.isFinite ? Double(scrollTracking.lastTailAnchorY) : nil
-        let clampedViewportHeight = scrollViewportHeight.isFinite ? Double(scrollViewportHeight) : nil
+        var sanitizer = NumericSanitizer()
+        let safeAnchorMinY = sanitizer.sanitize(anchorTracker.lastMinY, field: "anchorMinY")
+        let safeTailAnchorY = sanitizer.sanitize(scrollTracking.lastTailAnchorY, field: "tailAnchorY")
+        let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "scrollViewportHeight")
+        let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
+        logNonFiniteGeometryOnce(sanitizer: sanitizer)
 
         ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
             conversationId: convId.uuidString,
@@ -731,20 +747,30 @@ struct MessageListView: View {
             toolCallCount: totalToolCalls,
             isPinnedToBottom: isNearBottom,
             isUserScrolling: hasReceivedScrollEvent,
-            scrollOffsetY: clampedAnchorMinY,
+            scrollOffsetY: safeAnchorMinY,
             contentHeight: nil,
-            viewportHeight: clampedViewportHeight,
+            viewportHeight: safeViewportHeight,
             isNearBottom: isNearBottom,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
             suppressionReason: isSuppressingBottomScroll ? "bottomScrollSuppressed" : nil,
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
-            anchorMinY: clampedAnchorMinY,
-            tailAnchorY: clampedTailAnchorY,
-            scrollViewportHeight: clampedViewportHeight,
-            containerWidth: Double(containerWidth)
+            anchorMinY: safeAnchorMinY,
+            tailAnchorY: safeTailAnchorY,
+            scrollViewportHeight: safeViewportHeight,
+            containerWidth: safeContainerWidth,
+            nonFiniteFields: sanitizer.nonFiniteFields
         ))
+    }
+
+    /// Logs a one-time warning when scroll geometry first becomes non-finite
+    /// during a render pass. Uses the MessageListView logger so the condition
+    /// is visible even if the JSONL session log later fails for another reason.
+    private func logNonFiniteGeometryOnce(sanitizer: NumericSanitizer) {
+        guard !hasLoggedNonFiniteGeometry, let fields = sanitizer.nonFiniteFields else { return }
+        hasLoggedNonFiniteGeometry = true
+        log.warning("Non-finite scroll geometry detected — sanitized fields: \(fields.joined(separator: ", "))")
     }
 
     /// Routes an automatic bottom-follow request through the coordinator.
@@ -1237,10 +1263,13 @@ struct MessageListView: View {
                 scrollRestoreTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
+                isPaginationInFlight = false
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
+                snapshotDebounceTask?.cancel()
+                snapshotDebounceTask = nil
                 highlightedMessageId = nil
                 // Cancel any active pin session to prevent the coordinator's
                 // sessionTask from calling scrollTo on a stale ScrollViewProxy.
@@ -1435,6 +1464,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
+                snapshotDebounceTask?.cancel()
+                snapshotDebounceTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
                 isPaginationInFlight = false

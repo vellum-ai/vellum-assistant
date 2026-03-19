@@ -7,7 +7,7 @@ metadata:
     display-name: "Skill Management"
 ---
 
-Manage the lifecycle of custom managed skills in `~/.vellum/workspace/skills`.
+Manage the lifecycle of custom managed skills in `{workspaceDir}/skills`.
 
 ## Capabilities
 

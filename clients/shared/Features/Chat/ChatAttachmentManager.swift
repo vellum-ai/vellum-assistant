@@ -53,6 +53,19 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
+    /// Increment the loading count from an external source (e.g. drag-and-drop
+    /// that needs immediate feedback before NSItemProvider async loads resolve).
+    /// Must be balanced by a call to `endExternalLoad()`.
+    public func beginExternalLoad() {
+        loadingCount += 1
+    }
+
+    /// Decrement the loading count after an external load completes or the
+    /// actual `addAttachment` call takes over tracking.
+    public func endExternalLoad() {
+        loadingCount = max(loadingCount - 1, 0)
+    }
+
     /// Limits concurrent attachment I/O to keep memory usage reasonable.
     private static let maxConcurrentLoads = 2
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)

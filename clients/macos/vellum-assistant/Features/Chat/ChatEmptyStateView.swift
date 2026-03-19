@@ -20,8 +20,6 @@ struct ChatEmptyStateView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
@@ -134,8 +132,6 @@ struct ChatEmptyStateView: View {
             onAttach: onAttach,
             onRemoveAttachment: onRemoveAttachment,
             onPaste: onPaste,
-            onFileDrop: onFileDrop,
-            onDropImageData: onDropImageData,
             onMicrophoneToggle: onMicrophoneToggle,
             recordingAmplitude: recordingAmplitude,
             onDictateToggle: onDictateToggle,
@@ -155,6 +151,7 @@ struct ChatEmptyStateView: View {
                 starters: conversationStarters,
                 onSelect: { starter in onSelectStarter?(starter) }
             )
+            .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .padding(.top, VSpacing.xxl)
             .opacity(visible ? 1 : 0)
@@ -345,8 +342,6 @@ struct ChatTemporaryChatEmptyStateView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
@@ -391,8 +386,6 @@ struct ChatTemporaryChatEmptyStateView: View {
                 onAttach: onAttach,
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
-                onFileDrop: onFileDrop,
-                onDropImageData: onDropImageData,
                 onMicrophoneToggle: onMicrophoneToggle,
                 recordingAmplitude: recordingAmplitude,
                 onDictateToggle: onDictateToggle,

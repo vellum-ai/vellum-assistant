@@ -999,6 +999,7 @@ struct ConstellationView: View {
                                 height: panOffset.height + value.translation.height
                             )
                             dragOffset = .zero
+                            zoomedNodeId = nil
                         }
                 )
                 .gesture(
@@ -1009,6 +1010,7 @@ struct ConstellationView: View {
                         .onEnded { value in
                             zoomScale = max(0.4, min(3.0, baseZoomScale * value.magnification))
                             baseZoomScale = zoomScale
+                            zoomedNodeId = nil
                         }
                 )
                 .onAppear {
@@ -1059,6 +1061,7 @@ struct ConstellationView: View {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
+                zoomedNodeId = nil
             }
 
             VButton(label: "Zoom out", iconOnly: VIcon.zoomOut.rawValue, style: .ghost, tooltip: "Zoom out") {
@@ -1066,6 +1069,7 @@ struct ConstellationView: View {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
+                zoomedNodeId = nil
             }
 
             VButton(label: "Fit all", iconOnly: VIcon.scan.rawValue, style: .ghost, tooltip: "Fit all skills") {

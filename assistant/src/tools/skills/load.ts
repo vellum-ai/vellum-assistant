@@ -24,6 +24,7 @@ import {
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -76,7 +77,9 @@ function formatToolSchemas(
 
   for (const tool of manifest.tools) {
     lines.push(`${toolHeadingLevel} ${tool.name}`);
-    lines.push(tool.description);
+    lines.push(
+      tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
+    );
 
     const schema = tool.input_schema;
     const properties = schema.properties as
@@ -96,7 +99,7 @@ function formatToolSchemas(
           : "optional";
         const descPart =
           typeof paramDef.description === "string"
-            ? `: ${paramDef.description}`
+            ? `: ${paramDef.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay())}`
             : "";
         lines.push(
           `- ${paramName} (${paramType}, ${requiredLabel})${descPart}`,
@@ -113,7 +116,7 @@ function formatToolSchemas(
 export class SkillLoadTool implements Tool {
   name = "skill_load";
   description =
-    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and workspace skills in ~/.vellum/workspace/skills.";
+    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
   category = "skills";
   defaultRiskLevel = RiskLevel.Low;
 
