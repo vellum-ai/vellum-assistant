@@ -80,7 +80,7 @@ export interface FetchManagedCatalogResult {
 export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> {
   const client = await VellumPlatformClient.create();
 
-  if (!client) {
+  if (!client || !client.platformAssistantId) {
     return { ok: true, descriptors: [] };
   }
 

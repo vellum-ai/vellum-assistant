@@ -22,7 +22,7 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { VellumPlatformClient } from "../platform/client.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -138,11 +138,9 @@ export class UsageTelemetryReporter {
       )
         return;
 
-      // Resolve auth context — skip flush when neither auth mode is viable.
-      // Telemetry only needs URL + API key, not an assistant ID, so we use
-      // resolveManagedProxyContext() directly instead of VellumPlatformClient.
-      const proxyCtx = await resolveManagedProxyContext();
-      if (!proxyCtx.enabled && !getTelemetryAppToken()) {
+      // Resolve auth context — skip flush when neither auth mode is viable
+      const client = await VellumPlatformClient.create();
+      if (!client && !getTelemetryAppToken()) {
         return;
       }
 
@@ -202,15 +200,8 @@ export class UsageTelemetryReporter {
       };
 
       let resp: Response;
-      if (proxyCtx.enabled) {
-        const url = `${proxyCtx.platformBaseUrl}${TELEMETRY_PATH}`;
-        resp = await fetch(url, {
-          ...fetchInit,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Api-Key ${proxyCtx.assistantApiKey}`,
-          },
-        });
+      if (client) {
+        resp = await client.fetch(TELEMETRY_PATH, fetchInit);
       } else {
         const url = `${getTelemetryPlatformUrl()}${TELEMETRY_PATH}`;
         resp = await fetch(url, {

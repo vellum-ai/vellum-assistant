@@ -70,11 +70,12 @@ describe("VellumPlatformClient", () => {
       expect(client).toBeNull();
     });
 
-    test("returns null when assistant ID is missing", async () => {
+    test("returns client with empty assistantId when assistant ID is missing", async () => {
       mockAssistantId = "";
 
       const client = await VellumPlatformClient.create();
-      expect(client).toBeNull();
+      expect(client).not.toBeNull();
+      expect(client!.platformAssistantId).toBe("");
     });
 
     test("strips trailing slash from platform base URL", async () => {

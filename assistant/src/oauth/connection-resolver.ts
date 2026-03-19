@@ -49,9 +49,12 @@ export async function resolveOAuthConnection(
     const services: Services = getConfig().services;
     if (services[managedKey as keyof Services].mode === "managed") {
       const client = await VellumPlatformClient.create();
-      if (!client) {
+      if (!client || !client.platformAssistantId) {
+        const detail = !client
+          ? "missing platform prerequisites"
+          : "missing assistant ID";
         throw new Error(
-          `Platform-managed connection for "${providerKey}" cannot be created: missing platform prerequisites. ` +
+          `Platform-managed connection for "${providerKey}" cannot be created: ${detail}. ` +
             `Log in to the Vellum platform or switch to using your own OAuth app.`,
         );
       }

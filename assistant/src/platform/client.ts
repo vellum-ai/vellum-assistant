@@ -24,16 +24,17 @@ export class VellumPlatformClient {
   }
 
   /**
-   * Create a platform client by resolving managed proxy context and assistant ID.
+   * Create a platform client by resolving managed proxy context.
    *
-   * Returns `null` when prerequisites are missing (not logged in, no API key, etc.).
+   * Returns `null` when auth prerequisites are missing (not logged in, no API
+   * key). The assistant ID is resolved but not required — callers that need it
+   * should check `platformAssistantId` themselves.
    */
   static async create(): Promise<VellumPlatformClient | null> {
     const ctx = await resolveManagedProxyContext();
     if (!ctx.enabled) return null;
 
     const assistantId = getPlatformAssistantId();
-    if (!assistantId) return null;
 
     return new VellumPlatformClient(
       ctx.platformBaseUrl,
