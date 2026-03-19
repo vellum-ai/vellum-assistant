@@ -25,11 +25,8 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import {
-  EMPTY_REDUCER_RESULT,
-  type ReducerResult,
-} from "../memory/reducer-types.js";
 import { parseReducerOutput } from "../memory/reducer.js";
+import { EMPTY_REDUCER_RESULT } from "../memory/reducer-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -265,9 +262,7 @@ describe("parseReducerOutput — partial outputs", () => {
   test("accepts output with only archiveObservations", () => {
     const result = parseReducerOutput(
       toRaw({
-        archiveObservations: [
-          { content: "User likes coffee", role: "user" },
-        ],
+        archiveObservations: [{ content: "User likes coffee", role: "user" }],
       }),
     );
     expect(result.archiveObservations).toHaveLength(1);
@@ -280,9 +275,7 @@ describe("parseReducerOutput — partial outputs", () => {
   test("accepts output with only archiveEpisodes", () => {
     const result = parseReducerOutput(
       toRaw({
-        archiveEpisodes: [
-          { title: "Onboarding", summary: "First session" },
-        ],
+        archiveEpisodes: [{ title: "Onboarding", summary: "First session" }],
       }),
     );
     expect(result.archiveEpisodes).toHaveLength(1);
@@ -532,9 +525,7 @@ describe("parseReducerOutput — open-loop validation", () => {
   test("accepts update with only dueAt", () => {
     const result = parseReducerOutput(
       toRaw({
-        openLoops: [
-          { action: "update", id: "ol-1", dueAt: 1700000000000 },
-        ],
+        openLoops: [{ action: "update", id: "ol-1", dueAt: 1700000000000 }],
       }),
     );
     expect(result.openLoops).toHaveLength(1);
@@ -543,9 +534,7 @@ describe("parseReducerOutput — open-loop validation", () => {
   test("accepts resolve with status 'expired'", () => {
     const result = parseReducerOutput(
       toRaw({
-        openLoops: [
-          { action: "resolve", id: "ol-1", status: "expired" },
-        ],
+        openLoops: [{ action: "resolve", id: "ol-1", status: "expired" }],
       }),
     );
     expect(result.openLoops).toHaveLength(1);
@@ -557,9 +546,7 @@ describe("parseReducerOutput — open-loop validation", () => {
   test("rejects resolve with invalid status value", () => {
     const result = parseReducerOutput(
       toRaw({
-        openLoops: [
-          { action: "resolve", id: "ol-1", status: "deleted" },
-        ],
+        openLoops: [{ action: "resolve", id: "ol-1", status: "deleted" }],
       }),
     );
     expect(result.openLoops).toHaveLength(0);
@@ -707,7 +694,6 @@ describe("parseReducerOutput — tolerates extra keys", () => {
     );
     expect(result.openLoops).toHaveLength(1);
     // Extra fields should NOT be present on the validated result
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((result.openLoops[0] as any).extraField).toBeUndefined();
   });
 });

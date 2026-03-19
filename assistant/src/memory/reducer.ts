@@ -11,9 +11,9 @@
 
 import { getLogger } from "../util/logger.js";
 import {
-  EMPTY_REDUCER_RESULT,
   type ArchiveEpisodeCandidate,
   type ArchiveObservationCandidate,
+  EMPTY_REDUCER_RESULT,
   type OpenLoopCreate,
   type OpenLoopOp,
   type OpenLoopUpdate,
@@ -186,9 +186,7 @@ function validateArchiveObservation(
   return result;
 }
 
-function validateArchiveEpisode(
-  raw: unknown,
-): ArchiveEpisodeCandidate | null {
+function validateArchiveEpisode(raw: unknown): ArchiveEpisodeCandidate | null {
   if (raw == null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   if (!isNonEmptyString(obj.title) || !isNonEmptyString(obj.summary)) {
