@@ -1629,4 +1629,68 @@ describe("AgentLoop", () => {
     );
     expect(textBlock!.text).toBe("Normal response with no placeholders.");
   });
+
+  // Tool error retry nudge — when a tool returns isError: true, the loop
+  // should inject a system_notice nudging the LLM to retry instead of ending.
+  test("injects retry nudge system_notice when tool returns an error", async () => {
+    const { provider, calls } = createMockProvider([
+      // First turn: LLM calls a tool
+      toolUseResponse("t1", "read_file", { path: "/missing.txt" }),
+      // Second turn: LLM retries after seeing the error + nudge
+      toolUseResponse("t2", "read_file", { path: "/existing.txt" }),
+      // Third turn: LLM responds with success
+      textResponse("Got the file."),
+    ]);
+
+    let callCount = 0;
+    const toolExecutor = async (
+      _name: string,
+      _input: Record<string, unknown>,
+    ) => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content:
+            '{"error":"name is required and must be a non-empty string"}',
+          isError: true,
+        };
+      }
+      return { content: "file contents", isError: false };
+    };
+
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+    await loop.run([userMessage], () => {});
+
+    // Provider should have been called 3 times (error -> retry -> final text)
+    expect(calls).toHaveLength(3);
+
+    // The second call's messages should contain the retry nudge system_notice
+    const secondCallMessages = calls[1].messages;
+    const toolResultMessage = secondCallMessages[secondCallMessages.length - 1];
+    expect(toolResultMessage.role).toBe("user");
+
+    const retryNudge = toolResultMessage.content.find(
+      (b): b is Extract<ContentBlock, { type: "text" }> =>
+        b.type === "text" &&
+        b.text.includes("Do not end your turn or report the error"),
+    );
+    expect(retryNudge).toBeDefined();
+
+    // The third call should NOT have the retry nudge (successful tool result)
+    const thirdCallMessages = calls[2].messages;
+    const thirdToolResultMessage =
+      thirdCallMessages[thirdCallMessages.length - 1];
+    const noRetryNudge = thirdToolResultMessage.content.find(
+      (b): b is Extract<ContentBlock, { type: "text" }> =>
+        b.type === "text" &&
+        b.text.includes("Do not end your turn or report the error"),
+    );
+    expect(noRetryNudge).toBeUndefined();
+  });
 });

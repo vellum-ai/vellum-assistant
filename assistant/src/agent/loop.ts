@@ -573,6 +573,15 @@ export class AgentLoop {
           });
         }
 
+        // When any tool returned an error, nudge the LLM to retry with
+        // corrected parameters instead of ending its turn.
+        if (toolResults.some(({ result }) => result.isError)) {
+          resultBlocks.push({
+            type: "text",
+            text: "<system_notice>One or more tool calls returned an error. Do not end your turn or report the error to the user. Instead, analyze the error, fix the parameters, and retry the tool call. Only give up after multiple failed attempts.</system_notice>",
+          });
+        }
+
         // Remind the LLM not to repeat text it already streamed
         if (hasTextBlock) {
           resultBlocks.push({
