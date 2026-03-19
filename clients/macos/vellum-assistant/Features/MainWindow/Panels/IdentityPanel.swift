@@ -15,14 +15,10 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
-    @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
-
-    private let sidebarMinWidth: CGFloat = 200
-    private let sidebarMaxWidth: CGFloat = 280
-    private let sidebarFraction: CGFloat = 0.3
+    @State private var isIdentityMinimized: Bool = false
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapActive: Bool {
@@ -43,91 +39,106 @@ struct IdentityPanel: View {
 
     var body: some View {
         GeometryReader { geo in
-            let computedSidebarWidth = min(sidebarMaxWidth, max(sidebarMinWidth, geo.size.width * sidebarFraction))
-            let avatarSize = min(180, computedSidebarWidth - VSpacing.lg * 2)
-            HStack(alignment: .top, spacing: 0) {
-                // Left sidebar: title, avatar, ID card — hidden in fullscreen
-                if !isFullscreen {
-                    VStack(spacing: 0) {
-                        VStack(spacing: 0) {
-                            // Intro heading — show daemon-generated text, fall back to static name
-                            Text(introText ?? "I'm \(assistantDisplayName)!")
-                                .font(.system(size: 22, weight: .regular, design: .rounded))
-                                .foregroundColor(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
-
-                            Spacer()
-
-                            // Large centered avatar
-                            Group {
-                                if let body = appearance.characterBodyShape,
-                                   let eyes = appearance.characterEyeStyle,
-                                   let color = appearance.characterColor {
-                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
-                                                       entryAnimationEnabled: true)
-                                        .frame(width: avatarSize, height: avatarSize)
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                } else {
-                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                }
-                            }
-
-                            // Update Avatar button
-                            VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
-                                .padding(.top, VSpacing.md)
-
-                            Spacer()
-
-                            // Divider
-                            Divider().background(VColor.surfaceOverlay)
-
-                            // Role + Hatched date
-                            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-                                if let role, !role.isEmpty {
-                                    identityInfoRow(label: "Role", value: role)
-                                }
-                                if let date = metadata?.createdAt {
-                                    identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.lg)
-                        }
-                        .frame(maxHeight: .infinity)
-                        .background(VColor.surfaceBase)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            let cardWidth: CGFloat = 260
+            let cardHeight: CGFloat = geo.size.height * 0.25
+            let avatarSize = min(80, cardHeight * 0.4)
+            ZStack(alignment: .topLeading) {
+                // Constellation fills entire panel
+                ConstellationView(
+                    identity: identity,
+                    skills: skills,
+                    workspaceFiles: workspaceFiles,
+                    onFileSelected: { path in
+                        viewingFilePath = path
                     }
-                    .frame(width: computedSidebarWidth)
-                    .padding(.trailing, VSpacing.lg)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Hex grid fills the rest of the space — card when not fullscreen
-            ConstellationView(
-                identity: identity,
-                skills: skills,
-                workspaceFiles: workspaceFiles,
-                onFileSelected: { path in
-                    viewingFilePath = path
-                },
-                isFullscreen: $isFullscreen
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(isFullscreen ? Color.clear : VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
-                    .stroke(isFullscreen ? Color.clear : VColor.borderDisabled, lineWidth: 1)
-            )
-                .padding(.trailing, 0)
+                // Compact identity overlay card / minimized avatar
+                if isIdentityMinimized {
+                    // Minimized: small circular avatar button
+                    Button {
+                        withAnimation(VAnimation.snappy) {
+                            isIdentityMinimized = false
+                        }
+                    } label: {
+                        VAvatarImage(image: appearance.fullAvatarImage, size: 36, showBorder: false)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .background(VColor.surfaceBase)
+                    .clipShape(Circle())
+                    .vShadow(VShadow.sm)
+                    .padding(VSpacing.lg)
+                    .transition(.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity))
+                    .accessibilityLabel("Show identity card")
+                } else {
+                    // Full identity card
+                    VStack(spacing: 0) {
+                        // Intro heading
+                        Text(introText ?? "I'm \(assistantDisplayName)!")
+                            .font(.system(size: 22, weight: .regular, design: .rounded))
+                            .foregroundColor(VColor.contentDefault)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, VSpacing.md)
+                            .padding(.horizontal, VSpacing.sm)
+
+                        Spacer().frame(minHeight: VSpacing.xs)
+
+                        // Avatar
+                        Group {
+                            if let body = appearance.characterBodyShape,
+                               let eyes = appearance.characterEyeStyle,
+                               let color = appearance.characterColor {
+                                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
+                                                   entryAnimationEnabled: true)
+                                    .frame(width: avatarSize, height: avatarSize)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            } else {
+                                VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                        }
+                        .onTapGesture { showAvatarSheet = true }
+
+                        Spacer().frame(minHeight: VSpacing.xs)
+
+                        // Divider
+                        Divider().background(VColor.surfaceOverlay)
+
+                        // Role + Hatched date
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
+                            if let role, !role.isEmpty {
+                                identityInfoRow(label: "Role", value: role)
+                            }
+                            if let date = metadata?.createdAt {
+                                identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.sm)
+                    }
+                    .frame(width: cardWidth, height: cardHeight)
+                    .background(VColor.surfaceBase)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.borderBase, lineWidth: 1))
+                    .vShadow(VShadow.md)
+                    .overlay(alignment: .topTrailing) {
+                        VButton(label: "Minimize", iconOnly: VIcon.chevronUp.rawValue, style: .ghost) {
+                            withAnimation(VAnimation.snappy) {
+                                isIdentityMinimized = true
+                            }
+                        }
+                        .padding(VSpacing.xs)
+                    }
+                    .padding(VSpacing.lg)
+                    .transition(.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity))
+                }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
+            .animation(VAnimation.snappy, value: isIdentityMinimized)
             .overlay {
                 VColor.auxBlack.opacity(viewingFilePath != nil ? 0.4 : 0)
                     .ignoresSafeArea()
@@ -227,72 +238,6 @@ struct IdentityPanel: View {
         }
     }
 
-    // MARK: - ID Card
-
-    @ViewBuilder
-    private func idCardSection(identity: IdentityInfo?, remoteIdentity: RemoteIdentityInfo?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Agent ID (only available from local identity)
-            if let identity {
-                idRow(label: "Agent ID", value: identity.agentID, mono: true)
-            }
-
-            // Given name: remote > local > assistantId
-            let name = AssistantDisplayName.firstUserFacing(from: [
-                remoteIdentity?.name.nilIfEmpty,
-                identity?.name,
-                lockfileAssistant?.assistantId,
-            ])
-            if let name {
-                idRow(label: "Given name", value: name)
-            }
-
-            // Role: remote > local (truncated with tooltip for long values)
-            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-            if let role, !role.isEmpty {
-                idRow(label: "Role", value: role, truncate: true)
-            }
-
-            // Personality: remote > local
-            let personality = remoteIdentity?.personality.nilIfEmpty ?? identity?.personality
-            if let personality, !personality.isEmpty {
-                idRow(label: "Personality", value: personality)
-            }
-
-            // Version: remote > daemon > metadata
-            let version = remoteIdentity?.version ?? daemonClient.daemonVersion ?? metadata?.version
-            idRow(label: "Version", value: version ?? "—")
-
-            if let date = metadata?.createdAt {
-                idRow(label: "Created at", value: formatDate(date))
-            }
-
-            idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
-        }
-    }
-
-    private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-
-            if truncate {
-                Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .help(value)
-            } else {
-                Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
@@ -310,12 +255,6 @@ struct IdentityPanel: View {
         return formatter.string(from: date)
     }
 
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
 }
 
 private extension String {

@@ -692,7 +692,6 @@ struct ConstellationView: View {
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
     var onFileSelected: ((String) -> Void)?
-    @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var phase: AnimationPhase = .hidden
@@ -980,10 +979,6 @@ struct ConstellationView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
-                .overlay(alignment: .topLeading) {
-                    fullscreenToggle
-                        .padding(VSpacing.lg)
-                }
                 .overlay(alignment: .bottomTrailing) {
                     viewportControls(viewSize: proxy.size)
                         .padding(VSpacing.lg)
@@ -1031,23 +1026,6 @@ struct ConstellationView: View {
                     return .ignored
                 }
                 #endif
-        }
-    }
-
-    // MARK: - Fullscreen Toggle (top-left)
-
-    private var fullscreenToggle: some View {
-        VButton(
-            label: isFullscreen ? "Collapse" : "Expand",
-            iconOnly: isFullscreen
-                ? VIcon.minimize.rawValue
-                : VIcon.maximize.rawValue,
-            style: .ghost,
-            tooltip: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
-        ) {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                isFullscreen.toggle()
-            }
         }
     }
 
