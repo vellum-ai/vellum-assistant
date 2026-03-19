@@ -99,7 +99,7 @@ describe("normalizeLlmContextPayloads", () => {
         kind: "message",
         label: "User message 2",
         role: "user",
-        text: "What's the weather in Boston? [image]",
+        text: "What's the weather in Boston?\n\n[image]",
       },
       {
         kind: "tool_definitions",
@@ -564,6 +564,173 @@ describe("normalizeLlmContextPayloads", () => {
         text: '{"title":"brief"}',
       },
     ]);
+  });
+
+  test("normalizes an OpenAI request even when the response payload is malformed", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_005,
+      requestPayload: {
+        model: "gpt-4.1",
+        tool_choice: "auto",
+        messages: [
+          {
+            role: "system",
+            content: "Line 1\n  Line 2",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "First paragraph" },
+              { type: "text", text: "  Second line\n    third line" },
+            ],
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Lookup a record",
+              parameters: { type: "object" },
+            },
+          },
+        ],
+      },
+      responsePayload: "not-json",
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-4.1",
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: undefined,
+      requestMessageCount: 2,
+      requestToolCount: 1,
+      responseMessageCount: undefined,
+      responseToolCallCount: undefined,
+      responsePreview: undefined,
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        text: "Line 1\n  Line 2",
+      },
+      {
+        kind: "message",
+        label: "User message 2",
+        role: "user",
+        text: "First paragraph\n\n  Second line\n    third line",
+      },
+      {
+        kind: "tool_definitions",
+        label: "Available tools",
+        data: {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "lookup",
+                description: "Lookup a record",
+                parameters: { type: "object" },
+              },
+            },
+          ],
+        },
+        language: "json",
+      },
+      {
+        kind: "settings",
+        label: "Request settings",
+        data: {
+          model: "gpt-4.1",
+          tool_choice: "auto",
+        },
+        language: "json",
+      },
+    ]);
+    expect(normalized.responseSections).toBeUndefined();
+  });
+
+  test("normalizes an OpenAI response even when the request payload is malformed", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_006,
+      requestPayload: "not-json",
+      responsePayload: {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "First line\n  Second line\n\n    Third line",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 18,
+          completion_tokens: 9,
+        },
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-4.1-2026-03-01",
+      inputTokens: 18,
+      outputTokens: 9,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: "stop",
+      requestMessageCount: undefined,
+      requestToolCount: undefined,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "First line Second line Third line",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toBeUndefined();
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "First line\n  Second line\n\n    Third line",
+      },
+    ]);
+  });
+
+  test("does not mix request and response from different providers", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_007,
+      requestPayload: {
+        model: "gpt-4.1",
+        tool_choice: "auto",
+        messages: [{ role: "user", content: "Hello" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Lookup a record",
+              parameters: { type: "object" },
+            },
+          },
+        ],
+      },
+      responsePayload: {
+        model: "claude-sonnet-4-6",
+        content: [{ type: "text", text: "Hello back." }],
+        stop_reason: "end_turn",
+      },
+    });
+
+    expect(normalized).toEqual({});
   });
 
   test("omits normalized fields for malformed or unknown payloads", () => {
