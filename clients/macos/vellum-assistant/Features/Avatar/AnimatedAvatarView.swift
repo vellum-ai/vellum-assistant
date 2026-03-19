@@ -165,8 +165,16 @@ class AvatarLayerView: NSView {
                    entryAnimationEnabled: Bool = false) {
         configBreathingEnabled = breathingEnabled
         configBlinkEnabled = blinkEnabled
+        let pokeChanged = configPokeEnabled != pokeEnabled
         configPokeEnabled = pokeEnabled
         configEntryAnimationEnabled = entryAnimationEnabled
+
+        // When pokeEnabled changes, AppKit won't re-invoke resetCursorRects()
+        // on its own (the frame hasn't changed), so we must explicitly ask it
+        // to re-query cursor rects for this view.
+        if pokeChanged {
+            window?.invalidateCursorRects(for: self)
+        }
 
         // Recovery: if entry was set up but entryAnimationEnabled was turned off
         // (e.g. SwiftUI re-rendered with entryAnimationEnabled=false before
