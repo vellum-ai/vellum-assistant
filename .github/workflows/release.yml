@@ -320,12 +320,19 @@ jobs:
         run: |
           LOCATION="${{ secrets.GCP_REGISTRY_HOST }}"
           LOCATION="${LOCATION%-docker.pkg.dev}"
-          gcloud artifacts repositories create \
+          if ! output=$(gcloud artifacts repositories create \
             "${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" \
             --repository-format=docker \
             --location="$LOCATION" \
             --project="${{ secrets.GCP_PROJECT_ID }}" \
-            2>/dev/null || true
+            2>&1); then
+            if echo "$output" | grep -q "ALREADY_EXISTS"; then
+              echo "Repository already exists, continuing."
+            else
+              echo "$output" >&2
+              exit 1
+            fi
+          fi
 
       - name: Build and push by digest
         id: build
