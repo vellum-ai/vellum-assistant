@@ -69,14 +69,52 @@ private struct PersistedConversation: Codable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    // Map conversationId to the legacy "sessionId" JSON key so that
-    // existing UserDefaults data (encoded before the rename) decodes
-    // correctly on upgrade instead of silently dropping all cached
-    // conversations.
+    // Decode both the legacy "sessionId" key and the current "conversationId"
+    // key so UserDefaults data written by any version (pre-rename, intermediate,
+    // or current) is read correctly.  Encoding always uses "conversationId".
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder, isPrivate
-        case conversationId = "sessionId"
+        case conversationId
         case scheduleJobId, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
+        // Legacy key used before the session-to-conversation rename.
+        case legacySessionId = "sessionId"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+        displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder)
+        isPrivate = try container.decodeIfPresent(Bool.self, forKey: .isPrivate)
+        // Try the current key first, fall back to the legacy key.
+        conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+            ?? container.decodeIfPresent(String.self, forKey: .legacySessionId)
+        scheduleJobId = try container.decodeIfPresent(String.self, forKey: .scheduleJobId)
+        hasUnseenLatestAssistantMessage = try container.decodeIfPresent(Bool.self, forKey: .hasUnseenLatestAssistantMessage)
+        latestAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .latestAssistantMessageAt)
+        lastSeenAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAssistantMessageAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
+        try container.encodeIfPresent(isArchived, forKey: .isArchived)
+        try container.encodeIfPresent(isPinned, forKey: .isPinned)
+        try container.encodeIfPresent(displayOrder, forKey: .displayOrder)
+        try container.encodeIfPresent(isPrivate, forKey: .isPrivate)
+        // Always encode under the current "conversationId" key.
+        try container.encodeIfPresent(conversationId, forKey: .conversationId)
+        try container.encodeIfPresent(scheduleJobId, forKey: .scheduleJobId)
+        try container.encodeIfPresent(hasUnseenLatestAssistantMessage, forKey: .hasUnseenLatestAssistantMessage)
+        try container.encodeIfPresent(latestAssistantMessageAt, forKey: .latestAssistantMessageAt)
+        try container.encodeIfPresent(lastSeenAssistantMessageAt, forKey: .lastSeenAssistantMessageAt)
     }
 }
 
