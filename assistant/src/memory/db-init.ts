@@ -84,6 +84,7 @@ import {
   migrateLlmRequestLogProvider,
   migrateMemoryBriefState,
   migrateMemoryItemSupersession,
+  migrateMemoryReducerCheckpoints,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
@@ -487,6 +488,9 @@ export function initializeDb(): void {
 
   // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
   migrateMemoryBriefState(database);
+
+  // 86. Add memory reducer checkpoint columns to conversations
+  migrateMemoryReducerCheckpoints(database);
 
   validateMigrationState(database);
 

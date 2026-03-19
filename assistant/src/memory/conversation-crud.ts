@@ -171,6 +171,9 @@ export interface ConversationRow {
   forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
+  memoryReducedThroughMessageId: string | null;
+  memoryDirtyTailSinceMessageId: string | null;
+  memoryLastReducedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -196,6 +199,9 @@ export const parseConversation = createRowMapper<
   forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
+  memoryReducedThroughMessageId: "memoryReducedThroughMessageId",
+  memoryDirtyTailSinceMessageId: "memoryDirtyTailSinceMessageId",
+  memoryLastReducedAt: "memoryLastReducedAt",
 });
 
 export interface MessageRow {

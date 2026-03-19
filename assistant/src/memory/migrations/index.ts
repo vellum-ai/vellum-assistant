@@ -127,6 +127,7 @@ export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-disp
 export { migrateConversationForkLineage } from "./183-add-conversation-fork-lineage.js";
 export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
 export { migrateMemoryBriefState } from "./185-memory-brief-state.js";
+export { migrateMemoryReducerCheckpoints } from "./187-memory-reducer-checkpoints.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
