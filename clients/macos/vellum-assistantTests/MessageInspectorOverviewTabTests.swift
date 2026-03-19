@@ -165,6 +165,32 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         XCTAssertTrue(content.fallbackMessage?.contains(MessageInspectorSummaryFormatters.formattedCreatedAt(0)) == true)
     }
 
+    func testProviderOnlySummaryStillUsesRawPayloadFallback() throws {
+        let entry = try decodeEntry(
+            #"""
+            {
+              "id": "raw-only-provider",
+              "requestPayload": "not-json",
+              "responsePayload": "still-not-json",
+              "createdAt": 0,
+              "summary": {
+                "provider": "ollama"
+              }
+            }
+            """#
+        )
+
+        let content = MessageInspectorOverviewContent(entry: entry)
+
+        XCTAssertTrue(content.identityRows.isEmpty)
+        XCTAssertTrue(content.usageRows.isEmpty)
+        XCTAssertNil(content.responsePreview)
+        XCTAssertNil(content.toolCallNames)
+        XCTAssertNotNil(content.fallbackMessage)
+        XCTAssertTrue(content.fallbackMessage?.contains("Ollama") == true)
+        XCTAssertTrue(content.fallbackMessage?.contains("Raw tab") == true)
+    }
+
     func testFormatterHelpersTruncateAndCompactValues() {
         let preview = String(repeating: "a", count: 200)
         let truncated = MessageInspectorSummaryFormatters.truncatedResponsePreview(preview, limit: 40)
@@ -177,6 +203,16 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         )
         XCTAssertNil(MessageInspectorSummaryFormatters.compactToolNames([], maxVisible: 3))
         XCTAssertEqual(MessageInspectorSummaryFormatters.formatCacheTokens(created: nil, read: nil), "Unavailable")
+        XCTAssertTrue(
+            MessageInspectorSummaryFormatters.isProviderOnlySummary(
+                .init(provider: "openrouter")
+            )
+        )
+        XCTAssertFalse(
+            MessageInspectorSummaryFormatters.isProviderOnlySummary(
+                .init(provider: "openrouter", model: "gpt-4.1")
+            )
+        )
     }
 
     private func decodeEntry(_ json: String) throws -> LLMRequestLogEntry {
