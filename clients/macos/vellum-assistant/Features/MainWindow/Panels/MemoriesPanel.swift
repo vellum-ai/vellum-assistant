@@ -54,6 +54,7 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var showKindFilterPopover = false
 
     init(daemonClient: DaemonClient, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.daemonClient = daemonClient
@@ -64,11 +65,8 @@ struct MemoriesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterBar
-            HStack(alignment: .top, spacing: VSpacing.xxl) {
-                kindSidebar
-                contentView
-            }
-            .padding(.top, VSpacing.lg)
+            contentView
+                .padding(.top, VSpacing.lg)
         }
         .task { await store.loadItems() }
         .task(id: focusedMemoryId) {
@@ -112,6 +110,9 @@ struct MemoriesPanel: View {
                     }
                 }
 
+            kindFilterDropdown
+                .frame(width: 160)
+
             VDropdown(
                 placeholder: "Status",
                 selection: $statusFilter,
@@ -143,45 +144,97 @@ struct MemoriesPanel: View {
         .padding(.top, VSpacing.sm)
     }
 
-    // MARK: - Kind Sidebar
+    // MARK: - Kind Filter Dropdown
 
-    @ViewBuilder
-    private var kindSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            kindSidebarItem(label: "All", isSelected: selectedKind == nil) {
-                selectedKind = nil
-                store.kindFilter = nil
-                Task { await store.loadItems() }
-            }
-            .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
-
-            ForEach(MemoryKind.allCases) { kind in
-                kindSidebarItem(label: kind.label, isSelected: selectedKind == kind) {
-                    selectedKind = kind
-                    store.kindFilter = kind.rawValue
-                    Task { await store.loadItems() }
-                }
-                .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
-            }
-        }
-        .frame(width: 220)
+    private var kindFilterLabel: String {
+        selectedKind?.label ?? "All"
     }
 
-    @ViewBuilder
-    private func kindSidebarItem(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
+    private var kindFilterDropdown: some View {
+        Button {
+            showKindFilterPopover.toggle()
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.filter, size: 13)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text(kindFilterLabel)
+                        .foregroundColor(VColor.contentDefault)
+                }
                 .font(VFont.body)
-                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.sm)
-                .padding(.horizontal, VSpacing.sm)
-                .contentShape(Rectangle())
-                .background(isSelected ? VColor.surfaceActive : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+
+                VIconView(.chevronDown, size: 13)
+                    .foregroundColor(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 32)
+            .vInputChrome()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(label) filter")
+        .popover(isPresented: $showKindFilterPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    selectedKind = nil
+                    store.kindFilter = nil
+                    showKindFilterPopover = false
+                    Task { await store.loadItems() }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.layoutGrid, size: 14)
+                            .foregroundColor(VColor.contentDefault)
+                            .frame(width: 20)
+                        Text("All")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Spacer()
+                        if selectedKind == nil {
+                            VIconView(.check, size: 12)
+                                .foregroundColor(VColor.primaryBase)
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.horizontal, VSpacing.sm)
+
+                ForEach(MemoryKind.allCases) { kind in
+                    Button {
+                        selectedKind = kind
+                        store.kindFilter = kind.rawValue
+                        showKindFilterPopover = false
+                        Task { await store.loadItems() }
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            if let icon = VIcon(rawValue: kind.icon) {
+                                VIconView(icon, size: 14)
+                                    .foregroundColor(VColor.contentDefault)
+                                    .frame(width: 20)
+                            }
+                            Text(kind.label)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                            Spacer()
+                            if selectedKind == kind {
+                                VIconView(.check, size: 12)
+                                    .foregroundColor(VColor.primaryBase)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, VSpacing.sm)
+            .frame(width: 220)
+        }
     }
 
     // MARK: - Content View
