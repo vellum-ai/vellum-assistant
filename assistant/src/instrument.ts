@@ -7,7 +7,6 @@ import {
   getPlatformUserId,
   getSentryDsn,
 } from "./config/env.js";
-import { getDeviceId } from "./util/device-id.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
@@ -63,11 +62,10 @@ export function initSentry(): void {
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
-        // device_id is read from ~/.vellum/device.json (shared with the macOS client).
-        // This may create device.json before macOS migrates a legacy UserDefaults ID,
-        // but the daemon already calls getDeviceId() elsewhere (e.g. telemetry reporter),
-        // so this doesn't introduce a new race.
-        device_id: getDeviceId(),
+        // NOTE: device_id is NOT set here. It is deferred to setSentryDeviceId()
+        // which is called after workspace migrations run, so that migration
+        // 003-seed-device-id can copy the legacy installationId into device.json
+        // before getDeviceId() eagerly creates a new random UUID.
         ...(getPlatformOrganizationId()
           ? { organization_id: getPlatformOrganizationId() }
           : {}),
@@ -129,6 +127,17 @@ export function setSentryOrganizationId(
  */
 export function setSentryUserId(userId: string | undefined): void {
   Sentry.setTag("user_id", userId || undefined);
+}
+
+/**
+ * Set the device_id tag on the global Sentry scope.
+ *
+ * Called after workspace migrations complete so that migration
+ * 003-seed-device-id has a chance to copy the legacy installationId
+ * into device.json before getDeviceId() is invoked.
+ */
+export function setSentryDeviceId(deviceId: string): void {
+  Sentry.setTag("device_id", deviceId);
 }
 
 // ── Dynamic conversation-scoped Sentry tags ─────────────────────────
