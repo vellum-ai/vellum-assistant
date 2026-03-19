@@ -81,6 +81,9 @@ import {
 
 const log = getLogger("conversation-routes");
 
+/** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
+const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
+
 const SUGGESTION_CACHE_MAX = 100;
 
 function collectCanonicalGuardianRequestHintIds(
@@ -363,6 +366,48 @@ export function handleListMessages(
       content = msg.content;
     }
     const rendered = renderHistoryContent(content);
+
+    // Strip <no_response/> markers from assistant messages so web/API
+    // clients never see the raw sentinel. Only assistant messages produce
+    // this marker; user messages are left untouched.
+    if (msg.role === "assistant") {
+      const originalSegments = rendered.textSegments;
+      const keepIndices: number[] = [];
+      const filteredSegments: string[] = [];
+      for (let i = 0; i < originalSegments.length; i++) {
+        const cleaned = originalSegments[i]
+          .replace(NO_RESPONSE_INLINE_RE, "")
+          .trim();
+        if (cleaned.length > 0) {
+          keepIndices.push(i);
+          filteredSegments.push(cleaned);
+        }
+      }
+      // Remap contentOrder text:N indices to account for removed segments
+      const indexMap = new Map<number, number>();
+      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+      const filteredContentOrder = rendered.contentOrder
+        .map((entry) => {
+          const m = entry.match(/^text:(\d+)$/);
+          if (!m) return entry;
+          const newIdx = indexMap.get(Number(m[1]));
+          return newIdx !== undefined ? `text:${newIdx}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+
+      return {
+        role: msg.role,
+        text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+        timestamp: msg.createdAt,
+        toolCalls: rendered.toolCalls,
+        toolCallsBeforeText: rendered.toolCallsBeforeText,
+        textSegments: filteredSegments,
+        contentOrder: filteredContentOrder,
+        surfaces: rendered.surfaces,
+        id: msg.id,
+      };
+    }
+
     return {
       role: msg.role,
       text: rendered.text,
