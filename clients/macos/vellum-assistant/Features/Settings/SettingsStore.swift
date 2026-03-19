@@ -829,7 +829,7 @@ public final class SettingsStore: ObservableObject {
         refreshModelInfo()
     }
 
-    func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil) {
+    func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil, onError: ((String) -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         apiKeySaveError = nil
@@ -852,7 +852,11 @@ public final class SettingsStore: ObservableObject {
                 onSuccess?()
                 refreshModelInfo()
             } else if let error = result.error {
-                apiKeySaveError = error
+                if let onError {
+                    onError(error)
+                } else {
+                    apiKeySaveError = error
+                }
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
@@ -1055,9 +1059,12 @@ public final class SettingsStore: ObservableObject {
     }
 
     func saveEmbeddingAPIKey(_ raw: String, provider: String) {
+        embeddingKeySaveError = nil
         // Delegate to saveInferenceAPIKey — same keychain store, same daemon validation
         saveInferenceAPIKey(raw, provider: provider, onSuccess: {
             self.refreshEmbeddingConfig()
+        }, onError: { error in
+            self.embeddingKeySaveError = error
         })
     }
 
