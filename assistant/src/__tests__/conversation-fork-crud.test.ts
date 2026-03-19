@@ -248,7 +248,7 @@ describe("forkConversation", () => {
     expect(fork.forkParentMessageId).toBe(branchPoint.id);
   });
 
-  test("rejects forks from the compacted-away prefix", async () => {
+  test("forks from the compacted-away prefix without inheriting source compaction state", async () => {
     const source = createConversation("Compacted thread");
     const compactedBranchPoint = await addMessage(
       source.id,
@@ -274,14 +274,19 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, source.id))
       .run();
 
-    expect(() =>
-      forkConversation({
-        conversationId: source.id,
-        throughMessageId: compactedBranchPoint.id,
-      }),
-    ).toThrow(
-      `Message ${compactedBranchPoint.id} falls inside the compacted-away prefix of conversation ${source.id}`,
-    );
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: compactedBranchPoint.id,
+    });
+
+    expect(fork.contextSummary).toBeNull();
+    expect(fork.contextCompactedMessageCount).toBe(0);
+    expect(fork.contextCompactedAt).toBeNull();
+    expect(fork.forkParentConversationId).toBe(source.id);
+    expect(fork.forkParentMessageId).toBe(compactedBranchPoint.id);
+    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+      "Message 1",
+    ]);
   });
 
   test("rejects forks when the source conversation has no persisted messages", () => {

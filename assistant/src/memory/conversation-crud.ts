@@ -361,13 +361,8 @@ export function forkConversation(params: {
       sourceMessages.length,
     ),
   );
-  const branchPointMessageId =
-    throughMessageId ?? sourceMessages.at(-1)?.id ?? null;
-  if (copyBoundaryIndex < visibleWindowStartIndex) {
-    throw new UserError(
-      `Message ${branchPointMessageId} falls inside the compacted-away prefix of conversation ${conversationId}`,
-    );
-  }
+  const preserveSourceCompactionState =
+    copyBoundaryIndex >= visibleWindowStartIndex;
 
   const messagesToCopy =
     copyBoundaryIndex >= 0
@@ -384,10 +379,15 @@ export function forkConversation(params: {
     .set({
       forkParentConversationId: sourceConversation.id,
       forkParentMessageId,
-      contextSummary: sourceConversation.contextSummary,
-      contextCompactedMessageCount:
-        sourceConversation.contextCompactedMessageCount,
-      contextCompactedAt: sourceConversation.contextCompactedAt,
+      contextSummary: preserveSourceCompactionState
+        ? sourceConversation.contextSummary
+        : null,
+      contextCompactedMessageCount: preserveSourceCompactionState
+        ? sourceConversation.contextCompactedMessageCount
+        : 0,
+      contextCompactedAt: preserveSourceCompactionState
+        ? sourceConversation.contextCompactedAt
+        : null,
     })
     .where(eq(conversations.id, forkedConversation.id))
     .run();
