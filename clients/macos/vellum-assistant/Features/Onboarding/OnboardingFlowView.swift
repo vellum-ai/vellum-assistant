@@ -284,48 +284,15 @@ struct OnboardingFlowView: View {
         log.info("Beginning managed assistant bootstrap")
 
         do {
-            let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            let assistant = activation.assistant
+            state.hasExistingManagedAssistant = activation.reusedExisting
 
-            let assistant: PlatformAssistant
-            switch outcome {
-            case .reusedExisting(let existing):
-                assistant = existing
-                state.hasExistingManagedAssistant = true
+            if activation.reusedExisting {
                 log.info("Managed bootstrap reused existing assistant \(assistant.id, privacy: .public)")
-            case .createdNew(let created):
-                assistant = created
+            } else {
                 log.info("Managed bootstrap created new assistant \(assistant.id, privacy: .public)")
             }
-
-            let runtimeUrl = AuthService.shared.baseURL
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let hatchedAt = isoFormatter.string(from: Date())
-
-            let success = LockfileAssistant.ensureManagedEntry(
-                assistantId: assistant.id,
-                runtimeUrl: runtimeUrl,
-                hatchedAt: hatchedAt
-            )
-
-            guard success else {
-                managedBootstrapError = "Failed to save assistant configuration. Please try again."
-                log.error("Managed bootstrap failed to persist lockfile entry for assistant \(assistant.id, privacy: .public)")
-                return
-            }
-
-            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
-            SentryDeviceInfo.updateAssistantTag(assistant.id)
-
-            // Managed users accept ToS on the platform — skip step 3.
-            // Write default privacy opt-ins so syncPrivacyConfig picks them up.
-            if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
-                UserDefaults.standard.set(true, forKey: "collectUsageData")
-            }
-            if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
-                UserDefaults.standard.set(true, forKey: "sendDiagnostics")
-            }
-            UserDefaults.standard.set(true, forKey: "tosAccepted")
 
             isBootstrappingManaged = false
             state.isManagedHatch = true

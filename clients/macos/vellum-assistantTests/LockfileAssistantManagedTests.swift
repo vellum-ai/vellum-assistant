@@ -61,9 +61,9 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(assistants[0]["assistantId"] as? String, "new-id")
     }
 
-    // MARK: - ensureManagedEntry: no-op when entry exists
+    // MARK: - ensureManagedEntry: refresh existing entry
 
-    func testEnsureSkipsWhenEntryAlreadyExists() {
+    func testEnsureRefreshesRuntimeUrlWhenEntryAlreadyExists() {
         // Insert first entry.
         LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
@@ -84,9 +84,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
         let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let assistants = json["assistants"] as! [[String: Any]]
-        XCTAssertEqual(assistants.count, 1, "Should have exactly 1 entry — second call is a no-op")
-        // Original values preserved, NOT overwritten.
-        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://old.example.com")
+        XCTAssertEqual(assistants.count, 1, "Should still have exactly 1 entry")
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://new.example.com")
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
     }
 

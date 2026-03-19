@@ -143,8 +143,9 @@ public struct LockfileAssistant {
         loadAll().first { $0.assistantId == name }
     }
 
-    /// Creates a managed entry if no entry with the same `assistantId` exists.
-    /// If one already exists, returns `true` without modifying it.
+    /// Creates or refreshes a managed entry for the given `assistantId`.
+    /// Existing entries keep their original `hatchedAt` value but have the
+    /// managed runtime URL refreshed so sign-in follows the current platform.
     ///
     /// - Parameters:
     ///   - assistantId: The platform-assigned assistant UUID string.
@@ -176,18 +177,41 @@ public struct LockfileAssistant {
 
         var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
 
-        // If an entry with this assistantId already exists, no-op.
-        if assistants.contains(where: { ($0["assistantId"] as? String) == assistantId }) {
-            return true
-        }
+        if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
+            var existingEntry = assistants[existingIndex]
+            var didUpdate = false
 
-        let newEntry: [String: Any] = [
-            "assistantId": assistantId,
-            "runtimeUrl": runtimeUrl,
-            "cloud": "vellum",
-            "hatchedAt": hatchedAt,
-        ]
-        assistants.append(newEntry)
+            if (existingEntry["runtimeUrl"] as? String) != runtimeUrl {
+                existingEntry["runtimeUrl"] = runtimeUrl
+                didUpdate = true
+            }
+
+            if (existingEntry["cloud"] as? String) != "vellum" {
+                existingEntry["cloud"] = "vellum"
+                didUpdate = true
+            }
+
+            let existingHatchedAt = (existingEntry["hatchedAt"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if existingHatchedAt?.isEmpty != false {
+                existingEntry["hatchedAt"] = hatchedAt
+                didUpdate = true
+            }
+
+            if !didUpdate {
+                return true
+            }
+
+            assistants[existingIndex] = existingEntry
+        } else {
+            let newEntry: [String: Any] = [
+                "assistantId": assistantId,
+                "runtimeUrl": runtimeUrl,
+                "cloud": "vellum",
+                "hatchedAt": hatchedAt,
+            ]
+            assistants.append(newEntry)
+        }
 
         lockfile["assistants"] = assistants
 

@@ -12,6 +12,7 @@ struct ReauthView: View {
     @State private var showContent = false
     @State private var didComplete = false
     @State private var hasNonManagedAssistant = false
+    @State private var isActivatingManagedAssistant = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -52,12 +53,12 @@ struct ReauthView: View {
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
-                } else if authManager.isSubmitting {
+                } else if authManager.isSubmitting || isActivatingManagedAssistant {
                     HStack(spacing: VSpacing.sm) {
                         ProgressView()
                             .controlSize(.small)
                             .progressViewStyle(.circular)
-                        Text("Logging in...")
+                        Text(isActivatingManagedAssistant ? "Loading your assistant..." : "Logging in...")
                             .font(VFont.buttonLarge)
                             .foregroundColor(VColor.contentSecondary)
                     }
@@ -65,7 +66,7 @@ struct ReauthView: View {
                 } else {
                     OnboardingButton(title: "Log In", style: .primary) {
                         Task {
-                            await authManager.startWorkOSLogin()
+                            await handleLoginTap()
                         }
                     }
                     .accessibilityLabel("Log In")
@@ -114,20 +115,46 @@ struct ReauthView: View {
             hasNonManagedAssistant = LockfileAssistant.loadAll().contains { !$0.isManaged }
 
             // If already authenticated (e.g. macOS state restoration), skip
-            // straight to the app. No redundant checkSession() — callers
-            // (startAuthenticatedFlow, performLogout) have already resolved
-            // the auth state before presenting this view.
+            // straight to managed assistant activation. No redundant checkSession()
+            // — callers (startAuthenticatedFlow, performLogout) have already
+            // resolved the auth state before presenting this view.
             if authManager.isAuthenticated && !didComplete {
-                didComplete = true
-                onComplete()
+                await completeManagedActivation()
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated && !didComplete {
-                didComplete = true
-                log.info("User re-authenticated — proceeding to app")
-                onComplete()
+                Task {
+                    await completeManagedActivation()
+                }
             }
+        }
+    }
+
+    @MainActor
+    private func handleLoginTap() async {
+        await authManager.startWorkOSLogin()
+        if authManager.isAuthenticated {
+            await completeManagedActivation()
+        }
+    }
+
+    @MainActor
+    private func completeManagedActivation() async {
+        guard !didComplete, !isActivatingManagedAssistant else { return }
+
+        isActivatingManagedAssistant = true
+        authManager.errorMessage = nil
+        defer { isActivatingManagedAssistant = false }
+
+        do {
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            didComplete = true
+            log.info("User re-authenticated — loading managed assistant \(activation.assistant.id, privacy: .public)")
+            onComplete()
+        } catch {
+            authManager.errorMessage = error.localizedDescription
+            log.error("Managed assistant activation after reauth failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
