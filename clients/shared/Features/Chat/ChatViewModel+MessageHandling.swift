@@ -1107,10 +1107,21 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments.
+                    // Include filePath, sizeBytes, and thumbnailData so file-backed
+                    // attachments survive the secret-ingress redirect.
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
-                        secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                        secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
+                            guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                            return UserMessageAttachment(
+                                filename: att.filename,
+                                mimeType: att.mimeType,
+                                data: att.data,
+                                extractedText: nil,
+                                sizeBytes: att.sizeBytes,
+                                thumbnailData: att.thumbnailData?.base64EncodedString(),
+                                filePath: att.filePath
+                            )
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
