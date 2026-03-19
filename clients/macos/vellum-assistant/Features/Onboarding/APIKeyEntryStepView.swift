@@ -162,7 +162,15 @@ struct APIKeyEntryStepView: View {
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            apiKey = ""
+            if let existingKey = APIKeyManager.getKey(for: newProvider) {
+                apiKey = existingKey
+                hasExistingKey = true
+                isEditing = false
+            } else {
+                apiKey = ""
+                hasExistingKey = false
+                isEditing = false
+            }
         }
     }
 
