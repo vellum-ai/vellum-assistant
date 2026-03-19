@@ -381,6 +381,28 @@ export class Conversation {
 
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
+    this.restoreSurfaceStateFromHistory();
+  }
+
+  /**
+   * Scan loaded conversation history for ui_surface content blocks and
+   * populate surfaceState so that findConversationBySurfaceId works for
+   * surfaces restored from history (e.g. after daemon restart).
+   */
+  private restoreSurfaceStateFromHistory(): void {
+    for (const msg of this.messages) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        const b = block as unknown as Record<string, unknown>;
+        if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
+          this.surfaceState.set(b.surfaceId, {
+            surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+            data: (b.data ?? {}) as SurfaceData,
+            title: b.title as string | undefined,
+          });
+        }
+      }
+    }
   }
 
   async ensureActorScopedHistory(): Promise<void> {
