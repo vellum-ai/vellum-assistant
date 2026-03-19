@@ -16,7 +16,10 @@ describe("normalizeLlmContextPayloads", () => {
             role: "user",
             content: [
               { type: "text", text: "What's the weather in Boston?" },
-              { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,abc" },
+              },
             ],
           },
         ],
@@ -311,6 +314,126 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
+  test("normalizes plain-text OpenAI requests when the response identifies OpenAI", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_003,
+      requestPayload: {
+        model: "gpt-4.1",
+        messages: [
+          { role: "system", content: "Stay brief." },
+          { role: "user", content: "What should I pack for Boston?" },
+        ],
+      },
+      responsePayload: {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Bring a warm coat and an umbrella.",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 24,
+          completion_tokens: 11,
+        },
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-4.1-2026-03-01",
+      inputTokens: 24,
+      outputTokens: 11,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: "stop",
+      requestMessageCount: 2,
+      requestToolCount: 0,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "Bring a warm coat and an umbrella.",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        text: "Stay brief.",
+      },
+      {
+        kind: "message",
+        label: "User message 2",
+        role: "user",
+        text: "What should I pack for Boston?",
+      },
+    ]);
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "Bring a warm coat and an umbrella.",
+      },
+    ]);
+  });
+
+  test("normalizes plain-text Anthropic requests when the response identifies Anthropic", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_004,
+      requestPayload: {
+        model: "claude-sonnet",
+        messages: [
+          { role: "user", content: "Find the latest changelog entry." },
+        ],
+      },
+      responsePayload: {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 19,
+          output_tokens: 9,
+        },
+        content: [{ type: "text", text: "I found one from this morning." }],
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 19,
+      outputTokens: 9,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: "end_turn",
+      requestMessageCount: 1,
+      requestToolCount: 0,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "I found one from this morning.",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "Find the latest changelog entry.",
+      },
+    ]);
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "I found one from this morning.",
+      },
+    ]);
+  });
+
   test("normalizes Anthropic web_search_tool_result blocks", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_004,
@@ -387,6 +510,17 @@ describe("normalizeLlmContextPayloads", () => {
         label: "User message 1 tool result",
         role: "user",
         toolName: "stu_req_1",
+        data: {
+          type: "web_search_tool_result",
+          tool_use_id: "stu_req_1",
+          content: [
+            {
+              type: "web_search_result",
+              url: "https://example.com",
+              title: "Example result",
+            },
+          ],
+        },
         text: "[Web search results]",
       },
     ]);
@@ -402,6 +536,17 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Assistant response tool result",
         role: "assistant",
         toolName: "stu_resp_1",
+        data: {
+          type: "web_search_tool_result",
+          tool_use_id: "stu_resp_1",
+          content: [
+            {
+              type: "web_search_result",
+              url: "https://example.org",
+              title: "Another result",
+            },
+          ],
+        },
         text: "[Web search results]",
       },
     ]);
