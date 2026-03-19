@@ -250,8 +250,10 @@ export async function resolveAssistantAttachments(
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
       const isVideo = draft.mimeType.startsWith("video/");
-      // All attachments are file-backed; omit large data from the event payload
-      const omitData = draft.dataBase64.length > MAX_INLINE_B64_SIZE;
+      // Only omit data for videos — they have an end-to-end lazy-load path
+      // via /v1/attachments/:id/content. Other types (images, PDFs) still need
+      // inline data for thumbnails, preview, and file-save in the client.
+      const omitData = isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
 
       // Generate and persist a thumbnail for video attachments.
       let thumbnailData: string | undefined;
