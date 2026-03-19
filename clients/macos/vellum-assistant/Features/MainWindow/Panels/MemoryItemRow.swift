@@ -22,7 +22,7 @@ struct MemoryItemRow: View {
                     // Header row: title+timestamp on the left, badges+delete on the right
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         // Title + timestamp, tightly grouped
-                        VStack(alignment: .leading, spacing: 1) {
+                        VStack(alignment: .leading, spacing: -2) {
                             Text(item.subject)
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.contentDefault)
