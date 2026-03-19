@@ -852,6 +852,8 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
+        let byteCount = data.utf8.count
+        let start = CFAbsoluteTimeGetCurrent()
         var jsonString = data
         // Remap server conversation IDs to client-local conversation IDs via O(1) dictionary lookup
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
@@ -893,6 +895,11 @@ public final class HTTPTransport {
                 let byteCount = jsonData.count
                 log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
             }
+        }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 || byteCount > 100_000 {
+            log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000))ms, \(byteCount) bytes")
         }
     }
 
