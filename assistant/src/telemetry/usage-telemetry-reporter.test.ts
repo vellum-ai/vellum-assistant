@@ -41,12 +41,14 @@ mock.module("../memory/turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
-let mockPlatformClient: Record<string, unknown> | null = null;
+const mockResolveManagedProxyContext = mock(async () => ({
+  enabled: false,
+  platformBaseUrl: "",
+  assistantApiKey: "",
+}));
 
-mock.module("../platform/client.js", () => ({
-  VellumPlatformClient: {
-    create: async () => mockPlatformClient,
-  },
+mock.module("../providers/managed-proxy/context.js", () => ({
+  resolveManagedProxyContext: mockResolveManagedProxyContext,
 }));
 
 const mockGetTelemetryPlatformUrl = mock(() => "https://platform.vellum.ai");
@@ -140,7 +142,7 @@ beforeEach(() => {
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
-  mockPlatformClient = null;
+  mockResolveManagedProxyContext.mockReset();
   mockGetTelemetryPlatformUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
   mockGetDeviceId.mockReset();
@@ -154,6 +156,11 @@ beforeEach(() => {
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
+  mockResolveManagedProxyContext.mockResolvedValue({
+    enabled: false,
+    platformBaseUrl: "",
+    assistantApiKey: "",
+  });
   mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.vellum.ai");
   mockGetTelemetryAppToken.mockReturnValue("default-test-token");
 
@@ -172,31 +179,37 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("UsageTelemetryReporter", () => {
-  test("authenticated flush uses client.fetch with platform path", async () => {
-    const clientFetchMock = mock(async (_path: string, _init?: RequestInit) => {
-      return new Response('{"accepted":2}', { status: 200 });
-    });
-    mockPlatformClient = {
-      baseUrl: "https://test.vellum.ai",
+  test("authenticated flush uses Api-Key header and proxy URL", async () => {
+    mockResolveManagedProxyContext.mockResolvedValue({
+      enabled: true,
+      platformBaseUrl: "https://test.vellum.ai",
       assistantApiKey: "test-key",
-      platformAssistantId: "asst-123",
-      fetch: clientFetchMock,
-    };
+    });
     const events = [makeUsageEvent(), makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        new Response(`{"accepted":${events.length}}`, { status: 200 }),
+      ),
+    );
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
-    expect(clientFetchMock).toHaveBeenCalledTimes(1);
-    const [path] = clientFetchMock.mock.calls[0] as [string, RequestInit];
-    expect(path).toBe("/v1/telemetry/ingest/");
-    // globalThis.fetch should NOT have been called directly
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://test.vellum.ai/v1/telemetry/ingest/");
+    expect((opts.headers as Record<string, string>)["Authorization"]).toBe(
+      "Api-Key test-key",
+    );
   });
 
   test("anonymous flush uses X-Telemetry-Token and default URL", async () => {
-    mockPlatformClient = null;
+    mockResolveManagedProxyContext.mockResolvedValue({
+      enabled: false,
+      platformBaseUrl: "",
+      assistantApiKey: "",
+    });
     mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.test.ai");
     mockGetTelemetryAppToken.mockReturnValue("anon-token");
 
