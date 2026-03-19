@@ -142,7 +142,6 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
-    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -150,14 +149,16 @@ export async function runDaemon(): Promise<void> {
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
 
-    log.info("Daemon startup: migrations complete");
-
     seedInterfaceFiles();
 
     log.info("Daemon startup: installing templates and initializing DB");
     installTemplates();
     ensurePromptFiles();
 
+    // DB must be initialized before workspace migrations because some
+    // workspace migrations (e.g. 009-backfill-conversation-disk-view)
+    // depend on DB migrations having run (e.g. the inline-attachment-to-disk
+    // backfill that populates attachment filePaths).
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
@@ -173,6 +174,9 @@ export async function runDaemon(): Promise<void> {
       );
     }
     log.info("Daemon startup: DB initialized");
+
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+    log.info("Daemon startup: workspace migrations complete");
 
     // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.
