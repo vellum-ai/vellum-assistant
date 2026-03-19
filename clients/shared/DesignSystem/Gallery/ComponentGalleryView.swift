@@ -135,6 +135,7 @@ struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
+    @State private var hoveredPage: GalleryPage?
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
@@ -203,13 +204,22 @@ struct ComponentGalleryView: View {
                         if item.components.isEmpty {
                             Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
                                 .tag(GalleryPage.overview(item.category))
+                                .foregroundColor(rowForeground(for: .overview(item.category)))
+                                .listRowBackground(rowBackground(for: .overview(item.category)))
+                                .onHover { hovering in hoveredPage = hovering ? .overview(item.category) : nil }
                         } else {
                             DisclosureGroup(isExpanded: isExpanded(item.category)) {
                                 Text("Overview")
                                     .tag(GalleryPage.overview(item.category))
+                                    .foregroundColor(rowForeground(for: .overview(item.category)))
+                                    .listRowBackground(rowBackground(for: .overview(item.category)))
+                                    .onHover { hovering in hoveredPage = hovering ? .overview(item.category) : nil }
                                 ForEach(item.components, id: \.id) { component in
                                     Text(component.title)
                                         .tag(GalleryPage.component(item.category, component.id))
+                                        .foregroundColor(rowForeground(for: .component(item.category, component.id)))
+                                        .listRowBackground(rowBackground(for: .component(item.category, component.id)))
+                                        .onHover { hovering in hoveredPage = hovering ? .component(item.category, component.id) : nil }
                                 }
                             } label: {
                                 Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
@@ -217,6 +227,7 @@ struct ComponentGalleryView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
                 .listStyle(.sidebar)
 
                 Divider()
@@ -245,6 +256,21 @@ struct ComponentGalleryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.surfaceOverlay)
         }
+    }
+
+    // MARK: - Sidebar Row Theming
+
+    private func rowBackground(for page: GalleryPage) -> Color {
+        if selectedPage == page {
+            return VColor.surfaceActive
+        } else if hoveredPage == page {
+            return VColor.surfaceBase
+        }
+        return Color.clear
+    }
+
+    private func rowForeground(for page: GalleryPage) -> Color {
+        selectedPage == page ? VColor.contentEmphasized : VColor.contentDefault
     }
 
     @ViewBuilder
