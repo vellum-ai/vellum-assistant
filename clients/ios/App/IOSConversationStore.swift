@@ -134,6 +134,12 @@ struct ConversationSelectionRequest: Equatable {
     let conversationLocalId: UUID
 }
 
+struct PendingConversationAnchorRequest: Equatable {
+    let id = UUID()
+    let conversationLocalId: UUID
+    let daemonMessageId: String
+}
+
 // MARK: - IOSConversationStore
 
 /// Manages a list of chat conversations for iOS.
@@ -153,12 +159,14 @@ class IOSConversationStore: ObservableObject {
     /// Used by the UI to show a loading indicator instead of a placeholder conversation.
     @Published var isLoadingInitialConversations: Bool = false
     @Published var selectionRequest: ConversationSelectionRequest?
+    @Published var pendingConversationAnchorRequest: PendingConversationAnchorRequest?
 
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
+    private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
     private let userDefaults: UserDefaults
     private static let persistenceKey = "ios_conversations_v1"
@@ -337,8 +345,19 @@ class IOSConversationStore: ObservableObject {
         return conversation
     }
 
-    private func publishSelectionRequest(for conversationLocalId: UUID) {
+    private func publishSelectionRequest(
+        for conversationLocalId: UUID,
+        anchorDaemonMessageId: String? = nil
+    ) {
         selectionRequest = ConversationSelectionRequest(conversationLocalId: conversationLocalId)
+        if let anchorDaemonMessageId {
+            pendingConversationAnchorRequest = PendingConversationAnchorRequest(
+                conversationLocalId: conversationLocalId,
+                daemonMessageId: anchorDaemonMessageId
+            )
+        } else {
+            pendingConversationAnchorRequest = nil
+        }
     }
 
     /// One-time migration: move data from legacy "threads" keys to new "conversations" keys.
@@ -359,12 +378,14 @@ class IOSConversationStore: ObservableObject {
         connectedModeOverride: Bool? = nil,
         conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
         conversationListClient: any ConversationListClientProtocol = ConversationListClient(),
+        conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
         userDefaults: UserDefaults = .standard
     ) {
         self.daemonClient = daemonClient
         self.conversationHistoryClient = conversationHistoryClient
         self.conversationListClient = conversationListClient
+        self.conversationDetailClient = conversationDetailClient
         self.conversationForkClient = conversationForkClient
         self.userDefaults = userDefaults
         Self.migrateKeysIfNeeded(userDefaults: userDefaults)
@@ -529,6 +550,7 @@ class IOSConversationStore: ObservableObject {
         pendingHistoryByConversationId.removeAll()
         pendingAttentionOverrides.removeAll()
         selectionRequest = nil
+        pendingConversationAnchorRequest = nil
 
         if let daemon = newClient as? DaemonClient {
             // Connected mode — show cached conversations instantly or spinner on first launch.
@@ -653,6 +675,10 @@ class IOSConversationStore: ObservableObject {
 
                 var merged: [IOSConversation] = []
                 for var restored in restoredConversations {
+                    if let conversationId = restored.conversationId,
+                       let cachedConversation = conversations.first(where: { $0.conversationId == conversationId }) {
+                        restored.forkParent = restored.forkParent ?? cachedConversation.forkParent
+                    }
                     if let local = localOverrides[restored.conversationId ?? ""] {
                         let sid = restored.conversationId ?? ""
                         let useLocalPin = locallyEditedPinConversationIds.contains(sid)
@@ -1156,7 +1182,17 @@ class IOSConversationStore: ObservableObject {
         selectionRequest = nil
     }
 
-    private func upsertForkedConversation(_ item: ConversationListResponseItem) -> UUID {
+    func pendingAnchorRequest(for conversationLocalId: UUID) -> PendingConversationAnchorRequest? {
+        guard pendingConversationAnchorRequest?.conversationLocalId == conversationLocalId else { return nil }
+        return pendingConversationAnchorRequest
+    }
+
+    func consumePendingAnchorRequest(id: UUID) {
+        guard pendingConversationAnchorRequest?.id == id else { return }
+        pendingConversationAnchorRequest = nil
+    }
+
+    private func upsertConversationListItem(_ item: ConversationListResponseItem) -> UUID {
         if let existingIndex = existingConversationIndex(forConversationId: item.id) {
             var mergedConversation = conversations[existingIndex]
             mergedConversation.title = item.title
@@ -1184,6 +1220,34 @@ class IOSConversationStore: ObservableObject {
     }
 
     @discardableResult
+    func openForkParent(of conversationLocalId: UUID) async -> UUID? {
+        guard isConnectedMode,
+              let conversation = conversations.first(where: { $0.id == conversationLocalId }),
+              let forkParent = conversation.forkParent else {
+            return nil
+        }
+
+        let parentLocalId: UUID
+        if let existingIndex = existingConversationIndex(forConversationId: forkParent.conversationId) {
+            parentLocalId = conversations[existingIndex].id
+        } else {
+            guard let parentConversation = await conversationDetailClient.fetchConversation(
+                conversationId: forkParent.conversationId
+            ) else {
+                return nil
+            }
+            parentLocalId = upsertConversationListItem(parentConversation)
+            saveConnectedCache()
+        }
+
+        publishSelectionRequest(
+            for: parentLocalId,
+            anchorDaemonMessageId: forkParent.messageId
+        )
+        return parentLocalId
+    }
+
+    @discardableResult
     func forkConversation(conversationLocalId: UUID, throughDaemonMessageId: String?) async -> UUID? {
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
@@ -1195,7 +1259,7 @@ class IOSConversationStore: ObservableObject {
             return nil
         }
 
-        let forkedLocalId = upsertForkedConversation(forkedConversation)
+        let forkedLocalId = upsertConversationListItem(forkedConversation)
         saveConnectedCache()
         publishSelectionRequest(for: forkedLocalId)
         return forkedLocalId

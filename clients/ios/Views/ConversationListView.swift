@@ -42,6 +42,36 @@ func applyConversationSelectionRequest(
     }
 }
 
+func shouldShowCurrentTipForkAction(for conversation: IOSConversation) -> Bool {
+    conversation.conversationId != nil
+}
+
+@MainActor
+func makeCurrentTipForkToolbarAction(
+    store: IOSConversationStore,
+    conversation: IOSConversation
+) -> (() -> Void)? {
+    guard shouldShowCurrentTipForkAction(for: conversation) else { return nil }
+    return {
+        Task { @MainActor in
+            _ = await store.forkCurrentTip(conversationLocalId: conversation.id)
+        }
+    }
+}
+
+@MainActor
+func makeOpenForkParentAction(
+    store: IOSConversationStore,
+    conversation: IOSConversation
+) -> (() -> Void)? {
+    guard conversation.forkParent != nil else { return nil }
+    return {
+        Task { @MainActor in
+            _ = await store.openForkParent(of: conversation.id)
+        }
+    }
+}
+
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
@@ -236,7 +266,8 @@ struct ConversationListView: View {
         if let conversation = store.conversations.first(where: { $0.id == conversationLocalId }) {
             ConversationChatView(
                 viewModel: store.viewModel(for: conversationLocalId),
-                conversationTitle: conversation.title
+                store: store,
+                conversation: conversation
             )
             .onAppear {
                 store.loadHistoryIfNeeded(for: conversationLocalId)
@@ -668,7 +699,8 @@ struct ConversationListView: View {
 /// Thin wrapper around ChatContentView for a conversation-owned ChatViewModel.
 struct ConversationChatView: View {
     @ObservedObject var viewModel: ChatViewModel
-    var conversationTitle: String?
+    @ObservedObject var store: IOSConversationStore
+    let conversation: IOSConversation
 
     @EnvironmentObject var clientProvider: ClientProvider
     @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
@@ -678,7 +710,22 @@ struct ConversationChatView: View {
     @State private var showDebugPanel = false
 
     var body: some View {
-        ChatContentView(viewModel: viewModel)
+        let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
+        VStack(spacing: 0) {
+            if let parentChromeAction = makeOpenForkParentAction(store: store, conversation: conversation),
+               let forkParent = conversation.forkParent {
+                forkParentChrome(forkParent: forkParent, action: parentChromeAction)
+            }
+
+            ChatContentView(
+                viewModel: viewModel,
+                pendingAnchorRequestId: anchorRequest?.id,
+                pendingAnchorDaemonMessageId: anchorRequest?.daemonMessageId,
+                onPendingAnchorHandled: { requestId in
+                    store.consumePendingAnchorRequest(id: requestId)
+                }
+            )
+        }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -689,6 +736,17 @@ struct ConversationChatView: View {
                         } label: {
                             VIconView(.bug, size: 20)
                                 .foregroundColor(VColor.contentTertiary)
+                        }
+                    }
+                }
+                if let forkAction = makeCurrentTipForkToolbarAction(store: store, conversation: conversation) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: forkAction) {
+                            Label {
+                                Text("Fork conversation")
+                            } icon: {
+                                VIconView(.gitBranch, size: 14)
+                            }
                         }
                     }
                 }
@@ -706,6 +764,45 @@ struct ConversationChatView: View {
                     onClose: { showDebugPanel = false }
                 )
             }
+    }
+
+    @ViewBuilder
+    private func forkParentChrome(
+        forkParent: ConversationForkParent,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.gitBranch, size: 14)
+                    .foregroundColor(VColor.primaryBase)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Forked from")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text(forkParent.title ?? "Parent conversation")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                VIconView(.chevronRight, size: 14)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surfaceBase)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(VColor.borderBase)
+                    .frame(height: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open parent conversation")
+        .accessibilityHint("Opens the conversation this chat forked from")
     }
 
     @ViewBuilder
@@ -753,7 +850,7 @@ struct ConversationChatView: View {
         )
         return ChatTranscriptFormatter.conversationMarkdown(
             messages: viewModel.messages,
-            conversationTitle: conversationTitle,
+            conversationTitle: conversation.title,
             participantNames: names
         )
     }
