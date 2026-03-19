@@ -66,6 +66,11 @@ const mockStore = makeMockStore();
 mock.module("../memory/app-store.js", () => ({
   ...mockStore,
   getAppsDir: () => "/tmp/test-apps",
+  getAppDirPath: (appId: string) => `/tmp/test-apps/${appId}`,
+  resolveAppDir: (id: string) => ({
+    dirName: id,
+    appDir: `/tmp/test-apps/${id}`,
+  }),
   isMultifileApp: (app: AppDefinition) => app.formatVersion === 2,
 }));
 
