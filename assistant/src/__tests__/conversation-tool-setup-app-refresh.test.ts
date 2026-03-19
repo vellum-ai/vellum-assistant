@@ -69,6 +69,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
       { surfaceType: SurfaceType; data: SurfaceData; title?: string }
     >(),
     surfaceUndoStacks: new Map(),
+    accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,

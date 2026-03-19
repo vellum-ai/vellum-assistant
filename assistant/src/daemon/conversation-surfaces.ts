@@ -192,6 +192,7 @@ export interface SurfaceConversationContext {
     }
   >;
   surfaceUndoStacks: Map<string, string[]>;
+  accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
   surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{

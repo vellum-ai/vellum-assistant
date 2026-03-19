@@ -198,6 +198,10 @@ export class Conversation {
     { surfaceType: SurfaceType; data: SurfaceData; title?: string }
   >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
+  /** @internal */ accumulatedSurfaceState = new Map<
+    string,
+    Record<string, unknown>
+  >();
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
     surfaceId: string;
