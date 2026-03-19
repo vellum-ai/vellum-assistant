@@ -123,8 +123,10 @@ function handleListConversationStarters(url: URL): Response {
 
   const db = getDb();
 
-  // Fetch chips (ranked by model, newest batch first)
-  const rawItems = db
+  // Fetch all chips (ranked by model, newest batch first), apply diversity
+  // reordering, then paginate. Reordering must happen before offset/limit so
+  // that paginated results are stable across pages.
+  const allItems = db
     .select({
       id: conversationStarters.id,
       label: conversationStarters.label,
@@ -143,20 +145,16 @@ function handleListConversationStarters(url: URL): Response {
       desc(conversationStarters.generationBatch),
       desc(conversationStarters.createdAt),
     )
-    .limit(limitParam)
-    .offset(offsetParam)
     .all();
 
-  const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'chip'`,
-    scopeId,
-  );
-  const total = countRow?.c ?? 0;
+  const total = allItems.length;
 
-  // If starters exist, return them immediately.
+  // If starters exist, reorder for category diversity then paginate.
   if (total > 0) {
+    const ordered = orderStrongestFirst(allItems);
+    const page = ordered.slice(offsetParam, offsetParam + limitParam);
     return Response.json({
-      starters: orderStrongestFirst(rawItems),
+      starters: page,
       total,
       status: "ready",
     });
