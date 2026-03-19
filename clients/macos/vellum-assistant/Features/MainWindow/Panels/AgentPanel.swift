@@ -13,7 +13,7 @@ struct AgentPanelContent: View {
     @StateObject private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var selectedCategories: Set<SkillCategory> = Set(SkillCategory.allCases)
+    @State private var selectedCategories: Set<SkillCategory> = []
     @State private var globalSkillSearchQuery = ""
     @State private var expandedFilePath: String?
     @State private var skillFileViewMode: FileViewMode = .source
@@ -38,7 +38,7 @@ struct AgentPanelContent: View {
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
     private var allCategoriesSelected: Bool {
-        selectedCategories.count == SkillCategory.allCases.count
+        selectedCategories.isEmpty || selectedCategories.count == SkillCategory.allCases.count
     }
 
     /// Dynamic subtitle for the category-filtered empty state.
@@ -187,7 +187,7 @@ struct AgentPanelContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     withAnimation(VAnimation.fast) {
-                        selectedCategories = Set(SkillCategory.allCases)
+                        selectedCategories.removeAll()
                     }
                 } label: {
                     HStack(spacing: VSpacing.sm) {
