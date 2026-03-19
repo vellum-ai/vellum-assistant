@@ -50,6 +50,7 @@ struct FileContentView: View {
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
     @State private var isActivelyEditing = false
+    @State private var isContentHovered = false
 
     var body: some View {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -60,22 +61,6 @@ struct FileContentView: View {
                 icon: fileIcon(for: mimeType),
                 fileName: fileName
             ) {
-                if isEditable && !isActivelyEditing {
-                    Button(action: {
-                        viewMode = .source
-                        isActivelyEditing = true
-                    }) {
-                        VIconView(.pencil, size: 10)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Edit")
-                    .accessibilityLabel("Edit")
-                    .pointerCursor()
-                }
-
-                VCopyButton(text: content, iconSize: 10, accessibilityHint: "Copy all")
-
                 if modes.count > 1 {
                     VSegmentedControl(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
@@ -95,23 +80,54 @@ struct FileContentView: View {
 
             Divider().background(VColor.borderBase)
 
-            switch effectiveMode {
-            case .source:
-                HighlightedTextView(
-                    text: isEditable ? $content : .constant(content),
-                    language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
-                    isEditable: isEditable,
-                    isActivelyEditing: $isActivelyEditing,
-                    onTextChange: onTextChange
-                )
-                .id(fileName)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .preview:
-                MarkdownPreviewView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .tree:
-                JSONTreeView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ZStack(alignment: .topTrailing) {
+                switch effectiveMode {
+                case .source:
+                    HighlightedTextView(
+                        text: isEditable ? $content : .constant(content),
+                        language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
+                        isEditable: isEditable,
+                        isActivelyEditing: $isActivelyEditing,
+                        onTextChange: onTextChange
+                    )
+                    .id(fileName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .preview:
+                    MarkdownPreviewView(content: content)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                case .tree:
+                    JSONTreeView(content: content)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+
+                if isContentHovered && !isActivelyEditing {
+                    HStack(spacing: VSpacing.md) {
+                        if isEditable {
+                            Button(action: {
+                                viewMode = .source
+                                isActivelyEditing = true
+                            }) {
+                                VIconView(.pencil, size: 14)
+                                    .foregroundColor(VColor.contentSecondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Edit")
+                            .accessibilityLabel("Edit")
+                            .pointerCursor()
+                        }
+
+                        VCopyButton(text: content, iconSize: 14, accessibilityHint: "Copy all")
+                    }
+                    .padding(VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(VColor.surfaceOverlay.opacity(0.9))
+                    )
+                    .padding(VSpacing.sm)
+                }
+            }
+            .onHover { hovering in
+                isContentHovered = hovering
             }
         }
         .onChange(of: viewMode) { _, newMode in
