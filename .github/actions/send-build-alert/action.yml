@@ -1,0 +1,94 @@
+name: Send Build Alert
+description: Send a build alert to Slack using the official Slack GitHub Action.
+
+inputs:
+  webhook:
+    description: Slack incoming webhook URL.
+    required: true
+  status:
+    description: Build status to report.
+    required: true
+  slack-user-id:
+    description: Slack user ID or fallback GitHub username.
+    required: true
+  should-tag:
+    description: Whether to mention the Slack user ID.
+    required: true
+  channel:
+    description: Slack channel override for incoming webhook integrations that support it.
+    required: false
+    default: "#build-alerts"
+
+runs:
+  using: composite
+  steps:
+    - id: build-slack-payload
+      name: Build Slack payload
+      shell: bash
+      env:
+        STATUS: ${{ inputs.status }}
+        SLACK_USER_ID: ${{ inputs.slack-user-id }}
+        SHOULD_TAG: ${{ inputs.should-tag }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        case "$STATUS" in
+          success)
+            ICON=":white_check_mark:"
+            COLOR="#5DADE2"
+            ;;
+          failure)
+            ICON=":kimk-cryingggggggg:"
+            COLOR="#884EA0"
+            ;;
+          cancelled)
+            ICON=":meow_meltshoe:"
+            COLOR="#A569BD"
+            ;;
+          skipped)
+            ICON=":dw_arthur_side_eye:"
+            COLOR="#7D3C98"
+            ;;
+          *)
+            ICON=":interrobang:"
+            COLOR="#7D3C98"
+            ;;
+        esac
+
+        if [ "$SHOULD_TAG" = "true" ]; then
+          ACTOR="<@$SLACK_USER_ID>"
+        else
+          ACTOR="$SLACK_USER_ID"
+        fi
+
+        REPOSITORY_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+        WORKFLOW_RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        PAYLOAD_FILE="${RUNNER_TEMP}/build-alert-slack-payload.json"
+
+        jq -n \
+          --arg channel "$CHANNEL" \
+          --arg color "$COLOR" \
+          --arg fallback "[${GITHUB_REPOSITORY}] ${GITHUB_JOB} - ${STATUS}" \
+          --arg pretext "${ICON} ${GITHUB_JOB} ${STATUS} by ${ACTOR} <${REPOSITORY_URL}|${GITHUB_REPOSITORY}>" \
+          --arg text "*<${WORKFLOW_RUN_URL}|${GITHUB_WORKFLOW}>*" \
+          --arg footer "<${REPOSITORY_URL}|${GITHUB_REPOSITORY}> ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}" \
+          '{
+            channel: $channel,
+            attachments: [
+              {
+                color: $color,
+                fallback: $fallback,
+                pretext: $pretext,
+                text: $text,
+                footer: $footer
+              }
+            ]
+          }' > "$PAYLOAD_FILE"
+
+        echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Send Slack message
+      uses: slackapi/slack-github-action@v2.1.0
+      with:
+        webhook: ${{ inputs.webhook }}
+        webhook-type: incoming-webhook
+        payload-file-path: ${{ steps.build-slack-payload.outputs.payload_file }}
