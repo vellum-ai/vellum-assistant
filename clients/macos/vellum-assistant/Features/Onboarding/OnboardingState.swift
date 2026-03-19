@@ -179,6 +179,7 @@ final class OnboardingState {
         APIKeyManager.deleteKey(for: "anthropic")
 
         selectedProvider = "anthropic"
+        selectedModel = "claude-opus-4-6"
 
         // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"

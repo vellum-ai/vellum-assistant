@@ -10,7 +10,6 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var selectedModel: String = "claude-opus-4-6"
     @FocusState private var keyFieldFocused: Bool
 
     // MARK: - Feature Flag
@@ -163,7 +162,7 @@ struct APIKeyEntryStepView: View {
         }
         .onChange(of: state.selectedProvider) { _, newProvider in
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
-                selectedModel = entry.defaultModel
+                state.selectedModel = entry.defaultModel
             }
             apiKey = ""
             hasExistingKey = false
@@ -197,7 +196,7 @@ struct APIKeyEntryStepView: View {
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a model\u{2026}",
-                selection: $selectedModel,
+                selection: $state.selectedModel,
                 options: (currentProviderEntry?.models ?? []).map { model in
                     (label: model.displayName, value: model.id)
                 }
@@ -270,7 +269,6 @@ struct APIKeyEntryStepView: View {
         if isCustomProviderEnabled {
             let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !providerRequiresKey || !trimmed.isEmpty else { return }
-            state.selectedModel = selectedModel
             if providerRequiresKey {
                 APIKeyManager.setKey(trimmed, for: state.selectedProvider)
             }
@@ -280,7 +278,7 @@ struct APIKeyEntryStepView: View {
             var services = existingConfig["services"] as? [String: Any] ?? [:]
             var inference = services["inference"] as? [String: Any] ?? [:]
             inference["provider"] = state.selectedProvider
-            inference["model"] = selectedModel
+            inference["model"] = state.selectedModel
             services["inference"] = inference
             try? WorkspaceConfigIO.merge(["services": services])
             state.advance()
