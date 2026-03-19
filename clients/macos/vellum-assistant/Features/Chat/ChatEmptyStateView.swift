@@ -151,6 +151,7 @@ struct ChatEmptyStateView: View {
                 starters: conversationStarters,
                 onSelect: { starter in onSelectStarter?(starter) }
             )
+            .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .padding(.top, VSpacing.xxl)
             .opacity(visible ? 1 : 0)
