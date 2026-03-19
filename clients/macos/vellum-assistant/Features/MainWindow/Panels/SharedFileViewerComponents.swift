@@ -49,6 +49,7 @@ struct FileContentView: View {
     var isEditable: Bool = false
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
+    @State private var isActivelyEditing = false
 
     var body: some View {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -59,6 +60,17 @@ struct FileContentView: View {
                 icon: fileIcon(for: mimeType),
                 fileName: fileName
             ) {
+                if isEditable && !isActivelyEditing {
+                    Button(action: { isActivelyEditing = true }) {
+                        VIconView(.pencil, size: 10)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit")
+                    .accessibilityLabel("Edit")
+                    .pointerCursor()
+                }
+
                 VCopyButton(text: content, iconSize: 10, accessibilityHint: "Copy all")
 
                 if modes.count > 1 {
@@ -86,6 +98,7 @@ struct FileContentView: View {
                     text: isEditable ? $content : .constant(content),
                     language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
                     isEditable: isEditable,
+                    isActivelyEditing: $isActivelyEditing,
                     onTextChange: onTextChange
                 )
                 .id(fileName)
@@ -99,10 +112,14 @@ struct FileContentView: View {
             }
         }
         .onChange(of: viewMode) { _, newMode in
+            isActivelyEditing = false
             let modes = availableViewModes(for: fileName, mimeType: mimeType)
             guard modes.count > 1 else { return }
             let preference = newMode == .source ? "source" : "preview"
             UserDefaults.standard.set(preference, forKey: "fileViewerPreferredMode")
+        }
+        .onChange(of: fileName) { _, _ in
+            isActivelyEditing = false
         }
     }
 }

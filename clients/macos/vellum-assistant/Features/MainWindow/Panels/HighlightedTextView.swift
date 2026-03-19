@@ -20,7 +20,7 @@ struct HighlightedTextView: View {
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
-    @State private var isActivelyEditing = false
+    @Binding var isActivelyEditing: Bool
     @State private var highlightVersion: UInt64 = 0
     @State private var contentReady = false
     @State private var cachedLineCount: Int = 1
@@ -43,9 +43,6 @@ struct HighlightedTextView: View {
                         editableView
                     } else {
                         readOnlyView
-                            .onTapGesture {
-                                isActivelyEditing = true
-                            }
                     }
                 } else {
                     readOnlyView
