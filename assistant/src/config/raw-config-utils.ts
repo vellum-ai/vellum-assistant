@@ -58,3 +58,31 @@ export function setMemoryEmbeddingField(
   memory.embeddings = embeddings;
   raw.memory = memory;
 }
+
+/**
+ * Safely delete a nested field from a raw config object's `memory.embeddings`
+ * map, allowing Zod schema defaults to take effect on the next config reload.
+ */
+export function deleteMemoryEmbeddingField(
+  raw: Record<string, unknown>,
+  field: string,
+): void {
+  if (
+    raw.memory == null ||
+    typeof raw.memory !== "object" ||
+    Array.isArray(raw.memory)
+  ) {
+    return;
+  }
+  const memory = raw.memory as Record<string, unknown>;
+  const existing = memory.embeddings;
+  if (
+    existing == null ||
+    typeof existing !== "object" ||
+    Array.isArray(existing)
+  ) {
+    return;
+  }
+  const embeddings = existing as Record<string, unknown>;
+  delete embeddings[field];
+}

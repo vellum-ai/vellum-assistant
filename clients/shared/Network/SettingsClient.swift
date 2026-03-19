@@ -163,7 +163,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage? {
         do {
             var body: [String: Any] = ["provider": provider]
-            if let model { body["model"] = model }
+            body["model"] = model ?? ""
             let response = try await GatewayHTTPClient.put(
                 path: "config/embeddings", json: body, timeout: 10
             )
