@@ -16,7 +16,7 @@ import type {
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
   AttachmentUploadError,
-  getAttachmentById,
+  attachmentExists,
   linkAttachmentToMessage,
   uploadAttachment,
   validateAttachmentUpload,
@@ -368,7 +368,7 @@ export async function persistUserMessage(
         // attachments uploaded separately), link it directly without
         // re-uploading. This handles the case where data is empty because
         // the attachment content lives on disk.
-        if (a.id && getAttachmentById(a.id)) {
+        if (a.id && attachmentExists(a.id)) {
           linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
           continue;
         }

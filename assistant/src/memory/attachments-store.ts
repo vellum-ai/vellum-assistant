@@ -633,6 +633,20 @@ export function getAttachmentMetadataForMessage(
 }
 
 /**
+ * Lightweight existence check — queries only the attachment ID column
+ * without reading file contents from disk.
+ */
+export function attachmentExists(attachmentId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  return !!row;
+}
+
+/**
  * Retrieve a single attachment by ID.
  */
 export function getAttachmentById(
