@@ -12,6 +12,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// The canonical product name shown in menus and the About panel.
+    /// Use this instead of hardcoding "Vellum" so the name is defined
+    /// in one place.
+    public static let appName = "Vellum"
+
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
     /// the delegate.  Use `AppDelegate.shared` instead.
@@ -157,7 +162,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private lazy var bundleDisplayName: String = {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "Vellum"
+            ?? Self.appName
     }()
 
     /// Delegate that patches the app menu items to "Vellum" right before
@@ -172,7 +177,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // and development builds (SPM target name).  The bundle display name
         // may be a custom dock label (e.g. an assistant name), so we patch
         // both the process name and the main menu items.
-        ProcessInfo.processInfo.processName = "Vellum"
+        ProcessInfo.processInfo.processName = Self.appName
     }
 
     /// Installs observers that patch the app menu bar title and items to
@@ -180,7 +185,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// when the user clicks the menu bar, before rendering) and the submenu
     /// items are patched via a delegate.
     func patchAppMenuTitles() {
-        guard bundleDisplayName != "Vellum" else { return }
+        guard bundleDisplayName != Self.appName else { return }
 
         if appMenuPatchDelegate == nil {
             appMenuPatchDelegate = AppMenuPatchDelegate(
@@ -201,15 +206,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: NSApp.mainMenu,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != "Vellum" {
-                    item.title = "Vellum"
+                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
+                    item.title = AppDelegate.appName
                 }
             }
         }
 
         // Apply immediately.
-        if let item = NSApp.mainMenu?.items.first, item.title != "Vellum" {
-            item.title = "Vellum"
+        if let item = NSApp.mainMenu?.items.first, item.title != Self.appName {
+            item.title = Self.appName
         }
     }
 

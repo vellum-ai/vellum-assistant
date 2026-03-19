@@ -25,18 +25,19 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
     }
 
     func patchTitles(menu: NSMenu) {
+        let name = AppDelegate.appName
         // Patch the parent menu item title (the bold text in the menu bar).
         if let mainMenu = NSApp.mainMenu,
            let appMenuItem = mainMenu.items.first,
-           appMenuItem.title != "Vellum" {
-            appMenuItem.title = "Vellum"
+           appMenuItem.title != name {
+            appMenuItem.title = name
         }
-        if menu.title != "Vellum" {
-            menu.title = "Vellum"
+        if menu.title != name {
+            menu.title = name
         }
         // Patch any remaining items that still contain the bundle name.
         for item in menu.items where item.title.contains(bundleDisplayName) {
-            item.title = item.title.replacingOccurrences(of: bundleDisplayName, with: "Vellum")
+            item.title = item.title.replacingOccurrences(of: bundleDisplayName, with: name)
         }
     }
 }

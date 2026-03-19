@@ -683,7 +683,7 @@ extension AppDelegate {
         creditsString.append(NSAttributedString(string: archLabel, attributes: archAttributes))
 
         options[.credits] = creditsString
-        options[.applicationName] = "Vellum"
+        options[.applicationName] = Self.appName
 
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: options)
