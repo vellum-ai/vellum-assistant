@@ -42,8 +42,6 @@ mock.module("../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-import { enforcePolicy, getPolicy } from "../runtime/auth/route-policy.js";
-import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import {
   addMessage,
   clearAll,
@@ -51,6 +49,8 @@ import {
   getConversation,
 } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { enforcePolicy, getPolicy } from "../runtime/auth/route-policy.js";
+import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 
 initializeDb();
