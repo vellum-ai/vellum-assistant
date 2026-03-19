@@ -960,13 +960,21 @@ struct MainWindowView: View {
                     restart: true
                 )
             } catch let error as AssistantCli.CLIError {
-                if case .daemonStartupFailed(let startupError) = error {
-                    appDelegate.daemonStartupError = startupError
-                    daemonStartupError = startupError
-                    MetricKitManager.reportDaemonStartupFailure(startupError)
+                let startupError: DaemonStartupError
+                if case .daemonStartupFailed(let parsed) = error {
+                    startupError = parsed
+                } else {
+                    startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
                 }
+                appDelegate.daemonStartupError = startupError
+                daemonStartupError = startupError
+                MetricKitManager.reportDaemonStartupFailure(startupError)
                 return
             } catch {
+                let startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
+                appDelegate.daemonStartupError = startupError
+                daemonStartupError = startupError
+                MetricKitManager.reportDaemonStartupFailure(startupError)
                 return
             }
             // Reconnect the daemon client after a successful restart
