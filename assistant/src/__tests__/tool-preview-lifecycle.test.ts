@@ -68,6 +68,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
+  backfillMessageIdOnLogs: () => {},
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
