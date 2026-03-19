@@ -308,23 +308,25 @@ struct MarkdownTableView: View {
     // MARK: - Table Cell AttributedString Cache
 
     /// Simple LRU cache for table cell inline markdown AttributedString results.
-    /// Keyed by the cell text content.
+    /// Keyed by the cell text content. Uses a Dictionary for O(1) lookups with
+    /// an access-time counter for LRU eviction.
     private static let cellCacheLimit = 200
 
-    /// Ordered dictionary acting as an LRU cache: most-recently-used entries are at the end.
-    @MainActor private static var cellCache: [(key: String, value: AttributedString)] = []
+    /// Dictionary-based LRU cache: O(1) lookups, evicts least-recently-used
+    /// entry when the cache exceeds `cellCacheLimit`.
+    @MainActor private static var cellCache: [String: (value: AttributedString, accessTime: Int)] = [:]
+    @MainActor private static var cellCacheLruCounter: Int = 0
 
     @MainActor static func clearCellAttributedStringCache() {
         cellCache.removeAll()
+        cellCacheLruCounter = 0
     }
 
     @MainActor private static func cachedAttributedString(for text: String) -> AttributedString {
-        let key = text
-
-        // Check if already cached — if so, move to end (most-recently-used)
-        if let idx = cellCache.firstIndex(where: { $0.key == key }) {
-            let entry = cellCache.remove(at: idx)
-            cellCache.append(entry)
+        // O(1) lookup
+        if let entry = cellCache[text] {
+            cellCacheLruCounter += 1
+            cellCache[text] = (entry.value, cellCacheLruCounter)
             return entry.value
         }
 
@@ -335,11 +337,14 @@ struct MarkdownTableView: View {
         let attributed = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
 
-        // Evict oldest entries if over limit
+        // Evict least-recently-used entry if over limit
         if cellCache.count >= cellCacheLimit {
-            cellCache.removeFirst()
+            if let lruKey = cellCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                cellCache.removeValue(forKey: lruKey)
+            }
         }
-        cellCache.append((key: key, value: attributed))
+        cellCacheLruCounter += 1
+        cellCache[text] = (attributed, cellCacheLruCounter)
 
         return attributed
     }

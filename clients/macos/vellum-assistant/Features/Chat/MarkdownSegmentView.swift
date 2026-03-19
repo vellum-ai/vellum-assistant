@@ -122,12 +122,35 @@ struct MarkdownSegmentView: View, Equatable {
         case horizontalRule
     }
 
+    /// Cache for `computeGroupedSegments` results, keyed by the hash of the
+    /// input segments array. Avoids recomputing the grouping on every body
+    /// evaluation when segments haven't changed.
+    @MainActor private static var groupedSegmentsCache: [Int: [SegmentGroup]] = [:]
+    private static let groupedSegmentsCacheLimit = 200
+
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
-    /// `computeGroupedSegments` is a pure O(segment-count) switch/append walk
-    /// with no string operations, so it is cheap enough to call on every body
-    /// evaluation without a separate cache.
-    private var groupedSegments: [SegmentGroup] { computeGroupedSegments() }
+    private var groupedSegments: [SegmentGroup] {
+        var hasher = Hasher()
+        for segment in segments {
+            hasher.combine(segment)
+        }
+        let key = hasher.finalize()
+
+        if let cached = Self.groupedSegmentsCache[key] {
+            return cached
+        }
+
+        let result = computeGroupedSegments()
+
+        // Evict oldest entry if over limit (simple eviction — no LRU needed
+        // since this cache is small and entries are cheap).
+        if Self.groupedSegmentsCache.count >= Self.groupedSegmentsCacheLimit {
+            Self.groupedSegmentsCache.removeValue(forKey: Self.groupedSegmentsCache.keys.first!)
+        }
+        Self.groupedSegmentsCache[key] = result
+        return result
+    }
 
     private func computeGroupedSegments() -> [SegmentGroup] {
         os_signpost(.begin, log: PerfSignposts.log, name: "markdownGroupSegments")
@@ -173,11 +196,11 @@ struct MarkdownSegmentView: View, Equatable {
     // MARK: - Combined AttributedString
 
     /// Cache for expensive `buildCombinedAttributedString` results.
-    /// Keyed by a hash of the segment descriptions so identical segment
-    /// arrays return the cached value instead of re-parsing markdown and
-    /// re-creating `AttributedString` on every SwiftUI body evaluation.
-    /// Each entry stores (value, accessTime, estimatedBytes) for LRU eviction
-    /// and byte-budget enforcement.
+    /// Keyed by a combined hash of the segment values and style colors so
+    /// identical segment arrays return the cached value instead of re-parsing
+    /// markdown and re-creating `AttributedString` on every SwiftUI body
+    /// evaluation. Each entry stores (value, accessTime, estimatedBytes) for
+    /// LRU eviction and byte-budget enforcement.
     @MainActor private static var attributedStringCache: [Int: (value: AttributedString, accessTime: Int, estimatedBytes: Int)] = [:]
     @MainActor private static var lruCounter: Int = 0
     private static let attributedStringCacheLimit = 200
@@ -193,6 +216,7 @@ struct MarkdownSegmentView: View, Equatable {
     static func clearAttributedStringCache() {
         attributedStringCache.removeAll()
         estimatedCacheBytes = 0
+        groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
     }
 
@@ -230,7 +254,7 @@ struct MarkdownSegmentView: View, Equatable {
         // prefix coloring) so different visual contexts don't share entries.
         var hasher = Hasher()
         for segment in segments {
-            hasher.combine(String(describing: segment))
+            hasher.combine(segment)
         }
         hasher.combine(secondaryTextColor.description)
         hasher.combine(textColor.description)
