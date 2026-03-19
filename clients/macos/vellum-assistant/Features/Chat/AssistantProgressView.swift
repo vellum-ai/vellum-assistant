@@ -43,6 +43,7 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
+    @State private var hideInlineChips: Bool = false
 
     // MARK: - Derived State
 
@@ -352,8 +353,8 @@ struct AssistantProgressView: View {
                 // Headline text with cross-fade
                 headlineLabel
 
-                // Inline permission chips (collapsed only, max 2 + overflow)
-                if !isExpanded {
+                // Inline permission chips (collapsed only, hidden at narrow widths)
+                if !isExpanded && !hideInlineChips {
                     inlinePermissionChips
                 }
 
@@ -377,6 +378,13 @@ struct AssistantProgressView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { hideInlineChips = geo.size.width < 350 }
+                .onChange(of: geo.size.width) { _, width in
+                    hideInlineChips = width < 350
+                }
+        })
     }
 
     // MARK: - Status Icon
