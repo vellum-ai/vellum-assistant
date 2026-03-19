@@ -256,6 +256,102 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
+  test("normalizes Anthropic web_search_tool_result blocks", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_004,
+      requestPayload: {
+        model: "claude-sonnet",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "web_search_tool_result",
+                tool_use_id: "stu_req_1",
+                content: [
+                  {
+                    type: "web_search_result",
+                    url: "https://example.com",
+                    title: "Example result",
+                    encrypted_content: "enc_123",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      responsePayload: {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 12,
+          output_tokens: 8,
+        },
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_resp_1",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.org",
+                title: "Another result",
+                encrypted_content: "enc_456",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 12,
+      outputTokens: 8,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: "end_turn",
+      requestMessageCount: 1,
+      requestToolCount: 0,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "[Web search results]",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "[Web search results]",
+      },
+      {
+        kind: "tool_result",
+        label: "User message 1 tool result",
+        role: "user",
+        toolName: "stu_req_1",
+        text: "[Web search results]",
+      },
+    ]);
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "[Web search results]",
+      },
+      {
+        kind: "tool_result",
+        label: "Assistant response tool result",
+        role: "assistant",
+        toolName: "stu_resp_1",
+        text: "[Web search results]",
+      },
+    ]);
+  });
+
   test("normalizes Gemini request and response payloads", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_002,

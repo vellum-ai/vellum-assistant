@@ -360,13 +360,13 @@ function anthropicMessageSections(
       continue;
     }
 
-    if (type === "tool_result") {
+    if (isAnthropicToolResultType(type)) {
       sections.push({
         kind: "tool_result",
         label: `${label} tool result`,
         role,
         toolName: asString(block.name) ?? asString(block.tool_use_id),
-        text: collectAnthropicText(block.content),
+        text: collectAnthropicToolResultText(block),
       });
     }
   }
@@ -612,8 +612,8 @@ function collectAnthropicText(content: unknown): string | undefined {
       continue;
     }
 
-    if (type === "tool_result") {
-      const resultText = collectAnthropicText(block.content);
+    if (isAnthropicToolResultType(type)) {
+      const resultText = collectAnthropicToolResultText(block);
       if (resultText) {
         textParts.push(resultText);
       }
@@ -621,6 +621,19 @@ function collectAnthropicText(content: unknown): string | undefined {
   }
 
   return joinTextParts(textParts);
+}
+
+function isAnthropicToolResultType(type: string | undefined): boolean {
+  return type === "tool_result" || type === "web_search_tool_result";
+}
+
+function collectAnthropicToolResultText(
+  block: Record<string, unknown>,
+): string | undefined {
+  if (asString(block.type) === "web_search_tool_result") {
+    return "[Web search results]";
+  }
+  return collectAnthropicText(block.content);
 }
 
 function buildMessageLabel(role: string, index: number): string {
