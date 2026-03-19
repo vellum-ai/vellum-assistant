@@ -15,8 +15,8 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
-  AttachmentUploadError,
   attachmentExists,
+  AttachmentUploadError,
   linkAttachmentToMessage,
   uploadAttachment,
   validateAttachmentUpload,
