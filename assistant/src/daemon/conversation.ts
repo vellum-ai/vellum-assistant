@@ -38,6 +38,7 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
@@ -385,22 +386,30 @@ export class Conversation {
   }
 
   /**
-   * Scan loaded conversation history for ui_surface content blocks and
-   * populate surfaceState so that findConversationBySurfaceId works for
-   * surfaces restored from history (e.g. after daemon restart).
+   * Scan ALL persisted messages (including compacted ones) for ui_surface
+   * content blocks and populate surfaceState so findConversationBySurfaceId
+   * works for surfaces restored from history (e.g. after daemon restart).
    */
   private restoreSurfaceStateFromHistory(): void {
-    for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
-      for (const block of msg.content) {
-        const b = block as unknown as Record<string, unknown>;
-        if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
-          this.surfaceState.set(b.surfaceId, {
-            surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-            data: (b.data ?? {}) as SurfaceData,
-            title: b.title as string | undefined,
-          });
+    const dbMessages = getMessages(this.conversationId);
+    for (const row of dbMessages) {
+      try {
+        const content = JSON.parse(row.content);
+        if (!Array.isArray(content)) continue;
+        for (const block of content) {
+          if (
+            block.type === "ui_surface" &&
+            typeof block.surfaceId === "string"
+          ) {
+            this.surfaceState.set(block.surfaceId, {
+              surfaceType: (block.surfaceType ?? "dynamic_page") as SurfaceType,
+              data: (block.data ?? {}) as SurfaceData,
+              title: block.title as string | undefined,
+            });
+          }
         }
+      } catch {
+        // Content isn't valid JSON — skip
       }
     }
   }
