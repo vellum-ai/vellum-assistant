@@ -19,7 +19,7 @@ struct MemoryItemRow: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Header row: badges + delete aligned to top
-                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
                         // Title + timestamp tightly grouped on the left
                         VStack(alignment: .leading, spacing: 0) {
                             Text(item.subject)
