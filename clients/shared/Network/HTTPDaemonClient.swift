@@ -292,7 +292,6 @@ public final class HTTPTransport {
         case eventsAll  // SSE subscription for all events
         case sendMessage
         case conversationsSeen
-        case conversationsUnread
         case identity
         case trustRulesManage
         case trustRuleManageById(id: String)
@@ -311,7 +310,6 @@ public final class HTTPTransport {
         case conversationUndo(id: String)
         case model
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case deleteQueuedMessage(id: String, conversationId: String)
         case conversationsReorder
         // Computer Use
         case cuWatch
@@ -393,8 +391,6 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
-        case .conversationsUnread:
-            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .trustRulesManage:
@@ -442,10 +438,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("/v1/conversations/search", qs)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
         // Computer Use
@@ -513,8 +505,6 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
-        case .conversationsUnread:
-            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .trustRulesManage:
@@ -562,10 +552,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("\(prefix)/conversations/search/", qs)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
         // Computer Use
@@ -1209,68 +1195,6 @@ public final class HTTPTransport {
         }
     }
 
-    func sendConversationUnread(_ signal: ConversationUnreadSignal, isRetry: Bool = false) async throws {
-        guard let url = buildURL(for: .conversationsUnread) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationId": signal.conversationId,
-            "sourceChannel": signal.sourceChannel,
-            "signalType": signal.signalType,
-            "confidence": signal.confidence,
-            "source": signal.source
-        ]
-        if let evidenceText = signal.evidenceText {
-            body["evidenceText"] = evidenceText
-        }
-        if let observedAt = signal.observedAt {
-            body["observedAt"] = observedAt
-        }
-        if let metadata = signal.metadata {
-            body["metadata"] = jsonCompatibleDictionary(metadata)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else {
-                throw HTTPTransportError.healthCheckFailed
-            }
-
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    try await sendConversationUnread(signal, isRetry: true)
-                    return
-                case .transientFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
-                    )
-                case .terminalFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
-                    )
-                }
-            }
-
-            guard http.statusCode == 200 else {
-                throw HTTPTransportError.requestFailed(
-                    statusCode: http.statusCode,
-                    message: decodeHTTPErrorMessage(from: data)
-                )
-            }
-        } catch {
-            throw error
-        }
-    }
 
     private func decodeHTTPErrorMessage(from data: Data) -> String? {
         if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
@@ -1474,35 +1398,6 @@ public final class HTTPTransport {
         }
     }
 
-    func deleteQueuedMessage(conversationId: String, requestId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .deleteQueuedMessage(id: requestId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.messageQueuedDeleted(MessageQueuedDeletedMessage(
-                    conversationId: conversationId,
-                    requestId: requestId
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await deleteQueuedMessage(conversationId: conversationId, requestId: requestId, isRetry: true)
-                }
-            } else {
-                log.error("Delete queued message failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Delete queued message error: \(error.localizedDescription)")
-        }
-    }
 
     func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsReorder) else { return }

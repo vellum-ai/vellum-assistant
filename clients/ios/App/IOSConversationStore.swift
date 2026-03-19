@@ -168,6 +168,7 @@ class IOSConversationStore: ObservableObject {
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
+    private let conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient()
     private let userDefaults: UserDefaults
     private static let persistenceKey = "ios_conversations_v1"
     private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
@@ -1147,7 +1148,7 @@ class IOSConversationStore: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.daemonClient.sendConversationUnread(signal)
+                try await self.conversationUnreadClient.sendConversationUnread(signal)
             } catch {
                 self.rollbackUnreadMutationIfNeeded(
                     conversationLocalId: conversation.id,

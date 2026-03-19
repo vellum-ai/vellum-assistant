@@ -45,14 +45,8 @@ extension HTTPTransport {
             } else if let msg = message as? ConversationSeenSignal {
                 Task { await self.sendConversationSeen(msg) }
                 return true
-            } else if let msg = message as? ConversationUnreadSignal {
-                Task {
-                    do {
-                        try await self.sendConversationUnread(msg)
-                    } catch {
-                        log.error("Conversation unread signal error: \(error.localizedDescription)")
-                    }
-                }
+            } else if message is ConversationUnreadSignal {
+                // Handled by ConversationUnreadClient via GatewayHTTPClient.
                 return true
             } else if message is GuardianActionsPendingRequestMessage
                         || message is GuardianActionDecisionMessage {

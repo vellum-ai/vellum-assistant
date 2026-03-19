@@ -363,6 +363,7 @@ public final class ChatViewModel: ObservableObject {
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
+    private let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -2103,10 +2104,14 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        do {
-            try daemonClient.send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: entry.key))
-        } catch {
-            log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
+        Task {
+            let success = await conversationQueueClient.deleteQueuedMessage(
+                conversationId: conversationId,
+                requestId: entry.key
+            )
+            if !success {
+                log.error("Failed to delete queued message")
+            }
         }
     }
 
