@@ -18,9 +18,8 @@ public struct RegenerateClient: RegenerateClientProtocol {
     /// Returns `true` on success (HTTP 200/202), `false` otherwise.
     public func regenerate(conversationId: String) async -> Bool {
         do {
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/\(encoded)/regenerate",
+                path: "assistants/{assistantId}/conversations/\(conversationId)/regenerate",
                 timeout: 15
             )
             guard response.isSuccess else {
