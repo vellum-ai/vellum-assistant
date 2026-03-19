@@ -12,14 +12,32 @@ struct SlashCommand: Identifiable {
     let name: String
     let description: String
     let icon: String
+    let selectionBehavior: ChatSlashCommandSelectionBehavior
 
-    static let all: [SlashCommand] = [
-        SlashCommand(name: "commands", description: "List all available commands", icon: "terminal"),
-        SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
-        SlashCommand(name: "models", description: "List all available models", icon: "list.bullet"),
-        SlashCommand(name: "status", description: "Show session status and context usage", icon: "info.circle"),
-        SlashCommand(name: "btw", description: "Ask a side question while the assistant is working", icon: "bubble.left.and.text.bubble.right"),
-    ]
+    static let all: [SlashCommand] = ChatSlashCommandCatalog.commands(
+        for: .macos,
+        surface: .picker
+    ).map(SlashCommand.init(descriptor:))
+
+    init(descriptor: ChatSlashCommandDescriptor) {
+        self.name = descriptor.name
+        self.description = descriptor.description
+        self.icon = descriptor.icon
+        self.selectionBehavior = descriptor.selectionBehavior
+    }
+
+    var selectedInputText: String {
+        switch selectionBehavior {
+        case .autoSend:
+            "/\(name)"
+        case .insertTrailingSpace:
+            "/\(name) "
+        }
+    }
+
+    var shouldAutoSendOnSelect: Bool {
+        selectionBehavior == .autoSend
+    }
 }
 
 // MARK: - Slash Navigation
@@ -86,11 +104,8 @@ extension ComposerView {
     func selectSlashCommand(_ command: SlashCommand) {
         withAnimation(VAnimation.fast) { showSlashMenu = false }
         slashSelectedIndex = 0
-        if command.name == "btw" {
-            inputText = "/\(command.name) "
-            // Don't auto-send — user needs to type the question
-        } else {
-            inputText = "/\(command.name)"
+        inputText = command.selectedInputText
+        if command.shouldAutoSendOnSelect {
             onSend()
         }
     }
