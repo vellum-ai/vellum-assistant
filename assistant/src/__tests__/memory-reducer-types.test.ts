@@ -694,7 +694,6 @@ describe("parseReducerOutput — tolerates extra keys", () => {
     );
     expect(result.openLoops).toHaveLength(1);
     // Extra fields should NOT be present on the validated result
-
     expect((result.openLoops[0] as any).extraField).toBeUndefined();
   });
 });

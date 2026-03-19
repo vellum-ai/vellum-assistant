@@ -1261,6 +1261,115 @@ graph TB
     TRUST -->|"Deny rule matches"| DENY["Blocked"]
 ```
 
+### Inline Skill Command Expansion
+
+Skills can embed dynamic shell output in their SKILL.md body using `!`command``tokens. When`skill_load` processes a skill containing these tokens, the commands are executed at load time through a sandboxed runner and their output is substituted inline. This enables externally authored skills to include project-specific context (e.g., directory listings, config values) without requiring manual edits.
+
+**Feature flag:** `feature_flags.inline-skill-commands.enabled` (default: enabled). When disabled, loading a skill that contains `!`command`` tokens fails closed with an error rather than leaving raw tokens in the prompt.
+
+#### Syntax and Parsing
+
+The `!`command``syntax is parsed by`parseInlineCommandExpansions()` from the SKILL.md body after frontmatter extraction. The parser:
+
+- Extracts all `!`command`` tokens outside fenced code blocks (documentation examples in fenced blocks are ignored)
+- Assigns each token a stable `placeholderId` (0-indexed encounter order)
+- Rejects malformed tokens fail-closed: empty commands, nested backticks, and unmatched opening backticks produce `InlineCommandExpansionError` entries rather than best-effort expansions
+
+#### Transitive Version Hash
+
+When a skill contains inline command expansions, the permission system computes a **transitive version hash** (`tv1:<sha256>`) that covers the root skill and all its included children (DFS pre-order). The hash folds:
+
+1. Each visited skill ID (graph structure)
+2. Each visited skill's directory content hash (file changes)
+
+Editing any file in the root skill or any included child invalidates the transitive hash, which forces re-approval. The hash is computed by `computeTransitiveSkillVersionHash()` and fails closed (`TransitiveHashError`) on missing children or cycles in the include graph.
+
+#### Permission Gating (`skill_load_dynamic:*`)
+
+Skills containing inline command expansions use a separate permission candidate namespace (`skill_load_dynamic:*`) instead of the normal `skill_load:*` namespace. This prevents them from falling through to the permissive default `skill_load:*` allow rule. The permission checker emits candidates in specificity order:
+
+1. `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned approval (most specific)
+2. `skill_load_dynamic:<skill-id>` — any-version approval
+
+A default ask rule at priority 200 (`default:ask-skill_load_dynamic-global`) catches these candidates, ensuring the guardian is always prompted before inline commands execute. The user can create a pinned trust rule for a specific transitive hash to auto-approve known-good versions. Non-interactive sessions (no human present) deny dynamic skill loads rather than silently auto-approving.
+
+```mermaid
+graph TB
+    LOAD["skill_load(selector)"] --> PARSE["Parse SKILL.md body"]
+    PARSE --> CHECK{"Has !\x60command\x60<br/>tokens?"}
+    CHECK -->|"No"| NORMAL["Normal skill_load:* candidate<br/>(auto-allowed)"]
+    CHECK -->|"Yes"| FLAG{"inline-skill-commands<br/>flag enabled?"}
+    FLAG -->|"No"| FAIL_FLAG["Fail closed:<br/>error returned"]
+    FLAG -->|"Yes"| SOURCE{"Eligible source?<br/>(bundled/managed/workspace)"}
+    SOURCE -->|"No (extra)"| FAIL_SOURCE["Fail closed:<br/>source not eligible"]
+    SOURCE -->|"Yes"| HASH["Compute transitive hash"]
+    HASH --> DYN["skill_load_dynamic:id@hash<br/>candidate emitted"]
+    DYN --> PERM["PermissionChecker"]
+    PERM --> RULE{"Trust rule?"}
+    RULE -->|"Pinned allow"| RENDER["Execute + render"]
+    RULE -->|"No rule"| PROMPT["Prompt guardian"]
+    RULE -->|"Deny"| DENY["Blocked"]
+```
+
+#### Sandbox-Only Execution
+
+Inline commands are executed through `runInlineCommand()`, a purpose-built sandbox runner with strict security constraints:
+
+- **Sandbox enforced**: The sandbox is always enabled with `networkMode: "off"` — no outbound network connections
+- **Sanitized environment**: Uses `buildSanitizedEnv()` — no API keys, tokens, credentials, gateway URLs, or workspace paths in the environment
+- **No host fallback**: Unlike the general `bash` tool, there is no fallback to host execution when the sandbox is unavailable
+- **No credential proxy**: No CES client, no credential materialization
+- **Timeout**: 10-second wall-clock limit (killed with SIGKILL on timeout)
+- **Output cap**: 20,000 characters maximum (truncated with `[output truncated]` marker)
+- **Binary rejection**: Output with >10% non-printable characters (after ANSI stripping) is rejected
+- **Stdout only**: stderr is discarded; ANSI escape sequences are stripped from stdout
+
+The runner returns a deterministic `InlineCommandResult` with machine-readable failure reasons (`timeout`, `non_zero_exit`, `binary_output`, `spawn_failure`) — raw stderr is never surfaced.
+
+#### Rendering Flow
+
+The `renderInlineCommands()` function processes expansions sequentially (not in parallel) to maintain deterministic order. Each `!`command`` token is replaced with an XML-wrapped result:
+
+- **Success**: `<inline_skill_command index="N">...output...</inline_skill_command>`
+- **Failure**: `<inline_skill_command index="N">[inline command unavailable: <reason>]</inline_skill_command>`
+
+Rendering applies at two levels during `skill_load`:
+
+1. **Root skill**: If the loaded skill has inline expansions, they are rendered before the skill body is emitted. A root skill with inline commands that fail the feature-flag or source-eligibility check returns an error (fail closed, no `<loaded_skill>` marker).
+2. **Included children**: Each included child skill's body is rendered independently. A render failure in one child does not prevent sibling rendering — the failed child's body falls back to raw (unexpanded) text with a warning log.
+
+#### v1 Source Restriction
+
+In the initial release, only skills from **bundled**, **managed**, and **workspace** sources are eligible for inline command expansion. Skills from **extra** (third-party) roots are explicitly rejected with an error message. The `INLINE_COMMAND_ELIGIBLE_SOURCES` set in `load.ts` enforces this restriction. Unknown or future source types also fail closed.
+
+#### Fail-Closed Behavior Summary
+
+Every layer in the pipeline defaults to rejection rather than silent degradation:
+
+| Layer            | Failure mode                                         | Behavior                                               |
+| ---------------- | ---------------------------------------------------- | ------------------------------------------------------ |
+| Parser           | Malformed token (empty, nested backtick, unmatched)  | Logged as error, not expanded                          |
+| Feature flag     | Flag disabled                                        | `skill_load` returns error, no `<loaded_skill>` marker |
+| Source check     | `extra` or unknown source                            | `skill_load` returns error, no `<loaded_skill>` marker |
+| Transitive hash  | Missing child or cycle in include graph              | `TransitiveHashError` thrown, permission check fails   |
+| Permission       | No trust rule and non-interactive                    | Denied (never silently auto-approved)                  |
+| Sandbox runner   | Timeout, non-zero exit, binary output, spawn failure | Deterministic stub rendered, no raw stderr             |
+| Renderer (root)  | Feature flag off or ineligible source                | Error returned from `skill_load`                       |
+| Renderer (child) | Exception during render                              | Raw body used, sibling rendering continues             |
+
+#### Key Source Files
+
+| File                                                | Role                                                                             |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                |
+| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                             |
+| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                    |
+| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children   |
+| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration |
+| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission and allowlist options                  |
+| `assistant/src/permissions/defaults.ts`             | `default:ask-skill_load_dynamic-global` rule (priority 200)                      |
+| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                          |
+
 ### Key Source Files
 
 | File                                                | Role                                                                                       |
