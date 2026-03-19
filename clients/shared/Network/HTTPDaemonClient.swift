@@ -36,6 +36,7 @@ public struct ConversationsListResponse: Decodable {
         public let assistantAttention: AssistantAttention?
         public let displayOrder: Double?
         public let isPinned: Bool?
+        public let forkParent: ConversationForkParent?
     }
     public let conversations: [Conversation]
     public let hasMore: Bool?
@@ -43,6 +44,11 @@ public struct ConversationsListResponse: Decodable {
 
 /// Response shape from `GET /v1/conversations/:id`.
 public struct SingleConversationResponse: Decodable {
+    public let conversation: ConversationsListResponse.Conversation
+}
+
+/// Response shape from `POST /v1/conversations/:id/fork`.
+public struct ForkConversationResponse: Decodable {
     public let conversation: ConversationsListResponse.Conversation
 }
 

@@ -3422,6 +3422,18 @@ public struct ConversationInfo: Codable, Sendable {
     }
 }
 
+public struct ConversationForkParent: Codable, Sendable {
+    public let conversationId: String
+    public let messageId: String
+    public let title: String
+
+    public init(conversationId: String, messageId: String, title: String) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.title = title
+    }
+}
+
 public struct ConversationListRequest: Codable, Sendable {
     public let type: String
     /// Number of conversations to skip (for pagination). Defaults to 0.
@@ -3465,8 +3477,9 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let assistantAttention: AssistantAttention?
     public let displayOrder: Double?
     public let isPinned: Bool?
+    public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3480,6 +3493,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.assistantAttention = assistantAttention
         self.displayOrder = displayOrder
         self.isPinned = isPinned
+        self.forkParent = forkParent
     }
 }
 

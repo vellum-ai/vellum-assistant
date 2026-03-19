@@ -178,6 +178,12 @@ export interface AssistantAttention {
   lastSeenSignalType?: string;
 }
 
+export interface ConversationForkParent {
+  conversationId: string;
+  messageId: string;
+  title: string;
+}
+
 export interface ConversationListResponse {
   type: "conversation_list_response";
   conversations: Array<{
@@ -194,6 +200,7 @@ export interface ConversationListResponse {
     assistantAttention?: AssistantAttention;
     displayOrder?: number;
     isPinned?: boolean;
+    forkParent?: ConversationForkParent;
   }>;
   /** Whether more conversations exist beyond the returned page. */
   hasMore?: boolean;
