@@ -286,8 +286,8 @@ struct ChatBubble: View {
         }
         .contentShape(Rectangle())
         .onAppear { recomputeInterleavedContentCache() }
-        .onChange(of: message.contentOrder) { _ in recomputeInterleavedContentCache() }
-        .onChange(of: message.textSegments) { _ in recomputeInterleavedContentCache() }
+        .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
+        .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
             isHovered = hovering
         }
