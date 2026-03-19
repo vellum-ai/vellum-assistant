@@ -15,6 +15,120 @@ private enum ProgressPhase: Equatable {
     case denied
 }
 
+// MARK: - Derived Progress State
+
+/// Caches all O(n) derived properties from `toolCalls` in a single pass.
+/// Recomputed only when `toolCalls` or `decidedConfirmations` change,
+/// avoiding redundant filtering/searching/sorting on every body render.
+private struct DerivedProgressState: Equatable {
+    var allComplete: Bool = true
+    var hasTools: Bool = false
+    var completedToolCount: Int = 0
+    var deniedCount: Int = 0
+    var hasDeniedToolCalls: Bool = false
+    var hasPendingConfirmation: Bool = false
+    var groupId: String = "no-tools"
+    var currentCall: ToolCallData? = nil
+    var lastToolCall: ToolCallData? = nil
+    var lastIncompleteCall: ToolCallData? = nil
+    var skillExecuteLabel: String = "Using a skill"
+    var uniqueToolNamesSorted: [String] = []
+    var earliestStartedAt: Date? = nil
+    var latestCompletedAt: Date? = nil
+    var totalToolCount: Int = 0
+
+    /// Computes all derived values in a single O(n) pass over toolCalls.
+    static func compute(
+        toolCalls: [ToolCallData],
+        decidedConfirmations: [ToolConfirmationData]
+    ) -> DerivedProgressState {
+        var state = DerivedProgressState()
+        state.totalToolCount = toolCalls.count
+        state.hasTools = !toolCalls.isEmpty
+
+        var allComplete = true
+        var foundFirstIncomplete = false
+        var lastSkillLoad: ToolCallData? = nil
+        var toolNameSet = Set<String>()
+        var earliestStart: Date? = nil
+        var latestEnd: Date? = nil
+
+        for toolCall in toolCalls {
+            // Track completion
+            if toolCall.isComplete {
+                state.completedToolCount += 1
+            } else {
+                allComplete = false
+                if !foundFirstIncomplete {
+                    state.currentCall = toolCall
+                    foundFirstIncomplete = true
+                }
+                state.lastIncompleteCall = toolCall
+            }
+
+            // Track denied/timed-out
+            if toolCall.confirmationDecision == .denied || toolCall.confirmationDecision == .timedOut {
+                state.deniedCount += 1
+                state.hasDeniedToolCalls = true
+            }
+
+            // Track pending confirmations
+            if toolCall.pendingConfirmation != nil {
+                state.hasPendingConfirmation = true
+            }
+
+            // Track unique tool names
+            toolNameSet.insert(toolCall.toolName)
+
+            // Track skill_load (last completed one)
+            if toolCall.toolName == "skill_load" && toolCall.isComplete {
+                lastSkillLoad = toolCall
+            }
+
+            // Track timestamps
+            if let started = toolCall.startedAt {
+                if earliestStart == nil || started < earliestStart! {
+                    earliestStart = started
+                }
+            }
+            if let completed = toolCall.completedAt {
+                if latestEnd == nil || completed > latestEnd! {
+                    latestEnd = completed
+                }
+            }
+        }
+
+        state.allComplete = toolCalls.isEmpty ? true : allComplete
+        state.lastToolCall = toolCalls.last
+        state.groupId = toolCalls.first?.id.uuidString ?? "no-tools"
+        state.earliestStartedAt = earliestStart
+        state.latestCompletedAt = latestEnd
+        state.uniqueToolNamesSorted = toolNameSet.sorted()
+
+        // Derive skill execute label
+        if let skillLoad = lastSkillLoad,
+           let skillId = skillLoad.inputRawDict?["skill"]?.value as? String,
+           !skillId.isEmpty {
+            let display = skillId
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+            state.skillExecuteLabel = "Using my \(display) skill"
+        }
+
+        // Check decidedConfirmations for denied state
+        if !state.hasDeniedToolCalls {
+            for confirmation in decidedConfirmations {
+                if confirmation.state == .denied || confirmation.state == .timedOut {
+                    state.hasDeniedToolCalls = true
+                    break
+                }
+            }
+        }
+
+        return state
+    }
+}
+
 // MARK: - AssistantProgressView
 
 /// Unified container that handles all tool progress states through a single component
@@ -44,17 +158,16 @@ struct AssistantProgressView: View {
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
     @State private var hideInlineChips: Bool = false
+    @State private var derived = DerivedProgressState()
 
-    // MARK: - Derived State
+    // MARK: - Derived State (reads from cached DerivedProgressState)
 
     private var phase: ProgressPhase {
-        let allComplete = !toolCalls.isEmpty && toolCalls.allSatisfy(\.isComplete)
-        let hasTools = !toolCalls.isEmpty
-        let hasIncompleteTools = hasTools && !allComplete
+        let hasIncompleteTools = derived.hasTools && !derived.allComplete
 
         // If confirmation was denied/timed out and tools are incomplete, those tools
         // will never finish — show the denied state instead of an indefinite spinner.
-        if hasDeniedTools && hasIncompleteTools {
+        if derived.hasDeniedToolCalls && hasIncompleteTools {
             return .denied
         }
 
@@ -64,68 +177,35 @@ struct AssistantProgressView: View {
         }
 
         // At least one tool still running
-        if hasTools && !allComplete {
+        if derived.hasTools && !derived.allComplete {
             return .toolRunning
         }
 
         // All tools done but message still streaming with no text yet — more tools
         // may come. Show active "Thinking" state rather than premature "Completed N steps".
         // Once text appears, fall through to .complete (which shows warning icon if denied).
-        if allComplete && isStreaming && !hasText {
+        if derived.allComplete && isStreaming && !hasText {
             return .toolsCompleteThinking
         }
 
         // All tools done, model composing response
-        if allComplete && isProcessing {
+        if derived.allComplete && isProcessing {
             return .processing
         }
 
         // All done — either message finished (!isStreaming && !isProcessing) or
         // text is already visible while streaming (user can see the response).
         // Uses warning icon + "Completed with N blocked permission(s)" if any tools were denied.
-        if allComplete && (!isStreaming || hasText) && !isProcessing {
+        if derived.allComplete && (!isStreaming || hasText) && !isProcessing {
             return .complete
         }
 
         // No tools, model working
-        if !hasTools && (isStreaming || isProcessing) {
+        if !derived.hasTools && (isStreaming || isProcessing) {
             return .processing
         }
 
         return .thinking
-    }
-
-    private var currentCall: ToolCallData? {
-        toolCalls.first(where: { !$0.isComplete })
-    }
-
-    /// Single source of truth for denied state — used for both `.denied` phase gating
-    /// and `.complete` warning styling/copy. Checks live confirmations and persisted per-tool data.
-    private var hasDeniedTools: Bool {
-        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
-            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
-    }
-
-    /// Count of denied/timed-out tool calls. Counted exclusively from `toolCalls` (not
-    /// `decidedConfirmations`) because only tool calls carry a `toolUseId` for dedup.
-    private var deniedCount: Int {
-        toolCalls.filter { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }.count
-    }
-
-    /// Whether any tool call in this group has an unresolved pending confirmation.
-    private var hasPendingConfirmation: Bool {
-        toolCalls.contains { $0.pendingConfirmation != nil }
-    }
-
-    /// Stable identifier for this progress group, derived from the first tool call's UUID.
-    /// Used in diagnostics to correlate auto-expand events to a specific step group.
-    private var groupId: String {
-        toolCalls.first?.id.uuidString ?? "no-tools"
-    }
-
-    /// Number of tool calls in this group that have completed.
-    private var completedToolCount: Int {
-        toolCalls.filter(\.isComplete).count
     }
 
     private var isActive: Bool {
@@ -137,31 +217,17 @@ struct AssistantProgressView: View {
         }
     }
 
-    /// Derive a friendly skill label from the most recent completed skill_load call.
-    /// Returns e.g. "Using my frontend design skill" or "Using a skill" when unavailable.
-    private var skillExecuteLabel: String {
-        if let skillLoad = toolCalls.last(where: { $0.toolName == "skill_load" && $0.isComplete }),
-           let skillId = skillLoad.inputRawDict?["skill"]?.value as? String,
-           !skillId.isEmpty {
-            let display = skillId
-                .replacingOccurrences(of: "-", with: " ")
-                .replacingOccurrences(of: "_", with: " ")
-            return "Using my \(display) skill"
-        }
-        return "Using a skill"
-    }
-
     private var headlineText: String {
         switch phase {
         case .thinking:
             return "Thinking..."
         case .toolRunning:
-            if let current = currentCall {
+            if let current = derived.currentCall {
                 if let reason = current.reasonDescription, !reason.isEmpty {
                     return reason
                 }
                 if current.toolName == "skill_execute" {
-                    return skillExecuteLabel
+                    return derived.skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     current.toolName,
@@ -172,15 +238,15 @@ struct AssistantProgressView: View {
             return "Working"
         case .streamingCode:
             let rawName = streamingCodeToolName ?? ""
-            let activeBuildingStatus = toolCalls.last(where: { !$0.isComplete })?.buildingStatus
+            let activeBuildingStatus = derived.lastIncompleteCall?.buildingStatus
             return ChatBubble.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus)
         case .toolsCompleteThinking:
-            if let lastTool = toolCalls.last {
+            if let lastTool = derived.lastToolCall {
                 if let reason = lastTool.reasonDescription, !reason.isEmpty {
                     return reason
                 }
                 if lastTool.toolName == "skill_execute" {
-                    return skillExecuteLabel
+                    return derived.skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     lastTool.toolName,
@@ -192,22 +258,21 @@ struct AssistantProgressView: View {
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
-            if hasDeniedTools {
-                if deniedCount > 0 {
-                    return "Completed with \(deniedCount) blocked permission\(deniedCount == 1 ? "" : "s")"
+            if derived.hasDeniedToolCalls {
+                if derived.deniedCount > 0 {
+                    return "Completed with \(derived.deniedCount) blocked permission\(derived.deniedCount == 1 ? "" : "s")"
                 }
                 return "Completed with blocked permissions"
             }
-            return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
+            return "Completed \(derived.totalToolCount) step\(derived.totalToolCount == 1 ? "" : "s")"
         case .denied:
-            let uniqueNames = Array(Set(toolCalls.map(\.toolName))).sorted()
-            let primary = uniqueNames.first ?? "Tool"
+            let primary = derived.uniqueToolNamesSorted.first ?? "Tool"
             return ChatBubble.friendlyRunningLabel(primary) + " denied"
         }
     }
 
     private var hasChevron: Bool {
-        !toolCalls.isEmpty
+        derived.hasTools
     }
 
     // MARK: - Body
@@ -232,12 +297,18 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .onChange(of: toolCalls) { _, newToolCalls in
+            derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
+        }
+        .onChange(of: decidedConfirmations) { _, newConfirmations in
+            derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
+        }
         .onChange(of: phase) { _, newPhase in
             let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
-                reason: "phase_change:\(newPhase) group=\(groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(completedToolCount)/\(toolCalls.count) denied=\(deniedCount) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: toolCalls.count
+                reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                toolCallCount: derived.totalToolCount
             ))
             if newPhase == .processing {
                 processingStartDate = Date()
@@ -250,8 +321,8 @@ struct AssistantProgressView: View {
             {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag group=\(groupId) phase=\(newPhase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                    toolCallCount: toolCalls.count
+                    reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: derived.totalToolCount
                 ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
@@ -274,12 +345,12 @@ struct AssistantProgressView: View {
                 }
             }
         }
-        .onChange(of: hasPendingConfirmation) { _, pending in
+        .onChange(of: derived.hasPendingConfirmation) { _, pending in
             if pending && !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
                     reason: "auto_expand:pending_confirmation",
-                    toolCallCount: toolCalls.count
+                    toolCallCount: derived.totalToolCount
                 ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
@@ -287,12 +358,15 @@ struct AssistantProgressView: View {
             }
         }
         .onAppear {
+            // Compute initial derived state
+            derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: decidedConfirmations)
+
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
             }
             // Seed startDate from persisted timestamps so the header timer
             // shows correct elapsed time after history restore.
-            if let earliest = toolCalls.compactMap(\.startedAt).min() {
+            if let earliest = derived.earliestStartedAt {
                 startDate = earliest
             }
             // Auto-expand completed step groups when the flag is enabled.
@@ -304,18 +378,18 @@ struct AssistantProgressView: View {
             {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag_on_appear group=\(groupId) phase=\(phase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                    toolCallCount: toolCalls.count
+                    reason: "auto_expand:completed_steps_flag_on_appear group=\(derived.groupId) phase=\(phase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: derived.totalToolCount
                 ))
                 isExpanded = true
                 // Rehydration is handled by onChange(of: isExpanded) above.
             }
             // Auto-expand when a pending confirmation exists on appear
-            if hasPendingConfirmation && !isExpanded {
+            if derived.hasPendingConfirmation && !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
                     reason: "auto_expand:pending_confirmation_on_appear",
-                    toolCallCount: toolCalls.count
+                    toolCallCount: derived.totalToolCount
                 ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
@@ -335,11 +409,11 @@ struct AssistantProgressView: View {
             guard hasChevron else { return }
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
-            if isExpanded && hasPendingConfirmation { return }
+            if isExpanded && derived.hasPendingConfirmation { return }
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
                 reason: "manual_toggle:\(isExpanded ? "collapse" : "expand")",
-                toolCallCount: toolCalls.count
+                toolCallCount: derived.totalToolCount
             ))
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
@@ -363,7 +437,7 @@ struct AssistantProgressView: View {
                 // Elapsed time: live counter when active, final duration when complete
                 if isActive {
                     elapsedTimeLabel
-                } else if !toolCalls.isEmpty {
+                } else if derived.hasTools {
                     completedDurationLabel
                 }
 
@@ -394,8 +468,8 @@ struct AssistantProgressView: View {
     private var statusIcon: some View {
         switch phase {
         case .complete:
-            VIconView(hasDeniedTools ? .triangleAlert : .circleCheck, size: 12)
-                .foregroundColor(hasDeniedTools ? VColor.systemNegativeHover : VColor.primaryBase)
+            VIconView(derived.hasDeniedToolCalls ? .triangleAlert : .circleCheck, size: 12)
+                .foregroundColor(derived.hasDeniedToolCalls ? VColor.systemNegativeHover : VColor.primaryBase)
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 VIconView(.clock, size: 12)
@@ -481,9 +555,7 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var completedDurationLabel: some View {
-        let earliest = toolCalls.compactMap(\.startedAt).min()
-        let latest = toolCalls.compactMap(\.completedAt).max()
-        if let start = earliest, let end = latest {
+        if let start = derived.earliestStartedAt, let end = derived.latestCompletedAt {
             let seconds = end.timeIntervalSince(start)
             Text(seconds < 60
                 ? String(format: "%.1fs", seconds)
@@ -507,7 +579,7 @@ struct AssistantProgressView: View {
                     StepDetailRow(
                         toolCall: toolCall,
                         phase: phase,
-                        skillLabel: toolCall.toolName == "skill_execute" ? skillExecuteLabel : nil,
+                        skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
                         onRehydrate: onRehydrate
                     )
                 }
