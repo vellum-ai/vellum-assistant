@@ -493,16 +493,21 @@ final class AvatarAppearanceManager {
 
     /// Updates the application dock icon to match the current avatar.
     /// Uses the custom avatar PNG when available, falls back to a character
-    /// avatar rendered from saved traits, then reverts to the default bundle icon.
+    /// avatar rendered from saved traits, then sets a squircle-masked version
+    /// of the bundle icon so it looks correct on macOS versions that don't
+    /// auto-apply the squircle mask (pre-macOS 26).
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
-        // Prefer custom avatar PNG, then character avatar from saved traits.
+        // Prefer custom avatar PNG, then character avatar from saved traits,
+        // then the bundled V logo as a squircle dock icon.
         let avatar: NSImage
         if let custom = customAvatarImage {
             avatar = custom
         } else if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
             avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 512)
+        } else if let bundled = Self.bundledInitialAvatar {
+            avatar = bundled
         } else {
             NSApplication.shared.applicationIconImage = nil
             NSApp.dockTile.display()
