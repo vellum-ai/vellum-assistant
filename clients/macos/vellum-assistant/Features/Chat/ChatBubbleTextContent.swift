@@ -5,7 +5,7 @@ import VellumAssistantShared
 
 extension ChatBubble {
     /// Render a single text segment as a styled bubble, with table and image support.
-    /// For large messages (>2000 chars) with a segment cache miss, renders plain text
+    /// For large messages (>500 chars) with a segment cache miss, renders plain text
     /// immediately and parses rich formatting asynchronously to avoid blocking scroll.
     @ViewBuilder
     func textBubble(for segmentText: String) -> some View {
