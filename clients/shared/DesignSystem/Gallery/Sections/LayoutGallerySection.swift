@@ -7,6 +7,8 @@ struct LayoutGallerySection: View {
     @State private var showPanel = true
     @State private var panelWidth: Double = 280
     @State private var pinnedTabSelection: Int = 0
+    @State private var adaptiveDropdownValue: String = "a"
+    @State private var adaptiveContainerWidth: Double = 500
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -76,29 +78,45 @@ struct LayoutGallerySection: View {
                     }
                     .frame(width: 360, height: 200)
                 }
-
             }
 
-            if filter == nil || filter == "vToolbar" {
+            if filter == nil || filter == "vAdaptiveStack" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - VToolbar
+                // MARK: - VAdaptiveStack
                 GallerySectionHeader(
-                    title: "VToolbar",
-                    description: "Horizontal toolbar container for icon buttons and actions."
+                    title: "VAdaptiveStack",
+                    description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width. Use this instead of a raw HStack when content should gracefully reflow at narrow widths."
                 )
 
-                VCard(padding: 0) {
-                    VToolbar {
-                        VButton(label: "Home", icon: VIcon.house.rawValue, style: .ghost) {}
-                        VButton(label: "Search", icon: VIcon.search.rawValue, style: .ghost) {}
-                        VButton(label: "Settings", icon: VIcon.settings.rawValue, style: .ghost, isActive: true) {}
-                        Spacer()
-                        VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost) {}
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Container Width: \(Int(adaptiveContainerWidth))pt")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentSecondary)
+                            Slider(value: $adaptiveContainerWidth, in: 150...600, step: 10)
+                                .frame(maxWidth: 300)
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VAdaptiveStack(horizontalAlignment: .bottom) {
+                            VDropdown(
+                                placeholder: "Select a model...",
+                                selection: $adaptiveDropdownValue,
+                                options: [
+                                    (label: "Claude 3.5 Sonnet", value: "a"),
+                                    (label: "GPT-4o", value: "b"),
+                                    (label: "Gemini Pro", value: "c"),
+                                ]
+                            )
+                            VButton(label: "Save", style: .primary) {}
+                        }
+                        .frame(width: adaptiveContainerWidth, alignment: .leading)
                     }
                 }
-
             }
 
             if filter == nil || filter == "vSidePanel" {
@@ -152,7 +170,6 @@ struct LayoutGallerySection: View {
                     }
                     .frame(width: 300, height: 250)
                 }
-
             }
 
             if filter == nil || filter == "vSplitView" {
@@ -222,7 +239,7 @@ extension LayoutGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vModal": LayoutGallerySection(filter: "vModal")
-        case "vToolbar": LayoutGallerySection(filter: "vToolbar")
+        case "vAdaptiveStack": LayoutGallerySection(filter: "vAdaptiveStack")
         case "vSidePanel": LayoutGallerySection(filter: "vSidePanel")
         case "vSplitView": LayoutGallerySection(filter: "vSplitView")
         default: EmptyView()

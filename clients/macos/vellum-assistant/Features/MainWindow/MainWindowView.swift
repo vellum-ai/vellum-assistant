@@ -427,7 +427,8 @@ struct MainWindowView: View {
                     .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
                 }
             }
-            Spacer()
+            WindowDragArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
@@ -468,7 +469,8 @@ struct MainWindowView: View {
                     }
                 })
             }
-            Spacer()
+            WindowDragArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if updateManager.isUpdateAvailable {
                 VButton(
                     label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",

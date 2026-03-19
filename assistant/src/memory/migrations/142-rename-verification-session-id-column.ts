@@ -15,14 +15,19 @@ export function migrateRenameVerificationSessionIdColumn(
     () => {
       const raw = getSqliteFrom(database);
 
-      // Check the old column exists before attempting the rename
+      // Check the old column exists and the new column doesn't before attempting the rename.
+      // Both checks are needed for crash recovery: if the rename succeeded but the checkpoint
+      // didn't commit, the old column is gone and the new one already exists.
       const columns = raw
         .query(`PRAGMA table_info(call_sessions)`)
         .all() as Array<{ name: string }>;
       const hasOldColumn = columns.some(
         (c) => c.name === "guardian_verification_session_id",
       );
-      if (!hasOldColumn) return;
+      const hasNewColumn = columns.some(
+        (c) => c.name === "verification_session_id",
+      );
+      if (!hasOldColumn || hasNewColumn) return;
 
       raw.exec(
         /*sql*/ `ALTER TABLE call_sessions RENAME COLUMN guardian_verification_session_id TO verification_session_id`,

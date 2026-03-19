@@ -8,45 +8,7 @@ struct ChatGallerySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            if filter == nil || filter == "errorBanners" {
-                // MARK: - Error Banners
-                GallerySectionHeader(
-                    title: "Error Banners",
-                    description: "ChatErrorBanner — dismissible banner for non-retryable conversation errors."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        Text("Without dismiss")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        ChatErrorBanner(message: "Connection lost.")
-
-                        Divider().background(VColor.borderBase)
-
-                        Text("Medium message")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        ChatErrorBanner(message: "The AI provider returned an error. Please try again later.")
-
-                        Divider().background(VColor.borderBase)
-
-                        Text("With dismiss action")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        ChatErrorBanner(
-                            message: "Your session has expired. Please start a new conversation.",
-                            onDismiss: {}
-                        )
-                    }
-                }
-
-            }
-
             if filter == nil || filter == "voiceComposer" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
                 // MARK: - Voice Composer
                 GallerySectionHeader(
                     title: "Voice Composer",
@@ -91,7 +53,6 @@ struct ChatGallerySection: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
-
             }
 
             if filter == nil || filter == "skillInvocation" {
@@ -123,7 +84,6 @@ struct ChatGallerySection: View {
                         )
                     }
                 }
-
             }
 
             if filter == nil || filter == "subagentStatus" {
@@ -199,7 +159,6 @@ struct ChatGallerySection: View {
                         )
                     }
                 }
-
             }
 
             if filter == nil || filter == "toolChips" {
@@ -261,7 +220,6 @@ struct ChatGallerySection: View {
                         ))
                     }
                 }
-
             }
 
             if filter == nil || filter == "stepIndicators" {
@@ -380,71 +338,6 @@ struct ChatGallerySection: View {
                         ])
                     }
                 }
-
-            }
-
-            if filter == nil || filter == "completionLists" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - Completion Lists
-                GallerySectionHeader(
-                    title: "Completion Lists",
-                    description: "UsedToolsListCompact — collapsible pill summarising completed tool steps."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        Text("Completed 3 steps (mix of success and error)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-
-                        UsedToolsListCompact(toolCalls: [
-                            ToolCallData(
-                                toolName: "file_read",
-                                inputSummary: "Sources/App/main.swift",
-                                isError: false,
-                                isComplete: true,
-                                startedAt: Date().addingTimeInterval(-3.2),
-                                completedAt: Date()
-                            ),
-                            ToolCallData(
-                                toolName: "bash",
-                                inputSummary: "swift build",
-                                isError: true,
-                                isComplete: true,
-                                startedAt: Date().addingTimeInterval(-12.5),
-                                completedAt: Date()
-                            ),
-                            ToolCallData(
-                                toolName: "file_edit",
-                                inputSummary: "Package.swift",
-                                isError: false,
-                                isComplete: true,
-                                startedAt: Date().addingTimeInterval(-1.8),
-                                completedAt: Date()
-                            ),
-                        ])
-
-                        Divider().background(VColor.borderBase)
-
-                        Text("Single step (shows action description instead of count)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-
-                        UsedToolsListCompact(toolCalls: [
-                            ToolCallData(
-                                toolName: "web_search",
-                                inputSummary: "SwiftUI adaptive layout",
-                                isError: false,
-                                isComplete: true,
-                                startedAt: Date().addingTimeInterval(-2.0),
-                                completedAt: Date()
-                            ),
-                        ])
-                    }
-                }
-
             }
 
             if filter == nil || filter == "progressIndicators" {
@@ -487,7 +380,6 @@ struct ChatGallerySection: View {
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
-
             }
 
             if filter == nil || filter == "toolConfirmations" {
@@ -639,13 +531,11 @@ extension ChatGallerySection {
     @ViewBuilder
     static func componentPage(_ id: String) -> some View {
         switch id {
-        case "errorBanners": ChatGallerySection(filter: "errorBanners")
         case "voiceComposer": ChatGallerySection(filter: "voiceComposer")
         case "skillInvocation": ChatGallerySection(filter: "skillInvocation")
         case "subagentStatus": ChatGallerySection(filter: "subagentStatus")
         case "toolChips": ChatGallerySection(filter: "toolChips")
         case "stepIndicators": ChatGallerySection(filter: "stepIndicators")
-        case "completionLists": ChatGallerySection(filter: "completionLists")
         case "progressIndicators": ChatGallerySection(filter: "progressIndicators")
         case "toolConfirmations": ChatGallerySection(filter: "toolConfirmations")
         default: EmptyView()

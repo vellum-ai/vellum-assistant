@@ -67,35 +67,6 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "vHover" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - .vHover()
-                GallerySectionHeader(
-                    title: ".vHover()",
-                    description: "Adds a subtle background highlight on mouse hover."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Hover over the items below:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-
-                        ForEach(["First item", "Second item", "Third item"], id: \.self) { item in
-                            Text(item)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .padding(VSpacing.md)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .vHover()
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        }
-                    }
-                }
-            }
-
             if filter == nil || filter == "pointerCursor" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -306,6 +277,65 @@ struct ModifiersGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vShimmer" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .vShimmer()
+                GallerySectionHeader(
+                    title: ".vShimmer()",
+                    description: "Sweeps a translucent highlight across the view for skeleton loading. Respects reduced motion."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            HStack(spacing: VSpacing.md) {
+                                VSkeletonBone(width: 40, height: 40, radius: VRadius.pill)
+                                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                    VSkeletonBone(width: 120, height: 14)
+                                    VSkeletonBone(width: 80, height: 12)
+                                }
+                            }
+                            VSkeletonBone(height: 14)
+                            VSkeletonBone(width: 240, height: 14)
+                            VSkeletonBone(width: 180, height: 14)
+                        }
+                        .vShimmer()
+                    }
+                }
+            }
+
+            if filter == nil || filter == "inlineWidgetCard" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .inlineWidgetCard()
+                GallerySectionHeader(
+                    title: ".inlineWidgetCard()",
+                    description: "Standard card chrome for inline chat widgets. Applies padding, background, border, and optional hover highlight."
+                )
+
+                VCard {
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(spacing: VSpacing.md) {
+                            Text("Non-interactive (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Widget content")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                                .inlineWidgetCard()
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("Interactive (hover highlight)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Clickable widget")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                                .inlineWidgetCard(interactive: true)
+                        }
+                    }
+                }
+            }
+
         }
     }
 }
@@ -317,12 +347,13 @@ extension ModifiersGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vCardMod": ModifiersGallerySection(filter: "vCardMod")
-        case "vHover": ModifiersGallerySection(filter: "vHover")
         case "pointerCursor": ModifiersGallerySection(filter: "pointerCursor")
         case "nativeTooltip": ModifiersGallerySection(filter: "nativeTooltip")
         case "vTooltip": ModifiersGallerySection(filter: "vTooltip")
         case "vPanelBackground": ModifiersGallerySection(filter: "vPanelBackground")
         case "ifMod": ModifiersGallerySection(filter: "ifMod")
+        case "vShimmer": ModifiersGallerySection(filter: "vShimmer")
+        case "inlineWidgetCard": ModifiersGallerySection(filter: "inlineWidgetCard")
         default: EmptyView()
         }
     }

@@ -198,7 +198,7 @@ struct MessageListView: View {
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
     /// Last container width that triggered a resize scroll handler, used to
-    /// detect meaningful width changes (>20pt) and avoid sub-pixel jitter.
+    /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
@@ -1453,8 +1453,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: containerWidth) {
-                // Ignore sub-pixel jitter and initial zero value
-                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 20 else { return }
+                // Ignore sub-pixel jitter and initial zero value.
+                // Use a tight 2pt threshold so scroll suppression activates on
+                // any meaningful width change during divider drag — the previous
+                // 20pt dead-zone let intermediate reflows through without suppression,
+                // causing scroll position desync and disappearing messages.
+                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 2 else { return }
                 lastHandledContainerWidth = containerWidth
 
                 // Cancel competing scroll tasks to prevent jitter during resize

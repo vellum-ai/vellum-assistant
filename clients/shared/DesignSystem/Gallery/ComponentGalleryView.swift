@@ -45,13 +45,11 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             ]
         case .chat:
             return [
-                ("errorBanners", "Error Banners"),
                 ("voiceComposer", "Voice Composer"),
                 ("skillInvocation", "Skill Invocation"),
                 ("subagentStatus", "Subagent Status"),
                 ("toolChips", "Tool Chips"),
                 ("stepIndicators", "Step Indicators"),
-                ("completionLists", "Completion Lists"),
                 ("progressIndicators", "Progress Indicators"),
                 ("toolConfirmations", "Tool Confirmations"),
             ]
@@ -74,6 +72,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vInlineMessage", "VInlineMessage"),
                 ("vShortcutTag", "VShortcutTag"),
                 ("vCopyButton", "VCopyButton"),
+                ("vBusyIndicator", "VBusyIndicator"),
+                ("vSkeletonBone", "VSkeletonBone"),
+                ("vSkillTypePill", "VSkillTypePill"),
+                ("vInfoTooltip", "VInfoTooltip"),
             ]
         case .icons:
             return []
@@ -88,19 +90,20 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .layout:
             return [
                 ("vModal", "VModal"),
-                ("vToolbar", "VToolbar"),
+                ("vAdaptiveStack", "VAdaptiveStack"),
                 ("vSidePanel", "VSidePanel"),
                 ("vSplitView", "VSplitView"),
             ]
         case .modifiers:
             return [
                 ("vCardMod", ".vCard()"),
-                ("vHover", ".vHover()"),
                 ("pointerCursor", ".pointerCursor()"),
                 ("nativeTooltip", ".nativeTooltip()"),
                 ("vTooltip", ".vTooltip()"),
                 ("vPanelBackground", ".vPanelBackground()"),
                 ("ifMod", ".if()"),
+                ("vShimmer", ".vShimmer()"),
+                ("inlineWidgetCard", ".inlineWidgetCard()"),
             ]
         case .navigation:
             return [
