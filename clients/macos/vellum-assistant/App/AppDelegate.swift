@@ -254,6 +254,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // renders EmptyView — we handle settings in the main window panel).
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
 
+        // Remove orphaned conversation zoom key. ConversationZoomManager was
+        // deleted (redundant with window-level ZoomManager); clean up any
+        // persisted value so it doesn't linger in UserDefaults.
+        UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
+
         // Migrate API keys from plaintext UserDefaults to credential storage
         // (Keychain in Release, file-based in DEBUG). Safe to call on every
         // launch — skips providers already present in credential storage.
