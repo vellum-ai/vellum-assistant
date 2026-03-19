@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -51,7 +51,7 @@ function handleAppChange(
   // Multifile apps need a recompile before refreshing surfaces so the
   // WebView picks up the latest compiled output.
   if (app && isMultifileApp(app)) {
-    const appDir = join(getAppsDir(), appId);
+    const appDir = getAppDirPath(appId);
     void compileApp(appDir)
       .then((result) => {
         if (!result.ok) {

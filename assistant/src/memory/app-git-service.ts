@@ -3,13 +3,18 @@
  *
  * Initializes a git repository in the apps directory (~/.vellum/apps/) and
  * commits after every app mutation (create, update, delete, file write/edit).
- * Commits are fire-and-forget — they never block the caller.
+ * Commits are fire-and-forget -- they never block the caller.
  *
  * Also exposes query methods (history, diff, file-at-version, restore) for
  * browsing and reverting app version history.
  *
  * Reuses WorkspaceGitService for all git operations (mutex, circuit breaker,
  * lazy init, etc.).
+ *
+ * NOTE: After the 009-app-dir-rename migration, git pathspecs use dirName
+ * (slug) instead of appId (UUID). History queries will only return commits
+ * made after the migration rename. Commits before the migration used UUID-
+ * based paths and are not visible through the current slug-based pathspecs.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,7 +22,7 @@ import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
-import { getAppsDir } from "./app-store.js";
+import { getAppsDir, resolveAppDir } from "./app-store.js";
 
 const log = getLogger("app-git");
 
@@ -38,8 +43,8 @@ export interface AppVersion {
 
 /**
  * Patterns excluded from app version tracking.
- * - *.preview — large base64 preview images
- * - records directories — user data (form submissions), not app code
+ * - *.preview -- large base64 preview images
+ * - records directories -- user data (form submissions), not app code
  */
 const APP_GITIGNORE_RULES = ["*.preview", "*/records/"];
 
@@ -116,7 +121,7 @@ function validateRelativePath(path: string): void {
  * mutation's files get absorbed into WorkspaceGitService's bootstrap
  * commit and the "Create app: ..." commit ends up empty.
  *
- * Safe to call multiple times — ensureInitialized() is idempotent.
+ * Safe to call multiple times -- ensureInitialized() is idempotent.
  * Fire-and-forget: errors are logged but never thrown.
  */
 export async function initAppGit(): Promise<void> {
@@ -189,14 +194,18 @@ export async function commitAppTurnChanges(
 /**
  * Get the commit history for a specific app.
  *
- * Scopes `git log` to files belonging to this app:
- *   {appId}.json, {appId}/index.html, {appId}/pages/*, etc.
+ * Scopes `git log` to files belonging to this app using dirName-based
+ * pathspecs: {dirName}.json, {dirName}/.
+ *
+ * Note: After the 009 migration, only commits made after the rename are
+ * visible. Pre-migration commits used UUID-based paths.
  */
 export async function getAppHistory(
   appId: string,
   limit = 50,
 ): Promise<AppVersion[]> {
   validateAppId(appId);
+  const { dirName } = resolveAppDir(appId);
   const safeLimit = Math.max(1, Math.min(Math.floor(limit) || 50, 500));
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
@@ -207,8 +216,8 @@ export async function getAppHistory(
     `--max-count=${safeLimit}`,
     "--format=%H\t%at\t%s",
     "--",
-    `${appId}.json`,
-    `${appId}/`,
+    `${dirName}.json`,
+    `${dirName}/`,
   ]);
 
   if (!stdout.trim()) return [];
@@ -239,6 +248,7 @@ export async function getAppDiff(
   validateCommitHash(fromCommit);
   if (toCommit) validateCommitHash(toCommit);
 
+  const { dirName } = resolveAppDir(appId);
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
@@ -247,8 +257,8 @@ export async function getAppDiff(
     "diff",
     range,
     "--",
-    `${appId}.json`,
-    `${appId}/`,
+    `${dirName}.json`,
+    `${dirName}/`,
   ]);
 
   return stdout;
@@ -266,12 +276,13 @@ export async function getAppFileAtVersion(
   validateRelativePath(path);
   validateCommitHash(commitHash);
 
+  const { dirName } = resolveAppDir(appId);
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
   const { stdout } = await gitService.runReadOnlyGit([
     "show",
-    `${commitHash}:${appId}/${path}`,
+    `${commitHash}:${dirName}/${path}`,
   ]);
 
   return stdout;
@@ -294,6 +305,7 @@ export async function restoreAppVersion(
   validateAppId(appId);
   validateCommitHash(commitHash);
 
+  const { dirName } = resolveAppDir(appId);
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
@@ -305,14 +317,14 @@ export async function restoreAppVersion(
       commitHash,
       "--no-overlay",
       "--",
-      `${appId}.json`,
-      `${appId}/`,
+      `${dirName}.json`,
+      `${dirName}/`,
     ]);
 
     // Read the app name and refresh updatedAt so the restored app
     // doesn't appear stale in recency ordering.
     let appName = appId;
-    const jsonPath = join(appsDir, `${appId}.json`);
+    const jsonPath = join(appsDir, `${dirName}.json`);
     if (existsSync(jsonPath)) {
       try {
         const raw = readFileSync(jsonPath, "utf-8");
@@ -328,7 +340,7 @@ export async function restoreAppVersion(
     const shortHash = commitHash.substring(0, 7);
 
     // Stage only this app's files and commit atomically within the same mutex lock
-    await exec(["add", "--", `${appId}.json`, `${appId}/`]);
+    await exec(["add", "--", `${dirName}.json`, `${dirName}/`]);
     await exec([
       "commit",
       "-m",

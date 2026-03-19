@@ -14,7 +14,7 @@ import type {
   AppDefinition,
   EditEngineResult,
 } from "../../memory/app-store.js";
-import { getAppsDir, isMultifileApp } from "../../memory/app-store.js";
+import { getAppDirPath, isMultifileApp } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -223,7 +223,7 @@ render(<App />, document.getElementById('app')!);
 
     // Compile src/ → dist/
     const { join } = await import("node:path");
-    const appDir = join(getAppsDir(), app.id);
+    const appDir = getAppDirPath(app.id);
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
       return {
@@ -541,9 +541,10 @@ export async function executeAppGenerateIcon(
   // destroying an existing icon if generation fails.
   const { existsSync, renameSync, unlinkSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const { getAppsDir } = await import("../../memory/app-store.js");
-  const iconPath = join(getAppsDir(), input.app_id, "icon.png");
-  const tempPath = join(getAppsDir(), input.app_id, "icon.tmp.png");
+  const { getAppDirPath: resolveAppDir } =
+    await import("../../memory/app-store.js");
+  const iconPath = join(resolveAppDir(input.app_id), "icon.png");
+  const tempPath = join(resolveAppDir(input.app_id), "icon.tmp.png");
 
   // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {

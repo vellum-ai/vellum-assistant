@@ -35,7 +35,7 @@ import {
   deleteAppRecord,
   getApp,
   getAppPreview,
-  getAppsDir,
+  getAppDirPath,
   isMultifileApp,
   listApps,
   queryAppRecords,
@@ -289,7 +289,7 @@ async function installGalleryApp(
   });
 
   if (galleryApp.formatVersion === 2 && galleryApp.sourceFiles) {
-    const appDir = join(getAppsDir(), app.id);
+    const appDir = getAppDirPath(app.id);
     for (const [relPath, content] of Object.entries(galleryApp.sourceFiles)) {
       const fullPath = join(appDir, relPath);
       mkdirSync(dirname(fullPath), { recursive: true });
@@ -671,7 +671,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           let html = app.htmlDefinition;
 
           if (isMultifileApp(app)) {
-            const appDir = join(getAppsDir(), appId);
+            const appDir = getAppDirPath(appId);
             const distIndex = join(appDir, "dist", "index.html");
             if (!existsSync(distIndex)) {
               const result = await compileApp(appDir);

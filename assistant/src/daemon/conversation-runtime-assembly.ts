@@ -15,7 +15,7 @@ import {
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
-import { getAppsDir, listAppFiles } from "../memory/app-store.js";
+import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
@@ -323,7 +323,7 @@ export function injectActiveSurfaceContext(
     for (const filePath of displayFiles) {
       let sizeLabel: string;
       try {
-        const bytes = statSync(join(getAppsDir(), ctx.appId, filePath)).size;
+        const bytes = statSync(join(getAppDirPath(ctx.appId), filePath)).size;
         sizeLabel =
           bytes < 1000 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
       } catch {
