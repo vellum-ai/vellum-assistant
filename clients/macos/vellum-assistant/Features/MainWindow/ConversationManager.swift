@@ -271,8 +271,24 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
+    private static let privateConversationForkErrorText =
+        "Forking is unavailable in private conversations."
+
     func forkActiveConversation() async {
-        await forkConversation(throughDaemonMessageId: nil)
+        guard let conversation = activeConversation else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+        guard conversation.kind != .private else {
+            activeViewModel?.errorText = Self.privateConversationForkErrorText
+            return
+        }
+        guard let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversation.id) else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+
+        await forkConversation(throughDaemonMessageId: daemonMessageId)
     }
 
     func forkConversation(throughDaemonMessageId daemonMessageId: String?) async {
@@ -299,6 +315,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         selectConversation(id: localConversationId)
+    }
+
+    private func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
+        chatViewModels[conversationLocalId]?.messages.last(where: {
+            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
+        })?.daemonMessageId
     }
 
     func createConversation() {

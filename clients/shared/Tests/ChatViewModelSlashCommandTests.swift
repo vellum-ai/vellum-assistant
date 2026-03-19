@@ -180,6 +180,19 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.map(\.text), deprecatedCommands)
     }
 
+    func testExactForkCommandInPrivateConversationShowsLocalError() {
+        viewModel.conversationType = "private"
+        viewModel.inputText = "/fork"
+        viewModel.sendMessage()
+
+        XCTAssertTrue(viewModel.messages.isEmpty)
+        XCTAssertEqual(
+            viewModel.errorText,
+            "Forking is unavailable in private conversations."
+        )
+        XCTAssertNil(viewModel.conversationError)
+    }
+
     func testPopulateFromHistoryRetagsCommandListAcrossPaginationBoundary() {
         let assistantReply = HistoryResponseMessage(
             id: UUID().uuidString,

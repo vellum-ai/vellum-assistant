@@ -136,6 +136,7 @@ final class ConversationManagerForkTests: XCTestCase {
             XCTFail("Expected an active source view model")
             return
         }
+        sourceViewModel.messages = [makeMessage(daemonMessageId: "msg-root")]
 
         let forkTriggered = expectation(description: "fork routed through manager")
         forkClient.onFork = {
@@ -148,10 +149,31 @@ final class ConversationManagerForkTests: XCTestCase {
         await fulfillment(of: [forkTriggered], timeout: 1.0)
 
         XCTAssertEqual(forkClient.capturedConversationIds, ["conv-root"])
-        XCTAssertEqual(forkClient.capturedMessageIds, [nil])
-        XCTAssertTrue(sourceViewModel.messages.isEmpty)
+        XCTAssertEqual(forkClient.capturedMessageIds, ["msg-root"])
+        XCTAssertEqual(sourceViewModel.messages.count, 1)
+        XCTAssertEqual(sourceViewModel.messages.first?.daemonMessageId, "msg-root")
         XCTAssertEqual(sourceViewModel.inputText, "")
         XCTAssertEqual(conversationManager.activeConversation?.conversationId, "conv-fork")
+    }
+
+    func testExactForkCommandOnPrivateConversationShowsLocalErrorWithoutRouting() async {
+        conversationManager.createPrivateConversation()
+
+        guard let privateViewModel = conversationManager.activeViewModel else {
+            XCTFail("Expected an active private view model")
+            return
+        }
+
+        privateViewModel.inputText = "/fork"
+        privateViewModel.sendMessage()
+
+        XCTAssertTrue(forkClient.capturedConversationIds.isEmpty)
+        XCTAssertTrue(privateViewModel.messages.isEmpty)
+        XCTAssertEqual(privateViewModel.inputText, "")
+        XCTAssertEqual(
+            privateViewModel.errorText,
+            "Forking is unavailable in private conversations."
+        )
     }
 
     func testExactForkCommandOnUnsavedDraftShowsLocalErrorWithoutAppendingBubble() {
@@ -202,5 +224,11 @@ final class ConversationManagerForkTests: XCTestCase {
         conversationManager.setChatViewModel(viewModel, for: conversation.id)
         conversationManager.selectConversation(id: conversation.id)
         return conversation
+    }
+
+    private func makeMessage(daemonMessageId: String) -> ChatMessage {
+        var message = ChatMessage(role: .assistant, text: "Persisted assistant reply")
+        message.daemonMessageId = daemonMessageId
+        return message
     }
 }

@@ -337,6 +337,12 @@ export function forkConversation(params: {
     .all()
     .map(parseMessage);
 
+  if (sourceMessages.length === 0) {
+    throw new UserError(
+      `Conversation ${conversationId} has no persisted messages to fork`,
+    );
+  }
+
   const copyBoundaryIndex =
     throughMessageId == null
       ? sourceMessages.length - 1

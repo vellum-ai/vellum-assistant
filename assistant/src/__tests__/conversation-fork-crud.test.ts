@@ -201,6 +201,14 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("rejects forks when the source conversation has no persisted messages", () => {
+    const source = createConversation("Empty thread");
+
+    expect(() => forkConversation({ conversationId: source.id })).toThrow(
+      `Conversation ${source.id} has no persisted messages to fork`,
+    );
+  });
+
   test("relinks copied attachments into the fork and syncs disk view", async () => {
     const source = createConversation("Attachment thread");
     await addMessage(source.id, "user", "Please review this image", undefined, {

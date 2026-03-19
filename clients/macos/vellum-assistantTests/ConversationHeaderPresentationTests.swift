@@ -46,6 +46,21 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertEqual(p.displayTitle, "Test Conversation")
         XCTAssertTrue(p.isStarted)
         XCTAssertTrue(p.showsActionsMenu)
+        XCTAssertFalse(p.showsForkConversationAction)
+    }
+
+    func testStartedStandardConversationWithPersistedTipShowsForkAction() {
+        let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
+        let vm = ChatViewModel(daemonClient: DaemonClient())
+        var message = ChatMessage(role: .assistant, text: "Persisted reply")
+        message.daemonMessageId = "msg-tip"
+        vm.messages = [message]
+        let p = ConversationHeaderPresentation(
+            activeConversation: conversation,
+            activeViewModel: vm,
+            isConversationVisible: true
+        )
+
         XCTAssertTrue(p.showsForkConversationAction)
     }
 

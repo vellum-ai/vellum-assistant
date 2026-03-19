@@ -185,6 +185,26 @@ describe("POST /v1/conversations/fork", () => {
     expect(forkBody).toEqual(detailBody);
   });
 
+  test("rejects empty source conversations", async () => {
+    const source = createConversation("Empty source");
+
+    await startServer();
+
+    const response = await fetch(url("/conversations/fork"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({ conversationId: source.id }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: `Conversation ${source.id} has no persisted messages to fork`,
+      },
+    });
+  });
+
   test("returns NOT_FOUND when the source conversation does not exist", async () => {
     await startServer();
 

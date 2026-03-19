@@ -160,9 +160,18 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         XCTAssertNil(
             makeCurrentTipForkToolbarAction(store: store, conversation: localConversation)
         )
+        XCTAssertFalse(
+            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
+        )
 
         let viewModel = store.viewModel(for: persistedConversation.id)
+        XCTAssertNil(
+            makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
+        )
         viewModel.messages = [makeMessage(text: "Persisted assistant reply", daemonMessageId: "msg-tip")]
+        XCTAssertTrue(
+            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
+        )
 
         let action = try XCTUnwrap(
             makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
@@ -188,7 +197,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(for: privateConversation))
+        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true), for: privateConversation))
         XCTAssertNil(
             makeCurrentTipForkToolbarAction(
                 store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true),

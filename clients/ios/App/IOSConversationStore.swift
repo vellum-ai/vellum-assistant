@@ -324,7 +324,7 @@ class IOSConversationStore: ObservableObject {
             || latestLoadedAssistantMessageTimestamp(for: conversations[index].id) != nil
     }
 
-    private func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
+    func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
         viewModels[conversationLocalId]?.messages.last(where: {
             $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
         })?.daemonMessageId
@@ -930,6 +930,7 @@ class IOSConversationStore: ObservableObject {
     private func updateForkCommandHandler(vm: ChatViewModel, conversationLocalId: UUID) {
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
+              !conversation.isPrivate,
               conversation.conversationId != nil,
               latestPersistedTipDaemonMessageId(for: conversationLocalId) != nil else {
             vm.onFork = nil
@@ -1265,7 +1266,9 @@ class IOSConversationStore: ObservableObject {
 
     @discardableResult
     func forkCurrentTip(conversationLocalId: UUID) async -> UUID? {
-        guard let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversationLocalId) else {
+        guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
+              !conversation.isPrivate,
+              let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversationLocalId) else {
             return nil
         }
         return await forkConversation(

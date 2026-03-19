@@ -50,7 +50,13 @@ struct ConversationHeaderPresentation {
 
         // Can copy when there's non-empty content
         self.canCopy = hasUserMessage
-        self.showsForkConversationAction = conversation.conversationId != nil && !isPrivateConversation
+        let latestPersistedTipDaemonMessageId = activeViewModel?.messages.last(where: {
+            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
+        })?.daemonMessageId
+        self.showsForkConversationAction =
+            conversation.conversationId != nil
+            && !isPrivateConversation
+            && latestPersistedTipDaemonMessageId != nil
         if isPrivateConversation {
             self.forkParentTitle = nil
             self.forkParentConversationId = nil

@@ -584,6 +584,9 @@ public final class ChatViewModel: ObservableObject {
     /// by the client instead of being sent to the assistant.
     public var onFork: (() -> Void)?
 
+    private static let privateConversationForkErrorText =
+        "Forking is unavailable in private conversations."
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -1152,7 +1155,10 @@ public final class ChatViewModel: ObservableObject {
             suggestion = nil
             pendingSuggestionRequestId = nil
             flushCoalescedPublish()
-            if let onFork {
+            if conversationType == "private" {
+                errorText = Self.privateConversationForkErrorText
+                conversationError = nil
+            } else if let onFork {
                 errorText = nil
                 conversationError = nil
                 onFork()
