@@ -54,6 +54,15 @@ export function getIsContainerized(): boolean {
   return flag("IS_CONTAINERIZED");
 }
 
+/**
+ * WORKSPACE_DIR — string, default: undefined
+ * When set, overrides the default workspace directory. Used in containerized
+ * deployments where the workspace is a separate volume.
+ */
+export function getWorkspaceDirOverride(): string | undefined {
+  return str("WORKSPACE_DIR");
+}
+
 // ── Known env var names ──────────────────────────────────────────────────────
 
 /**
