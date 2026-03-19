@@ -221,7 +221,7 @@ Favor what is live over what is merely true. Recent changes matter more than old
 Return exactly 4 starters in rank order (best first).
 
 Each starter has:
-- label: 3-6 words, max 40 chars, starts with a verb. Should sound like a smart offer of help, not a feature name or task description. Must sound natural when read aloud.
+- label: 3-6 words, max 40 chars, starts with a verb. Should read as something the user wants to do — these chips send a message as the user, so the label must be in the user's voice. Must sound natural when read aloud.
 - prompt: 1-2 natural sentences, written as the user would actually say them — not templated.
 - category: one of ${CONVERSATION_STARTER_CATEGORIES.join(", ")}
 
@@ -239,6 +239,8 @@ If a label sounds like an issue title, project ticket, or implementation task, r
 
 Prefer natural, flowing language over mechanical or operational phrasing. "Get Slack messages flowing" is better than "Restore outgoing Slack messages." The label should sound like something a helpful person would say, not a support ticket.
 
+Voice: The user clicks these chips to send a message. Every label must make sense as something the user is asking to do, never something the assistant is saying to the user.
+
 Before finalizing each label, ask yourself: would this feel good to click? Or does it sound like a backlog item? If it sounds like a backlog item, rewrite it.
 
 Examples of bad vs good:
@@ -249,7 +251,11 @@ Examples of bad vs good:
 - BAD: "Restore outgoing Slack messages" → GOOD: "Get Slack messages flowing"
 - BAD: "Set up a playbook for inbox" → GOOD: "Catch the emails that matter"
 
-The good versions emphasize the user's payoff, not the internal mechanism.`;
+Assistant-voice vs user-voice:
+- BAD: "You've got a busy week ahead" → GOOD: "Plan my week ahead"
+- BAD: "Let me check your calendar" → GOOD: "Check my Thursday schedule"
+
+The good versions emphasize the user's payoff in the user's own voice, not the internal mechanism or the assistant's perspective.`;
 
   const { signal, cleanup } = createTimeout(20000);
   try {
@@ -274,7 +280,7 @@ The good versions emphasize the user's payoff, not the internal mechanism.`;
                     label: {
                       type: "string",
                       description:
-                        "Concierge-quality chip text (2-7 words, max 40 chars, starts with a verb)",
+                        "User-voice chip text (2-7 words, max 40 chars, starts with a verb)",
                     },
                     prompt: {
                       type: "string",
