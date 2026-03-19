@@ -1,14 +1,21 @@
 /**
- * Parsing and validation layer for the simplified memory reducer.
+ * Simplified memory reducer — provider-backed conversation turn processor.
  *
- * This module owns the contract between the LLM's JSON output and the typed
- * ReducerResult. The actual provider call lives in a later PR — this file
- * only handles:
- *   1. ReducerPromptInput — what goes into the provider call
- *   2. parseReducerOutput — raw string -> validated ReducerResult
- *   3. Fallback to EMPTY_REDUCER_RESULT on any invalid output
+ * This module owns:
+ *   1. ReducerPromptInput — structured input for the provider call
+ *   2. runReducer — send the transcript span to the LLM and return a typed result
+ *   3. parseReducerOutput — raw string -> validated ReducerResult
+ *   4. Fallback to EMPTY_REDUCER_RESULT on any invalid output
+ *
+ * The reducer is intentionally side-effect-free: it never writes to the
+ * database. Callers are responsible for applying the returned ReducerResult.
  */
 
+import {
+  createTimeout,
+  extractText,
+  getConfiguredProvider,
+} from "../providers/provider-send-message.js";
 import { getLogger } from "../util/logger.js";
 import {
   type ArchiveEpisodeCandidate,
@@ -24,6 +31,9 @@ import {
 
 const log = getLogger("memory-reducer");
 
+/** Timeout for the reducer provider call (ms). */
+const REDUCER_TIMEOUT_MS = 30_000;
+
 // ── Prompt input type ──────────────────────────────────────────────────
 
 /** The structured input that will be fed to the reducer provider call. */
@@ -36,6 +46,164 @@ export interface ReducerPromptInput {
   existingTimeContexts: Array<{ id: string; summary: string }>;
   /** Current open-loop rows the model can reference for updates. */
   existingOpenLoops: Array<{ id: string; summary: string; status: string }>;
+  /** Current time as epoch ms — injected for deterministic tests. */
+  nowMs: number;
+  /** Memory scope identifier (e.g. assistant instance ID). */
+  scopeId: string;
+}
+
+// ── System prompt ─────────────────────────────────────────────────────
+
+/**
+ * Build the reducer system prompt. Extracted as a named function so tests can
+ * assert on prompt content without coupling to string literals.
+ */
+export function buildReducerSystemPrompt(): string {
+  return [
+    "You are a memory reducer for a personal assistant. Your job is to analyze",
+    "a span of new conversation messages and produce structured JSON output that",
+    "captures important information for the assistant's long-term memory.",
+    "",
+    "You output a single JSON object with four optional arrays:",
+    "",
+    "1. `timeContexts` — time-bounded situational context (e.g. 'user traveling next week').",
+    "   Each entry has: action ('create'|'update'|'resolve'), and fields depending on the action.",
+    "   - create: summary (string), source (string), activeFrom (epoch ms), activeUntil (epoch ms)",
+    "   - update: id (string), and at least one of: summary, activeFrom, activeUntil",
+    "   - resolve: id (string)",
+    "",
+    "2. `openLoops` — unresolved items to track (e.g. 'waiting for Bob's reply').",
+    "   Each entry has: action ('create'|'update'|'resolve'), and fields depending on the action.",
+    "   - create: summary (string), source (string), optional dueAt (epoch ms)",
+    "   - update: id (string), and at least one of: summary, dueAt",
+    "   - resolve: id (string), status ('resolved'|'expired')",
+    "",
+    "3. `archiveObservations` — factual statements extracted from the conversation.",
+    "   Each entry has: content (string), role (string), optional modality (string), optional source (string)",
+    "",
+    "4. `archiveEpisodes` — coherent narrative summaries of interaction spans.",
+    "   Each entry has: title (string), summary (string), optional source (string)",
+    "",
+    "Rules:",
+    "- Output ONLY valid JSON. No markdown, no explanation, no wrapping.",
+    "- Omit arrays that would be empty rather than including empty arrays.",
+    "- For updates and resolves, reference existing IDs from the provided context.",
+    "- Be selective: only extract genuinely important or actionable information.",
+    "- Timestamps are in epoch milliseconds.",
+    "- If there is nothing meaningful to extract, output: {}",
+  ].join("\n");
+}
+
+/**
+ * Build the user-message content for the reducer prompt from the structured input.
+ */
+export function buildReducerUserMessage(input: ReducerPromptInput): string {
+  const parts: string[] = [];
+
+  parts.push(
+    `Current time: ${new Date(input.nowMs).toISOString()} (${input.nowMs}ms)`,
+  );
+  parts.push(`Conversation: ${input.conversationId}`);
+  parts.push(`Scope: ${input.scopeId}`);
+  parts.push("");
+
+  // Existing state the model can reference for updates/resolves
+  if (input.existingTimeContexts.length > 0) {
+    parts.push("## Active time contexts");
+    for (const tc of input.existingTimeContexts) {
+      parts.push(`- [${tc.id}] ${tc.summary}`);
+    }
+    parts.push("");
+  }
+
+  if (input.existingOpenLoops.length > 0) {
+    parts.push("## Active open loops");
+    for (const ol of input.existingOpenLoops) {
+      parts.push(`- [${ol.id}] (${ol.status}) ${ol.summary}`);
+    }
+    parts.push("");
+  }
+
+  // The unreduced transcript span
+  parts.push("## New messages to process");
+  for (const msg of input.newMessages) {
+    parts.push(`[${msg.role}]: ${msg.content}`);
+  }
+
+  return parts.join("\n");
+}
+
+// ── Provider-backed reducer call ──────────────────────────────────────
+
+/**
+ * Run the memory reducer against a transcript span.
+ *
+ * Sends the unreduced messages, active time contexts, active open loops,
+ * current time, and scope metadata to the configured LLM provider. Parses
+ * the response into a typed {@link ReducerResult}.
+ *
+ * This function is **side-effect-free**: it never writes to the database.
+ * The caller is responsible for applying the returned result.
+ *
+ * Returns {@link EMPTY_REDUCER_RESULT} when:
+ * - No provider is configured/available
+ * - The provider call fails or times out
+ * - The model output is unparseable
+ *
+ * @param input  Structured reducer input
+ * @param signal Optional external abort signal
+ */
+export async function runReducer(
+  input: ReducerPromptInput,
+  signal?: AbortSignal,
+): Promise<ReducerResult> {
+  const provider = await getConfiguredProvider();
+  if (!provider) {
+    log.warn(
+      "No provider available for memory reducer — returning empty result",
+    );
+    return EMPTY_REDUCER_RESULT;
+  }
+
+  const systemPrompt = buildReducerSystemPrompt();
+  const userText = buildReducerUserMessage(input);
+
+  const { signal: timeoutSignal, cleanup } = createTimeout(REDUCER_TIMEOUT_MS);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
+  try {
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: userText }] }],
+      undefined,
+      systemPrompt,
+      {
+        signal: combinedSignal,
+        config: {
+          modelIntent: "latency-optimized" as const,
+          max_tokens: 4096,
+        },
+      },
+    );
+
+    const rawText = extractText(response);
+    if (!rawText) {
+      log.warn("Reducer provider returned empty text — returning empty result");
+      return EMPTY_REDUCER_RESULT;
+    }
+
+    return parseReducerOutput(rawText);
+  } catch (err) {
+    if (combinedSignal.aborted) {
+      log.warn("Memory reducer provider call timed out or was aborted");
+    } else {
+      log.warn({ err }, "Memory reducer provider call failed");
+    }
+    return EMPTY_REDUCER_RESULT;
+  } finally {
+    cleanup();
+  }
 }
 
 // ── Validation helpers ─────────────────────────────────────────────────
