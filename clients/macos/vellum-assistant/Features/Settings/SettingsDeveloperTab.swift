@@ -75,6 +75,8 @@ struct SettingsDeveloperTab: View {
     @State private var sentryDismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
 
+    @State private var featureFlagSearchText: String = ""
+
     @State private var platformUrlText: String = ""
     @FocusState private var isPlatformUrlFocused: Bool
 
@@ -889,8 +891,21 @@ struct SettingsDeveloperTab: View {
         return (fromAssistant + fromMacOS).sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
+    private var filteredUnifiedFlags: [UnifiedFeatureFlag] {
+        if featureFlagSearchText.isEmpty {
+            return unifiedFlags
+        }
+        return unifiedFlags.filter { flag in
+            flag.label.localizedCaseInsensitiveContains(featureFlagSearchText) ||
+            flag.description.localizedCaseInsensitiveContains(featureFlagSearchText) ||
+            flag.key.localizedCaseInsensitiveContains(featureFlagSearchText)
+        }
+    }
+
     private var featureFlagSection: some View {
         SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and macOS app.") {
+            VSearchBar(placeholder: "Search flags...", text: $featureFlagSearchText)
+
             if isLoadingAssistantFlags {
                 HStack {
                     Spacer()
@@ -914,8 +929,12 @@ struct SettingsDeveloperTab: View {
                 Text("No feature flags available.")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
+            } else if filteredUnifiedFlags.isEmpty && !featureFlagSearchText.isEmpty {
+                Text("No flags matching \"\(featureFlagSearchText)\"")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
-                ForEach(unifiedFlags) { flag in
+                ForEach(filteredUnifiedFlags) { flag in
                     unifiedFlagRow(flag: flag)
                 }
             }
