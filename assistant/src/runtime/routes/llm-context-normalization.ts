@@ -678,7 +678,7 @@ function normalizeText(text: string): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
     return null;
   }
   return value as Record<string, unknown>;
@@ -690,7 +690,7 @@ function asRecordArray(value: unknown): Record<string, unknown>[] | null {
   }
   return value.filter(
     (entry): entry is Record<string, unknown> =>
-      typeof entry === "object" && entry !== null && !Array.isArray(entry),
+      typeof entry === "object" && entry != null && !Array.isArray(entry),
   );
 }
 

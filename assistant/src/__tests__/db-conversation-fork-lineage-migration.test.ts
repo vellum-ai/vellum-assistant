@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -29,8 +28,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb, resetDb } from "../memory/db.js";
+import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../memory/schema.js";
 
@@ -51,7 +50,7 @@ function hasIndex(raw: Database, indexName: string): boolean {
   const row = raw
     .query(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?`)
     .get(indexName);
-  return row !== null;
+  return row != null;
 }
 
 function bootstrapPreLineageConversations(raw: Database): void {
