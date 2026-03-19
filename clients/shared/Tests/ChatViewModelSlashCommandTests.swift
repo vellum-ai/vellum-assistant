@@ -9,6 +9,8 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         var modelInfoResponse: ModelInfoMessage?
 
         func fetchVercelConfig() async -> VercelApiConfigResponseMessage? { nil }
+        func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage? { nil }
+        func deleteVercelConfig() async -> VercelApiConfigResponseMessage? { nil }
 
         func fetchModelInfo() async -> ModelInfoMessage? {
             fetchModelInfoCallCount += 1

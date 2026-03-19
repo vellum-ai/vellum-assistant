@@ -380,9 +380,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `platform_config_response` message.
     public var onPlatformConfigResponse: ((PlatformConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `vercel_api_config_response` message.
-    public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
@@ -703,10 +700,5 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Conversations
 
-
-    /// Get, set, or delete the Vercel API token configuration.
-    public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
-        try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
-    }
 
 }

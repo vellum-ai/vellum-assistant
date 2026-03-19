@@ -705,10 +705,6 @@ struct MainWindowView: View {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
-        if let handler = sharing.previousVercelHandler {
-            daemonClient.onVercelApiConfigResponse = handler
-            sharing.previousVercelHandler = nil
-        }
         daemonClient.stopSSE()
     }
 

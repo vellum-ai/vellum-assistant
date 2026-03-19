@@ -10,6 +10,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
+    func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage?
+    func deleteVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
     func setModel(model: String, provider: String?) async -> ModelInfoMessage?
     func setImageGenModel(modelId: String) async -> ModelInfoMessage?
@@ -49,6 +51,42 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
         } catch {
             log.error("fetchVercelConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage? {
+        do {
+            let body: [String: Any] = ["type": "vercel_api_config", "action": "set", "apiToken": apiToken]
+            let response = try await GatewayHTTPClient.post(
+                path: "integrations/vercel/config", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("saveVercelConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("vercel_api_config_response", into: response.data)
+            return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("saveVercelConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func deleteVercelConfig() async -> VercelApiConfigResponseMessage? {
+        do {
+            let body: [String: Any] = ["type": "vercel_api_config", "action": "delete"]
+            let response = try await GatewayHTTPClient.post(
+                path: "integrations/vercel/config", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("deleteVercelConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("vercel_api_config_response", into: response.data)
+            return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("deleteVercelConfig error: \(error.localizedDescription)")
             return nil
         }
     }
