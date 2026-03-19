@@ -39,7 +39,7 @@ struct AssistantProgressView: View {
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
-    @State private var isExpanded: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+    @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
@@ -206,6 +206,15 @@ struct AssistantProgressView: View {
                 processingStartDate = Date()
                 startDate = Date()
             }
+            // Auto-expand when a step group completes, if the flag is enabled
+            if (newPhase == .complete || newPhase == .denied),
+               !isExpanded,
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
+            }
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded, onRehydrate != nil {
@@ -238,6 +247,27 @@ struct AssistantProgressView: View {
             // shows correct elapsed time after history restore.
             if let earliest = toolCalls.compactMap(\.startedAt).min() {
                 startDate = earliest
+            }
+            // Auto-expand completed step groups when the flag is enabled.
+            // Also triggers rehydration for stripped tool call data so
+            // expanded groups don't render with empty details.
+            if !isExpanded,
+               (phase == .complete || phase == .denied),
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                isExpanded = true
+                if onRehydrate != nil {
+                    let hasStrippedToolCall = toolCalls.contains { tc in
+                        tc.isComplete
+                            && tc.inputFull.isEmpty
+                            && tc.result == nil
+                            && tc.inputRawDict == nil
+                            && tc.cachedImage == nil
+                    }
+                    if hasStrippedToolCall {
+                        onRehydrate?()
+                    }
+                }
             }
             // Auto-expand when a pending confirmation exists on appear
             if hasPendingConfirmation && !isExpanded {
