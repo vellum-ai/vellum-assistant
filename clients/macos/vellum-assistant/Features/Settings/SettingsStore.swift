@@ -2385,9 +2385,11 @@ public final class SettingsStore: ObservableObject {
                     let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
                     managedOAuthError[providerKey] = errorCode ?? "OAuth connection failed"
                 }
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                log.info("User cancelled managed OAuth connect for \(providerKey)")
             } catch {
                 log.error("Managed OAuth connect failed for \(providerKey): \(error)")
-                managedOAuthError[providerKey] = error.localizedDescription
+                managedOAuthError[providerKey] = "Unable to connect your account. Please try again."
             }
         }
     }
