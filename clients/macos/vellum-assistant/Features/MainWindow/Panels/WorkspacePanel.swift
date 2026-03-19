@@ -726,7 +726,8 @@ private struct WorkspaceFileViewer: View {
                     showReadOnlyBadge: readOnly,
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
-                    }
+                    },
+                    fileIdentity: detail.path
                 )
             } else {
                 FileContentHeaderBar(
