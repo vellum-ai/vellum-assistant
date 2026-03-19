@@ -254,6 +254,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/bundled-skills/slack/tools/shared.ts", // Slack skill bot token lookup
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
+      "providers/speech-to-text/resolve.ts", // STT provider API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
