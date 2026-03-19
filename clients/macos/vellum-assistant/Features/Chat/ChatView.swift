@@ -77,6 +77,7 @@ struct ChatView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var isInteractionEnabled: Bool = true
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -302,7 +303,8 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId
+                            conversationId: conversationId,
+                            isInteractionEnabled: isInteractionEnabled
                         )
                     }
                 }
@@ -317,6 +319,7 @@ struct ChatView: View {
                 }
             )
             .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+            .disabled(!isInteractionEnabled)
             .overlay(alignment: .bottom) {
                 btwOverlay
             }

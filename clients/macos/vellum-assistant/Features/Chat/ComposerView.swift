@@ -63,6 +63,7 @@ struct ComposerView: View {
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
@@ -126,14 +127,15 @@ struct ComposerView: View {
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
+        .disabled(!hasAPIKey || !isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
-            composerFocus = true
+            composerFocus = isInteractionEnabled
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
         }
         .onChange(of: conversationId) {
-            guard !hasPendingConfirmation else { return }
+            guard isInteractionEnabled, !hasPendingConfirmation else { return }
             composerFocus = true
         }
         .onChange(of: currentMode) {
@@ -141,6 +143,12 @@ struct ComposerView: View {
             if currentMode == .dictationInline {
                 preDictationText = inputText
             }
+        }
+        .onChange(of: isInteractionEnabled) { _, enabled in
+            guard !enabled else { return }
+            composerFocus = false
+            showSlashMenu = false
+            suppressSlashReopen = false
         }
     }
 
@@ -193,7 +201,6 @@ struct ComposerView: View {
         .tint(VColor.primaryBase)
         .id(composerResetId)
         .focused($composerFocus)
-        .disabled(!hasAPIKey)
         .onSubmit { handleComposerSubmit() }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
@@ -250,6 +257,7 @@ struct ComposerView: View {
             ComposerFocusBridge(
                 isFocused: composerFocus,
                 cmdEnterToSend: cmdEnterToSend,
+                isInteractionEnabled: isInteractionEnabled,
                 onImagePaste: onPaste,
                 onSend: {
                     performSendAction()
@@ -676,4 +684,3 @@ VStreamingWaveform(
     }
 
 }
-
