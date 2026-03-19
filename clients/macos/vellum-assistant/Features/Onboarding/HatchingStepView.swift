@@ -192,6 +192,30 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
+    /// Persist the onboarding-selected inference provider/model into the
+    /// newly hatched assistant workspace config. This ensures first-launch
+    /// selections survive instance-scoped workspaces.
+    private func persistOnboardingInferenceSelectionToHatchedWorkspace() {
+        guard !state.selectedProvider.isEmpty, !state.selectedModel.isEmpty else { return }
+        guard let workspaceDir = LockfileAssistant.loadLatest()?.workspaceDir else { return }
+        let configPath = URL(fileURLWithPath: workspaceDir).appendingPathComponent("config.json").path
+        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true, into: configPath)
+
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["provider"] = state.selectedProvider
+        inference["model"] = state.selectedModel
+        services["inference"] = inference
+
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+            log.info("Persisted onboarding inference selection to hatched workspace config at \(configPath, privacy: .public)")
+        } catch {
+            log.error("Failed to persist onboarding inference selection to hatched workspace config: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Called when the CLI process finishes successfully or when the success
     /// sentinel is detected in CLI output. Saves the random avatar (for
     /// non-pairing flows) then signals completion after a brief delay.
@@ -209,6 +233,8 @@ struct HatchingStepView: View {
            let image = hatchAvatarImage {
             AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
         }
+
+        persistOnboardingInferenceSelectionToHatchedWorkspace()
 
         // Brief delay so the user sees the waking animation before transition.
         // Stored as a cancellable Task so it's cleaned up if the view disappears.

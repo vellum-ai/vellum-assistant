@@ -783,26 +783,26 @@ All client-server communication uses HTTP for request/response operations and Se
 
 The daemon emits two distinct error message types via SSE:
 
-| Message type         | Scope               | Purpose                                                                                                        | Payload                                                                       |
-| -------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `conversation_error` | Conversation-scoped | Typed, actionable failures during conversation runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
-| `error`              | Global              | Generic, non-session failures (e.g., daemon startup errors, unknown message types)                             | `message` (string)                                                            |
+| Message type         | Scope               | Purpose                                                                                                        | Payload                                                                            |
+| -------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `conversation_error` | Conversation-scoped | Typed, actionable failures during conversation runtime (e.g., provider network error, rate limit, API failure) | `conversationId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `error`              | Global              | Generic, non-conversation failures (e.g., daemon startup errors, unknown message types)                        | `message` (string)                                                                 |
 
-**Design rationale:** `conversation_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
+**Design rationale:** `conversation_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-conversation contexts.
 
-### Session Error Codes
+### Conversation Error Codes
 
-| Code                        | Meaning                                                                 | Retryable |
-| --------------------------- | ----------------------------------------------------------------------- | --------- |
-| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
-| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
-| `PROVIDER_API`              | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
-| `PROVIDER_BILLING`          | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
-| `CONTEXT_TOO_LARGE`         | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
-| `SESSION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
-| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
-| `REGENERATE_FAILED`         | Failed to regenerate a previous response                                | Yes       |
-| `UNKNOWN`                   | Unrecognized error that does not match any specific category            | No        |
+| Code                             | Meaning                                                                 | Retryable |
+| -------------------------------- | ----------------------------------------------------------------------- | --------- |
+| `PROVIDER_NETWORK`               | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
+| `PROVIDER_RATE_LIMIT`            | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
+| `PROVIDER_API`                   | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
+| `PROVIDER_BILLING`               | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
+| `CONTEXT_TOO_LARGE`              | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
+| `CONVERSATION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
+| `CONVERSATION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
+| `REGENERATE_FAILED`              | Failed to regenerate a previous response                                | Yes       |
+| `UNKNOWN`                        | Unrecognized error that does not match any specific category            | No        |
 
 ### Error Classification
 

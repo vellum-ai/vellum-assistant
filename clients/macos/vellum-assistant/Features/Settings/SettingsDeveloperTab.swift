@@ -3,6 +3,18 @@ import SwiftUI
 @preconcurrency import Sentry
 import VellumAssistantShared
 
+/// Wraps both `AssistantFeatureFlag` and `MacOSFeatureFlagState` into a single
+/// type so the Developer tab can render all flags in one card.
+private struct UnifiedFeatureFlag: Identifiable {
+    let id: String
+    let key: String
+    let label: String
+    let description: String
+    let defaultEnabled: Bool
+    let enabled: Bool
+    let scope: FeatureFlagScope
+}
+
 /// Developer settings tab — consolidates all internal tooling: assistant info,
 /// switching/wake controls, gateway settings, hatch, retire, advanced dev tools
 /// (permission simulator, feature flags, env vars), and Sentry testing.
@@ -123,10 +135,8 @@ struct SettingsDeveloperTab: View {
                 ToolPermissionTesterView(model: model)
             }
 
-            // Assistant Feature Flags
-            assistantFeatureFlagSection
-            // macOS Feature Flags
-            macOSFeatureFlagSection
+            // Feature Flags
+            featureFlagSection
             // Environment Variables
             environmentVariablesSection
             // Sentry Testing
@@ -839,7 +849,7 @@ struct SettingsDeveloperTab: View {
         }
     }
 
-    // MARK: - Assistant Feature Flags
+    // MARK: - Feature Flags
 
     private func loadAssistantFlags() async {
         guard daemonClient != nil else { return }
@@ -853,8 +863,34 @@ struct SettingsDeveloperTab: View {
         isLoadingAssistantFlags = false
     }
 
-    private var assistantFeatureFlagSection: some View {
-        SettingsCard(title: "Assistant Feature Flags", subtitle: "Sourced from the gateway API. Changes are synced remotely.") {
+    private var unifiedFlags: [UnifiedFeatureFlag] {
+        let fromAssistant: [UnifiedFeatureFlag] = assistantFlags.map { flag in
+            UnifiedFeatureFlag(
+                id: flag.key,
+                key: flag.key,
+                label: flag.displayName,
+                description: flag.description ?? "",
+                defaultEnabled: flag.defaultEnabled ?? true,
+                enabled: flag.enabled,
+                scope: .assistant
+            )
+        }
+        let fromMacOS: [UnifiedFeatureFlag] = macOSFlagStates.map { state in
+            UnifiedFeatureFlag(
+                id: state.key,
+                key: state.key,
+                label: state.label,
+                description: state.description,
+                defaultEnabled: state.defaultEnabled,
+                enabled: state.enabled,
+                scope: .macos
+            )
+        }
+        return (fromAssistant + fromMacOS).sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    private var featureFlagSection: some View {
+        SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and macOS app.") {
             if isLoadingAssistantFlags {
                 HStack {
                     Spacer()
@@ -872,122 +908,94 @@ struct SettingsDeveloperTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
-            } else if assistantFlags.isEmpty && !isLoadingAssistantFlags {
-                Text("No assistant feature flags available.")
+            }
+
+            if unifiedFlags.isEmpty && !isLoadingAssistantFlags {
+                Text("No feature flags available.")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
             } else {
-                ForEach(assistantFlags) { flag in
-                    assistantFlagRow(flag: flag)
+                ForEach(unifiedFlags) { flag in
+                    unifiedFlagRow(flag: flag)
                 }
             }
         }
     }
 
-    private func assistantFlagRow(flag: AssistantFeatureFlag) -> some View {
+    private func unifiedFlagRow(flag: UnifiedFeatureFlag) -> some View {
         let flagBinding = Binding<Bool>(
             get: {
-                assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+                switch flag.scope {
+                case .assistant:
+                    return assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+                case .macos:
+                    return macOSFlagStates.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+                }
             },
             set: { newValue in
-                if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                    assistantFlags[index] = AssistantFeatureFlag(
-                        key: flag.key,
-                        enabled: newValue,
-                        defaultEnabled: flag.defaultEnabled,
-                        description: flag.description,
-                        label: flag.label
-                    )
-                }
-                NotificationCenter.default.post(
-                    name: .assistantFeatureFlagDidChange,
-                    object: nil,
-                    userInfo: ["key": flag.key, "enabled": newValue]
-                )
-                Task {
-                    do {
-                        try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
-                    } catch {
-                        if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                            assistantFlags[index] = AssistantFeatureFlag(
-                                key: flag.key,
-                                enabled: !newValue,
-                                defaultEnabled: flag.defaultEnabled,
-                                description: flag.description,
-                                label: flag.label
-                            )
-                        }
-                        NotificationCenter.default.post(
-                            name: .assistantFeatureFlagDidChange,
-                            object: nil,
-                            userInfo: ["key": flag.key, "enabled": !newValue]
+                switch flag.scope {
+                case .assistant:
+                    if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                        assistantFlags[index] = AssistantFeatureFlag(
+                            key: flag.key,
+                            enabled: newValue,
+                            defaultEnabled: flag.defaultEnabled,
+                            description: flag.description.isEmpty ? nil : flag.description,
+                            label: flag.label
                         )
                     }
+                    NotificationCenter.default.post(
+                        name: .assistantFeatureFlagDidChange,
+                        object: nil,
+                        userInfo: ["key": flag.key, "enabled": newValue]
+                    )
+                    Task {
+                        do {
+                            try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
+                        } catch {
+                            if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                                assistantFlags[index] = AssistantFeatureFlag(
+                                    key: flag.key,
+                                    enabled: !newValue,
+                                    defaultEnabled: flag.defaultEnabled,
+                                    description: flag.description.isEmpty ? nil : flag.description,
+                                    label: flag.label
+                                )
+                            }
+                            NotificationCenter.default.post(
+                                name: .assistantFeatureFlagDidChange,
+                                object: nil,
+                                userInfo: ["key": flag.key, "enabled": !newValue]
+                            )
+                        }
+                    }
+                case .macos:
+                    if let index = macOSFlagStates.firstIndex(where: { $0.key == flag.key }) {
+                        macOSFlagStates[index].enabled = newValue
+                    }
+                    MacOSClientFeatureFlagManager.shared.setOverride(flag.key, enabled: newValue)
+                    NotificationCenter.default.post(
+                        name: .assistantFeatureFlagDidChange,
+                        object: nil,
+                        userInfo: ["key": flag.key, "enabled": newValue]
+                    )
                 }
             }
         )
         return HStack {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(flag.displayName)
+                Text(flag.label)
                     .font(VFont.body)
                     .foregroundColor(VColor.contentSecondary)
-                if let description = flag.description, !description.isEmpty {
-                    Text(description)
+                if !flag.description.isEmpty {
+                    Text(flag.description)
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
             Spacer()
             VToggle(isOn: flagBinding)
-                .accessibilityLabel(flag.displayName)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
-    }
-
-    // MARK: - macOS Feature Flags
-
-    private var macOSFeatureFlagSection: some View {
-        SettingsCard(title: "macOS Feature Flags", subtitle: "Local-only flags stored in UserDefaults on this Mac.") {
-            if macOSFlagStates.isEmpty {
-                Text("No macOS feature flags available.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentTertiary)
-            } else {
-                ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
-                    macOSFlagRow(index: index, entry: entry)
-                }
-            }
-        }
-    }
-
-    private func macOSFlagRow(index: Int, entry: MacOSFeatureFlagState) -> some View {
-        let flagBinding = Binding<Bool>(
-            get: { macOSFlagStates[index].enabled },
-            set: { newValue in
-                macOSFlagStates[index].enabled = newValue
-                MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
-                NotificationCenter.default.post(
-                    name: .assistantFeatureFlagDidChange,
-                    object: nil,
-                    userInfo: ["key": entry.key, "enabled": newValue]
-                )
-            }
-        )
-        return HStack {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(entry.label)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-                if !entry.description.isEmpty {
-                    Text(entry.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-            Spacer()
-            VToggle(isOn: flagBinding)
-                .accessibilityLabel(entry.label)
+                .accessibilityLabel(flag.label)
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }

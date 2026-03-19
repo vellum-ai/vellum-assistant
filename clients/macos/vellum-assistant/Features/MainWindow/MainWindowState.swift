@@ -65,6 +65,7 @@ public final class MainWindowState: ObservableObject {
     @Published var activeDynamicParsedSurface: Surface?
     @Published var activeDynamicUserAppsDirectory: URL?
     @Published var hasAPIKey: Bool
+    @Published var needsInferenceApiKey: Bool = false
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
@@ -138,6 +139,7 @@ public final class MainWindowState: ObservableObject {
         self.layoutConfig = LayoutConfigStore.load()
         self.navigationHistoryCancellable = navigationHistory.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+        refreshInferenceApiKeyStatus()
     }
 
     // MARK: - Selection Helpers
@@ -234,6 +236,29 @@ public final class MainWindowState: ObservableObject {
 
     func refreshAPIKeyStatus(isConnected: Bool, isAuthenticated: Bool) {
         hasAPIKey = APIKeyManager.hasAnyKey() || isConnected || isAuthenticated
+    }
+
+    /// Re-evaluates whether the "API key not set" toast should appear based on
+    /// the workspace config's inference service mode and the selected provider's
+    /// API key presence.
+    ///
+    /// `needsInferenceApiKey` is `true` only when:
+    /// - `services.inference.mode` is `"your-own"`, AND
+    /// - the configured provider (defaulting to `"anthropic"`) has no API key set.
+    ///
+    /// In all other cases (mode is `"managed"`, config is missing/unreadable,
+    /// or the provider has a key), it is `false`.
+    func refreshInferenceApiKeyStatus() {
+        let config = WorkspaceConfigIO.read()
+        guard let services = config["services"] as? [String: Any],
+              let inference = services["inference"] as? [String: Any],
+              let mode = inference["mode"] as? String,
+              mode == "your-own" else {
+            needsInferenceApiKey = false
+            return
+        }
+        let provider = (inference["provider"] as? String) ?? "anthropic"
+        needsInferenceApiKey = APIKeyManager.getKey(for: provider) == nil
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {

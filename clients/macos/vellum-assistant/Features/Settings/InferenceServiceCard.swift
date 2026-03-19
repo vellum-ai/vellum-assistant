@@ -110,6 +110,7 @@ struct InferenceServiceCard: View {
                 apiKeyText = ""
             },
             showReset: isConnected,
+            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 if isLoggedIn {
                     modelPicker
