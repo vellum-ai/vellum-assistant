@@ -137,18 +137,25 @@ export function getRootDir(): string {
   );
 }
 
+/**
+ * Returns the workspace root for user-facing state.
+ *
+ * When the WORKSPACE_DIR env var is set, returns that value (used in
+ * containerized deployments where the workspace is a separate volume).
+ * Otherwise falls back to ~/.vellum/workspace.
+ */
+export function getWorkspaceDir(): string {
+  const override = process.env.WORKSPACE_DIR?.trim();
+  if (override) return override;
+  return join(getRootDir(), "workspace");
+}
+
 export function getEncryptedStorePath(): string {
   return join(getRootDir(), "protected", "keys.enc");
 }
 
 export function getMetadataPath(): string {
-  return join(
-    getRootDir(),
-    "workspace",
-    "data",
-    "credentials",
-    "metadata.json",
-  );
+  return join(getWorkspaceDir(), "data", "credentials", "metadata.json");
 }
 
 // ---------------------------------------------------------------------------

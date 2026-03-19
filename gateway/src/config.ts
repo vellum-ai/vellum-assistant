@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getWorkspaceDir } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -43,7 +43,7 @@ type RoutingEntry = {
  */
 function readWorkspaceConfig(): Record<string, unknown> {
   try {
-    const configPath = join(getRootDir(), "workspace", "config.json");
+    const configPath = join(getWorkspaceDir(), "config.json");
     if (!existsSync(configPath)) return {};
     const raw = readFileSync(configPath, "utf-8");
     const data = JSON.parse(raw);
