@@ -44,6 +44,7 @@ import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
+import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 
 const log = getLogger("runtime-http");
@@ -144,7 +145,7 @@ export async function handleChannelInbound(
     return httpError("BAD_REQUEST", "content must be a string", 400);
   }
 
-  const trimmedContent = typeof content === "string" ? content.trim() : "";
+  let trimmedContent = typeof content === "string" ? content.trim() : "";
   const hasAttachments =
     Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
@@ -224,6 +225,29 @@ export async function handleChannelInbound(
         { error: `Attachment IDs not found: ${missing.join(", ")}` },
         { status: 400 },
       );
+    }
+  }
+
+  // Auto-transcribe audio attachments from channel messages
+  if (hasAttachments && sourceChannel) {
+    const transcribeResult = await tryTranscribeAudioAttachments(attachmentIds);
+    switch (transcribeResult.status) {
+      case "transcribed":
+        // For voice-only messages (empty content), this becomes the message text.
+        // For audio+caption, both are preserved.
+        trimmedContent =
+          transcribeResult.text +
+          (trimmedContent ? `\n\n${trimmedContent}` : "");
+        break;
+      case "no_provider":
+      case "error":
+        // Inject a hint so the assistant knows the user sent audio and why
+        // transcription failed — it can then guide the user (e.g. set up API key).
+        trimmedContent =
+          `[Voice message received — ${transcribeResult.reason}]` +
+          (trimmedContent ? `\n\n${trimmedContent}` : "");
+        break;
+      // "no_audio", "disabled" — no action needed
     }
   }
 
