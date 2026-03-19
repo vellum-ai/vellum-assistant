@@ -937,7 +937,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "browser_click":                      return "Click Element"
         case "browser_type":                       return "Type Text"
         case "app_create":                         return "Create App"
-        case "app_update":                         return "Update App"
+        case "app_refresh":                        return "Refresh App"
         case "request_system_permission":          return "Request Permission"
         default:
             return toolName
@@ -962,7 +962,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "browser_screenshot":                 return .scan
         case "browser_click":                      return .mousePointerClick
         case "browser_type":                       return .keyboard
-        case "app_create", "app_update":           return .smartphone
+        case "app_create", "app_refresh":           return .smartphone
         case "request_system_permission":          return .shield
         default:                                   return .puzzle
         }
@@ -998,8 +998,8 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Typed in a field"
         case "app_create":
             return "Created an app"
-        case "app_update":
-            return "Updated the app"
+        case "app_refresh":
+            return "Refreshed the app"
         case "app_open":
             return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
         case "request_system_permission":
