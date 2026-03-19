@@ -375,126 +375,152 @@ export function forkConversation(params: {
       : ([] as MessageRow[]);
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle = `${sourceConversation.title ?? "Untitled"} (Fork)`;
-  const forkedConversation = createConversation({
-    title: forkTitle,
-    conversationType: "standard",
-  });
 
-  db.update(conversations)
-    .set({
-      forkParentConversationId: sourceConversation.id,
-      forkParentMessageId,
-      contextSummary: preserveSourceCompactionState
-        ? sourceConversation.contextSummary
-        : null,
-      contextCompactedMessageCount: preserveSourceCompactionState
-        ? sourceConversation.contextCompactedMessageCount
-        : 0,
-      contextCompactedAt: preserveSourceCompactionState
-        ? sourceConversation.contextCompactedAt
-        : null,
-    })
-    .where(eq(conversations.id, forkedConversation.id))
-    .run();
+  // Collect disk-sync work to run after the transaction commits.
+  const diskSyncQueue: Array<{
+    conversationId: string;
+    messageId: string;
+    createdAt: number;
+  }> = [];
 
-  const forkedMessageIds = new Map<string, string>();
-  let latestForkedAssistant: { messageId: string; messageAt: number } | null =
-    null;
+  // Wrap all DB mutations in a single transaction so a mid-flight failure
+  // rolls back cleanly instead of leaving a partial fork. Helper functions
+  // (linkAttachmentToMessage, relinkAttachments, seedForkedConversationAttention)
+  // use the same underlying bun:sqlite connection, so their writes participate
+  // in this transaction automatically.
+  const forkedConversation = db.transaction(() => {
+    const fc = createConversation({
+      title: forkTitle,
+      conversationType: "standard",
+    });
 
-  for (const message of messagesToCopy) {
-    const forkedMessageId = uuid();
-    db.insert(messages)
-      .values({
-        id: forkedMessageId,
-        conversationId: forkedConversation.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        metadata: cloneForkMessageMetadata(message.metadata, message.id),
+    db.update(conversations)
+      .set({
+        forkParentConversationId: sourceConversation.id,
+        forkParentMessageId,
+        contextSummary: preserveSourceCompactionState
+          ? sourceConversation.contextSummary
+          : null,
+        contextCompactedMessageCount: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedMessageCount
+          : 0,
+        contextCompactedAt: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedAt
+          : null,
       })
+      .where(eq(conversations.id, fc.id))
       .run();
-    forkedMessageIds.set(message.id, forkedMessageId);
 
-    if (message.role === "assistant") {
-      latestForkedAssistant = {
-        messageId: forkedMessageId,
-        messageAt: message.createdAt,
-      };
-    }
-  }
+    const forkedMessageIds = new Map<string, string>();
+    let latestForkedAssistant: {
+      messageId: string;
+      messageAt: number;
+    } | null = null;
 
-  const attachmentIdMap = new Map<string, string>();
-  for (const message of messagesToCopy) {
-    const forkedMessageId = forkedMessageIds.get(message.id);
-    if (!forkedMessageId) continue;
-
-    const attachmentLinks = db
-      .select({
-        attachmentId: messageAttachments.attachmentId,
-        position: messageAttachments.position,
-      })
-      .from(messageAttachments)
-      .where(eq(messageAttachments.messageId, message.id))
-      .orderBy(messageAttachments.position)
-      .all();
-    const uncachedAttachmentLinks = attachmentLinks.filter(
-      (link) => !attachmentIdMap.has(link.attachmentId),
-    );
-    const stagingMessageId = uncachedAttachmentLinks.length > 0 ? uuid() : null;
-
-    if (stagingMessageId) {
+    for (const message of messagesToCopy) {
+      const forkedMessageId = uuid();
       db.insert(messages)
         .values({
-          id: stagingMessageId,
-          conversationId: forkedConversation.id,
+          id: forkedMessageId,
+          conversationId: fc.id,
           role: message.role,
-          content: "",
+          content: message.content,
           createdAt: message.createdAt,
-          metadata: null,
+          metadata: cloneForkMessageMetadata(message.metadata, message.id),
         })
         .run();
+      forkedMessageIds.set(message.id, forkedMessageId);
+
+      if (message.role === "assistant") {
+        latestForkedAssistant = {
+          messageId: forkedMessageId,
+          messageAt: message.createdAt,
+        };
+      }
     }
 
-    for (const link of attachmentLinks) {
-      const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
-      if (cachedAttachmentId) {
-        db.insert(messageAttachments)
+    const attachmentIdMap = new Map<string, string>();
+    for (const message of messagesToCopy) {
+      const forkedMessageId = forkedMessageIds.get(message.id);
+      if (!forkedMessageId) continue;
+
+      const attachmentLinks = db
+        .select({
+          attachmentId: messageAttachments.attachmentId,
+          position: messageAttachments.position,
+        })
+        .from(messageAttachments)
+        .where(eq(messageAttachments.messageId, message.id))
+        .orderBy(messageAttachments.position)
+        .all();
+      const uncachedAttachmentLinks = attachmentLinks.filter(
+        (link) => !attachmentIdMap.has(link.attachmentId),
+      );
+      const stagingMessageId =
+        uncachedAttachmentLinks.length > 0 ? uuid() : null;
+
+      if (stagingMessageId) {
+        db.insert(messages)
           .values({
-            id: uuid(),
-            messageId: forkedMessageId,
-            attachmentId: cachedAttachmentId,
-            position: link.position,
-            createdAt: Date.now(),
+            id: stagingMessageId,
+            conversationId: fc.id,
+            role: message.role,
+            content: "",
+            createdAt: message.createdAt,
+            metadata: null,
           })
           .run();
-        continue;
       }
 
-      const scopedAttachmentId = linkAttachmentToMessage(
-        stagingMessageId ?? forkedMessageId,
-        link.attachmentId,
-        link.position,
-      );
-      attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
+      for (const link of attachmentLinks) {
+        const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
+        if (cachedAttachmentId) {
+          db.insert(messageAttachments)
+            .values({
+              id: uuid(),
+              messageId: forkedMessageId,
+              attachmentId: cachedAttachmentId,
+              position: link.position,
+              createdAt: Date.now(),
+            })
+            .run();
+          continue;
+        }
+
+        const scopedAttachmentId = linkAttachmentToMessage(
+          stagingMessageId ?? forkedMessageId,
+          link.attachmentId,
+          link.position,
+        );
+        attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
+      }
+
+      if (stagingMessageId) {
+        relinkAttachments([stagingMessageId], forkedMessageId);
+        db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
+      }
+
+      diskSyncQueue.push({
+        conversationId: fc.id,
+        messageId: forkedMessageId,
+        createdAt: fc.createdAt,
+      });
     }
 
-    if (stagingMessageId) {
-      relinkAttachments([stagingMessageId], forkedMessageId);
-      db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
-    }
+    seedForkedConversationAttention({
+      conversationId: fc.id,
+      latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
+      latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
+    });
 
-    syncMessageToDisk(
-      forkedConversation.id,
-      forkedMessageId,
-      forkedConversation.createdAt,
-    );
+    return fc;
+  })();
+
+  // Disk-view sync runs after commit — file I/O is idempotent and
+  // conversation deletion cleans up orphaned directories.
+  for (const entry of diskSyncQueue) {
+    syncMessageToDisk(entry.conversationId, entry.messageId, entry.createdAt);
   }
-
-  seedForkedConversationAttention({
-    conversationId: forkedConversation.id,
-    latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
-    latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
-  });
 
   const persistedFork = getConversation(forkedConversation.id);
   if (!persistedFork) {
