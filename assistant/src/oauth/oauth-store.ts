@@ -148,6 +148,11 @@ export function registerProvider(params: {
   extraParams?: Record<string, string>;
   callbackTransport?: string;
   managedServiceConfigKey?: string;
+  displayName?: string;
+  description?: string;
+  dashboardUrl?: string;
+  clientIdPlaceholder?: string;
+  requiresClientSecret?: number;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -170,6 +175,11 @@ export function registerProvider(params: {
     callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+    displayName: params.displayName ?? null,
+    description: params.description ?? null,
+    dashboardUrl: params.dashboardUrl ?? null,
+    clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+    requiresClientSecret: params.requiresClientSecret ?? 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -303,8 +313,7 @@ export function getApp(id: string): OAuthAppRow | undefined {
 export async function getAppClientSecret(
   appOrId: OAuthAppRow | string,
 ): Promise<string | undefined> {
-  const app =
-    typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
   if (!app) return undefined;
   return getSecureKeyAsync(app.clientSecretCredentialPath);
 }
