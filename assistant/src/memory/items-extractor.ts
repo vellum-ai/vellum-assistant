@@ -135,6 +135,13 @@ function hasSemanticDensity(text: string): boolean {
 
 // ── LLM-powered extraction ────────────────────────────────────────────
 
+// Budget for the extraction system prompt (in characters). This is a
+// conservative estimate that fits comfortably within even small model
+// context windows (latency-optimized models like Haiku). The remaining
+// context budget is consumed by the user message, tool schema, and response
+// tokens. ~6000 tokens ≈ 24 000 chars is a safe ceiling.
+const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
+
 function buildExtractionSystemPrompt(
   existingItems: Array<{
     id: string;
@@ -144,21 +151,9 @@ function buildExtractionSystemPrompt(
   }>,
   messageRole: string,
 ): string {
-  // Inject identity context so extracted memories use real names instead of
-  // generic "User ..." labels. We truncate to a budget to prevent oversized
-  // prompts when SOUL.md / IDENTITY.md / USER.md are large — exceeding the
-  // provider context window would silently degrade extraction quality.
-  const rawIdentityContext = buildCoreIdentityContext();
-  const identityContext = rawIdentityContext
-    ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
-    : null;
-
-  let prompt = "";
-  if (identityContext) {
-    prompt += `# Identity Context\n\n${identityContext}\n\n---\n\n`;
-  }
-
-  prompt += `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
+  // Build the fixed instruction body first so we can measure it and allocate
+  // the remaining budget to identity context.
+  let instructions = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
 Extract items in these categories:
 - identity: Personal info (name, role, location, timezone, background), notable facts, relationships between people/teams/systems
@@ -193,18 +188,46 @@ Rules:
 - If the message contains no memorable information, return an empty array.`;
 
   if (messageRole === "assistant") {
-    prompt += `
+    instructions += `
 
 IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribute the assistant's own statements, feelings, self-descriptions, or introspection to the user. Only extract facts about the user, the world, or the project that the assistant is referencing or relaying — NOT the assistant's own identity, uncertainty, or behavior. If the assistant is simply talking about itself (e.g., introducing itself, expressing uncertainty about its own purpose), extract nothing.`;
   }
 
   if (existingItems.length > 0) {
-    prompt += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
+    instructions += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
     for (const item of existingItems) {
-      prompt += `- [${item.id}] (${item.kind}) ${item.subject}: ${item.statement}\n`;
+      instructions += `- [${item.id}] (${item.kind}) ${item.subject}: ${item.statement}\n`;
     }
   }
 
+  // Inject identity context so extracted memories use real names instead of
+  // generic "User ..." labels. Budget is dynamically computed: whatever
+  // remains after the fixed instructions fits within the system prompt
+  // ceiling, preventing oversized prompts from exceeding the provider input
+  // window (which would cause sendMessage to error and fall back to
+  // lower-quality pattern-based extraction).
+  const rawIdentityContext = buildCoreIdentityContext();
+
+  let prompt = "";
+  if (rawIdentityContext) {
+    // Reserve space for the wrapping text: "# Identity Context\n\n" + "\n\n---\n\n"
+    const wrapperOverhead = "# Identity Context\n\n\n\n---\n\n".length;
+    const identityBudget =
+      EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET -
+      instructions.length -
+      wrapperOverhead;
+
+    if (identityBudget > 0) {
+      const identityContext = truncate(
+        rawIdentityContext,
+        identityBudget,
+        "\n...[identity context truncated]",
+      );
+      prompt += `# Identity Context\n\n${identityContext}\n\n---\n\n`;
+    }
+  }
+
+  prompt += instructions;
   return prompt;
 }
 
