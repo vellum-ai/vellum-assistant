@@ -244,22 +244,22 @@ final class ChatBottomPinCoordinator {
     private func startSessionTask(animated: Bool) {
         sessionTask?.cancel()
 
+        // Immediate first attempt — synchronous so callers see the result
+        // before yielding (important for tests and single-frame UI updates).
+        guard var session = activeSession else { return }
+        session.recordAttempt()
+        activeSession = session
+        let pinned = onPinRequested?(session.reason, animated) ?? false
+
+        if pinned {
+            completeSession()
+            return
+        }
+
+        // Async bounded retry loop for subsequent attempts.
         sessionTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            // Immediate first attempt.
-            guard var session = self.activeSession else { return }
-            session.recordAttempt()
-            self.activeSession = session
-            let pinned = self.onPinRequested?(session.reason, animated) ?? false
-
-            if pinned {
-                self.completeSession()
-                return
-            }
-
-            // Bounded retry loop.
             while !Task.isCancelled {
+                guard let self else { break }
                 guard var currentSession = self.activeSession else { break }
                 guard !currentSession.isExhausted else {
                     log.debug("Pin session exhausted after \(currentSession.attemptCount) attempts")
@@ -297,7 +297,7 @@ final class ChatBottomPinCoordinator {
             }
 
             // Clean up if we fell through without completing.
-            self.completeSession()
+            self?.completeSession()
         }
     }
 

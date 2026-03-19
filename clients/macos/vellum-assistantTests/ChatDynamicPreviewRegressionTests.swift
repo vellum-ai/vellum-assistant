@@ -97,6 +97,9 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Built your app:")
         ))
+        // Flush the buffered text delta so the assistant message exists before
+        // uiSurfaceShow — the no-preview path breaks early without creating one.
+        viewModel.flushStreamingBuffer()
 
         // No preview metadata and no display mode (defaults to panel routing)
         let msg = makeDynamicPageSurfaceMessage(preview: nil, appId: "app-123")
@@ -112,6 +115,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Opening panel:")
         ))
+        viewModel.flushStreamingBuffer()
 
         let msg = makeDynamicPageSurfaceMessage(display: "panel", preview: nil)
         viewModel.handleServerMessage(.uiSurfaceShow(msg))
