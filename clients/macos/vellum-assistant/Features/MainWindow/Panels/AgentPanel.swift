@@ -31,8 +31,12 @@ struct AgentPanelContent: View {
     }
 
     /// Whether any files in the selected skill are viewable (non-binary with content).
+    /// Defaults to `true` when file metadata hasn't loaded yet so the empty state
+    /// shows the neutral "Select a file to view" instead of the misleading
+    /// "No viewable files" during loading.
     private var hasViewableFiles: Bool {
-        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? false
+        guard let files = skillsManager.selectedSkillFiles else { return true }
+        return files.files.contains { !$0.isBinary && $0.content != nil }
     }
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
