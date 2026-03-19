@@ -474,6 +474,7 @@ export const computerUseObserveTool: Tool = {
         properties: {
           activity: activityProperty,
         },
+        required: ["activity"],
       },
     };
   },
