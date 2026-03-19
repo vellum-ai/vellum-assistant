@@ -16,10 +16,11 @@ jobs:
     outputs:
       version: ${{ steps.extract.outputs.version }}
     steps:
-      - name: Extract version from release branch
+      - name: Extract version from branch name
         id: extract
         run: |
-          VERSION="${GITHUB_REF_NAME#release/v}"
+          BRANCH="${GITHUB_REF_NAME}"
+          VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
