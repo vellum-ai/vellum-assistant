@@ -15,6 +15,15 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
     public let status: String?
     public let inputTokens: Int?
     public let outputTokens: Int?
+    public let cacheCreationInputTokens: Int?
+    public let cacheReadInputTokens: Int?
+    public let stopReason: String?
+    public let requestMessageCount: Int?
+    public let requestToolCount: Int?
+    public let responseMessageCount: Int?
+    public let responseToolCallCount: Int?
+    public let responsePreview: String?
+    public let toolCallNames: [String]?
     public let durationMs: Int?
 
     public init(
@@ -26,6 +35,15 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         status: String? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
+        cacheCreationInputTokens: Int? = nil,
+        cacheReadInputTokens: Int? = nil,
+        stopReason: String? = nil,
+        requestMessageCount: Int? = nil,
+        requestToolCount: Int? = nil,
+        responseMessageCount: Int? = nil,
+        responseToolCallCount: Int? = nil,
+        responsePreview: String? = nil,
+        toolCallNames: [String]? = nil,
         durationMs: Int? = nil
     ) {
         self.title = title
@@ -36,6 +54,15 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         self.status = status
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cacheCreationInputTokens = cacheCreationInputTokens
+        self.cacheReadInputTokens = cacheReadInputTokens
+        self.stopReason = stopReason
+        self.requestMessageCount = requestMessageCount
+        self.requestToolCount = requestToolCount
+        self.responseMessageCount = responseMessageCount
+        self.responseToolCallCount = responseToolCallCount
+        self.responsePreview = responsePreview
+        self.toolCallNames = toolCallNames
         self.durationMs = durationMs
     }
 
@@ -54,6 +81,15 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         status = container.decodeString(for: ["status", "outcome"])
         inputTokens = container.decodeInt(for: ["inputTokens", "input_token_count", "promptTokens"])
         outputTokens = container.decodeInt(for: ["outputTokens", "output_token_count", "completionTokens"])
+        cacheCreationInputTokens = container.decodeInt(for: ["cacheCreationInputTokens", "cache_creation_input_tokens"])
+        cacheReadInputTokens = container.decodeInt(for: ["cacheReadInputTokens", "cache_read_input_tokens"])
+        stopReason = container.decodeString(for: ["stopReason", "stop_reason"])
+        requestMessageCount = container.decodeInt(for: ["requestMessageCount", "request_message_count"])
+        requestToolCount = container.decodeInt(for: ["requestToolCount", "request_tool_count"])
+        responseMessageCount = container.decodeInt(for: ["responseMessageCount", "response_message_count"])
+        responseToolCallCount = container.decodeInt(for: ["responseToolCallCount", "response_tool_call_count"])
+        responsePreview = container.decodeString(for: ["responsePreview", "responseTextPreview", "response_preview"])
+        toolCallNames = container.decodeStringArray(for: ["toolCallNames", "tool_call_names"])
         durationMs = container.decodeInt(for: ["durationMs", "duration_ms", "elapsedMs"])
     }
 
@@ -67,6 +103,15 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         try container.encodeIfPresent(status, forKey: "status")
         try container.encodeIfPresent(inputTokens, forKey: "inputTokens")
         try container.encodeIfPresent(outputTokens, forKey: "outputTokens")
+        try container.encodeIfPresent(cacheCreationInputTokens, forKey: "cacheCreationInputTokens")
+        try container.encodeIfPresent(cacheReadInputTokens, forKey: "cacheReadInputTokens")
+        try container.encodeIfPresent(stopReason, forKey: "stopReason")
+        try container.encodeIfPresent(requestMessageCount, forKey: "requestMessageCount")
+        try container.encodeIfPresent(requestToolCount, forKey: "requestToolCount")
+        try container.encodeIfPresent(responseMessageCount, forKey: "responseMessageCount")
+        try container.encodeIfPresent(responseToolCallCount, forKey: "responseToolCallCount")
+        try container.encodeIfPresent(responsePreview, forKey: "responsePreview")
+        try container.encodeIfPresent(toolCallNames, forKey: "toolCallNames")
         try container.encodeIfPresent(durationMs, forKey: "durationMs")
     }
 }
@@ -277,6 +322,16 @@ private extension KeyedDecodingContainer where Key == LLMContextCodingKey {
         }
         return nil
     }
+
+    func decodeStringArray(for keys: [String]) -> [String]? {
+        for key in keys {
+            guard let codingKey = Key(stringValue: key) else { continue }
+            if let value = try? decodeIfPresent([String].self, forKey: codingKey) {
+                return value
+            }
+        }
+        return nil
+    }
 }
 
 private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
@@ -296,6 +351,11 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
     }
 
     mutating func encodeIfPresent(_ value: AnyCodable?, forKey key: String) throws {
+        guard let value, let codingKey = Key(stringValue: key) else { return }
+        try encode(value, forKey: codingKey)
+    }
+
+    mutating func encodeIfPresent(_ value: [String]?, forKey key: String) throws {
         guard let value, let codingKey = Key(stringValue: key) else { return }
         try encode(value, forKey: codingKey)
     }
