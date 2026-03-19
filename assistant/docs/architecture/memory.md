@@ -2,6 +2,111 @@
 
 Assistant memory and context-injection architecture details.
 
+## Simplified Memory System (Default)
+
+The simplified memory system replaces the legacy item/tier/staleness model with a two-layer architecture: a **brief** (time-relevant context + open loops) plus **archive recall** (observations, chunks, episodes). It is enabled by default via `memory.simplified.enabled: true`.
+
+### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Write Path (Simplified)"
+        MSG["Incoming Message"] --> REDUCER["Memory Reducer<br/>(LLM-backed, delayed)"]
+        REDUCER --> TC["time_contexts<br/>(brief state)"]
+        REDUCER --> OL["open_loops<br/>(brief state)"]
+        REDUCER --> OBS_R["Archive Observations<br/>(reducer output)"]
+        REDUCER --> EP_R["Archive Episodes<br/>(reducer output)"]
+
+        MSG --> INDEXER["Dual-Write Indexer"]
+        INDEXER --> OBS["memory_observations"]
+        INDEXER --> CHK["memory_chunks<br/>(content-hash deduped)"]
+
+        COMPACT["Context Compaction"] --> EP["memory_episodes"]
+    end
+
+    subgraph "Read Path (Simplified)"
+        TURN["User Turn"] --> BRIEF["Memory Brief Compiler"]
+        BRIEF --> TC
+        BRIEF --> OL
+        BRIEF --> BRIEF_OUT["&lt;memory_brief&gt;<br/>Time contexts + Open loops"]
+
+        TURN --> RECALL_GATE["Archive Recall Gate<br/>(keyword + pattern match)"]
+        RECALL_GATE --> PREFETCH["Prefetch<br/>(episodes + observations)"]
+        RECALL_GATE --> DEEP["Deeper Recall<br/>(episodes + observations + chunks)"]
+        DEEP --> RECALL_OUT["&lt;supporting_recall&gt;<br/>Source-linked bullets"]
+
+        BRIEF_OUT --> INJECT["Runtime Injection<br/>(prepend to user message)"]
+        RECALL_OUT --> INJECT
+    end
+
+    subgraph "Memory Tools (Simplified)"
+        SAVE["memory_save"] --> OBS
+        RECALL_TOOL["memory_recall"] --> RECALL_GATE
+    end
+```
+
+### Tables
+
+| Table                 | Purpose                                         | Write source                                            |
+| --------------------- | ----------------------------------------------- | ------------------------------------------------------- |
+| `time_contexts`       | Bounded temporal windows for the brief          | Reducer                                                 |
+| `open_loops`          | Unresolved follow-up items for the brief        | Reducer                                                 |
+| `memory_observations` | Raw factual statements from conversation turns  | Indexer dual-write, reducer, memory_save tool, backfill |
+| `memory_chunks`       | Deduplicated content units for embedding/recall | Derived from observations, content-hash deduped         |
+| `memory_episodes`     | Narrative summaries of interaction spans        | Compaction, reducer, backfill                           |
+
+### Reducer
+
+The memory reducer is a provider-backed (LLM) background process that analyzes unreduced conversation turns and produces structured CRUD operations for brief-state tables and archive candidates. It runs on a delay after conversation idle or switch, scheduled via the `reduce_conversation_memory` job. The reducer is side-effect-free; results are applied transactionally via `applyReducerResult`.
+
+### Brief
+
+The memory brief is compiled fresh on every turn from active `time_contexts` and `open_loops`. It is rendered as `<memory_brief>` XML and injected as a text block prepended to the user message. Empty sections are omitted.
+
+### Archive Recall
+
+Archive recall runs when the user's turn triggers a recall gate (past-reference language, analogy/debugging patterns, or strong prefetch hits). It queries episodes, observations, and chunks via keyword matching and returns up to 3 source-linked bullets in `<supporting_recall>`. No recall tag is emitted when results are empty.
+
+### Backfill
+
+Existing users have legacy data in `memory_segments`, `memory_summaries`, and `memory_items`. The `backfill_simplified_memory` job migrates this data into the simplified tables:
+
+- `memory_segments` -> `memory_observations` + `memory_chunks`
+- `memory_summaries` -> `memory_episodes`
+- Active, high-confidence `memory_items` -> `memory_observations` + `memory_chunks`, with unambiguous items also mapped to `time_contexts` or `open_loops`
+
+The backfill is idempotent (content-hash dedup + checkpoint tracking), processes in batches of 200, and self-enqueues continuation jobs for large datasets.
+
+### Rollback Posture
+
+The legacy memory system remains fully available as a short-lived rollback path:
+
+- **Legacy tables are preserved**: `memory_segments`, `memory_items`, `memory_summaries`, and `memory_item_sources` remain in the schema and continue to receive writes from the legacy indexer/extraction pipeline.
+- **Flag-gated**: Setting `memory.simplified.enabled: false` reverts to the legacy item/tier/staleness model for both read and write paths.
+- **Memory tools**: `memory_save` and `memory_recall` check the flag at call time and route to the appropriate path (simplified observations or legacy items).
+- **No data loss**: The backfill copies data without deleting legacy rows. Both systems can coexist.
+
+### Key Files
+
+| File                                                              | Role                                             |
+| ----------------------------------------------------------------- | ------------------------------------------------ |
+| `assistant/src/config/schemas/memory-simplified.ts`               | Config schema with `enabled: true` default       |
+| `assistant/src/memory/reducer.ts`                                 | Provider-backed reducer (LLM call + parse)       |
+| `assistant/src/memory/reducer-store.ts`                           | Transactional result application                 |
+| `assistant/src/memory/reducer-scheduler.ts`                       | Idle-delay and conversation-switch scheduling    |
+| `assistant/src/memory/archive-store.ts`                           | Observation/chunk/episode write helpers          |
+| `assistant/src/memory/archive-recall.ts`                          | Prefetch + deeper recall over archive tables     |
+| `assistant/src/memory/brief.ts`                                   | Brief composer (time contexts + open loops)      |
+| `assistant/src/memory/job-handlers/backfill-simplified-memory.ts` | Legacy data migration handler                    |
+| `assistant/src/tools/memory/handlers.ts`                          | Memory tool handlers (simplified/legacy routing) |
+| `assistant/src/__tests__/simplified-memory-e2e.test.ts`           | End-to-end test suite                            |
+
+---
+
+## Legacy Memory System — Daemon Data Flow
+
+> **Note**: The legacy system below is retained as rollback support. New installations use the simplified system by default.
+
 ## Memory System — Daemon Data Flow
 
 ```mermaid

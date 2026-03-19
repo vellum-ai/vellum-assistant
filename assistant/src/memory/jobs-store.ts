@@ -31,6 +31,7 @@ export type MemoryJobType =
   | "embed_attachment"
   | "generate_conversation_starters"
   | "reduce_conversation_memory"
+  | "backfill_simplified_memory"
   | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
