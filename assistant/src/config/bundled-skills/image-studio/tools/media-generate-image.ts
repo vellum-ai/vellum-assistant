@@ -10,6 +10,7 @@ import {
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
+import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -66,12 +67,27 @@ export async function run(
     const errors: string[] = [];
     const validPathImages: Array<{ mimeType: string; dataBase64: string }> = [];
     for (const filePath of sourcePaths) {
+      let resolvedPath: string;
       const pathCheck = sandboxPolicy(filePath, context.workingDir);
       if (!pathCheck.ok) {
-        errors.push(pathCheck.error);
-        continue;
+        // Fallback: if the source path is outside the sandbox (e.g. an image
+        // attached from ~/Desktop), check if the attachment store has a
+        // workspace-internal copy stored under its original source_path.
+        const storedPath = getFilePathBySourcePath(filePath);
+        if (!storedPath) {
+          errors.push(pathCheck.error);
+          continue;
+        }
+        const fallbackCheck = sandboxPolicy(storedPath, context.workingDir);
+        if (!fallbackCheck.ok) {
+          errors.push(pathCheck.error);
+          continue;
+        }
+        resolvedPath = fallbackCheck.resolved;
+      } else {
+        resolvedPath = pathCheck.resolved;
       }
-      const file = Bun.file(pathCheck.resolved);
+      const file = Bun.file(resolvedPath);
       if (!(await file.exists())) {
         errors.push(`File not found: ${filePath}`);
         continue;
