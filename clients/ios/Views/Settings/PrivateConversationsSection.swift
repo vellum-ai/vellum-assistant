@@ -126,7 +126,8 @@ struct PrivateConversationsSection: View {
     private func privateConversationChatView(for conversation: IOSConversation) -> some View {
         ConversationChatView(
             viewModel: store.viewModel(for: conversation.id),
-            conversationTitle: conversation.title
+            store: store,
+            conversation: conversation
         )
         .onAppear {
             store.loadHistoryIfNeeded(for: conversation.id)
