@@ -1262,7 +1262,7 @@ export class DaemonServer {
       const appId = surfaceId.slice(appOpenPrefix.length);
       for (const c of this.conversations.values()) {
         for (const [, state] of c.surfaceState.entries()) {
-          const data = state.data as Record<string, unknown>;
+          const data = state.data as unknown as Record<string, unknown>;
           if (data?.appId === appId) {
             // Register this surfaceId so subsequent lookups are O(1)
             c.surfaceState.set(surfaceId, state);
