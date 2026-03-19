@@ -473,6 +473,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupNotifications()
         setupAutoUpdate()
 
+        SoundManager.shared.start()
+        SoundManager.shared.play(.appOpen)
+
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
@@ -579,6 +582,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         pulseTimer?.invalidate()
         pulseTimer = nil
         voiceInput?.stop()
+        SoundManager.shared.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
