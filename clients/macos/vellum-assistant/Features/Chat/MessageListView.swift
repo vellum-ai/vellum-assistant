@@ -1897,12 +1897,12 @@ private struct AvatarGlowModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity), radius: 6 + glowIntensity * 16, x: 0, y: 0)
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity * 0.5), radius: 2 + glowIntensity * 6, x: 0, y: 0)
+            .shadow(color: VColor.primaryActive.opacity(glowIntensity), radius: 6 + glowIntensity * 10, x: 0, y: 0)
+            .shadow(color: VColor.primaryActive.opacity(glowIntensity * 0.5), radius: 2 + glowIntensity * 4, x: 0, y: 0)
             .onChange(of: isActive) {
                 if isActive {
-                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                        glowIntensity = 0.5
+                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                        glowIntensity = 0.25
                     }
                 } else {
                     withAnimation(.easeOut(duration: 0.4)) {
@@ -1913,8 +1913,8 @@ private struct AvatarGlowModifier: ViewModifier {
             .onAppear {
                 if isActive {
                     DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                            glowIntensity = 0.5
+                        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                            glowIntensity = 0.25
                         }
                     }
                 }

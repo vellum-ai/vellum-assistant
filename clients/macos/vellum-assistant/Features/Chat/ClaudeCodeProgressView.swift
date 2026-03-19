@@ -144,9 +144,9 @@ private struct PulsingModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .opacity(isPulsing ? 0.4 : 1.0)
+            .opacity(isPulsing ? 0.6 : 1.0)
             .animation(
-                Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
                 value: isPulsing
             )
             .onAppear { isPulsing = true }
