@@ -73,7 +73,7 @@ final class MessageInspectorPromptTabTests: XCTestCase {
         XCTAssertTrue(model.bannerText.contains("same order"))
     }
 
-    func testPromptTabModelUsesLanguageHintForJSONStringSections() {
+    func testPromptTabModelPreservesJSONStringSectionsVerbatim() {
         let entry = makeEntry(
             requestPayload: AnyCodable([:]),
             requestSections: [
@@ -88,9 +88,10 @@ final class MessageInspectorPromptTabTests: XCTestCase {
 
         let model = MessageInspectorPromptTabModel(entry: entry)
 
-        XCTAssertEqual(model.sections[0].presentationStyle, .structured)
+        XCTAssertEqual(model.sections[0].presentationStyle, .text)
         XCTAssertEqual(model.sections[0].syntaxLanguage, .json)
-        XCTAssertTrue(model.sections[0].displayText.contains("\"temperature\""))
+        XCTAssertEqual(model.sections[0].displayText, "{\"temperature\":0.4,\"top_p\":0.9}")
+        XCTAssertEqual(model.sections[0].copyText, "{\"temperature\":0.4,\"top_p\":0.9}")
         XCTAssertEqual(model.sections[0].formatLabel, "JSON")
     }
 

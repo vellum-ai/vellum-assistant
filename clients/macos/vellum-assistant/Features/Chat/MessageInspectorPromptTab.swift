@@ -194,15 +194,6 @@ struct MessageInspectorPromptSectionModel: Identifiable, Equatable {
         }
 
         if let string = value as? String {
-            if preferredLanguage == .json, let parsedJSON = parseJSONString(string) {
-                return (
-                    prettyPrintedJSONString(for: parsedJSON) ?? string,
-                    .json,
-                    true,
-                    "JSON"
-                )
-            }
-
             return (
                 string,
                 preferredLanguage ?? .plain,
@@ -243,14 +234,6 @@ struct MessageInspectorPromptSectionModel: Identifiable, Equatable {
         }
 
         return String(data: data, encoding: .utf8)
-    }
-
-    private static func parseJSONString(_ string: String) -> Any? {
-        guard let data = string.data(using: .utf8) else {
-            return nil
-        }
-
-        return try? JSONSerialization.jsonObject(with: data)
     }
 
     private static func syntaxLanguage(for language: String?) -> SyntaxLanguage? {
