@@ -158,7 +158,45 @@ struct AssistantProgressView: View {
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
     @State private var hideInlineChips: Bool = false
-    @State private var derived = DerivedProgressState()
+    @State private var derived: DerivedProgressState
+
+    // MARK: - Init
+
+    init(
+        toolCalls: [ToolCallData],
+        isStreaming: Bool,
+        hasText: Bool,
+        isProcessing: Bool,
+        processingStatusText: String? = nil,
+        streamingCodePreview: String? = nil,
+        streamingCodeToolName: String? = nil,
+        decidedConfirmations: [ToolConfirmationData],
+        onRehydrate: (() -> Void)? = nil,
+        onConfirmationAllow: ((String) -> Void)? = nil,
+        onConfirmationDeny: ((String) -> Void)? = nil,
+        onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
+        onTemporaryAllow: ((String, String) -> Void)? = nil,
+        activeConfirmationRequestId: String? = nil
+    ) {
+        self.toolCalls = toolCalls
+        self.isStreaming = isStreaming
+        self.hasText = hasText
+        self.isProcessing = isProcessing
+        self.processingStatusText = processingStatusText
+        self.streamingCodePreview = streamingCodePreview
+        self.streamingCodeToolName = streamingCodeToolName
+        self.decidedConfirmations = decidedConfirmations
+        self.onRehydrate = onRehydrate
+        self.onConfirmationAllow = onConfirmationAllow
+        self.onConfirmationDeny = onConfirmationDeny
+        self.onAlwaysAllow = onAlwaysAllow
+        self.onTemporaryAllow = onTemporaryAllow
+        self.activeConfirmationRequestId = activeConfirmationRequestId
+        _derived = State(initialValue: DerivedProgressState.compute(
+            toolCalls: toolCalls,
+            decidedConfirmations: decidedConfirmations
+        ))
+    }
 
     // MARK: - Derived State (reads from cached DerivedProgressState)
 
@@ -358,9 +396,6 @@ struct AssistantProgressView: View {
             }
         }
         .onAppear {
-            // Compute initial derived state
-            derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: decidedConfirmations)
-
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
             }
