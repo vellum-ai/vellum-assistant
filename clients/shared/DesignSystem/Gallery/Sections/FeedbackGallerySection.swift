@@ -214,6 +214,48 @@ struct FeedbackGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VCopyButton
+            GallerySectionHeader(
+                title: "VCopyButton",
+                description: "Copy-to-clipboard button with checkmark feedback. Supports icon-only and labeled styles."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Icon-only
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Default (11pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Hello, world!")
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Small (9pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Small icon", iconSize: 9)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Large (16pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Large icon", iconSize: 16)
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Labeled
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Labeled").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Copyable text", style: .labeled)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Custom hint").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "api_key_123", style: .labeled, accessibilityHint: "Copy API key")
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VToast with Copyable Detail
             GallerySectionHeader(
                 title: "VToast with Copyable Detail",

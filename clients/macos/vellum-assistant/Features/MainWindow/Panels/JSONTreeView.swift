@@ -414,8 +414,6 @@ private struct NodeCopyWrapper<Content: View>: View {
     let node: JSONNode
     let content: Content
     @State private var isHovered = false
-    @State private var copied = false
-    @State private var resetTimer: DispatchWorkItem?
 
     init(node: JSONNode, @ViewBuilder content: () -> Content) {
         self.node = node
@@ -428,19 +426,9 @@ private struct NodeCopyWrapper<Content: View>: View {
 
             Spacer(minLength: 0)
 
-            if isHovered || copied {
-                VIconView(copied ? .check : .copy, size: 9)
-                    .foregroundColor(
-                        copied ? VColor.systemPositiveStrong : VColor.contentTertiary
-                    )
-                    .animation(VAnimation.fast, value: copied)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        copyValue()
-                    }
-                    .pointerCursor()
+            if isHovered {
+                VCopyButton(text: node.serializedValue, iconSize: 9, accessibilityHint: "Copy value")
                     .transition(.opacity)
-                    .accessibilityLabel(copied ? "Copied" : "Copy value")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -453,18 +441,11 @@ private struct NodeCopyWrapper<Content: View>: View {
         }
         .contextMenu {
             Button("Copy Value") {
-                copyValue()
+                #if os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.serializedValue, forType: .string)
+                #endif
             }
         }
-    }
-
-    private func copyValue() {
-        resetTimer?.cancel()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(node.serializedValue, forType: .string)
-        copied = true
-        let timer = DispatchWorkItem { copied = false }
-        resetTimer = timer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
     }
 }

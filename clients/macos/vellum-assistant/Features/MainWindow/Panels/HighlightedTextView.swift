@@ -1,11 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
+#if os(macOS)
+import AppKit
+#endif
+
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Read-only mode wraps a non-editable `NSTextView` via `ReadOnlyCodeView`
-/// (`NSViewRepresentable`), giving native macOS text selection (click-drag,
-/// Cmd+A, Shift+arrows) and copy (Cmd+C, right-click menu) for free.
+/// Read-only mode delegates to `VCodeView` from the design system, which wraps
+/// a non-editable `NSTextView` for native macOS text selection and copy.
 /// Editable mode uses `CodeTextView` (also `NSViewRepresentable`) for precise
 /// textContainerInset control so the line-number gutter stays aligned.
 struct HighlightedTextView: View {
@@ -132,64 +135,18 @@ struct HighlightedTextView: View {
 
     // MARK: - Read-Only Mode
 
-    /// Read-only view with line numbers and a native `NSTextView` for text
-    /// content. The `NSTextView` provides full-document text selection,
-    /// Cmd+C copy, and right-click context menu for free.
+    /// Read-only view using `VCodeView` from the design system. Passes
+    /// `SyntaxTheme.highlightNS` as the pluggable syntax highlighter.
     private var readOnlyView: some View {
-        let lineCount = cachedLineCount
-        let gutterWidth = gutterWidth(for: lineCount)
-
-        return VStack(spacing: 0) {
-            if isSearchVisible {
-                SourceSearchBar(
-                    searchQuery: $searchQuery,
-                    currentMatchIndex: $currentMatchIndex,
-                    matchCount: searchMatchCount,
-                    onDismiss: dismissSearch
-                )
-            }
-
-            GeometryReader { geometry in
-                ScrollView([.vertical]) {
-                    HStack(alignment: .top, spacing: 0) {
-                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
-
-                        ReadOnlyCodeView(
-                            text: text,
-                            language: language,
-                            highlightVersion: highlightVersion,
-                            searchQuery: searchQuery,
-                            currentMatchIndex: currentMatchIndex,
-                            matchRanges: isSearchVisible ? findMatchRanges() : []
-                        )
-                        .frame(minWidth: geometry.size.width - gutterWidth)
-                    }
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .background(Self.editorBackground)
-            }
-        }
-        .onKeyPress("f", phases: .down) { press in
-            guard press.modifiers == .command else { return .ignored }
-            isSearchVisible = true
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            guard isSearchVisible else { return .ignored }
-            dismissSearch()
-            return .handled
-        }
+        VCodeView(
+            text: text,
+            highlighter: { text, paragraphStyle in
+                SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
+            },
+            highlightVersion: highlightVersion
+        )
         .onChange(of: text) { _, _ in
             highlightVersion &+= 1
-            cachedLineCount = Self.countLines(in: text)
-            let count = searchMatchCount
-            if count == 0 {
-                currentMatchIndex = 0
-            } else if currentMatchIndex >= count {
-                currentMatchIndex = max(0, count - 1)
-            }
-        }
-        .onAppear {
             cachedLineCount = Self.countLines(in: text)
         }
     }
@@ -256,226 +213,6 @@ struct HighlightedTextView: View {
         var count = 1
         for byte in text.utf8 where byte == 0x0A { count += 1 }
         return count
-    }
-}
-
-// MARK: - Read-Only Code View (NSViewRepresentable)
-
-/// Wraps a non-editable `NSTextView` for the read-only source view.
-///
-/// Uses TextKit 1 (`NSLayoutManager`) so the line height matches the adjacent
-/// gutter. Syntax highlighting runs on a background thread via `Task.detached`
-/// and the `NSAttributedString` is applied to the text storage once ready.
-/// The `NSTextView` gives native macOS text selection (click-drag across lines,
-/// Cmd+A, Shift+arrows) and copy (Cmd+C, right-click menu) for free.
-private struct ReadOnlyCodeView: NSViewRepresentable {
-    let text: String
-    let language: SyntaxLanguage
-    let highlightVersion: UInt64
-    let searchQuery: String
-    let currentMatchIndex: Int
-    let matchRanges: [Range<String.Index>]
-
-    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
-        let textStorage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        textStorage.addLayoutManager(layoutManager)
-        let textContainer = NSTextContainer(size: NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        ))
-        textContainer.widthTracksTextView = false
-        textContainer.heightTracksTextView = false
-        textContainer.lineFragmentPadding = VSpacing.md
-        layoutManager.addTextContainer(textContainer)
-
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = true
-        textView.usesFontPanel = false
-        textView.isHorizontallyResizable = true
-        textView.isVerticallyResizable = true
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.autoresizingMask = [.width]
-
-        textView.font = SyntaxTheme.nsFont
-        textView.textColor = NSColor(VColor.contentDefault)
-        textView.backgroundColor = .clear
-        textView.drawsBackground = false
-
-        // Match gutter's .padding(.top, VSpacing.sm)
-        textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
-
-        // Fixed line height so emoji/tall glyphs don't expand individual lines
-        let fixedLineHeight = layoutManager.defaultLineHeight(for: SyntaxTheme.nsFont)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.minimumLineHeight = fixedLineHeight
-        paragraphStyle.maximumLineHeight = fixedLineHeight
-        textView.defaultParagraphStyle = paragraphStyle
-
-        context.coordinator.paragraphStyle = paragraphStyle
-        context.coordinator.applyText(text, language: language, to: textView)
-
-        let scrollView = HorizontalOnlyScrollView()
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-
-        let needsUpdate = context.coordinator.lastText != text
-            || context.coordinator.lastLanguage != language
-            || context.coordinator.lastVersion != highlightVersion
-
-        if needsUpdate {
-            context.coordinator.applyText(text, language: language, to: textView)
-            context.coordinator.lastVersion = highlightVersion
-        }
-
-        // Apply or clear search match highlighting
-        let searchChanged = context.coordinator.lastSearchQuery != searchQuery
-            || context.coordinator.lastMatchIndex != currentMatchIndex
-            || context.coordinator.lastMatchCount != matchRanges.count
-
-        if needsUpdate || searchChanged {
-            context.coordinator.applySearchHighlights(
-                matchRanges: matchRanges,
-                currentIndex: currentMatchIndex,
-                in: textView
-            )
-            context.coordinator.lastSearchQuery = searchQuery
-            context.coordinator.lastMatchIndex = currentMatchIndex
-            context.coordinator.lastMatchCount = matchRanges.count
-        }
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: HorizontalOnlyScrollView,
-        context: Context
-    ) -> CGSize? {
-        guard let textView = nsView.documentView as? NSTextView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return nil }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let height = usedRect.height + textView.textContainerInset.height * 2
-        return CGSize(width: proposal.width ?? 400, height: height)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        var lastText: String = ""
-        var lastLanguage: SyntaxLanguage = .plain
-        var lastVersion: UInt64 = 0
-        var lastSearchQuery: String = ""
-        var lastMatchIndex: Int = -1
-        var lastMatchCount: Int = 0
-        var paragraphStyle: NSParagraphStyle?
-        private var highlightTask: Task<Void, Never>?
-
-        /// Stored search state so we can re-apply highlights after async
-        /// syntax highlighting replaces the attributed string.
-        private var currentMatchRanges: [Range<String.Index>] = []
-        private var currentMatchIndex: Int = 0
-        private weak var currentTextView: NSTextView?
-
-        func applyText(_ text: String, language: SyntaxLanguage, to textView: NSTextView) {
-            lastText = text
-            lastLanguage = language
-
-            // Apply plain text immediately so the view is never empty
-            guard let textStorage = textView.textStorage else { return }
-            var baseAttrs: [NSAttributedString.Key: Any] = [
-                .font: SyntaxTheme.nsFont,
-                .foregroundColor: NSColor(VColor.contentDefault),
-            ]
-            if let ps = paragraphStyle {
-                baseAttrs[.paragraphStyle] = ps
-            }
-            let plain = NSAttributedString(string: text, attributes: baseAttrs)
-            textStorage.setAttributedString(plain)
-
-            // Run syntax highlighting on a background thread
-            highlightTask?.cancel()
-            let capturedText = text
-            let capturedLang = language
-            let capturedPS = paragraphStyle
-            highlightTask = Task.detached(priority: .userInitiated) {
-                let highlighted = SyntaxTheme.highlightNS(
-                    capturedText,
-                    language: capturedLang,
-                    paragraphStyle: capturedPS
-                )
-                await MainActor.run { [weak self] in
-                    guard !Task.isCancelled else { return }
-                    guard let storage = textView.textStorage else { return }
-                    // Only apply if the text hasn't changed since we started
-                    guard (storage.string as String) == capturedText else { return }
-                    storage.beginEditing()
-                    storage.setAttributedString(highlighted)
-                    storage.endEditing()
-
-                    // Re-apply search highlights that were wiped by setAttributedString
-                    if let self, !self.currentMatchRanges.isEmpty {
-                        self.applySearchHighlights(
-                            matchRanges: self.currentMatchRanges,
-                            currentIndex: self.currentMatchIndex,
-                            in: textView
-                        )
-                    }
-                }
-            }
-        }
-
-        /// Applies background color attributes for search match highlighting.
-        /// All matches get a subtle background; the current match gets a stronger one.
-        func applySearchHighlights(
-            matchRanges: [Range<String.Index>],
-            currentIndex: Int,
-            in textView: NSTextView
-        ) {
-            // Store for re-application after async highlighting completes
-            currentMatchRanges = matchRanges
-            currentMatchIndex = currentIndex
-            currentTextView = textView
-
-            guard let storage = textView.textStorage else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
-
-            // Clear any existing search highlights
-            storage.beginEditing()
-            storage.removeAttribute(.backgroundColor, range: fullRange)
-
-            // Apply match highlights
-            let matchColor = NSColor(VColor.systemMidWeak)
-            let currentMatchColor = NSColor(VColor.primaryBase).withAlphaComponent(0.3)
-
-            for (index, range) in matchRanges.enumerated() {
-                let nsRange = NSRange(range, in: storage.string)
-                let color = index == currentIndex ? currentMatchColor : matchColor
-                storage.addAttribute(.backgroundColor, value: color, range: nsRange)
-            }
-            storage.endEditing()
-
-            // Scroll the current match into view
-            if !matchRanges.isEmpty, currentIndex < matchRanges.count {
-                let currentRange = NSRange(matchRanges[currentIndex], in: storage.string)
-                textView.scrollRangeToVisible(currentRange)
-            }
-        }
     }
 }
 
