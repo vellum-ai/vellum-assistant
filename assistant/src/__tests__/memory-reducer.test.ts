@@ -529,7 +529,13 @@ describe("runReducer — error handling", () => {
 
     const result = await runReducer(makeInput());
 
-    expect(result).toBe(EMPTY_REDUCER_RESULT);
+    expect(result).toEqual({
+      timeContexts: [],
+      openLoops: [],
+      archiveObservations: [],
+      archiveEpisodes: [],
+    });
+    expect(result).not.toBe(EMPTY_REDUCER_RESULT);
   });
 });
 
