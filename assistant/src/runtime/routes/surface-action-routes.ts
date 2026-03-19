@@ -28,7 +28,6 @@ interface SurfaceActionTarget {
   setTrustContext?(ctx: {
     trustClass: "guardian" | "trusted_contact" | "unknown";
     sourceChannel: string;
-    [key: string]: unknown;
   }): void;
   trustContext?: { trustClass: string } | null;
 }
