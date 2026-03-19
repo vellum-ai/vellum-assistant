@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mutable mock state
@@ -113,8 +113,24 @@ function setupDefaults(): void {
 // ---------------------------------------------------------------------------
 
 describe("resolveOAuthConnection", () => {
+  let originalFetch: typeof globalThis.fetch;
+
   beforeEach(() => {
     setupDefaults();
+    originalFetch = globalThis.fetch;
+    // Default mock: return a single active connection from the platform
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [{ id: "platform-conn-1", account_label: null }],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("returns BYOOAuthConnection when provider has no managedServiceConfigKey", async () => {

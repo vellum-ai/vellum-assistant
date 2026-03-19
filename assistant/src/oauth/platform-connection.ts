@@ -27,6 +27,8 @@ export interface PlatformOAuthConnectionOptions {
   assistantId: string;
   platformBaseUrl: string;
   apiKey: string;
+  /** Platform-side connection ID used in the proxy URL path. */
+  connectionId: string;
 }
 
 export class PlatformOAuthConnection implements OAuthConnection {
@@ -38,12 +40,14 @@ export class PlatformOAuthConnection implements OAuthConnection {
   private readonly assistantId: string;
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
+  private readonly connectionId: string;
 
   constructor(options: PlatformOAuthConnectionOptions) {
     const missing: string[] = [];
     if (!options.platformBaseUrl) missing.push("platform base URL");
     if (!options.apiKey) missing.push("assistant API key");
     if (!options.assistantId) missing.push("assistant ID");
+    if (!options.connectionId) missing.push("connection ID");
     if (missing.length > 0) {
       throw new BackendError(
         `Platform-managed connection for "${options.providerKey}" cannot be created: missing ${missing.join(", ")}. ` +
@@ -58,11 +62,11 @@ export class PlatformOAuthConnection implements OAuthConnection {
     this.assistantId = options.assistantId;
     this.platformBaseUrl = options.platformBaseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
+    this.connectionId = options.connectionId;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
-    const providerSlug = this.providerKey.replace(/^integration:/, "");
-    const proxyUrl = `${this.platformBaseUrl}/v1/assistants/${this.assistantId}/external-provider-proxy/${providerSlug}/`;
+    const proxyUrl = `${this.platformBaseUrl}/v1/assistants/${this.assistantId}/external-provider-proxy/${this.connectionId}/`;
 
     const body: Record<string, unknown> = {
       request: {

@@ -15,6 +15,7 @@ const DEFAULT_OPTIONS = {
   assistantId: "asst-abc",
   platformBaseUrl: "https://platform.example.com",
   apiKey: "test-api-key",
+  connectionId: "platform-conn-123",
 };
 
 describe("PlatformOAuthConnection", () => {
@@ -34,7 +35,7 @@ describe("PlatformOAuthConnection", () => {
     globalThis.fetch = mock(
       async (url: string | URL | Request, init?: RequestInit) => {
         expect(url).toBe(
-          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
+          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/platform-conn-123/",
         );
         expect(init?.method).toBe("POST");
         expect(init?.headers).toEqual({
@@ -158,7 +159,7 @@ describe("PlatformOAuthConnection", () => {
   test("strips trailing slash from platformBaseUrl to avoid double slashes", async () => {
     globalThis.fetch = mock(async (url: string | URL | Request) => {
       expect(String(url)).toBe(
-        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
+        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/platform-conn-123/",
       );
       return new Response(
         JSON.stringify({ status: 200, headers: {}, body: null }),
@@ -173,9 +174,9 @@ describe("PlatformOAuthConnection", () => {
     await conn.request({ method: "GET", path: "/test" });
   });
 
-  test("strips integration: prefix from providerKey for slug", async () => {
+  test("uses connectionId in proxy URL regardless of providerKey format", async () => {
     globalThis.fetch = mock(async (url: string | URL | Request) => {
-      expect(String(url)).toContain("/external-provider-proxy/slack/");
+      expect(String(url)).toContain("/external-provider-proxy/slack-conn-456/");
       return new Response(
         JSON.stringify({ status: 200, headers: {}, body: null }),
         { status: 200 },
@@ -185,6 +186,7 @@ describe("PlatformOAuthConnection", () => {
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
       providerKey: "integration:slack",
+      connectionId: "slack-conn-456",
     });
     await conn.request({ method: "GET", path: "/test" });
   });
