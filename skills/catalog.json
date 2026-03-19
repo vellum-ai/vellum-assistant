@@ -596,7 +596,15 @@
       "metadata": {
         "emoji": "🪞",
         "vellum": {
-          "display-name": "Vellum Self-Knowledge"
+          "display-name": "Vellum Self-Knowledge",
+          "activation-hints": [
+            "When the user asks what model the assistant is running on",
+            "When the user asks about Vellum, how the assistant works, or its architecture",
+            "When the user asks about the assistant's current configuration or settings"
+          ],
+          "avoid-when": [
+            "When the user wants to change configuration (use in-chat config instead)"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
