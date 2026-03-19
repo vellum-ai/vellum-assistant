@@ -243,15 +243,7 @@ struct MessageInspectorResponseTabModel: Equatable {
             return responseToolCallCount > 0 ? "Tool-calling response" : "Text-only response"
         }
 
-        if let stopReason = summary?.stopReason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            if ["tool_calls", "tool_use", "function_call", "function_response"].contains(stopReason) {
-                return "Tool-calling response"
-            }
-
-            return "Text-only response"
-        }
-
-        if sections.contains(where: { $0.isToolCallLike }) {
+        if sections.contains(where: { $0.isToolCallSection }) {
             return "Tool-calling response"
         }
 
@@ -282,7 +274,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
     let toolName: String?
     let copyText: String
     let presentationKind: PresentationKind
-    let isToolCallLike: Bool
+    let isToolCallSection: Bool
 
     var showsRawPayloadHint: Bool {
         presentationKind == .toolCall
@@ -299,7 +291,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         switch section.kind {
         case .tool, .toolUse, .functionCall:
             presentationKind = .toolCall
-            isToolCallLike = true
+            isToolCallSection = true
             kindLabel = "Tool call"
             let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
@@ -307,21 +299,21 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             copyText = copySource
         case .toolResult, .functionResponse:
             presentationKind = .other
-            isToolCallLike = true
+            isToolCallSection = false
             kindLabel = section.kind == .functionResponse ? "Function response" : "Tool result"
             let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
             copyText = preview ?? title
         case .assistant, .message, .text, .output, .completion, .reasoning, .markdown, .code, .json:
             presentationKind = .assistantText
-            isToolCallLike = false
+            isToolCallSection = false
             kindLabel = "Assistant text"
             bodyText = section.text ?? Self.previewText(for: section.data)
             copyText = bodyText ?? title
         default:
             let preview = section.text ?? Self.previewText(for: section.data)
             presentationKind = preview == nil ? .other : .assistantText
-            isToolCallLike = false
+            isToolCallSection = false
             kindLabel = section.kind.rawValue
             bodyText = preview
             copyText = bodyText ?? title

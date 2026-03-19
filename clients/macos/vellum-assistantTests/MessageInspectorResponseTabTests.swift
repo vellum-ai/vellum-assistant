@@ -132,6 +132,84 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections.count, 1)
     }
 
+    func testResponseTabModelDoesNotTreatResultOnlySectionsAsToolCalling() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "stop_reason": "function_response"
+                ]),
+                summary: LLMCallSummary(
+                    stopReason: "function_response"
+                ),
+                responseSections: [
+                    LLMContextSection(
+                        kind: .toolResult,
+                        label: "Tool result 1",
+                        role: "assistant",
+                        text: "result preview",
+                        toolName: "search_web",
+                        data: AnyCodable([
+                            "results": [
+                                "docs"
+                            ]
+                        ])
+                    ),
+                    LLMContextSection(
+                        kind: .functionResponse,
+                        label: "Function response 1",
+                        role: "assistant",
+                        text: "function response preview",
+                        toolName: "search_web",
+                        data: AnyCodable([
+                            "status": "ok"
+                        ])
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertEqual(model.responseStopReason, "function_response")
+        XCTAssertEqual(model.responseModeLabel, "Text-only response")
+        XCTAssertEqual(model.sections.count, 2)
+        XCTAssertEqual(model.sections[0].presentationKind, .other)
+        XCTAssertEqual(model.sections[1].presentationKind, .other)
+    }
+
+    func testResponseTabModelUsesExplicitSummaryToolCallCountForToolCalling() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "stop_reason": "function_response"
+                ]),
+                summary: LLMCallSummary(
+                    stopReason: "function_response",
+                    responseToolCallCount: 1
+                ),
+                responseSections: [
+                    LLMContextSection(
+                        kind: .toolResult,
+                        label: "Tool result 1",
+                        role: "assistant",
+                        text: "result preview",
+                        toolName: "search_web",
+                        data: AnyCodable([
+                            "results": [
+                                "docs"
+                            ]
+                        ])
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertEqual(model.responseStopReason, "function_response")
+        XCTAssertEqual(model.responseModeLabel, "Tool-calling response")
+        XCTAssertEqual(model.sections.count, 1)
+        XCTAssertEqual(model.sections[0].presentationKind, .other)
+    }
+
     func testResponseTabModelFallsBackWithoutNormalizedSections() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
