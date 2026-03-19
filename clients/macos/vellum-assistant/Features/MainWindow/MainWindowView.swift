@@ -63,6 +63,8 @@ struct MainWindowView: View {
     /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
+    /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
+    @State private var isInFullscreen: Bool = false
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -93,10 +95,10 @@ struct MainWindowView: View {
     // MARK: - Layout Constants
 
     /// Leading padding to account for macOS traffic light buttons (red/yellow/green).
-    /// Note: This is a fixed value that may not be accurate for all window styles or
-    /// if Apple changes the traffic light spacing. Dynamic measurement would be better
-    /// but requires complex window geometry inspection.
-    let trafficLightPadding: CGFloat = 78
+    /// In native fullscreen the traffic lights are hidden, so we use standard padding.
+    var trafficLightPadding: CGFloat {
+        isInFullscreen ? VSpacing.lg : 78
+    }
 
     func toggleVoiceMode() {
         if voiceModeManager.state != .off {
@@ -503,6 +505,7 @@ struct MainWindowView: View {
             }
         }
         .padding(.leading, trafficLightPadding)
+        .animation(VAnimation.standard, value: isInFullscreen)
         .padding(.trailing, VSpacing.lg)
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
@@ -628,6 +631,12 @@ struct MainWindowView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 conversationManager.markActiveConversationSeenIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+                isInFullscreen = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+                isInFullscreen = false
             }
     }
 
