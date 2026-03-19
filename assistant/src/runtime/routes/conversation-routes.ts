@@ -1217,18 +1217,25 @@ async function generateLlmSuggestion(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     undefined, // no system prompt
-    { config: { max_tokens: 30 } },
+    { config: { max_tokens: 40, modelIntent: "latency-optimized" } },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
+  const stripped = raw.replace(/^["']+|["']+$/g, "");
 
-  if (!raw) return null;
+  if (!stripped) return null;
 
   // Take first line only, then enforce the length cap
-  const firstLine = raw.split("\n")[0].trim();
-  if (!firstLine || firstLine.length > 50) return null;
-  return firstLine;
+  const firstLine = stripped.split("\n")[0].trim();
+  if (!firstLine) return null;
+  if (firstLine.length <= 50) return firstLine;
+  // Truncate at last word boundary within 50 chars
+  const wordTruncated = firstLine
+    .slice(0, 50)
+    .replace(/\s+\S*$/, "")
+    .trim();
+  return wordTruncated.length >= 15 ? wordTruncated : null; // too short after truncation = bad suggestion
 }
 
 export async function handleGetSuggestion(
