@@ -191,7 +191,7 @@ extension AppDelegate {
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
-                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale platform identity state")
+                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed credential state")
                     daemonClient.disconnect()
                     assistantCli.stop(name: connectedAssistantId)
                 }
