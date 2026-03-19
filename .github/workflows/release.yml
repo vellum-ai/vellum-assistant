@@ -803,7 +803,7 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: [extract-version, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1699,14 +1699,13 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
-  # NOTE: ci-assistant is not ready for prime time yet, so we don't block the
-  # release on its result. It still runs so we get visibility in the Slack
-  # notification, but downstream jobs no longer depend on it.
+  # ci-assistant runs for visibility in the Slack notification but does not
+  # block the release. It is deliberately excluded from publish-npm's needs
+  # so that a failure here never gates downstream jobs.
   ci-assistant:
     needs: extract-version
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -1795,7 +1794,6 @@ jobs:
     needs: extract-version
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
