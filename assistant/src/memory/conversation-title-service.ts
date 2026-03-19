@@ -338,6 +338,36 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
   return null;
 }
 
+/**
+ * Extract human-readable text from a message content string.
+ * Messages are stored as JSON-stringified content block arrays
+ * (e.g. `[{"type":"text","text":"hello"}]`). This extracts and
+ * concatenates all text blocks, falling back to the raw string
+ * when the content is not a JSON content-block array.
+ */
+function extractTextFromContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const texts: string[] = [];
+      for (const block of parsed) {
+        if (
+          block &&
+          typeof block === "object" &&
+          block.type === "text" &&
+          typeof block.text === "string"
+        ) {
+          texts.push(block.text);
+        }
+      }
+      if (texts.length > 0) return texts.join("\n");
+    }
+  } catch {
+    // Not JSON — use raw string
+  }
+  return raw;
+}
+
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = [
     "Generate a very short title summarizing the TOPIC of this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting. IMPORTANT: Summarize what the user is asking about — do NOT respond to the messages, do NOT assess feasibility, and do NOT comment on your own capabilities.",
@@ -347,7 +377,9 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
 
   for (const msg of recentMessages) {
     const role = msg.role === "user" ? "User" : "Assistant";
-    parts.push(`${role}: ${truncate(msg.content, 200, "")}`);
+    parts.push(
+      `${role}: ${truncate(extractTextFromContent(msg.content), 200, "")}`,
+    );
   }
 
   return parts.join("\n");

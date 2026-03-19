@@ -105,6 +105,47 @@ describe("conversation-title-service", () => {
     );
   });
 
+  test("regeneration extracts text from JSON content blocks", async () => {
+    mockGetMessages.mockReturnValueOnce([
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "Help me plan the kickoff" },
+        ]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Sure, here's a plan" },
+          { type: "tool_use", id: "toolu_1", name: "web_search", input: {} },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Looks good" }]),
+      },
+    ]);
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    await regenerateConversationTitle({ conversationId: "conv-1", provider });
+
+    // The prompt sent to the sidechain should contain plain text, not raw JSON
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
+      ?.content as string;
+    expect(prompt).not.toContain('"type":"text"');
+    expect(prompt).not.toContain('"type":"tool_use"');
+    expect(prompt).toContain("Help me plan the kickoff");
+    expect(prompt).toContain("Sure, here's a plan");
+    expect(prompt).toContain("Looks good");
+  });
+
   test("uses the BTW side-chain helper for title regeneration", async () => {
     const provider = {
       name: "test-provider",
