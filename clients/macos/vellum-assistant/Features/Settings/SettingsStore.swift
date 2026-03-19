@@ -83,8 +83,8 @@ public final class SettingsStore: ObservableObject {
             ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
         ],
         "openai": [
-            ("gpt-5.2", "GPT-5.2"),
             ("gpt-5.4", "GPT-5.4"),
+            ("gpt-5.2", "GPT-5.2"),
             ("gpt-5.4-nano", "GPT-5.4 Nano"),
         ],
         "gemini": [
@@ -106,7 +106,7 @@ public final class SettingsStore: ObservableObject {
     /// Default model per provider (first entry from the catalog).
     static let inferenceProviderDefaultModel: [String: String] = [
         "anthropic": "claude-opus-4-6",
-        "openai": "gpt-5.2",
+        "openai": "gpt-5.4",
         "gemini": "gemini-3-flash",
         "ollama": "llama3.2",
         "fireworks": "accounts/fireworks/models/kimi-k2p5",
