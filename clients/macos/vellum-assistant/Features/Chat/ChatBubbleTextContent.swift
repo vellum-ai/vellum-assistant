@@ -19,6 +19,7 @@ extension ChatBubble {
             // LazyVStack to use stale height measurements, resulting in
             // content truncation and footer overlap.
             MarkdownSegmentView(segments: segments)
+                .equatable()
         }
         .task(id: "\(segmentText)|\(streaming)") {
             // Only run async parsing for large, non-streaming text with a cache miss

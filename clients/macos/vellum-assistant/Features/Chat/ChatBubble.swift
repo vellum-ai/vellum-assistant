@@ -420,6 +420,7 @@ struct ChatBubble: View {
                         codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
                         hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
                     )
+                    .equatable()
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
                         .font(VFont.caption)
