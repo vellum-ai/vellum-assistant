@@ -78,7 +78,7 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
-import { resolveSlash } from "./conversation-slash.js";
+import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -1071,11 +1071,22 @@ export class DaemonServer {
         sourceInterface,
       );
 
-    const slashResult = await resolveSlash(content);
+    const config = getConfig();
+    const serverInterfaceCtx = conversation.getTurnInterfaceContext();
+    const slashContext: SlashContext = {
+      messageCount: conversation.getMessages().length,
+      inputTokens: conversation.usageStats.inputTokens,
+      outputTokens: conversation.usageStats.outputTokens,
+      maxInputTokens: config.contextWindow.maxInputTokens,
+      model: config.services.inference.model,
+      provider: config.services.inference.provider,
+      estimatedCost: conversation.usageStats.estimatedCost,
+      userMessageInterface: serverInterfaceCtx?.userMessageInterface,
+    };
+    const slashResult = await resolveSlash(content, slashContext);
 
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = conversation.getTurnChannelContext();
-      const serverInterfaceCtx = conversation.getTurnInterfaceContext();
       const serverProvenance = provenanceFromTrustContext(
         conversation.trustContext,
       );

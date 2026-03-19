@@ -182,6 +182,7 @@ function buildSlashContext(
   conversation: ProcessConversationContext,
 ): SlashContext {
   const config = getConfig();
+  const turnInterface = conversation.getTurnInterfaceContext();
   return {
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
@@ -190,6 +191,7 @@ function buildSlashContext(
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
+    userMessageInterface: turnInterface?.userMessageInterface,
   };
 }
 
