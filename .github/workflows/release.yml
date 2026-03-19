@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - 'release/v*'
+      - 'codex/release-debug-*'
+  workflow_dispatch:
 
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') && 'release' || format('release-debug-{0}', github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
@@ -15,13 +17,29 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.extract.outputs.version }}
+      debug_run: ${{ steps.extract.outputs.debug_run }}
     steps:
-      - name: Extract version from branch name
+      - name: Extract version for release or debug run
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          VERSION="${BRANCH#release/v}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${BRANCH}" == release/v* ]]; then
+            VERSION="${BRANCH#release/v}"
+            DEBUG_RUN=false
+          else
+            SAFE_BRANCH=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | tr -cd '[:alnum:]-')
+            SAFE_BRANCH="${SAFE_BRANCH:0:40}"
+            SAFE_BRANCH="${SAFE_BRANCH#-}"
+            SAFE_BRANCH="${SAFE_BRANCH%-}"
+            if [[ -z "$SAFE_BRANCH" ]]; then
+              SAFE_BRANCH="manual"
+            fi
+            VERSION="debug-${SAFE_BRANCH}-${SHORT_SHA}"
+            DEBUG_RUN=true
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "debug_run=$DEBUG_RUN" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
     needs: [ci-assistant]
@@ -51,12 +69,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -67,7 +79,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
@@ -79,7 +90,7 @@ jobs:
           context: .
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -163,16 +174,23 @@ jobs:
           DOCKERHUB_IMAGE="vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
-          GCP_TAGS="${GCP_IMAGE}:${SHA}"
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$DEBUG_RUN" = "true" ]; then
+            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
+          else
+            GCP_TAGS="${GCP_IMAGE}:${SHA}"
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
+            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          fi
+
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -194,12 +212,14 @@ jobs:
       - name: Create Docker Hub manifest list and push
         working-directory: /tmp/digests
         run: |
+          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          # Copy the already-published per-platform manifests from GCP into Docker Hub.
+          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -207,7 +227,13 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
+          if [ "$DEBUG_RUN" = "true" ]; then
+            TAG="$VERSION"
+          else
+            TAG="v${VERSION}"
+          fi
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
@@ -233,8 +259,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
+            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
   push-gateway-image:
     needs: [ci-gateway]
@@ -264,12 +295,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -280,7 +305,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
@@ -291,7 +315,7 @@ jobs:
         with:
           context: gateway
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -342,12 +366,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -358,7 +376,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -367,7 +384,7 @@ jobs:
           context: .
           file: credential-executor/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -451,16 +468,23 @@ jobs:
           DOCKERHUB_IMAGE="vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
-          GCP_TAGS="${GCP_IMAGE}:${SHA}"
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$DEBUG_RUN" = "true" ]; then
+            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
+          else
+            GCP_TAGS="${GCP_IMAGE}:${SHA}"
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
+            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          fi
+
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -482,12 +506,14 @@ jobs:
       - name: Create Docker Hub manifest list and push
         working-directory: /tmp/digests
         run: |
+          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          # Copy the already-published per-platform manifests from GCP into Docker Hub.
+          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -495,7 +521,13 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
+          if [ "$DEBUG_RUN" = "true" ]; then
+            TAG="$VERSION"
+          else
+            TAG="v${VERSION}"
+          fi
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
@@ -521,8 +553,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
+            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
@@ -585,16 +622,23 @@ jobs:
           DOCKERHUB_IMAGE="vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
-          GCP_TAGS="${GCP_IMAGE}:${SHA}"
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$DEBUG_RUN" = "true" ]; then
+            GCP_TAGS="${GCP_IMAGE}:${VERSION}"
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
+          else
+            GCP_TAGS="${GCP_IMAGE}:${SHA}"
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+
+            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
+            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          fi
+
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -616,12 +660,14 @@ jobs:
       - name: Create Docker Hub manifest list and push
         working-directory: /tmp/digests
         run: |
+          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          # Copy the already-published per-platform manifests from GCP into Docker Hub.
+          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -629,7 +675,13 @@ jobs:
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
-          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
+          if [ "$DEBUG_RUN" = "true" ]; then
+            TAG="$VERSION"
+          else
+            TAG="v${VERSION}"
+          fi
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
@@ -655,11 +707,17 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
+            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -804,6 +862,7 @@ jobs:
 
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -838,6 +897,7 @@ jobs:
 
   publish-meta:
     needs: [extract-version, publish-npm]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -862,6 +922,7 @@ jobs:
   # This is the primary/default build.
   build-macos-arm64:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1198,6 +1259,7 @@ jobs:
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1821,6 +1883,7 @@ jobs:
 
   build-ios:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -2067,7 +2130,7 @@ jobs:
 
   notify-release:
     name: Slack Notification (Release)
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.debug_run != 'true' }}
     needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
