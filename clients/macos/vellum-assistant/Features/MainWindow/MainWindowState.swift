@@ -66,6 +66,9 @@ public final class MainWindowState: ObservableObject {
     @Published var activeDynamicUserAppsDirectory: URL?
     @Published var hasAPIKey: Bool
     @Published var needsInferenceApiKey: Bool = false
+    /// Display name of the inference provider that needs an API key (e.g. "Anthropic").
+    /// Only meaningful when `needsInferenceApiKey` is `true`.
+    @Published var inferenceProviderDisplayName: String = ""
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
@@ -248,6 +251,15 @@ public final class MainWindowState: ObservableObject {
     ///
     /// In all other cases (mode is `"managed"`, config is missing/unreadable,
     /// or the provider has a key), it is `false`.
+    private static let providerDisplayNames: [String: String] = [
+        "anthropic": "Anthropic",
+        "openai": "OpenAI",
+        "gemini": "Google Gemini",
+        "fireworks": "Fireworks",
+        "perplexity": "Perplexity",
+        "ollama": "Ollama",
+    ]
+
     func refreshInferenceApiKeyStatus() {
         let config = WorkspaceConfigIO.read()
         guard let services = config["services"] as? [String: Any],
@@ -259,6 +271,7 @@ public final class MainWindowState: ObservableObject {
         }
         let provider = (inference["provider"] as? String) ?? "anthropic"
         needsInferenceApiKey = APIKeyManager.getKey(for: provider) == nil
+        inferenceProviderDisplayName = Self.providerDisplayNames[provider] ?? provider.capitalized
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {

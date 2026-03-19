@@ -666,7 +666,11 @@ struct MainWindowView: View {
                         errorManager: viewModel.errorManager,
                         hasAPIKey: windowState.hasAPIKey,
                         needsInferenceApiKey: windowState.needsInferenceApiKey,
-                        onOpenSettings: { windowState.selection = .panel(.settings) },
+                        inferenceProviderDisplayName: windowState.inferenceProviderDisplayName,
+                        onOpenModelsAndServices: {
+                            settingsStore.pendingSettingsTab = .modelsAndServices
+                            windowState.selection = .panel(.settings)
+                        },
                         onRetryConversationError: { viewModel.retryAfterConversationError() },
                         onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
                         onDismissConversationError: { viewModel.dismissConversationError() },
@@ -676,15 +680,18 @@ struct MainWindowView: View {
                     )
                 } else if windowState.needsInferenceApiKey {
                     ChatConversationErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
+                        message: "Add your \(windowState.inferenceProviderDisplayName) API key to start chatting.",
                         icon: .keyRound,
                         accentColor: VColor.systemMidStrong,
                         actionLabel: "Open Settings",
-                        onAction: { windowState.selection = .panel(.settings) }
+                        onAction: {
+                            settingsStore.pendingSettingsTab = .modelsAndServices
+                            windowState.selection = .panel(.settings)
+                        }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                     .padding(.top, VSpacing.sm)
-                    .animation(VAnimation.fast, value: windowState.hasAPIKey)
+                    .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -743,6 +750,9 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+            windowState.refreshInferenceApiKeyStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
             windowState.refreshInferenceApiKeyStatus()
         }
         .onReceive(daemonClient.$isConnected) { connected in
@@ -1004,7 +1014,8 @@ private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
     let needsInferenceApiKey: Bool
-    let onOpenSettings: () -> Void
+    let inferenceProviderDisplayName: String
+    let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
@@ -1016,11 +1027,11 @@ private struct ErrorToastOverlay: View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
             if needsInferenceApiKey {
                 ChatConversationErrorToast(
-                    message: "API key not set. Add one in Settings to start chatting.",
+                    message: "Add your \(inferenceProviderDisplayName) API key to start chatting.",
                     icon: .keyRound,
                     accentColor: VColor.systemMidStrong,
                     actionLabel: "Open Settings",
-                    onAction: onOpenSettings
+                    onAction: onOpenModelsAndServices
                 )
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
@@ -1047,7 +1058,7 @@ private struct ErrorToastOverlay: View {
             }
         }
         .padding(.top, VSpacing.sm)
-        .animation(VAnimation.fast, value: hasAPIKey)
+        .animation(VAnimation.fast, value: needsInferenceApiKey)
         .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }

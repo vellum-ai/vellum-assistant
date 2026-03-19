@@ -18,6 +18,7 @@ extension Notification.Name {
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
+    static let inferenceConfigDidChange = Notification.Name("SettingsStore.inferenceConfigDidChange")
 }
 
 /// Manages API keys using CredentialStorage (Keychain in Release, file-based

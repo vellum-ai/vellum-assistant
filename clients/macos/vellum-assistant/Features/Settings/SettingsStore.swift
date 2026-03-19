@@ -2138,6 +2138,7 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to merge workspace config for inference mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
+        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     func setImageGenMode(_ mode: String) {
@@ -2578,6 +2579,7 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to persist inference provider: \(error.localizedDescription)")
         }
         scheduleRoutingSourceRefresh()
+        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
