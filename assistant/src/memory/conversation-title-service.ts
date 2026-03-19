@@ -361,6 +361,9 @@ function extractTextFromContent(raw: string): string {
         }
       }
       if (texts.length > 0) return texts.join("\n");
+      // Recognized content-block array but no text blocks — return empty
+      // rather than the raw JSON to avoid polluting the title prompt.
+      return "";
     }
   } catch {
     // Not JSON — use raw string
