@@ -45,12 +45,7 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
-        let ext = (targetPath as NSString).pathExtension.lowercased()
-        if ext == "md" || ext == "markdown" {
-            viewMode = .preview
-        } else {
-            viewMode = .source
-        }
+        viewMode = .source
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -65,6 +60,11 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
+
+            // Default view mode using both file name and MIME type from the response
+            if let detail {
+                viewMode = defaultViewMode(for: detail.name, mimeType: detail.mimeType)
+            }
         }
         fileLoadTask = task
     }
