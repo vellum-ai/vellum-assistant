@@ -301,7 +301,10 @@ extension AppDelegate {
                 OpenAIVoiceService.overrideVoiceId = msg.value
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             } else if msg.key == "voiceConversationTimeoutSeconds" {
-                VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
+                let parsed = Int(msg.value)
+                Task { @MainActor in
+                    VoiceModeManager.conversationTimeoutOverride = parsed
+                }
             } else {
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             }
