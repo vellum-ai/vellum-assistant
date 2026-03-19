@@ -465,8 +465,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Shared creation path for conversations spawned by background processes
-    /// (schedules, task runs, notifications). All background conversations start
-    /// with the unread badge set, ensuring the user sees new activity.
+    /// (schedules, task runs, notifications). The unread badge is NOT set at
+    /// creation time — it is deferred until an actual assistant message arrives
+    /// via `subscribeToAssistantActivity`, preventing false unread dots when the
+    /// background process fails before generating a reply.
     ///
     /// - Parameters:
     ///   - conversationId: Daemon conversation ID to bind.
@@ -492,8 +494,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         var conversation = ConversationModel(title: title, conversationId: conversationId)
         if let source { conversation.source = source }
         if let scheduleJobId { conversation.scheduleJobId = scheduleJobId }
-        conversation.hasUnseenLatestAssistantMessage = true
-
         let viewModel = makeViewModel()
         viewModel.conversationId = conversationId
         if markHistoryLoaded {
