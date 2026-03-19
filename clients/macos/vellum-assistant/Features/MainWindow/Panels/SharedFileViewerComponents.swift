@@ -53,6 +53,12 @@ struct FileContentView: View {
     var isEditable: Bool = false
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
+    /// Unique identity for the file, used to force SwiftUI to recreate the
+    /// HighlightedTextView when the underlying file changes. Defaults to
+    /// `fileName`, but callers should pass a full path when the display name
+    /// alone is not unique (e.g. files with the same basename in different
+    /// directories).
+    var fileIdentity: String? = nil
 
     private func syncViewMode() {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -96,7 +102,7 @@ struct FileContentView: View {
                     isEditable: isEditable,
                     onTextChange: onTextChange
                 )
-                .id(fileName)
+                .id(fileIdentity ?? fileName)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .preview:
                 MarkdownPreviewView(content: content)
