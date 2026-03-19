@@ -13,6 +13,7 @@
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
+import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
   getModelInfo,
   type ModelSetContext,
@@ -27,6 +28,8 @@ import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Dependency interfaces
@@ -75,6 +78,17 @@ export function conversationQueryRouteDefinitions(
           return httpError(
             "BAD_REQUEST",
             "Missing required field: modelId",
+            400,
+          );
+        }
+        if (
+          body.provider !== undefined &&
+          (typeof body.provider !== "string" ||
+            !validProviderSet.has(body.provider))
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            `Invalid provider "${body.provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
             400,
           );
         }
