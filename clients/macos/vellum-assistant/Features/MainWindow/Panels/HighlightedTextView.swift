@@ -386,6 +386,12 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
         var paragraphStyle: NSParagraphStyle?
         private var highlightTask: Task<Void, Never>?
 
+        /// Stored search state so we can re-apply highlights after async
+        /// syntax highlighting replaces the attributed string.
+        private var currentMatchRanges: [Range<String.Index>] = []
+        private var currentMatchIndex: Int = 0
+        private weak var currentTextView: NSTextView?
+
         func applyText(_ text: String, language: SyntaxLanguage, to textView: NSTextView) {
             lastText = text
             lastLanguage = language
@@ -413,7 +419,7 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
                     language: capturedLang,
                     paragraphStyle: capturedPS
                 )
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     guard !Task.isCancelled else { return }
                     guard let storage = textView.textStorage else { return }
                     // Only apply if the text hasn't changed since we started
@@ -421,6 +427,15 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
                     storage.beginEditing()
                     storage.setAttributedString(highlighted)
                     storage.endEditing()
+
+                    // Re-apply search highlights that were wiped by setAttributedString
+                    if let self, !self.currentMatchRanges.isEmpty {
+                        self.applySearchHighlights(
+                            matchRanges: self.currentMatchRanges,
+                            currentIndex: self.currentMatchIndex,
+                            in: textView
+                        )
+                    }
                 }
             }
         }
@@ -432,6 +447,11 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
             currentIndex: Int,
             in textView: NSTextView
         ) {
+            // Store for re-application after async highlighting completes
+            currentMatchRanges = matchRanges
+            currentMatchIndex = currentIndex
+            currentTextView = textView
+
             guard let storage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: storage.length)
 
