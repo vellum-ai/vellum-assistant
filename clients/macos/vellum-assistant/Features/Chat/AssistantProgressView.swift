@@ -1,4 +1,3 @@
-import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -202,6 +201,11 @@ struct AssistantProgressView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "phase_change:\(newPhase) denied=\(deniedCount) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                toolCallCount: toolCalls.count
+            ))
             if newPhase == .processing {
                 processingStartDate = Date()
                 startDate = Date()
@@ -211,6 +215,11 @@ struct AssistantProgressView: View {
                !isExpanded,
                MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
             {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag",
+                    toolCallCount: toolCalls.count
+                ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
                 }
@@ -234,6 +243,11 @@ struct AssistantProgressView: View {
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
             if pending && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation",
+                    toolCallCount: toolCalls.count
+                ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
                 }
@@ -255,11 +269,21 @@ struct AssistantProgressView: View {
                (phase == .complete || phase == .denied),
                MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
             {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag_on_appear",
+                    toolCallCount: toolCalls.count
+                ))
                 isExpanded = true
                 // Rehydration is handled by onChange(of: isExpanded) above.
             }
             // Auto-expand when a pending confirmation exists on appear
             if hasPendingConfirmation && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation_on_appear",
+                    toolCallCount: toolCalls.count
+                ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
                 }
@@ -279,6 +303,11 @@ struct AssistantProgressView: View {
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
             if isExpanded && hasPendingConfirmation { return }
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "manual_toggle:\(isExpanded ? "collapse" : "expand")",
+                toolCallCount: toolCalls.count
+            ))
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
@@ -427,8 +456,6 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        let _ = os_signpost(.event, log: PerfSignposts.log, name: "assistantProgressExpandedContent",
-                            "toolCallCount=%d", toolCalls.count)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
