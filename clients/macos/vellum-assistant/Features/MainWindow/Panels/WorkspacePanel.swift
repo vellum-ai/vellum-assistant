@@ -786,10 +786,11 @@ private struct WorkspaceFileViewer: View {
                             label: "Discard",
                             style: .ghost,
                             size: .compact,
-                            isDisabled: state.isSaving || !state.isDirty
+                            isDisabled: state.isSaving
                         ) {
                             state.editableContent = state.originalContent
                             state.isDirty = false
+                            state.isActivelyEditing = false
                         }
                         if state.isSaving {
                             VBusyIndicator(size: 8)
@@ -800,7 +801,10 @@ private struct WorkspaceFileViewer: View {
                             size: .compact,
                             isDisabled: state.isSaving || !state.isDirty
                         ) {
-                            Task { await saveFile(path: detail.path) }
+                            Task {
+                                await saveFile(path: detail.path)
+                                state.isActivelyEditing = false
+                            }
                         }
                         .keyboardShortcut("s", modifiers: .command)
                     }

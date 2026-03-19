@@ -53,6 +53,7 @@ struct FileContentView: View {
     @State private var isContentHovered = false
     @State private var expandAllTrigger = 0
     @State private var collapseAllTrigger = 0
+    @State private var isTreeExpanded = false
 
     private func syncViewMode() {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -129,6 +130,7 @@ struct FileContentView: View {
         }
         .onChange(of: fileName) { _, _ in
             isActivelyEditing = false
+            isTreeExpanded = false
             syncViewMode()
         }
         .onAppear { syncViewMode() }
@@ -157,23 +159,18 @@ struct FileContentView: View {
 
             if viewMode == .tree {
                 VButton(
-                    label: "Expand All",
-                    iconOnly: VIcon.maximize.rawValue,
+                    label: isTreeExpanded ? "Collapse All" : "Expand All",
+                    iconOnly: (isTreeExpanded ? VIcon.minimize : VIcon.maximize).rawValue,
                     style: .ghost,
                     iconSize: 28,
-                    tooltip: "Expand All"
+                    tooltip: isTreeExpanded ? "Collapse All" : "Expand All"
                 ) {
-                    expandAllTrigger += 1
-                }
-
-                VButton(
-                    label: "Collapse All",
-                    iconOnly: VIcon.minimize.rawValue,
-                    style: .ghost,
-                    iconSize: 28,
-                    tooltip: "Collapse All"
-                ) {
-                    collapseAllTrigger += 1
+                    if isTreeExpanded {
+                        collapseAllTrigger += 1
+                    } else {
+                        expandAllTrigger += 1
+                    }
+                    isTreeExpanded.toggle()
                 }
             }
 
