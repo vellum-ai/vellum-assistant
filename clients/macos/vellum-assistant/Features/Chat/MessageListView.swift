@@ -1244,12 +1244,19 @@ struct MessageListView: View {
                 if isSending {
                     hasReceivedScrollEvent = true
                     // Reattach and pin to bottom for user-initiated actions (send,
-                    // regenerate, retry). Skip reattach only when the isSending
-                    // transition is a mid-turn resume from a tool confirmation cycle
-                    // and the user explicitly scrolled up during the confirmation wait.
-                    let isConfirmationResume = phaseWhenSendingStopped == "awaiting_confirmation"
-                    if isConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
-                        // User scrolled up during confirmation — respect their position.
+                    // regenerate, retry). Skip reattach only when the daemon resumes
+                    // from a tool confirmation (not a user action during confirmation).
+                    //
+                    // Detection: when the daemon resumes, it sets both isSending=true
+                    // AND assistantActivityPhase="thinking" in the same mutation. When
+                    // the user sends/regenerates during confirmation, only isSending
+                    // changes — assistantActivityPhase stays "awaiting_confirmation"
+                    // until the daemon processes the new request.
+                    let isDaemonConfirmationResume =
+                        phaseWhenSendingStopped == "awaiting_confirmation"
+                        && assistantActivityPhase != "awaiting_confirmation"
+                    if isDaemonConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
+                        // Daemon resumed from confirmation while user was scrolled up.
                     } else {
                         bottomPinCoordinator.reattach()
                         requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
