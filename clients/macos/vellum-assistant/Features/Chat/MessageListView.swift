@@ -818,8 +818,12 @@ struct MessageListView: View {
             .environment(\.suppressAutoScroll, { [self] in
                 expandSuppressionTask?.cancel()
                 if isNearBottom {
-                    // Clear any stale suppression left by a canceled off-bottom expansion.
-                    isSuppressingBottomScroll = false
+                    // Clear any stale suppression left by a canceled off-bottom expansion,
+                    // but only when the resize guard isn't actively suppressing scroll.
+                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                    if !resizeActive {
+                        isSuppressingBottomScroll = false
+                    }
                     // When pinned to bottom, continuously re-pin on every frame
                     // of the expansion animation via the AnchorMinYKey handler.
                     scrollTracking.isPinningDuringExpansion = true
