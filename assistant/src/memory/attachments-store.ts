@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
-import { eq, isNotNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getWorkspaceDir } from "../util/platform.js";
@@ -312,24 +312,18 @@ export function getSourcePathsForAttachments(
 }
 
 /**
- * Batch-fetch file_path values for multiple attachment IDs in a single query.
- * Returns a Set of attachment IDs that have a non-null file_path.
+ * Returns the subset of `attachmentIds` that are file-backed.
  *
- * @deprecated All attachments are now file-backed. This function is retained
- * for callers that have not yet been updated.
+ * Since all attachments are now stored on disk, this simply returns a
+ * Set containing every input ID — no database query is needed.
+ *
+ * @deprecated All attachments are file-backed. Callers should assume
+ * `fileBacked: true` unconditionally and avoid calling this function.
  */
 export function getFileBackedAttachmentIds(
   attachmentIds: string[],
 ): Set<string> {
-  if (attachmentIds.length === 0) return new Set();
-  const db = getDb();
-  const rows = db
-    .select({ id: attachments.id })
-    .from(attachments)
-    .where(isNotNull(attachments.filePath))
-    .all();
-  const fileBackedSet = new Set(rows.map((r) => r.id));
-  return new Set(attachmentIds.filter((id) => fileBackedSet.has(id)));
+  return new Set(attachmentIds);
 }
 
 /**
