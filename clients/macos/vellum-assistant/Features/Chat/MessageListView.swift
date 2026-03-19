@@ -621,8 +621,8 @@ struct MessageListView: View {
         log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
         paginationTask = Task {
             defer {
+                isPaginationInFlight = false
                 if !Task.isCancelled {
-                    isPaginationInFlight = false
                     paginationTask = nil
                 }
             }
@@ -1227,6 +1227,7 @@ struct MessageListView: View {
                 scrollRestoreTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
+                isPaginationInFlight = false
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
