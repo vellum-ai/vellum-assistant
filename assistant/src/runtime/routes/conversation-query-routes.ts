@@ -28,6 +28,7 @@ import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
 
 const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 
@@ -216,11 +217,17 @@ export function conversationQueryRouteDefinitions(
             } catch {
               responsePayload = log.responsePayload;
             }
+            const normalized = normalizeLlmContextPayloads({
+              requestPayload,
+              responsePayload,
+              createdAt: log.createdAt,
+            });
             return {
               id: log.id,
               requestPayload,
               responsePayload,
               createdAt: log.createdAt,
+              ...normalized,
             };
           }),
         });
