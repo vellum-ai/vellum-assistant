@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
 import { arch, platform } from "os";
 import { dirname, join } from "path";
@@ -462,13 +463,14 @@ async function buildAllImages(
  * can be restarted independently.
  */
 export function serviceDockerRunArgs(opts: {
+  cesServiceToken?: string;
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
-  const { extraAssistantEnv, gatewayPort, imageTags, instanceName, res } = opts;
+  const { cesServiceToken, extraAssistantEnv, gatewayPort, imageTags, instanceName, res } = opts;
   return {
     assistant: () => {
       const args: string[] = [
@@ -490,7 +492,12 @@ export function serviceDockerRunArgs(opts: {
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "WORKSPACE_DIR=/workspace",
+        "-e",
+        `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
       ];
+      if (cesServiceToken) {
+        args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
+      }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
         "VELLUM_PLATFORM_URL",
@@ -536,6 +543,11 @@ export function serviceDockerRunArgs(opts: {
       `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       "-e",
       "RUNTIME_PROXY_ENABLED=true",
+      "-e",
+      `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+      ...(cesServiceToken
+        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+        : []),
       imageTags.gateway,
     ],
     "credential-executor": () => [
@@ -544,6 +556,7 @@ export function serviceDockerRunArgs(opts: {
       "-d",
       "--name",
       res.cesContainer,
+      `--network=${res.network}`,
       "-v",
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
@@ -562,6 +575,9 @@ export function serviceDockerRunArgs(opts: {
       "CES_ASSISTANT_DATA_MOUNT=/data",
       "-e",
       "CREDENTIAL_SECURITY_DIR=/ces-security",
+      ...(cesServiceToken
+        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+        : []),
       imageTags["credential-executor"],
     ],
   };
@@ -632,6 +648,7 @@ export const SERVICE_START_ORDER: ServiceName[] = [
 /** Start all three containers in dependency order. */
 export async function startContainers(
   opts: {
+    cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
@@ -971,7 +988,8 @@ export async function hatchDocker(
     log("🔄 Migrating security files to gateway volume...");
     await migrateGatewaySecurityFiles(res, log);
 
-    await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
+    const cesServiceToken = randomBytes(32).toString("hex");
+    await startContainers({ cesServiceToken, gatewayPort, imageTags, instanceName, res }, log);
 
     const imageDigests = await captureImageRefs(res);
 
