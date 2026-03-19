@@ -329,13 +329,7 @@ export function forkConversation(params: {
     throw new UserError(PRIVATE_CONVERSATION_FORK_ERROR);
   }
 
-  const sourceMessages = db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt), asc(messages.id))
-    .all()
-    .map(parseMessage);
+  const sourceMessages = getMessages(conversationId);
 
   if (sourceMessages.length === 0) {
     throw new UserError(
