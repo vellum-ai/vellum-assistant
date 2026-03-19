@@ -15,6 +15,28 @@ struct GoogleOAuthServiceCard: View {
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
 
+    // MARK: - Create App Sheet State
+
+    @State private var showCreateAppSheet = false
+    @State private var createAppClientId = ""
+    @State private var createAppClientSecret = ""
+    @State private var createAppIsSubmitting = false
+
+    // MARK: - Delete App Alert State
+
+    @State private var showDeleteAppAlert = false
+    @State private var appToDelete: YourOwnOAuthApp? = nil
+
+    // MARK: - Disconnect Alert State
+
+    @State private var showDisconnectAlert = false
+    @State private var disconnectConnection: YourOwnOAuthConnection? = nil
+    @State private var disconnectAppId: String? = nil
+
+    // MARK: - Hover Tracking
+
+    @State private var hoveredAppId: String? = nil
+
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
         draftMode != store.googleOAuthMode
@@ -57,6 +79,36 @@ struct GoogleOAuthServiceCard: View {
                 Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
             } else if newValue == "your-own" {
                 store.fetchYourOwnOAuthApps()
+            }
+        }
+        .sheet(isPresented: $showCreateAppSheet) {
+            createAppSheet
+        }
+        .alert("Delete OAuth App?", isPresented: $showDeleteAppAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let app = appToDelete {
+                    store.deleteYourOwnOAuthApp(id: app.id)
+                    appToDelete = nil
+                }
+            }
+        } message: {
+            if let app = appToDelete {
+                Text("This will disconnect all accounts and remove the app with client ID '\(maskedClientId(app.client_id))'.")
+            }
+        }
+        .alert("Disconnect Account?", isPresented: $showDisconnectAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Disconnect", role: .destructive) {
+                if let conn = disconnectConnection, let appId = disconnectAppId {
+                    store.disconnectYourOwnOAuthConnection(id: conn.id, appId: appId)
+                    disconnectConnection = nil
+                    disconnectAppId = nil
+                }
+            }
+        } message: {
+            if let conn = disconnectConnection {
+                Text("Disconnect '\(conn.account_info ?? "Google Account")'? You can reconnect later.")
             }
         }
     }
@@ -165,6 +217,20 @@ struct GoogleOAuthServiceCard: View {
     @ViewBuilder
     private var yourOwnBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            HStack {
+                Spacer()
+                Button {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
+                    showCreateAppSheet = true
+                } label: {
+                    VIconView(.plus, size: 14)
+                        .foregroundColor(VColor.contentDefault)
+                }
+                .buttonStyle(.borderless)
+                .help("Add OAuth App")
+            }
+
             if store.yourOwnOAuthIsLoading {
                 VBusyIndicator()
             } else if store.yourOwnOAuthApps.isEmpty {
@@ -205,7 +271,7 @@ struct GoogleOAuthServiceCard: View {
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header row: masked client_id + creation date
+            // Header row: masked client_id + creation date + trash
             HStack {
                 Text(maskedClientId(app.client_id))
                     .font(VFont.bodyMedium)
@@ -214,6 +280,17 @@ struct GoogleOAuthServiceCard: View {
                 Text(formattedDate(app.created_at))
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
+                if hoveredAppId == app.id {
+                    Button {
+                        appToDelete = app
+                        showDeleteAppAlert = true
+                    } label: {
+                        VIconView(.trash, size: 14)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                    }
+                    .buttonStyle(.borderless)
+                    .transition(.opacity)
+                }
             }
 
             // Connections section
@@ -251,6 +328,9 @@ struct GoogleOAuthServiceCard: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
+        .onHover { hovering in
+            hoveredAppId = hovering ? app.id : nil
+        }
     }
 
     private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
@@ -264,7 +344,57 @@ struct GoogleOAuthServiceCard: View {
             Text("Connected")
                 .font(VFont.caption)
                 .foregroundColor(VColor.systemPositiveStrong)
+            VButton(label: "Disconnect", style: .danger, size: .compact) {
+                disconnectConnection = conn
+                disconnectAppId = appId
+                showDisconnectAlert = true
+            }
         }
+    }
+
+    // MARK: - Create App Sheet
+
+    private var createAppSheet: some View {
+        VModal(
+            title: "Add OAuth App",
+            subtitle: "Enter your Google Cloud OAuth credentials",
+            closeAction: { showCreateAppSheet = false }
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Client ID")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    VTextField(placeholder: "Enter client ID", text: $createAppClientId)
+                }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Client Secret")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    SecureField("Enter client secret", text: $createAppClientSecret)
+                        .vInputStyle()
+                        .font(VFont.body)
+                }
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .outlined) {
+                    showCreateAppSheet = false
+                }
+                VButton(
+                    label: createAppIsSubmitting ? "Creating..." : "Create",
+                    style: .primary,
+                    isDisabled: createAppClientId.isEmpty || createAppClientSecret.isEmpty || createAppIsSubmitting
+                ) {
+                    createAppIsSubmitting = true
+                    store.createYourOwnOAuthApp(clientId: createAppClientId, clientSecret: createAppClientSecret)
+                    createAppIsSubmitting = false
+                    showCreateAppSheet = false
+                }
+            }
+        }
+        .frame(width: 420)
     }
 
     // MARK: - Helpers
