@@ -11,6 +11,7 @@ struct MessageInspectorView: View {
     let onBack: () -> Void
 
     private let llmContextClient: any LLMContextClientProtocol = LLMContextClient()
+    private let payloadViewportHeight: CGFloat = 560
 
     @State private var response: LLMContextResponse?
     @State private var isLoading = true
@@ -270,15 +271,23 @@ struct MessageInspectorView: View {
                 .accessibilityLabel("Copy \(title)")
             }
 
-            ScrollView([.horizontal, .vertical]) {
-                Text(formattedText)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            GeometryReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    Text(formattedText)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentDefault)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.sm)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .frame(
+                            minWidth: proxy.size.width,
+                            minHeight: proxy.size.height,
+                            alignment: .topLeading
+                        )
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
+            .frame(height: payloadViewportHeight)
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
