@@ -1285,11 +1285,13 @@ async function generateLlmSuggestion(
     return null;
   }
   if (firstLine.length <= 50) return firstLine;
-  // Truncate at last word boundary within 50 chars
-  const wordTruncated = firstLine
-    .slice(0, 50)
-    .replace(/\s+\S*$/, "")
-    .trim();
+  // Truncate at last word boundary within 50 chars.
+  // Only strip the trailing partial word if the slice actually cut mid-word;
+  // if the character right after the cut is whitespace, the slice is already clean.
+  const sliced = firstLine.slice(0, 50);
+  const wordTruncated = (
+    /\s/.test(firstLine[50]) ? sliced : sliced.replace(/\s+\S*$/, "")
+  ).trim();
   if (wordTruncated.length < 15) {
     log.debug(
       { rawLength: firstLine.length, truncatedLength: wordTruncated.length },
