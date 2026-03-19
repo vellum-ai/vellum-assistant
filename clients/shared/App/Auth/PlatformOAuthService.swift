@@ -82,9 +82,9 @@ public final class PlatformOAuthService {
 
     // MARK: - Public Methods
 
-    /// Start a Google OAuth flow for the given assistant.
-    public func startGoogleOAuth(assistantId: String, redirectAfterConnect: String? = nil) async throws -> OAuthStartResponse {
-        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/google/start/"
+    /// Start an OAuth flow for the given provider and assistant.
+    public func startOAuthConnect(provider: String, assistantId: String, redirectAfterConnect: String? = nil) async throws -> OAuthStartResponse {
+        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/\(provider)/start/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -110,7 +110,7 @@ public final class PlatformOAuthService {
         let httpResponse = response as? HTTPURLResponse
         let statusCode = httpResponse?.statusCode ?? 0
 
-        log.debug("Platform request POST assistants/\(assistantId)/oauth/google/start/ -> \(statusCode)")
+        log.debug("Platform request POST assistants/\(assistantId)/oauth/\(provider)/start/ -> \(statusCode)")
 
         if statusCode == 401 || statusCode == 403 {
             throw PlatformAPIError.authenticationRequired

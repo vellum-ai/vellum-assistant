@@ -220,7 +220,18 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        await disconnectOAuthProvider(conn.providerKey, undefined, conn.id);
+        const result = await disconnectOAuthProvider(
+          conn.providerKey,
+          undefined,
+          conn.id,
+        );
+        if (result === "error") {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Failed to clean up connection tokens. The connection was not removed.",
+            500,
+          );
+        }
 
         return Response.json({ ok: true });
       },

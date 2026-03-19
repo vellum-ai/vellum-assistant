@@ -50,7 +50,7 @@ struct OAuthProviderServiceCard: View {
 
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
-        draftMode != store.googleOAuthMode
+        draftMode != store.managedOAuthModeFor(providerKey)
     }
 
     private var isLoggedIn: Bool {
@@ -80,15 +80,17 @@ struct OAuthProviderServiceCard: View {
             }
         )
         .onAppear {
-            draftMode = store.googleOAuthMode
-            if store.googleOAuthMode == "managed" {
-                Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+            draftMode = store.managedOAuthModeFor(providerKey)
+            // Always fetch provider metadata (for display name etc.) regardless of mode
+            store.fetchYourOwnOAuthApps(providerKey: providerKey)
+            if store.managedOAuthModeFor(providerKey) == "managed" {
+                Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
             }
         }
-        .onChange(of: store.googleOAuthMode) { _, newValue in
+        .onChange(of: store.managedOAuthModeFor(providerKey)) { _, newValue in
             draftMode = newValue
             if newValue == "managed" {
-                Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
             } else if newValue == "your-own" {
                 store.fetchYourOwnOAuthApps(providerKey: providerKey)
             }
@@ -135,17 +137,17 @@ struct OAuthProviderServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
                 managedLoginPrompt
-            } else if !store.googleOAuthConnections.isEmpty {
+            } else if !store.managedConnections(for: providerKey).isEmpty {
                 managedConnectionsList
-            } else if store.googleOAuthIsConnecting {
+            } else if store.managedIsConnecting(for: providerKey) {
                 managedConnectingState
             } else {
                 VButton(label: "Connect \(displayName) Account", style: .primary) {
-                    store.startGoogleOAuthConnect(userId: currentUserId)
+                    store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
                 }
             }
 
-            if let error = store.googleOAuthError {
+            if let error = store.managedError(for: providerKey) {
                 VInlineMessage(error, tone: .error)
             }
         }
@@ -163,7 +165,7 @@ struct OAuthProviderServiceCard: View {
             ) {
                 Task {
                     await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                        Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                        Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
                     })
                 }
             }
@@ -181,13 +183,13 @@ struct OAuthProviderServiceCard: View {
 
     private var managedConnectionsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(store.googleOAuthConnections, id: \.id) { entry in
-                connectionRow(for: entry)
+            ForEach(store.managedConnections(for: providerKey), id: \.id) { entry in
+                managedConnectionRow(for: entry)
             }
-            VButton(label: "Connect Another Account", style: .outlined, isDisabled: store.googleOAuthIsConnecting) {
-                store.startGoogleOAuthConnect(userId: currentUserId)
+            VButton(label: "Connect Another Account", style: .outlined, isDisabled: store.managedIsConnecting(for: providerKey)) {
+                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
             }
-            if store.googleOAuthIsConnecting {
+            if store.managedIsConnecting(for: providerKey) {
                 Text("Waiting for authorization...")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
@@ -195,7 +197,7 @@ struct OAuthProviderServiceCard: View {
         }
     }
 
-    private func connectionRow(for entry: OAuthConnectionEntry) -> some View {
+    private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.account_label ?? "\(displayName) Account")
@@ -213,7 +215,7 @@ struct OAuthProviderServiceCard: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.systemPositiveStrong)
             VButton(label: "Disconnect", style: .danger) {
-                store.disconnectGoogleOAuthConnection(entry.id, userId: currentUserId)
+                store.disconnectManagedOAuthConnection(entry.id, providerKey: providerKey, userId: currentUserId)
             }
         }
     }
@@ -468,8 +470,8 @@ struct OAuthProviderServiceCard: View {
     // MARK: - Save
 
     private func save() {
-        if draftMode != store.googleOAuthMode {
-            store.setGoogleOAuthMode(draftMode)
+        if draftMode != store.managedOAuthModeFor(providerKey) {
+            store.setManagedOAuthMode(draftMode, providerKey: providerKey)
         }
     }
 }
