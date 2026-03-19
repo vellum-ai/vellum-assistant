@@ -226,6 +226,10 @@ struct MessageListView: View {
     /// Non-reactive scroll tracking state (dead-zone guards, smoothing).
     /// Stored on a class so mutations never trigger body re-evaluations.
     @State private var scrollTracking = ScrollTrackingState()
+    /// Tracks whether the pagination sentinel was previously inside the
+    /// trigger band. Used by `MessageListPaginationTriggerPolicy.shouldTrigger`
+    /// to enforce one-shot edge-transition semantics.
+    @State private var wasPaginationTriggerInRange: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -613,6 +617,32 @@ struct MessageListView: View {
         }
     }
 
+    /// Fires a single pagination load, restores the scroll anchor, and
+    /// manages the `isPaginationInFlight` / `isSuppressingBottomScroll` guards.
+    private func triggerPagination(proxy: ScrollViewProxy) {
+        guard !isPaginationInFlight else { return }
+        isPaginationInFlight = true
+        let anchorId = visibleMessages.first?.id
+        log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
+        Task {
+            defer { isPaginationInFlight = false }
+            let hadMore = await loadPreviousMessagePage?() ?? false
+            log.debug("[pagination] loadPreviousMessagePage returned hadMore=\(hadMore)")
+            if hadMore, let id = anchorId {
+                // Suppress bottom auto-scroll for the brief layout window so the
+                // restored anchor position is not immediately overridden.
+                isSuppressingBottomScroll = true
+                // Wait ~6 frames for SwiftUI to complete layout before restoring position.
+                // 100ms gives video embed cards (which animate height over 0.25s) enough
+                // time to settle so the scroll restoration lands at the right position.
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                proxy.scrollTo(id, anchor: .top)
+                log.debug("[pagination] scroll restored to anchor \(id)")
+                isSuppressingBottomScroll = false
+            }
+        }
+    }
+
     /// Flash-highlight the given message after an anchor scroll completes.
     /// The highlight fades out automatically after 1.5 seconds.
     private func flashHighlight(messageId: UUID) {
@@ -707,32 +737,18 @@ struct MessageListView: View {
                         .padding(.vertical, VSpacing.sm)
                         .id("page-loading-indicator")
                     } else if hasMoreMessages {
-                        // Invisible sentinel: fires when the user scrolls to the top,
-                        // triggering the next-older page of messages to be revealed.
+                        // Invisible sentinel: geometry-reported position gates
+                        // pagination on actual viewport entry rather than
+                        // LazyVStack prefetch (which fires several screens early).
                         Color.clear
                             .frame(height: 1)
                             .id("page-load-trigger")
-                            .onAppear {
-                                guard !isPaginationInFlight else { return }
-                                isPaginationInFlight = true
-                                let anchorId = visibleMessages.first?.id
-                                log.debug("Pagination triggered — anchorId: \(String(describing: anchorId))")
-                                Task {
-                                    defer { isPaginationInFlight = false }
-                                    let hadMore = await loadPreviousMessagePage?() ?? false
-                                    log.debug("loadPreviousMessagePage returned hadMore=\(hadMore)")
-                                    if hadMore, let id = anchorId {
-                                        // Suppress bottom auto-scroll for the brief layout window so the
-                                        // restored anchor position is not immediately overridden.
-                                        isSuppressingBottomScroll = true
-                                        // Wait ~6 frames for SwiftUI to complete layout before restoring position.
-                                        // 100ms gives video embed cards (which animate height over 0.25s) enough
-                                        // time to settle so the scroll restoration lands at the right position.
-                                        try? await Task.sleep(nanoseconds: 100_000_000)
-                                        proxy.scrollTo(id, anchor: .top)
-                                        log.debug("Scroll restored to anchor \(id)")
-                                        isSuppressingBottomScroll = false
-                                    }
+                            .background {
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: PaginationSentinelMinYKey.self,
+                                        value: geo.frame(in: .named("chatScrollView")).minY
+                                    )
                                 }
                             }
                     }
@@ -993,6 +1009,29 @@ struct MessageListView: View {
                 updateAvatarFollower(anchorY: anchorY)
             }
             .transaction { $0.disablesAnimations = true }
+            .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
+                let isInRange = MessageListPaginationTriggerPolicy.isInTriggerBand(
+                    sentinelMinY: sentinelMinY,
+                    viewportHeight: scrollViewportHeight
+                )
+                let shouldFire = MessageListPaginationTriggerPolicy.shouldTrigger(
+                    sentinelMinY: sentinelMinY,
+                    viewportHeight: scrollViewportHeight,
+                    wasInRange: wasPaginationTriggerInRange
+                )
+                wasPaginationTriggerInRange = isInRange
+
+                log.debug("[pagination] sentinel minY=\(sentinelMinY, privacy: .public) inRange=\(isInRange) shouldFire=\(shouldFire) hasMore=\(hasMoreMessages) loading=\(isLoadingMoreMessages) inFlight=\(isPaginationInFlight)")
+
+                guard shouldFire,
+                      hasMoreMessages,
+                      !isLoadingMoreMessages,
+                      !isPaginationInFlight
+                else { return }
+
+                log.debug("[pagination] sentinel entered range — triggering pagination")
+                triggerPagination(proxy: proxy)
+            }
             .overlay(alignment: .topLeading) {
                 conversationTailAvatar
             }
@@ -1243,6 +1282,7 @@ struct MessageListView: View {
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 isPaginationInFlight = false
+                wasPaginationTriggerInRange = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
                 highlightedMessageId = nil
@@ -1758,6 +1798,16 @@ private struct AnchorMinYKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         // Use min so sibling views in the LazyVStack (which report the default
         // value of .infinity) don't overwrite the anchor's actual Y position.
+        value = min(value, nextValue())
+    }
+}
+
+/// Preference key that propagates the pagination sentinel's minY (in the
+/// `chatScrollView` coordinate space) so the geometry-based pagination
+/// trigger can evaluate whether the sentinel has entered the top band.
+private struct PaginationSentinelMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = min(value, nextValue())
     }
 }
