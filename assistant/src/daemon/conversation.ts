@@ -196,7 +196,17 @@ export class Conversation {
   >();
   /** @internal */ surfaceState = new Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
   /** @internal */ accumulatedSurfaceState = new Map<
@@ -393,6 +403,7 @@ export class Conversation {
    * works for surfaces restored from history (e.g. after daemon restart).
    */
   private restoreSurfaceStateFromHistory(): void {
+    this.surfaceState.clear();
     const dbMessages = getMessages(this.conversationId);
     for (const row of dbMessages) {
       try {
@@ -407,6 +418,14 @@ export class Conversation {
               surfaceType: (block.surfaceType ?? "dynamic_page") as SurfaceType,
               data: (block.data ?? {}) as SurfaceData,
               title: block.title as string | undefined,
+              actions: Array.isArray(block.actions)
+                ? (block.actions as Array<{
+                    id: string;
+                    label: string;
+                    style?: string;
+                    data?: Record<string, unknown>;
+                  }>)
+                : undefined,
             });
           }
         }
