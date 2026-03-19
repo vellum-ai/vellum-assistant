@@ -232,6 +232,11 @@ struct MessageListView: View {
     /// follow/detach state machine. All automatic bottom-follow requests are
     /// routed through this coordinator instead of issuing direct scrollTo calls.
     @State private var bottomPinCoordinator = ChatBottomPinCoordinator()
+    /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
+    /// Used to distinguish mid-turn tool-confirmation pauses (phase == "awaiting_confirmation")
+    /// from genuine turn endings, so the `onChange(of: isSending)` handler can decide
+    /// whether to reattach the scroll position on the next `isSending = true` transition.
+    @State private var phaseWhenSendingStopped: String = ""
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -1238,17 +1243,22 @@ struct MessageListView: View {
             .onChange(of: isSending) {
                 if isSending {
                     hasReceivedScrollEvent = true
-                    // Only force-reattach when the user just sent a new message.
-                    // Mid-turn isSending transitions (e.g. after a tool confirmation
-                    // resolves and the assistant resumes) must not yank a user who
-                    // scrolled up back to the bottom.
-                    let isUserSend = messages.last?.role == .user
-                    if isUserSend || bottomPinCoordinator.isFollowingBottom {
-                        if isUserSend {
-                            bottomPinCoordinator.reattach()
-                        }
+                    // Reattach and pin to bottom for user-initiated actions (send,
+                    // regenerate, retry). Skip reattach only when the isSending
+                    // transition is a mid-turn resume from a tool confirmation cycle
+                    // and the user explicitly scrolled up during the confirmation wait.
+                    let isConfirmationResume = phaseWhenSendingStopped == "awaiting_confirmation"
+                    if isConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
+                        // User scrolled up during confirmation — respect their position.
+                    } else {
+                        bottomPinCoordinator.reattach()
                         requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
                     }
+                } else {
+                    // Capture the activity phase at the moment sending stops.
+                    // "awaiting_confirmation" marks a mid-turn pause; any other value
+                    // (idle, streaming, tool_running) marks a genuine turn ending.
+                    phaseWhenSendingStopped = assistantActivityPhase
                 }
             }
             .onChange(of: isThinking) {
@@ -1417,6 +1427,7 @@ struct MessageListView: View {
                 // hasFreshAnchorMeasurement from becoming true.
                 anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
+                phaseWhenSendingStopped = ""
                 // Reset the OLD conversation's scroll-loop guard state so it
                 // doesn't leak into future sessions for that conversation.
                 if let oldConvId = oldConversationId {
