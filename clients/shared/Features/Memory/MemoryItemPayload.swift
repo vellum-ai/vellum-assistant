@@ -12,6 +12,7 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let accessCount: Int
     public let verificationState: String
     public let scopeId: String
+    public let scopeLabel: String?
     public let firstSeenAt: Int      // epoch ms
     public let lastSeenAt: Int       // epoch ms
     public let lastUsedAt: Int?      // epoch ms
@@ -22,7 +23,7 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, kind, subject, statement, status, confidence, importance
-        case accessCount, verificationState, scopeId
+        case accessCount, verificationState, scopeId, scopeLabel
         case firstSeenAt, lastSeenAt, lastUsedAt
         case supersedes, supersededBy
         case supersedesSubject, supersededBySubject
