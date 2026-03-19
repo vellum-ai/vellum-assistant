@@ -108,6 +108,33 @@ public enum VFont {
     /// Small label (used for conversation tab names)
     public static let tabLabel   = Font.custom("Inter", size: 11)
 
+    // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
+
+    #if os(macOS)
+    /// DMMono-Regular 13pt `NSFont` with ss05, for use in `NSTextView` / TextKit layers.
+    public static let nsMono: NSFont = {
+        let base = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let descriptor = base.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
+            ]]
+        ])
+        return NSFont(descriptor: descriptor, size: 13) ?? base
+    }()
+
+    /// Bold variant of `nsMono`.
+    public static let nsMonoBold: NSFont = {
+        NSFontManager.shared.convert(nsMono, toHaveTrait: .boldFontMask)
+    }()
+
+    /// Italic variant of `nsMono`.
+    public static let nsMonoItalic: NSFont = {
+        NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
+    }()
+    #endif
+
     // MARK: - Pixel (Silkscreen — use sparingly, e.g. buttons)
 
     public static let pixel      = Font.custom("Silkscreen-Regular", size: 13)

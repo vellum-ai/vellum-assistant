@@ -225,6 +225,31 @@ struct DisplayGallerySection: View {
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
             #endif
 
+            // MARK: - VCodeView
+            #if os(macOS)
+            GallerySectionHeader(
+                title: "VCodeView",
+                description: "Read-only code viewer with line numbers, search, and pluggable syntax highlighting. Wraps NSTextView for native text selection and copy."
+            )
+
+            VCard {
+                VCodeView(
+                    text: """
+                    func greet(name: String) -> String {
+                        let message = "Hello, \\(name)!"
+                        print(message)
+                        return message
+                    }
+
+                    let result = greet(name: "World")
+                    """
+                )
+                .frame(height: 200)
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+            #endif
+
             // MARK: - VStreamingWaveform
             GallerySectionHeader(
                 title: "VStreamingWaveform",
