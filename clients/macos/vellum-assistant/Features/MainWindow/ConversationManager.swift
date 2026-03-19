@@ -819,9 +819,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Select a conversation by conversation ID, fetching it on-demand from the server if not locally available.
     /// Returns `true` if the conversation was found (or fetched) and selected, `false` on failure.
+    /// If the conversation is archived, it is automatically unarchived since the caller
+    /// explicitly navigated to it (e.g. via command palette search).
     func selectConversationByConversationIdAsync(_ conversationId: String) async -> Bool {
         // Fast path: already loaded locally
         if selectConversationByConversationId(conversationId) {
+            // Unarchive if needed — the user explicitly navigated to this conversation,
+            // so it should appear in the sidebar alongside being selected.
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
             return true
         }
 
@@ -833,6 +840,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Re-check after await — another code path (e.g. SSE conversation-list response)
         // may have inserted this conversation while we were waiting on the network.
         if selectConversationByConversationId(conversationId) {
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
             return true
         }
 
@@ -841,12 +851,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return false
         }
 
+        // The user explicitly navigated to this conversation, so clear its archived
+        // state. Without this, the conversation would be selected (chat view renders)
+        // but invisible in the sidebar because visibleConversations filters out archived items.
+        if isConversationArchived(conversation.id) {
+            var archived = archivedConversationIds
+            archived.remove(conversation.id)
+            archivedConversationIds = archived
+        }
+
         let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
         let conversationModel = ConversationModel(
             title: conversation.title,
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
             conversationId: conversation.id,
-            isArchived: isConversationArchived(conversation.id),
+            isArchived: false,
             isPinned: conversation.isPinned ?? false,
             pinnedOrder: (conversation.isPinned ?? false) ? conversation.displayOrder.map { Int($0) } : nil,
             displayOrder: conversation.displayOrder.map { Int($0) },
