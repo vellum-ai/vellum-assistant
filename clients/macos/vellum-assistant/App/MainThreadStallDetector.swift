@@ -168,23 +168,20 @@ final class MainThreadStallDetector {
             stageTwoFired = true
             log.warning("Stage 2 stall capture: main thread blocked for \(String(format: "%.1f", elapsed))s")
 
+            // Check sampling permission upfront so we can write the flag in a single pass.
+            let skipSampling = !isSamplingAllowed()
+
             // Update hang context with the longer duration (synchronous).
             let stallStart = Date(timeIntervalSinceNow: -elapsed)
             hangContextWriter.writeHangContextSync(
                 stallStartTime: stallStart,
-                stallDurationSeconds: elapsed
+                stallDurationSeconds: elapsed,
+                samplingSkipped: skipSampling
             )
 
             // Gate sampling on sendDiagnostics preference.
-            guard isSamplingAllowed() else {
+            guard !skipSampling else {
                 log.info("Skipping process sampling: sendDiagnostics is disabled")
-                // Rewrite hang context with samplingSkipped flag so the JSON
-                // records that sampling was deliberately skipped.
-                hangContextWriter.writeHangContextSync(
-                    stallStartTime: stallStart,
-                    stallDurationSeconds: elapsed,
-                    samplingSkipped: true
-                )
                 return
             }
 
