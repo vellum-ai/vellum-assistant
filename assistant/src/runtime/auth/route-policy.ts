@@ -348,6 +348,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config/embeddings:PUT", scopes: ["settings.write"] },
 
   // Conversation management
+  { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
 
@@ -470,8 +471,10 @@ for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   });
 }
 
-// Clear-all conversations: elevated to settings.write (destructive bulk operation)
-registerPolicy("conversations:DELETE", {
+// Clear-all conversations: elevated to settings.write (destructive bulk operation).
+// Uses a distinct key so the single-conversation DELETE (conversations:DELETE)
+// retains the lower chat.write scope.
+registerPolicy("conversations/clear-all", {
   requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });

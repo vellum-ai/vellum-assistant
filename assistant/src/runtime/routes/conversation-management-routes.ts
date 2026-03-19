@@ -226,7 +226,7 @@ export function conversationManagementRouteDefinitions(
     {
       endpoint: "conversations",
       method: "DELETE",
-      policyKey: "conversations",
+      policyKey: "conversations/clear-all",
       handler: ({ req }) => {
         const confirm = req.headers.get("x-confirm-destructive");
         if (confirm !== "clear-all-conversations") {

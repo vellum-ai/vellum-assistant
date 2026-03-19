@@ -92,27 +92,42 @@ function buildAuthContext(overrides?: {
 // ---------------------------------------------------------------------------
 
 describe("DELETE /v1/conversations — route policy", () => {
-  test("conversations:DELETE requires settings.write scope", () => {
+  test("conversations/clear-all requires settings.write scope", () => {
     authDisabled = false;
-    const policy = getPolicy("conversations:DELETE");
+    const policy = getPolicy("conversations/clear-all");
     expect(policy).toBeDefined();
     expect(policy!.requiredScopes).toContain("settings.write");
   });
 
-  test("chat.write-only token is rejected with 403", () => {
+  test("chat.write-only token is rejected with 403 for clear-all", () => {
     authDisabled = false;
     const ctx = buildAuthContext({
       scopes: ["chat.read", "chat.write"],
     });
-    const result = enforcePolicy("conversations:DELETE", ctx);
+    const result = enforcePolicy("conversations/clear-all", ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
-  test("settings.write token is allowed through policy", () => {
+  test("settings.write token is allowed through clear-all policy", () => {
     authDisabled = false;
     const ctx = buildAuthContext({
       scopes: ["settings.write"],
+    });
+    const result = enforcePolicy("conversations/clear-all", ctx);
+    expect(result).toBeNull();
+  });
+
+  test("single-conversation DELETE (conversations:DELETE) only requires chat.write", () => {
+    authDisabled = false;
+    const policy = getPolicy("conversations:DELETE");
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toContain("chat.write");
+    expect(policy!.requiredScopes).not.toContain("settings.write");
+
+    // A chat.write token should pass the single-conversation delete policy
+    const ctx = buildAuthContext({
+      scopes: ["chat.read", "chat.write"],
     });
     const result = enforcePolicy("conversations:DELETE", ctx);
     expect(result).toBeNull();
