@@ -15,7 +15,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// The canonical product name shown in menus and the About panel.
     /// Use this instead of hardcoding "Vellum" so the name is defined
     /// in one place.
-    nonisolated(unsafe) public static let appName = "Vellum"
+    public static let appName = "Vellum"
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
