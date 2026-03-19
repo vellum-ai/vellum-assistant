@@ -54,6 +54,15 @@ import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
+import {
+  createTrustRulesListHandler,
+  createTrustRulesAddHandler,
+  createTrustRulesUpdateHandler,
+  createTrustRulesDeleteHandler,
+  createTrustRulesClearHandler,
+  createTrustRulesMatchHandler,
+  createTrustRulesStarterBundleHandler,
+} from "./http/routes/trust-rules.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
@@ -274,6 +283,13 @@ async function main() {
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  const handleTrustRulesList = createTrustRulesListHandler();
+  const handleTrustRulesAdd = createTrustRulesAddHandler();
+  const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
+  const handleTrustRulesDelete = createTrustRulesDeleteHandler();
+  const handleTrustRulesClear = createTrustRulesClearHandler();
+  const handleTrustRulesMatch = createTrustRulesMatchHandler();
+  const handleTrustRulesStarterBundle = createTrustRulesStarterBundleHandler();
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -803,6 +819,50 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Trust rules ──
+    {
+      path: "/v1/trust-rules/clear",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesClear(req),
+    },
+    {
+      path: "/v1/trust-rules/match",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleTrustRulesMatch(req),
+    },
+    {
+      path: "/v1/trust-rules/starter-bundle",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesStarterBundle(req),
+    },
+    {
+      path: "/v1/trust-rules",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleTrustRulesList(req),
+    },
+    {
+      path: "/v1/trust-rules",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesAdd(req),
+    },
+    {
+      path: /^\/v1\/trust-rules\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
+    },
+    {
+      path: /^\/v1\/trust-rules\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
   ];
 
