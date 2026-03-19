@@ -344,8 +344,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Enter draft mode — conversation only appears in sidebar when the user sends
         // their first message (via promoteDraft triggered by onUserMessageSent).
         enterDraftMode()
-
-        SoundManager.shared.play(.newConversation)
     }
 
     /// Opens a conversation for interaction, optionally creating a new one and/or sending a message.

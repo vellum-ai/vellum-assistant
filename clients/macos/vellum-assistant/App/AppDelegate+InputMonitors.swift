@@ -308,6 +308,7 @@ extension AppDelegate {
         window.actions = [
             CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
                 self?.mainWindow?.conversationManager.createConversation()
+                SoundManager.shared.play(.newConversation)
                 if let id = self?.mainWindow?.conversationManager.activeConversationId {
                     self?.mainWindow?.windowState.selection = .conversation(id)
                 }
@@ -467,6 +468,7 @@ extension AppDelegate {
         ensureMainWindowExists()
         guard let mainWindow else { return }
         mainWindow.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let conversationId = mainWindow.conversationManager.activeConversationId {
             mainWindow.windowState.selection = .conversation(conversationId)
         }

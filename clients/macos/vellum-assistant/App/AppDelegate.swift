@@ -610,6 +610,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
     }
 
 }
