@@ -157,7 +157,10 @@ struct HighlightedTextView: View {
                         ReadOnlyCodeView(
                             text: text,
                             language: language,
-                            highlightVersion: highlightVersion
+                            highlightVersion: highlightVersion,
+                            searchQuery: searchQuery,
+                            currentMatchIndex: currentMatchIndex,
+                            matchRanges: isSearchVisible ? findMatchRanges() : []
                         )
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
@@ -269,6 +272,9 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
     let text: String
     let language: SyntaxLanguage
     let highlightVersion: UInt64
+    let searchQuery: String
+    let currentMatchIndex: Int
+    let matchRanges: [Range<String.Index>]
 
     func makeNSView(context: Context) -> HorizontalOnlyScrollView {
         let textStorage = NSTextStorage()
@@ -336,6 +342,22 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
             context.coordinator.applyText(text, language: language, to: textView)
             context.coordinator.lastVersion = highlightVersion
         }
+
+        // Apply or clear search match highlighting
+        let searchChanged = context.coordinator.lastSearchQuery != searchQuery
+            || context.coordinator.lastMatchIndex != currentMatchIndex
+            || context.coordinator.lastMatchCount != matchRanges.count
+
+        if needsUpdate || searchChanged {
+            context.coordinator.applySearchHighlights(
+                matchRanges: matchRanges,
+                currentIndex: currentMatchIndex,
+                in: textView
+            )
+            context.coordinator.lastSearchQuery = searchQuery
+            context.coordinator.lastMatchIndex = currentMatchIndex
+            context.coordinator.lastMatchCount = matchRanges.count
+        }
     }
 
     func sizeThatFits(
@@ -358,6 +380,9 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
         var lastText: String = ""
         var lastLanguage: SyntaxLanguage = .plain
         var lastVersion: UInt64 = 0
+        var lastSearchQuery: String = ""
+        var lastMatchIndex: Int = -1
+        var lastMatchCount: Int = 0
         var paragraphStyle: NSParagraphStyle?
         private var highlightTask: Task<Void, Never>?
 
@@ -397,6 +422,38 @@ private struct ReadOnlyCodeView: NSViewRepresentable {
                     storage.setAttributedString(highlighted)
                     storage.endEditing()
                 }
+            }
+        }
+
+        /// Applies background color attributes for search match highlighting.
+        /// All matches get a subtle background; the current match gets a stronger one.
+        func applySearchHighlights(
+            matchRanges: [Range<String.Index>],
+            currentIndex: Int,
+            in textView: NSTextView
+        ) {
+            guard let storage = textView.textStorage else { return }
+            let fullRange = NSRange(location: 0, length: storage.length)
+
+            // Clear any existing search highlights
+            storage.beginEditing()
+            storage.removeAttribute(.backgroundColor, range: fullRange)
+
+            // Apply match highlights
+            let matchColor = NSColor(VColor.systemMidWeak)
+            let currentMatchColor = NSColor(VColor.primaryBase).withAlphaComponent(0.3)
+
+            for (index, range) in matchRanges.enumerated() {
+                let nsRange = NSRange(range, in: storage.string)
+                let color = index == currentIndex ? currentMatchColor : matchColor
+                storage.addAttribute(.backgroundColor, value: color, range: nsRange)
+            }
+            storage.endEditing()
+
+            // Scroll the current match into view
+            if !matchRanges.isEmpty, currentIndex < matchRanges.count {
+                let currentRange = NSRange(matchRanges[currentIndex], in: storage.string)
+                textView.scrollRangeToVisible(currentRange)
             }
         }
     }

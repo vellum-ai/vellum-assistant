@@ -438,6 +438,7 @@ private struct NodeCopyWrapper<Content: View>: View {
                     }
                     .pointerCursor()
                     .transition(.opacity)
+                    .accessibilityLabel(copied ? "Copied" : "Copy value")
             }
         }
         .padding(.vertical, 2)
