@@ -51,6 +51,8 @@ struct FileContentView: View {
     var onTextChange: ((String) -> Void)? = nil
     @Binding var isActivelyEditing: Bool
     @State private var isContentHovered = false
+    @State private var expandAllTrigger = 0
+    @State private var collapseAllTrigger = 0
 
     private func syncViewMode() {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -102,32 +104,16 @@ struct FileContentView: View {
                     MarkdownPreviewView(content: content)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 case .tree:
-                    JSONTreeView(content: content)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    JSONTreeView(
+                        content: content,
+                        expandAllTrigger: expandAllTrigger,
+                        collapseAllTrigger: collapseAllTrigger
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
                 if isContentHovered && !isActivelyEditing {
-                    HStack(spacing: VSpacing.xs) {
-                        if isEditable && viewMode == .source {
-                            VButton(
-                                label: "Edit",
-                                iconOnly: VIcon.pencil.rawValue,
-                                style: .ghost,
-                                iconSize: 28
-                            ) {
-                                viewMode = .source
-                                isActivelyEditing = true
-                            }
-                        }
-
-                        VCopyButton(text: content, iconSize: 14, accessibilityHint: "Copy all")
-                    }
-                    .padding(VSpacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.surfaceOverlay.opacity(0.9))
-                    )
-                    .padding(VSpacing.sm)
+                    hoverOverlay
                 }
             }
             .onHover { hovering in
@@ -147,6 +133,58 @@ struct FileContentView: View {
         }
         .onAppear { syncViewMode() }
         .onChange(of: mimeType) { syncViewMode() }
+    }
+
+    // MARK: - Hover Overlay
+
+    /// Floating toolbar shown on hover over the file content area.
+    /// Source mode: Edit + Copy. Tree mode: Expand All + Collapse All + Copy.
+    /// Preview mode: Copy only.
+    @ViewBuilder
+    private var hoverOverlay: some View {
+        HStack(spacing: VSpacing.xs) {
+            if isEditable && viewMode == .source {
+                VButton(
+                    label: "Edit",
+                    iconOnly: VIcon.pencil.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Edit"
+                ) {
+                    isActivelyEditing = true
+                }
+            }
+
+            if viewMode == .tree {
+                VButton(
+                    label: "Expand All",
+                    iconOnly: VIcon.maximize.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Expand All"
+                ) {
+                    expandAllTrigger += 1
+                }
+
+                VButton(
+                    label: "Collapse All",
+                    iconOnly: VIcon.minimize.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Collapse All"
+                ) {
+                    collapseAllTrigger += 1
+                }
+            }
+
+            VCopyButton(text: content, iconSize: 28, accessibilityHint: "Copy all")
+        }
+        .padding(VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay.opacity(0.9))
+        )
+        .padding(VSpacing.sm)
     }
 }
 

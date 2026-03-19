@@ -217,38 +217,38 @@ struct FeedbackGallerySection: View {
             // MARK: - VCopyButton
             GallerySectionHeader(
                 title: "VCopyButton",
-                description: "Copy-to-clipboard button with checkmark feedback. Supports icon-only and labeled styles."
+                description: "Copy-to-clipboard ghost button (wraps VButton) with checkmark feedback. Supports size variants."
             )
 
             VCard {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    // Icon-only
+                    // Size variants
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Default (11pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VCopyButton(text: "Hello, world!")
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Small (9pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VCopyButton(text: "Small icon", iconSize: 9)
+                            Text("Compact").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Compact copy", size: .compact)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Large (16pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VCopyButton(text: "Large icon", iconSize: 16)
+                            Text("Custom frame (20pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Small frame", iconSize: 20)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Large frame (28pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Large frame", iconSize: 28)
                         }
                     }
 
                     Divider().background(VColor.borderBase)
 
-                    // Labeled
+                    // Custom hint
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Labeled").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VCopyButton(text: "Copyable text", style: .labeled)
-                        }
-                        VStack(spacing: VSpacing.xs) {
-                            Text("Custom hint").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VCopyButton(text: "api_key_123", style: .labeled, accessibilityHint: "Copy API key")
+                            Text("Custom tooltip").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "api_key_123", accessibilityHint: "Copy API key")
                         }
                     }
                 }

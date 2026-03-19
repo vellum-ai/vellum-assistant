@@ -165,8 +165,13 @@ private func collectContainerPaths(_ node: JSONNode) -> Set<String> {
 // MARK: - JSONTreeView
 
 /// Renders a JSON string as a collapsible tree with color-coded values.
+///
+/// Expand/collapse all can be triggered externally by incrementing
+/// `expandAllTrigger` or `collapseAllTrigger`.
 struct JSONTreeView: View {
     let content: String
+    var expandAllTrigger: Int = 0
+    var collapseAllTrigger: Int = 0
     @State private var root: JSONParseResult?
     @State private var expandedPaths: Set<String> = []
 
@@ -193,6 +198,18 @@ struct JSONTreeView: View {
                 autoExpandInitial(node)
             }
         }
+        .onChange(of: expandAllTrigger) { _, _ in
+            if case .success(let node) = root {
+                withAnimation(VAnimation.fast) {
+                    expandedPaths = collectContainerPaths(node)
+                }
+            }
+        }
+        .onChange(of: collapseAllTrigger) { _, _ in
+            withAnimation(VAnimation.fast) {
+                expandedPaths.removeAll()
+            }
+        }
     }
 
     @ViewBuilder
@@ -215,7 +232,6 @@ struct JSONTreeView: View {
     @ViewBuilder
     private func treeContent(_ node: JSONNode) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            toolbar(node)
             GeometryReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -232,38 +248,6 @@ struct JSONTreeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private func toolbar(_ node: JSONNode) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            Spacer()
-            VButton(
-                label: "Expand All",
-                iconOnly: VIcon.maximize.rawValue,
-                style: .ghost,
-                iconSize: 24,
-                tooltip: "Expand All"
-            ) {
-                withAnimation(VAnimation.fast) {
-                    expandedPaths = collectContainerPaths(node)
-                }
-            }
-
-            VButton(
-                label: "Collapse All",
-                iconOnly: VIcon.minimize.rawValue,
-                style: .ghost,
-                iconSize: 24,
-                tooltip: "Collapse All"
-            ) {
-                withAnimation(VAnimation.fast) {
-                    expandedPaths.removeAll()
-                }
-            }
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
     }
 
     private func autoExpandInitial(_ node: JSONNode) {
@@ -431,7 +415,7 @@ private struct NodeCopyWrapper<Content: View>: View {
             content
 
             if isHovered {
-                VCopyButton(text: node.serializedValue, iconSize: 9, accessibilityHint: "Copy value")
+                VCopyButton(text: node.serializedValue, iconSize: 20, accessibilityHint: "Copy value")
                     .transition(.opacity)
             }
         }

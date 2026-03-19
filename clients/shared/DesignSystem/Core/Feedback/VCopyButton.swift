@@ -5,91 +5,70 @@ import AppKit
 import UIKit
 #endif
 
-/// A copy-to-clipboard button with checkmark feedback.
+/// A copy-to-clipboard button built on `VButton` (ghost style) with
+/// checkmark feedback.
 ///
 /// Copies the provided string to the system pasteboard when tapped. Shows
 /// a checkmark icon for 1.5 seconds after copying, then reverts to the
-/// copy icon. Supports icon-only (default) and icon+label modes.
+/// copy icon. Accepts `VButton.Size` variants for different contexts.
 ///
 /// ```swift
-/// // Icon-only (compact)
+/// // Icon-only (default, regular size)
 /// VCopyButton(text: url)
 ///
-/// // Icon + label
-/// VCopyButton(text: code, style: .labeled)
+/// // Compact size for toolbars
+/// VCopyButton(text: json, size: .compact)
 ///
-/// // Custom size and tooltip
-/// VCopyButton(text: json, iconSize: 14, accessibilityHint: "Copy JSON")
+/// // Custom frame size and tooltip
+/// VCopyButton(text: json, iconSize: 28, accessibilityHint: "Copy JSON")
 /// ```
 public struct VCopyButton: View {
-    /// Visual style of the button.
-    public enum Style {
-        /// Icon only — shows just the copy/check icon.
-        case iconOnly
-        /// Icon + text label — shows "Copy" / "Copied" next to the icon.
-        case labeled
-    }
-
     /// The string to copy to the pasteboard.
     public let text: String
 
-    /// Visual style. Defaults to `.iconOnly`.
-    public var style: Style = .iconOnly
+    /// Button size variant. Defaults to `.regular`.
+    public var size: VButton.Size
 
-    /// Icon size in points. Defaults to 11.
-    public var iconSize: CGFloat = 11
+    /// Frame size in points passed to VButton's `iconSize`.
+    /// When `nil`, VButton uses its default (32pt).
+    public var iconSize: CGFloat?
 
     /// Tooltip text shown on hover. Defaults to "Copy" / "Copied!".
     public var accessibilityHint: String?
 
     @State private var copied = false
-    @State private var isHovered = false
     @State private var resetTask: Task<Void, Never>?
 
     public init(
         text: String,
-        style: Style = .iconOnly,
-        iconSize: CGFloat = 11,
+        size: VButton.Size = .regular,
+        iconSize: CGFloat? = nil,
         accessibilityHint: String? = nil
     ) {
         self.text = text
-        self.style = style
+        self.size = size
         self.iconSize = iconSize
         self.accessibilityHint = accessibilityHint
     }
 
     public var body: some View {
-        Button(action: copyToClipboard) {
-            HStack(spacing: VSpacing.xxs) {
-                VIconView(copied ? .check : .copy, size: iconSize)
-                if style == .labeled {
-                    Text(copied ? "Copied" : "Copy")
-                        .font(VFont.caption)
-                }
-            }
-            .foregroundColor(foregroundColor)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        VButton(
+            label: copied ? "Copied" : (accessibilityHint ?? "Copy"),
+            iconOnly: (copied ? VIcon.check : VIcon.copy).rawValue,
+            style: .ghost,
+            size: size,
+            iconSize: iconSize,
+            tooltip: copied ? "Copied!" : (accessibilityHint ?? "Copy"),
+            iconColor: copied ? VColor.systemPositiveStrong : nil,
+            action: copyToClipboard
+        )
         .animation(VAnimation.fast, value: copied)
-        .accessibilityLabel(copied ? "Copied" : (accessibilityHint ?? "Copy"))
-        .help(copied ? "Copied!" : (accessibilityHint ?? "Copy"))
-        .pointerCursor(onHover: { hovering in
-            isHovered = hovering
-        })
         .onDisappear {
             resetTask?.cancel()
         }
     }
 
     // MARK: - Private
-
-    private var foregroundColor: Color {
-        if copied {
-            return VColor.systemPositiveStrong
-        }
-        return isHovered ? VColor.contentDefault : VColor.contentSecondary
-    }
 
     private func copyToClipboard() {
         #if os(macOS)
