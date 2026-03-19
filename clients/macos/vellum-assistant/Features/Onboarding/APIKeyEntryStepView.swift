@@ -91,11 +91,11 @@ struct APIKeyEntryStepView: View {
                 if isCustomProviderEnabled {
                     providerPicker
 
+                    modelPicker
+
                     if providerRequiresKey {
                         apiKeyField
                     }
-
-                    modelPicker
 
                     OnboardingButton(
                         title: "Continue",
