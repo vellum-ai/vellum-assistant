@@ -35,13 +35,13 @@ enum APIKeyManager {
         #endif
     }()
 
-    /// All provider identifiers whose API keys should be synced to the daemon.
-    /// Every call site that iterates over syncable providers must use this list
-    /// to keep key sync, hasAnyKey checks, and reconnect flows consistent.
+    /// Provider identifiers whose API keys are synced to the daemon as
+    /// `type: "api_key"`. ElevenLabs is excluded because the daemon expects
+    /// it as `type: "credential"` with name `"elevenlabs:api_key"` — the
+    /// sync loops in AppDelegate and SettingsStore handle it separately.
     static let allSyncableProviders = [
         "anthropic",
         "brave",
-        "elevenlabs",
         "fireworks",
         "gemini",
         "openai",
@@ -53,6 +53,9 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
+        // ElevenLabs is not in allSyncableProviders (different sync type)
+        // but still counts as a configured key.
+        if getKey(for: "elevenlabs") != nil { return true }
         return false
     }
 
@@ -63,21 +66,29 @@ enum APIKeyManager {
     /// Safe to call multiple times — skips providers that already have a
     /// value in credential storage.
     static func migrateFromUserDefaults() {
+        // Migrate api_key-type providers
         for provider in allSyncableProviders {
-            let udKey = udPrefix + provider
-            if let udValue = UserDefaults.standard.string(forKey: udKey),
-               !udValue.isEmpty,
-               storage.get(account: udKey) == nil {
-                // Only remove from UserDefaults if the credential store
-                // write succeeds. A transient Keychain/file failure should
-                // not destroy the user's only copy of the key.
-                guard storage.set(account: udKey, value: udValue) else { continue }
-            }
-            // Safe to remove: either the key was successfully migrated,
-            // the credential store already had a value, or UserDefaults
-            // had no value to preserve.
-            UserDefaults.standard.removeObject(forKey: udKey)
+            migrateProviderFromUserDefaults(provider)
         }
+        // ElevenLabs uses a different sync type but still needs migration
+        migrateProviderFromUserDefaults("elevenlabs")
+    }
+
+    /// Migrate a single provider's key from UserDefaults to credential storage.
+    private static func migrateProviderFromUserDefaults(_ provider: String) {
+        let udKey = udPrefix + provider
+        if let udValue = UserDefaults.standard.string(forKey: udKey),
+           !udValue.isEmpty,
+           storage.get(account: udKey) == nil {
+            // Only remove from UserDefaults if the credential store
+            // write succeeds. A transient Keychain/file failure should
+            // not destroy the user's only copy of the key.
+            guard storage.set(account: udKey, value: udValue) else { return }
+        }
+        // Safe to remove: either the key was successfully migrated,
+        // the credential store already had a value, or UserDefaults
+        // had no value to preserve.
+        UserDefaults.standard.removeObject(forKey: udKey)
     }
 
     // MARK: - Generic provider access
