@@ -351,13 +351,11 @@ describe("resolveAppDir() validation", () => {
       JSON.stringify({ id: fakeId, name: "Evil", dirName: "" }),
     );
 
-    // Empty string is falsy, so validateDirName is not called.
-    // `parsed.dirName ?? id` with nullish coalescing: "" is not nullish,
-    // so dirName = "". The function returns "" as dirName.
+    // Empty string is falsy, so `parsed.dirName || id` falls back to the app ID.
+    // This prevents appDir from resolving to the apps root directory.
     const result = resolveAppDir(fakeId);
-    // Empty dirName is falsy, so the conditional `if (parsed.dirName)` is false,
-    // meaning it won't call validateDirName. The dirName "" is used as-is.
-    expect(result.dirName).toBe("");
+    expect(result.dirName).toBe(fakeId);
+    expect(result.appDir).toBe(join(appsDir, fakeId));
   });
 });
 
