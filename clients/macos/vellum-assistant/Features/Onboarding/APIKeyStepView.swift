@@ -208,6 +208,8 @@ struct APIKeyStepView: View {
 
         if isAuthenticated {
             // Authenticated user selecting Local: skip API key, advance to consent step
+            state.selectedProvider = "anthropic"
+            state.selectedModel = "claude-opus-4-6"
             saveModelToConfig("claude-opus-4-6")
             state.skippedAPIKeyEntry = true
             state.advance(by: 2)
