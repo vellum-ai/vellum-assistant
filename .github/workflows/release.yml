@@ -318,20 +318,25 @@ jobs:
 
       - name: Ensure GCP Artifact Registry repository exists
         run: |
-          LOCATION="${{ secrets.GCP_REGISTRY_HOST }}"
-          LOCATION="${LOCATION%-docker.pkg.dev}"
-          if ! output=$(gcloud artifacts repositories create \
-            "${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" \
-            --repository-format=docker \
+          REGISTRY_HOST="${{ secrets.GCP_REGISTRY_HOST }}"
+          # Legacy gcr.io registries provision repositories automatically.
+          if echo "$REGISTRY_HOST" | grep -q "gcr.io"; then
+            echo "Legacy gcr.io registry detected — skipping repository creation."
+            exit 0
+          fi
+          LOCATION="${REGISTRY_HOST%-docker.pkg.dev}"
+          REPO="${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          # Use describe (read-only) to check existence before attempting create (admin).
+          if gcloud artifacts repositories describe "$REPO" \
             --location="$LOCATION" \
             --project="${{ secrets.GCP_PROJECT_ID }}" \
-            2>&1); then
-            if echo "$output" | grep -q "ALREADY_EXISTS"; then
-              echo "Repository already exists, continuing."
-            else
-              echo "$output" >&2
-              exit 1
-            fi
+            > /dev/null 2>&1; then
+            echo "Repository '$REPO' already exists."
+          else
+            gcloud artifacts repositories create "$REPO" \
+              --repository-format=docker \
+              --location="$LOCATION" \
+              --project="${{ secrets.GCP_PROJECT_ID }}"
           fi
 
       - name: Build and push by digest
