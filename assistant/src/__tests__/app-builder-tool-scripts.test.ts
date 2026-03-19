@@ -90,13 +90,6 @@ mock.module("../bundler/app-compiler.js", () => ({
 
 import * as appCreateScript from "../config/bundled-skills/app-builder/tools/app-create.js";
 import * as appDeleteScript from "../config/bundled-skills/app-builder/tools/app-delete.js";
-import * as appFileEditScript from "../config/bundled-skills/app-builder/tools/app-file-edit.js";
-import * as appFileListScript from "../config/bundled-skills/app-builder/tools/app-file-list.js";
-import * as appFileReadScript from "../config/bundled-skills/app-builder/tools/app-file-read.js";
-import * as appFileWriteScript from "../config/bundled-skills/app-builder/tools/app-file-write.js";
-import * as appListScript from "../config/bundled-skills/app-builder/tools/app-list.js";
-import * as appQueryScript from "../config/bundled-skills/app-builder/tools/app-query.js";
-import * as appUpdateScript from "../config/bundled-skills/app-builder/tools/app-update.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -147,58 +140,6 @@ describe("app-builder skill tool scripts", () => {
     });
   });
 
-  // ---- app-list ----------------------------------------------------------
-
-  describe("app-list", () => {
-    test("exports a run function", () => {
-      expect(typeof appListScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppList and returns result", async () => {
-      const result = await appListScript.run({}, makeContext());
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed.length).toBeGreaterThan(0);
-      expect(parsed[0].id).toBe("app-1");
-    });
-  });
-
-  // ---- app-query ---------------------------------------------------------
-
-  describe("app-query", () => {
-    test("exports a run function", () => {
-      expect(typeof appQueryScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppQuery and returns result", async () => {
-      const result = await appQueryScript.run(
-        { app_id: "app-1" },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      expect(JSON.parse(result.content)).toEqual([]);
-    });
-  });
-
-  // ---- app-update --------------------------------------------------------
-
-  describe("app-update", () => {
-    test("exports a run function", () => {
-      expect(typeof appUpdateScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppUpdate and returns result", async () => {
-      const result = await appUpdateScript.run(
-        { app_id: "app-1", name: "Updated" },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(parsed.name).toBe("Updated");
-    });
-  });
-
   // ---- app-delete --------------------------------------------------------
 
   describe("app-delete", () => {
@@ -215,96 +156,6 @@ describe("app-builder skill tool scripts", () => {
       const parsed = JSON.parse(result.content);
       expect(parsed.deleted).toBe(true);
       expect(parsed.appId).toBe("app-1");
-    });
-  });
-
-  // ---- app-file-list -----------------------------------------------------
-
-  describe("app-file-list", () => {
-    test("exports a run function", () => {
-      expect(typeof appFileListScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppFileList and returns result", async () => {
-      const result = await appFileListScript.run(
-        { app_id: "app-1" },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      expect(JSON.parse(result.content)).toEqual(["index.html"]);
-    });
-  });
-
-  // ---- app-file-read -----------------------------------------------------
-
-  describe("app-file-read", () => {
-    test("exports a run function", () => {
-      expect(typeof appFileReadScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppFileRead and returns formatted content", async () => {
-      const result = await appFileReadScript.run(
-        { app_id: "app-1", path: "index.html" },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      // Content should include line numbers
-      expect(result.content).toContain("1\t");
-    });
-  });
-
-  // ---- app-file-edit -----------------------------------------------------
-
-  describe("app-file-edit", () => {
-    test("exports a run function", () => {
-      expect(typeof appFileEditScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppFileEdit and returns result", async () => {
-      const result = await appFileEditScript.run(
-        {
-          app_id: "app-1",
-          path: "index.html",
-          old_string: "old",
-          new_string: "new",
-        },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(parsed.ok).toBe(true);
-    });
-
-    test("returns error when old_string is empty", async () => {
-      const result = await appFileEditScript.run(
-        {
-          app_id: "app-1",
-          path: "index.html",
-          old_string: "",
-          new_string: "new",
-        },
-        makeContext(),
-      );
-      expect(result.isError).toBe(true);
-    });
-  });
-
-  // ---- app-file-write ----------------------------------------------------
-
-  describe("app-file-write", () => {
-    test("exports a run function", () => {
-      expect(typeof appFileWriteScript.run).toBe("function");
-    });
-
-    test("delegates to executeAppFileWrite and returns result", async () => {
-      const result = await appFileWriteScript.run(
-        { app_id: "app-1", path: "new.html", content: "<div/>" },
-        makeContext(),
-      );
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(parsed.written).toBe(true);
-      expect(parsed.path).toBe("new.html");
     });
   });
 });
