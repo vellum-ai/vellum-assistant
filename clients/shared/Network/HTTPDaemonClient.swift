@@ -1127,8 +1127,7 @@ public final class HTTPTransport {
                     conversationId: conversationId,
                     code: .providerApi,
                     userMessage: message,
-                    retryable: false,
-                    failedMessageContent: content
+                    retryable: false
                 )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
