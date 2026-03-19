@@ -398,8 +398,8 @@ export function handleInputJsonDelta(
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
   // Only forward input deltas for app tools — the client only uses this
-  // stream for app_create/app_update code previews. Non-app tools would
-  // send large cumulative JSON on every delta with no benefit.
+  // stream for app_create code previews. Non-app tools would send large
+  // cumulative JSON on every delta with no benefit.
   if (!APP_TOOL_NAMES.has(event.toolName)) return;
   deps.onEvent({
     type: "tool_input_delta",

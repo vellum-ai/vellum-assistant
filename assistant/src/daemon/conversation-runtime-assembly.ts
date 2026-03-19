@@ -306,7 +306,7 @@ export function injectActiveSurfaceContext(
       'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `id: "app-builder"` first to load it.',
       "",
       "RULES FOR WORKSPACE MODIFICATION:",
-      `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`~/.vellum/workspace/data/apps/${slug}/<path>\`.`,
+      `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,
       "2. Use `file_write` to create new files or rewrite files.",
       "3. Use `file_read` to read any file with line numbers before editing.",
       "4. Use `bash ls` to see all files in the app directory.",
