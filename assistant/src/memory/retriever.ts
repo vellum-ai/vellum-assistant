@@ -392,6 +392,51 @@ export async function buildMemoryRecall(
           }
         }
       }
+
+      // ── Item filtering: exclude items whose ALL sources are in-context ──
+      // Items distilled from messages the model can already see are redundant.
+      // However, items with ANY source outside the in-context set carry
+      // cross-conversation information and must be preserved.
+      const itemCandidateIds = [...candidateMap.values()]
+        .filter((c) => c.type === "item")
+        .map((c) => c.id);
+
+      if (itemCandidateIds.length > 0) {
+        try {
+          const db = getDb();
+          const allSources = db
+            .select({
+              memoryItemId: memoryItemSources.memoryItemId,
+              messageId: memoryItemSources.messageId,
+            })
+            .from(memoryItemSources)
+            .where(inArray(memoryItemSources.memoryItemId, itemCandidateIds))
+            .all();
+
+          // Build item ID → source message IDs map
+          const itemSourceMap = new Map<string, string[]>();
+          for (const s of allSources) {
+            const existing = itemSourceMap.get(s.memoryItemId);
+            if (existing) existing.push(s.messageId);
+            else itemSourceMap.set(s.memoryItemId, [s.messageId]);
+          }
+
+          // Filter items whose ALL sources are in-context
+          for (const [key, c] of candidateMap) {
+            if (c.type !== "item") continue;
+            const sourceMessageIds = itemSourceMap.get(c.id);
+            if (!sourceMessageIds || sourceMessageIds.length === 0) continue;
+            if (sourceMessageIds.every((mid) => inContextMessageIds.has(mid))) {
+              candidateMap.delete(key);
+            }
+          }
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to fetch item sources for in-context filtering; skipping",
+          );
+        }
+      }
     }
   }
 

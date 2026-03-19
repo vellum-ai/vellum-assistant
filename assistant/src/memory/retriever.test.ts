@@ -53,10 +53,18 @@ mock.module("../memory/embedding-local.js", () => ({
 }));
 
 // Mock Qdrant client so semantic search returns empty results by default.
+// Tests can push entries into `mockQdrantResults` to simulate Qdrant returning
+// specific hits (e.g. item candidates).
+const mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => [...mockQdrantResults],
+    hybridSearch: async () => [...mockQdrantResults],
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -297,6 +305,7 @@ describe("Memory Retriever Pipeline", () => {
     db.run("DELETE FROM conversations");
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
+    mockQdrantResults.length = 0;
   });
 
   afterAll(() => {
@@ -857,5 +866,205 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.recencyHits).toBeGreaterThan(0);
     // Current-conversation segments are filtered out of merged results
     expect(result.mergedCount).toBe(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // Step 5b: in-context item filtering
+  // -----------------------------------------------------------------------
+
+  describe("step 5b: in-context item filtering", () => {
+    test("filters items whose all sources are in-context messages", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-filter";
+
+      insertConversation(db, convId, now - 60_000);
+      insertMessage(db, "msg-if-1", convId, "user", "hello", now - 50_000);
+      insertMessage(db, "msg-if-2", convId, "assistant", "world", now - 40_000);
+      insertMessage(
+        db,
+        "msg-if-3",
+        convId,
+        "user",
+        "memory items test",
+        now - 30_000,
+      );
+
+      // Insert a memory item sourced from msg-if-2 (in-context)
+      insertItem(db, {
+        id: "item-in-ctx",
+        kind: "fact",
+        subject: "test",
+        statement: "A fact from in-context message",
+        firstSeenAt: now - 35_000,
+      });
+      insertItemSource(db, "item-in-ctx", "msg-if-2", now - 35_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-1",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-in-ctx",
+          text: "test: A fact from in-context message",
+          created_at: now - 35_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "memory items test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item should be filtered because its only source is in-context
+      expect(result.mergedCount).toBe(0);
+    });
+
+    test("keeps items from compacted messages", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-compacted";
+
+      // 2 messages compacted away
+      insertConversation(db, convId, now - 120_000, {
+        contextCompactedMessageCount: 2,
+      });
+
+      // Compacted messages (first 2 by createdAt order)
+      insertMessage(
+        db,
+        "msg-ic-1",
+        convId,
+        "user",
+        "compacted old topic",
+        now - 100_000,
+      );
+      insertMessage(
+        db,
+        "msg-ic-2",
+        convId,
+        "assistant",
+        "compacted old reply",
+        now - 90_000,
+      );
+
+      // Still in context
+      insertMessage(
+        db,
+        "msg-ic-3",
+        convId,
+        "user",
+        "item compaction test",
+        now - 50_000,
+      );
+
+      // Item sourced from a compacted message — should be kept
+      insertItem(db, {
+        id: "item-compacted",
+        kind: "fact",
+        subject: "compaction",
+        statement: "A fact from a compacted message",
+        firstSeenAt: now - 95_000,
+      });
+      insertItemSource(db, "item-compacted", "msg-ic-1", now - 95_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-2",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-compacted",
+          text: "compaction: A fact from a compacted message",
+          created_at: now - 95_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "item compaction test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item sourced from a compacted message should survive filtering
+      // because its source is no longer in the context window
+      expect(result.mergedCount).toBeGreaterThan(0);
+    });
+
+    test("keeps items with cross-conversation sources", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-cross";
+      const otherConvId = "conv-item-other";
+
+      insertConversation(db, convId, now - 60_000);
+      insertConversation(db, otherConvId, now - 120_000);
+
+      // Messages in current conversation
+      insertMessage(
+        db,
+        "msg-cr-1",
+        convId,
+        "user",
+        "cross conv test",
+        now - 50_000,
+      );
+      insertMessage(
+        db,
+        "msg-cr-2",
+        convId,
+        "assistant",
+        "cross conv reply",
+        now - 40_000,
+      );
+
+      // Message in the other conversation
+      insertMessage(
+        db,
+        "msg-cr-other",
+        otherConvId,
+        "user",
+        "other conv msg",
+        now - 100_000,
+      );
+
+      // Item sourced from BOTH the current conversation AND a different one
+      insertItem(db, {
+        id: "item-cross",
+        kind: "fact",
+        subject: "cross",
+        statement: "A cross-conversation fact",
+        firstSeenAt: now - 95_000,
+      });
+      insertItemSource(db, "item-cross", "msg-cr-1", now - 45_000);
+      insertItemSource(db, "item-cross", "msg-cr-other", now - 95_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-3",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-cross",
+          text: "cross: A cross-conversation fact",
+          created_at: now - 95_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "cross conv test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item has a source outside the in-context set (from other conv),
+      // so it should NOT be filtered — it carries cross-conversation info
+      expect(result.mergedCount).toBeGreaterThan(0);
+    });
   });
 });
