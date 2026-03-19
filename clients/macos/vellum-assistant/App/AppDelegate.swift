@@ -68,6 +68,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
 
+    let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?

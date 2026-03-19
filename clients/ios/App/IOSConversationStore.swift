@@ -860,7 +860,7 @@ class IOSConversationStore: ObservableObject {
             source: "ui-navigation",
             evidenceText: "User opened conversation in app"
         )
-        try? daemonClient.send(signal)
+        Task { await conversationListClient.sendConversationSeen(signal) }
     }
 
     /// Request an older page of history for pagination.
@@ -1335,13 +1335,7 @@ class IOSConversationStore: ObservableObject {
             )
         }
         guard !updates.isEmpty else { return }
-
-        do {
-            try daemonClient.send(ReorderConversationsRequest(
-                type: "reorder_conversations",
-                updates: updates
-            ))
-        } catch {}
+        Task { await conversationListClient.reorderConversations(updates: updates) }
     }
 
     // MARK: - Persistence

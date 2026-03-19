@@ -73,10 +73,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 // Without this, socketToConversation stays stale after conversation switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
                 if let conversationId = activeViewModel?.conversationId {
-                    do {
-                        try daemonClient.send(ConversationSwitchRequest(conversationId: conversationId))
-                    } catch {
-                        log.error("Failed to send conversation switch request: \(error)")
+                    Task {
+                        let success = await conversationListClient.switchConversation(conversationId: conversationId)
+                        if !success {
+                            log.error("Failed to send conversation switch request")
+                        }
                     }
                 }
             } else {
@@ -1304,13 +1305,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             ))
         }
         guard !updates.isEmpty else { return }
-        do {
-            try daemonClient.send(ReorderConversationsRequest(
-                type: "reorder_conversations",
-                updates: updates
-            ))
-        } catch {
-            log.error("Failed to send reorder_conversations: \(error.localizedDescription)")
+        Task {
+            let success = await conversationListClient.reorderConversations(updates: updates)
+            if !success {
+                log.error("Failed to send reorder_conversations")
+            }
         }
     }
 
@@ -1376,11 +1375,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].title = trimmed
         if let conversationId = conversations[index].conversationId {
-            try? daemonClient.send(ConversationRenameRequest(
-                type: "conversation_rename",
-                conversationId: conversationId,
-                title: trimmed
-            ))
+            Task { await conversationListClient.renameConversation(conversationId: conversationId, name: trimmed) }
         } else {
             pendingRenames[id] = trimmed
         }
@@ -1738,10 +1733,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             source: "ui-navigation",
             evidenceText: "User opened conversation in app"
         )
-        do {
-            try daemonClient.send(signal)
-        } catch {
-            log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
+        Task {
+            let success = await conversationListClient.sendConversationSeen(signal)
+            if !success {
+                log.warning("Failed to send conversation_seen_signal for \(conversationId)")
+            }
         }
     }
 
@@ -1843,11 +1839,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         sendReorderConversations()
         // Flush any rename that was queued before the conversation ID was assigned.
         if let pendingTitle = pendingRenames.removeValue(forKey: localId) {
-            try? daemonClient.send(ConversationRenameRequest(
-                type: "conversation_rename",
-                conversationId: conversationId,
-                title: pendingTitle
-            ))
+            Task { await conversationListClient.renameConversation(conversationId: conversationId, name: pendingTitle) }
         }
     }
 
@@ -1883,11 +1875,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         let uuidKey = conversations[index].id
         if let pendingTitle = pendingRenames.removeValue(forKey: uuidKey) {
-            try? daemonClient.send(ConversationRenameRequest(
-                type: "conversation_rename",
-                conversationId: serverId,
-                title: pendingTitle
-            ))
+            Task { await conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
         }
 
         log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")

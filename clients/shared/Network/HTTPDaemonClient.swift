@@ -310,7 +310,6 @@ public final class HTTPTransport {
         case healthz
         case eventsAll  // SSE subscription for all events
         case sendMessage
-        case conversationsSeen
         case identity
         case trustRulesManage
         case trustRuleManageById(id: String)
@@ -321,15 +320,7 @@ public final class HTTPTransport {
         case appsSigningIdentity
         // Subagents
         case subagentMessage(id: String)
-        // Conversation management
-        case conversationsSwitch
-        case conversationRename(id: String)
-        case conversationsClear
-        case conversationCancel(id: String)
-        case conversationUndo(id: String)
         case model
-        case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case conversationsReorder
         // Computer Use
         case cuWatch
 
@@ -408,8 +399,6 @@ public final class HTTPTransport {
             return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
-        case .conversationsSeen:
-            return ("/v1/conversations/seen", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .trustRulesManage:
@@ -435,30 +424,8 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
-        // Conversation management
-        case .conversationsSwitch:
-            return ("/v1/conversations/switch", nil)
-        case .conversationRename(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/name", nil)
-        case .conversationsClear:
-            return ("/v1/conversations", nil)
-        case .conversationCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/cancel", nil)
-        case .conversationUndo(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/undo", nil)
         case .model:
             return ("/v1/model", nil)
-        case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            var qs = "q=\(qEncoded)"
-            if let limit { qs += "&limit=\(limit)" }
-            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
-            return ("/v1/conversations/search", qs)
-        case .conversationsReorder:
-            return ("/v1/conversations/reorder", nil)
         // Computer Use
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
@@ -522,8 +489,6 @@ public final class HTTPTransport {
             return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
-        case .conversationsSeen:
-            return ("\(prefix)/conversations/seen/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .trustRulesManage:
@@ -549,30 +514,8 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
-        // Conversation management
-        case .conversationsSwitch:
-            return ("\(prefix)/conversations/switch/", nil)
-        case .conversationRename(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/name/", nil)
-        case .conversationsClear:
-            return ("\(prefix)/conversations/", nil)
-        case .conversationCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/cancel/", nil)
-        case .conversationUndo(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/undo/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
-        case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            var qs = "q=\(qEncoded)"
-            if let limit { qs += "&limit=\(limit)" }
-            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
-            return ("\(prefix)/conversations/search/", qs)
-        case .conversationsReorder:
-            return ("\(prefix)/conversations/reorder/", nil)
         // Computer Use
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
@@ -1212,317 +1155,6 @@ public final class HTTPTransport {
             jsonCompatible[key] = value.value
         }
         return jsonCompatible
-    }
-
-    func sendConversationSeen(_ signal: ConversationSeenSignal, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsSeen) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationId": signal.conversationId,
-            "sourceChannel": signal.sourceChannel,
-            "signalType": signal.signalType,
-            "confidence": signal.confidence,
-            "source": signal.source
-        ]
-        if let evidenceText = signal.evidenceText {
-            body["evidenceText"] = evidenceText
-        }
-        if let observedAt = signal.observedAt {
-            body["observedAt"] = observedAt
-        }
-        if let metadata = signal.metadata {
-            body["metadata"] = jsonCompatibleDictionary(metadata)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await sendConversationSeen(signal, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Conversation seen signal failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Conversation seen signal error: \(error.localizedDescription)")
-        }
-    }
-
-
-    private func decodeHTTPErrorMessage(from data: Data) -> String? {
-        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
-            return envelope.error.message
-        }
-        guard let body = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !body.isEmpty else { return nil }
-        return body
-    }
-
-    // MARK: - Conversation Management HTTP Handlers
-
-    func switchConversation(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsSwitch) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["conversationId": conversationId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Successful switch — conversation_info will arrive via SSE
-                log.info("Conversation switch to \(conversationId) succeeded")
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await switchConversation(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Conversation switch failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation switch error: \(error.localizedDescription)")
-        }
-    }
-
-    func renameConversation(conversationId: String, name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRename(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["name": name]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Emit conversation_title_updated so the UI refreshes
-                onMessage?(.conversationTitleUpdated(ConversationTitleUpdatedMessage(
-                    type: "conversation_title_updated",
-                    conversationId: conversationId,
-                    title: name
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await renameConversation(conversationId: conversationId, name: name, isRetry: true)
-                }
-            } else {
-                log.error("Conversation rename failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation rename error: \(error.localizedDescription)")
-        }
-    }
-
-    func clearAllConversations(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsClear) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("clear-all-conversations", forHTTPHeaderField: "X-Confirm-Destructive")
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 204 || http.statusCode == 200 {
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(
-                    type: "conversation_list_response",
-                    conversations: [],
-                    hasMore: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await clearAllConversations(isRetry: true)
-                }
-            } else {
-                log.error("Clear conversations failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Clear conversations error: \(error.localizedDescription)")
-        }
-    }
-
-    func cancelGeneration(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationCancel(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Cancel generation succeeded for \(conversationId)")
-                // generation_cancelled will arrive via SSE
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await cancelGeneration(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Cancel generation failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Cancel generation error: \(error.localizedDescription)")
-        }
-    }
-
-    func undoLastMessage(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationUndo(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let removedCount = json["removedCount"] as? Int {
-                    onMessage?(.undoComplete(UndoCompleteMessage(
-                        type: "undo_complete",
-                        removedCount: removedCount,
-                        conversationId: conversationId
-                    )))
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await undoLastMessage(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Undo failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Undo error: \(error.localizedDescription)")
-        }
-    }
-
-
-    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("conversation_search_response", into: data)
-                let decoded = try decoder.decode(ConversationSearchResponse.self, from: patched)
-                onMessage?(.conversationSearchResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await searchConversations(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation, isRetry: true)
-                }
-            } else {
-                log.error("Conversation search failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation search error: \(error.localizedDescription)")
-        }
-    }
-
-
-    func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsReorder) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = [
-            "updates": updates.map { u in
-                var entry: [String: Any] = [
-                    "conversationId": u.conversationId,
-                    "isPinned": u.isPinned
-                ]
-                if let order = u.displayOrder {
-                    entry["displayOrder"] = order
-                }
-                return entry
-            }
-        ]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Success — no response event needed
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await reorderConversations(updates: updates, isRetry: true)
-                }
-            } else {
-                log.error("Reorder conversations failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Reorder conversations error: \(error.localizedDescription)")
-        }
-    }
-
-    /// Extract an error message from an HTTP error response body.
-    private func extractErrorMessage(from data: Data) -> String {
-        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
-            return envelope.error.message
-        }
-        return "Unknown error"
-    }
-
-    /// Inject a `"type"` field into a JSON response before decoding.
-    /// HTTP endpoints return raw payloads without the `type` discriminator.
-    /// This helper patches the JSON so existing Codable types (which expect
-    /// `type`) can decode unchanged.
-    private func injectType(_ typeValue: String, into data: Data) -> Data {
-        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return data
-        }
-        json["type"] = typeValue
-        return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
     // MARK: - Disconnect

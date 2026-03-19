@@ -185,10 +185,11 @@ extension AppDelegate {
         // Wire cancel to abort the main conversation session on the daemon
         proxy.onCancel = { [weak self] in
             guard let self else { return }
-            do {
-                try self.daemonClient.send(CancelMessage(conversationId: conversationId))
-            } catch {
-                log.error("Failed to send cancel for host CU session \(conversationId): \(error)")
+            Task {
+                let success = await self.conversationListClient.cancelGeneration(conversationId: conversationId)
+                if !success {
+                    log.error("Failed to send cancel for host CU session \(conversationId)")
+                }
             }
             self.dismissHostCuOverlay()
         }
