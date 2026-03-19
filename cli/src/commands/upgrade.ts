@@ -232,7 +232,9 @@ async function upgradeDocker(
       `   Captured refs for ${Object.keys(previousImageRefs).length} service(s)\n`,
     );
   } else {
-    console.log("   No existing containers found (fresh install)\n");
+    console.log(
+      "   Could not capture all container refs (fresh install or partial deployment)\n",
+    );
   }
 
   console.log("🛑 Stopping existing containers...");
