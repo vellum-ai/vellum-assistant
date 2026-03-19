@@ -17,6 +17,7 @@ public struct ToolConfirmationBubble: View {
 
     @State private var showDiff = false
     @State private var showTechnicalDetails = false
+    @State private var useCompactConfirmationLayout = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_10m"
@@ -199,23 +200,18 @@ public struct ToolConfirmationBubble: View {
     private var pendingContent: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Adaptive layout: horizontal when there's room, vertical when narrow
-            ViewThatFits(in: .horizontal) {
-                // Wide: description + buttons on same row
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    confirmationDescription
-                        .frame(minWidth: 200)
-                    Spacer(minLength: VSpacing.md)
+            // Adaptive layout: horizontal when wide, vertical when narrow
+            if useCompactConfirmationLayout {
+                confirmationDescription
+                HStack {
+                    Spacer()
                     confirmationActions
                 }
-
-                // Narrow: description on top, buttons right-aligned below
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+            } else {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
                     confirmationDescription
-                    HStack {
-                        Spacer()
-                        confirmationActions
-                    }
+                    Spacer(minLength: VSpacing.md)
+                    confirmationActions
                 }
             }
 
@@ -261,12 +257,18 @@ public struct ToolConfirmationBubble: View {
         }
         .padding(VSpacing.md)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceOverlay)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 0.5)
-                )
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceOverlay)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 0.5)
+                    )
+                    .onAppear { useCompactConfirmationLayout = geo.size.width < 450 }
+                    .onChange(of: geo.size.width) { _, width in
+                        useCompactConfirmationLayout = width < 450
+                    }
+            }
         )
         .onAppear {
             if isKeyboardActive {
