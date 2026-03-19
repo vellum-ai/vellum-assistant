@@ -1200,6 +1200,10 @@ public final class SettingsStore: ObservableObject {
             }
 
             replayDeletionTombstones()
+            // Re-fetch model info after reconnect-time key replay so maskedKeys
+            // can reflect newly synced provider secrets.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            refreshModelInfo()
         }
     }
 
@@ -2117,14 +2121,18 @@ public final class SettingsStore: ObservableObject {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            // Only apply local config provider/model as a fallback when the daemon
-            // hasn't yet reported an authoritative value. Once the daemon responds
-            // via applyModelInfoResponse, its values take precedence over local
-            // config which may be stale (especially for remote assistants).
-            if lastDaemonProvider == nil,
-               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-            if lastDaemonProvider == nil,
-               let model = inference["model"] as? String { self.selectedModel = model }
+            // Local assistants should always reflect persisted workspace config.
+            // Remote assistants may not have local workspace state, so retain
+            // daemon-reported provider/model once available.
+            if !isCurrentAssistantRemote {
+                if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+                if let model = inference["model"] as? String { self.selectedModel = model }
+            } else {
+                if lastDaemonProvider == nil,
+                   let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+                if lastDaemonProvider == nil,
+                   let model = inference["model"] as? String { self.selectedModel = model }
+            }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {

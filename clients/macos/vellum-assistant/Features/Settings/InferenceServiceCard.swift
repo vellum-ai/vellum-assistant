@@ -318,6 +318,7 @@ struct InferenceServiceCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             SecureField(placeholder, text: $apiKeyText)
+                .id("inference-api-key-\(effectiveProvider)-\(placeholder)")
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
