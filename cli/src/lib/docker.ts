@@ -571,10 +571,10 @@ export async function stopContainers(
 
 /**
  * Capture the current image references for running service containers.
- * Returns a complete record of service → image tag string for all three
- * services (e.g. "vellumai/vellum-assistant:v1.2.3"). Used before stopping
- * containers so we can roll back to these exact images if the new version
- * fails readiness checks.
+ * Returns a complete record of service → immutable image ID (sha256 digest)
+ * for all three services. Uses `{{.Image}}` rather than `{{.Config.Image}}`
+ * so rollback targets the exact image that was running, even if the tag has
+ * since been retagged to a different image.
  *
  * Returns null if any container could not be inspected (e.g. fresh install
  * or partial deployment).
@@ -596,7 +596,7 @@ export async function captureImageRefs(
         await execOutput("docker", [
           "inspect",
           "--format",
-          "{{.Config.Image}}",
+          "{{.Image}}",
           container,
         ])
       ).trim();

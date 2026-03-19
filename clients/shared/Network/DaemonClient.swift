@@ -266,6 +266,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The version being upgraded to, if an update is in progress.
     @Published public internal(set) var updateTargetVersion: String?
 
+    /// Deadline after which `isUpdateInProgress` is considered stale.
+    /// Computed from `expectedDowntimeSeconds` (with a 2x safety buffer)
+    /// when a `service_group_update_starting` event arrives. If the update
+    /// hasn't completed by this time, auto-wake suppression expires so the
+    /// client can recover from a crashed update.
+    var updateExpiresAt: Date?
+
     /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
     /// Used to detect instance switches — if this changes, the stored actor token is stale.
     @Published public internal(set) var keyFingerprint: String?
@@ -563,6 +570,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         versionMismatch = false
         isUpdateInProgress = false
         updateTargetVersion = nil
+        updateExpiresAt = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
