@@ -2,22 +2,24 @@
 # Inject a Linear ticket reminder for specific team members.
 # Users NOT in the remind list see nothing added to context.
 #
-# Maintain REMIND_EMAILS below — use git email addresses.
-# To find a teammate's git email: git log --format='%ae' --author=Name | sort -u
+# The remind list lives in .private/linear-remind-emails.txt (gitignored).
+# Add one git email per line. To find a teammate's git email:
+#   git log --format='%ae' --author=Name | sort -u
 
-REMIND_EMAILS=(
-  "vincent@vellum.ai"
-  "0426vincent@gmail.com"
-  "harrison@vellum.ai"
-  "harrison.ngo719@gmail.com"
-  "48630278+alex-nork@users.noreply.github.com"
-  "alexnork@gmail.com"
-)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REMIND_FILE="$REPO_ROOT/.private/linear-remind-emails.txt"
+
+# No remind file → nothing to do
+[[ -f "$REMIND_FILE" ]] || exit 0
 
 CURRENT_EMAIL=$(git config user.email 2>/dev/null || echo "")
+[[ -n "$CURRENT_EMAIL" ]] || exit 0
 
-for e in "${REMIND_EMAILS[@]}"; do
-  if [[ "$CURRENT_EMAIL" == "$e" ]]; then
+while IFS= read -r email; do
+  # Skip blank lines and comments
+  [[ -z "$email" || "$email" == \#* ]] && continue
+  if [[ "$CURRENT_EMAIL" == "$email" ]]; then
     jq -n '{
       "hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
@@ -26,6 +28,6 @@ for e in "${REMIND_EMAILS[@]}"; do
     }'
     exit 0
   fi
-done
+done < "$REMIND_FILE"
 
 exit 0
