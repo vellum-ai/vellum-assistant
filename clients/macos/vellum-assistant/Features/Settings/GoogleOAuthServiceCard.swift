@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// Card for the Google OAuth service with Managed/Your Own mode toggle.
 ///
 /// Managed mode shows a connect flow for linking Google accounts.
-/// Your Own mode shows a "Coming Soon" empty state.
+/// Your Own mode shows OAuth app management with connection cards.
 /// The mode selection is persisted so user preference is retained.
 @MainActor
 struct GoogleOAuthServiceCard: View {
@@ -42,7 +42,7 @@ struct GoogleOAuthServiceCard: View {
                 managedBody
             },
             yourOwnContent: {
-                comingSoonState
+                yourOwnBody
             }
         )
         .onAppear {
@@ -55,6 +55,8 @@ struct GoogleOAuthServiceCard: View {
             draftMode = newValue
             if newValue == "managed" {
                 Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+            } else if newValue == "your-own" {
+                store.fetchYourOwnOAuthApps()
             }
         }
     }
@@ -158,12 +160,128 @@ struct GoogleOAuthServiceCard: View {
         }
     }
 
-    // MARK: - Coming Soon
+    // MARK: - Your Own Content
 
-    private var comingSoonState: some View {
-        Text("Coming soon.")
-            .font(VFont.body)
-            .foregroundColor(VColor.contentDefault)
+    @ViewBuilder
+    private var yourOwnBody: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            if store.yourOwnOAuthIsLoading {
+                VBusyIndicator()
+            } else if store.yourOwnOAuthApps.isEmpty {
+                yourOwnEmptyState
+            } else {
+                yourOwnAppsList
+            }
+
+            if let error = store.yourOwnOAuthError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+            }
+        }
+        .onAppear {
+            store.fetchYourOwnOAuthApps()
+        }
+    }
+
+    private var yourOwnEmptyState: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("No OAuth apps configured.")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentTertiary)
+            Text("Create an OAuth app with your Google Cloud credentials to get started.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+        }
+    }
+
+    private var yourOwnAppsList: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            ForEach(store.yourOwnOAuthApps) { app in
+                yourOwnAppCard(for: app)
+            }
+        }
+    }
+
+    private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Header row: masked client_id + creation date
+            HStack {
+                Text(maskedClientId(app.client_id))
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentDefault)
+                Spacer()
+                Text(formattedDate(app.created_at))
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+
+            // Connections section
+            let connections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
+            if connections.isEmpty {
+                Text("No connected accounts")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            } else {
+                ForEach(connections) { conn in
+                    yourOwnConnectionRow(for: conn, appId: app.id)
+                }
+            }
+
+            // Action row: Log In button
+            HStack {
+                VButton(
+                    label: "Log In",
+                    style: .primary,
+                    isDisabled: store.yourOwnOAuthConnectingAppId == app.id
+                ) {
+                    store.startYourOwnOAuthConnect(appId: app.id)
+                }
+                if store.yourOwnOAuthConnectingAppId == app.id {
+                    Text("Waiting for authorization...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(conn.account_info ?? "Google Account")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+            }
+            Spacer()
+            Text("Connected")
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemPositiveStrong)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func maskedClientId(_ clientId: String) -> String {
+        if clientId.count > 8 {
+            return String(clientId.prefix(8)) + "..."
+        }
+        return clientId
+    }
+
+    private func formattedDate(_ timestamp: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 
     // MARK: - Save
