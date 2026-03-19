@@ -198,6 +198,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         Self.shared = self
+        MainThreadStallDetector.shared.start()
         metricKitManager = MetricKitManager()
 
         // Prevent macOS from automatically creating window tabs or restoring
