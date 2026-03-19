@@ -299,6 +299,7 @@ private struct SubCategoryNodeView: View {
 private struct SkillNodeView: View {
     let item: OrbitItem
     let size: CGFloat
+    var onDoubleTap: (() -> Void)?
     var onTap: (() -> Void)?
 
     @State private var isHovered = false
@@ -344,6 +345,9 @@ private struct SkillNodeView: View {
         }
         .if(isTappable) { view in
             view.pointerCursor()
+        }
+        .onTapGesture(count: 2) {
+            onDoubleTap?()
         }
         .onTapGesture {
             onTap?()
@@ -698,6 +702,7 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
+    @State private var zoomedNodeId: String?
 
     // Node sizes
     private let categoryNodeSize: CGFloat = 80
@@ -829,17 +834,24 @@ struct ConstellationView: View {
     }
 
     /// Zooms in and centers the viewport on a specific node.
-    /// If already zoomed in close to the target level, zooms back out to fit all.
+    /// If already zoomed into the same node, zooms back out to fit all.
     private func zoomToNode(_ nodeId: String, viewSize: CGSize) {
         let targetZoom: CGFloat = 1.8
-        let nodePos = effectivePosition(forId: nodeId)
-        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
 
-        // If already zoomed in near this level, toggle back to fit-all
-        if zoomScale >= targetZoom * 0.85 {
+        // If already zoomed into this specific node, toggle back to fit-all
+        if zoomedNodeId == nodeId {
             fitAll(viewSize: viewSize)
             return
         }
+
+        // Compute position using targetZoom so the node ends up centered after zoom
+        let base = treePositions[nodeId] ?? .zero
+        let stored = nodeDragOffsets[nodeId] ?? .zero
+        let nodePos = CGPoint(
+            x: base.x + stored.width / targetZoom,
+            y: base.y + stored.height / targetZoom
+        )
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
 
         // Pan so the node ends up at the viewport center
         let contentOffsetX = nodePos.x - center.x
@@ -851,10 +863,12 @@ struct ConstellationView: View {
             panOffset = CGSize(width: -contentOffsetX * targetZoom, height: -contentOffsetY * targetZoom)
             dragOffset = .zero
         }
+        zoomedNodeId = nodeId
     }
 
     /// Computes zoom and pan to fit all nodes in the viewport with padding.
     private func fitAll(viewSize: CGSize) {
+        zoomedNodeId = nil
         let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
 
         if treePositions.isEmpty {
@@ -1192,6 +1206,7 @@ struct ConstellationView: View {
                     SkillNodeView(
                         item: item,
                         size: skillNodeSize,
+                        onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
                         onTap: item.filePath != nil
                             ? { onFileSelected?(item.filePath!) }
                             : item.description != nil
@@ -1208,7 +1223,6 @@ struct ConstellationView: View {
                                 }
                                 : nil
                     )
-                    .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
                     .scaleEffect(phase.skillsVisible ? 1 : 0.4)
