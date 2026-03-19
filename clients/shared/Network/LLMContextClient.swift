@@ -480,11 +480,19 @@ public struct LLMContextResponse: Codable, Sendable {
     public let logs: [LLMRequestLogEntry]
 }
 
+/// Explicit outcome for an LLM context fetch.
+public enum LLMContextFetchResult: Sendable {
+    case loaded(LLMContextResponse)
+    case empty
+    case failed
+}
+
 /// Focused client for fetching LLM request/response context for a given message,
 /// routed through the gateway.
 @MainActor
 public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
+    func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
@@ -494,18 +502,53 @@ public struct LLMContextClient: LLMContextClientProtocol {
 
     public func fetchContext(messageId: String) async -> LLMContextResponse? {
         do {
-            let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
-                timeout: 15
-            )
-            guard response.isSuccess else {
-                log.error("fetchContext failed (HTTP \(response.statusCode))")
+            switch try await fetchContextResult(messageId: messageId) {
+            case .loaded(let response):
+                return response
+            case .empty, .failed:
                 return nil
             }
-            return try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
+        } catch is CancellationError {
+            return nil
         } catch {
             log.error("fetchContext error: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    public func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult {
+        do {
+            try Task.checkCancellation()
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
+                timeout: 15
+            )
+            try Task.checkCancellation()
+            guard response.isSuccess else {
+                log.error("fetchContext failed (HTTP \(response.statusCode))")
+                return .failed
+            }
+            let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
+            try Task.checkCancellation()
+            return decoded.logs.isEmpty ? .empty : .loaded(decoded)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            log.error("fetchContext error: \(error.localizedDescription)")
+            return .failed
+        }
+    }
+}
+
+public extension LLMContextClientProtocol {
+    func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult {
+        guard let response = await fetchContext(messageId: messageId) else {
+            return .failed
+        }
+
+        return response.logs.isEmpty ? .empty : .loaded(response)
     }
 }

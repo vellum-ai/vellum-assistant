@@ -386,17 +386,27 @@ struct MessageInspectorView: View {
         )
     }
 
+    @MainActor
     private func reloadContext(resetSelection: Bool) async {
-        viewState.beginLoading(resetSelection: resetSelection)
+        let requestToken = viewState.beginLoading(resetSelection: resetSelection)
         payloadModels = [:]
 
-        let result = await llmContextClient.fetchContext(messageId: messageId)
+        do {
+            let result = try await llmContextClient.fetchContextResult(messageId: messageId)
+            try Task.checkCancellation()
+            guard viewState.isActiveLoad(requestToken) else { return }
 
-        if let result {
-            payloadModels = payloadModelsByKey(for: result.logs)
+            if case let .loaded(response) = result {
+                payloadModels = payloadModelsByKey(for: response.logs)
+            }
+
+            viewState.finishLoading(with: result, requestToken: requestToken)
+        } catch is CancellationError {
+            guard viewState.isActiveLoad(requestToken) else { return }
+        } catch {
+            guard viewState.isActiveLoad(requestToken) else { return }
+            viewState.finishLoading(with: .failed, requestToken: requestToken)
         }
-
-        viewState.finishLoading(with: result)
     }
 
     private func payloadModelsByKey(for logs: [LLMRequestLogEntry]) -> [String: MessageInspectorPayloadModel] {
@@ -566,13 +576,16 @@ struct MessageInspectorViewState {
     private(set) var logs: [LLMRequestLogEntry] = []
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
+    private(set) var activeLoadToken: UUID?
 
     var selectedLog: LLMRequestLogEntry? {
         guard let selectedLogID else { return nil }
         return logs.first(where: { $0.id == selectedLogID })
     }
 
-    mutating func beginLoading(resetSelection: Bool) {
+    mutating func beginLoading(resetSelection: Bool) -> UUID {
+        let requestToken = UUID()
+        activeLoadToken = requestToken
         loadState = .loading
         logs = []
 
@@ -580,33 +593,46 @@ struct MessageInspectorViewState {
             selectedLogID = nil
             selectedDetailTab = .overview
         }
+
+        return requestToken
     }
 
-    mutating func finishLoading(with response: LLMContextResponse?) {
-        guard let response else {
-            loadState = .failed
+    func isActiveLoad(_ requestToken: UUID) -> Bool {
+        activeLoadToken == requestToken
+    }
+
+    mutating func finishLoading(with result: LLMContextFetchResult, requestToken: UUID) {
+        guard activeLoadToken == requestToken else { return }
+        activeLoadToken = nil
+
+        switch result {
+        case .loaded(let response):
+            let orderedLogs = Self.ordered(response.logs)
+            logs = orderedLogs
+
+            guard !orderedLogs.isEmpty else {
+                loadState = .empty
+                selectedLogID = nil
+                return
+            }
+
+            loadState = .loaded
+
+            if let selectedLogID,
+               orderedLogs.contains(where: { $0.id == selectedLogID }) {
+                return
+            }
+
+            selectedLogID = orderedLogs.first?.id
+        case .empty:
             logs = []
-            selectedLogID = nil
-            return
-        }
-
-        let orderedLogs = Self.ordered(response.logs)
-        logs = orderedLogs
-
-        guard !orderedLogs.isEmpty else {
             loadState = .empty
             selectedLogID = nil
-            return
+        case .failed:
+            logs = []
+            loadState = .failed
+            selectedLogID = nil
         }
-
-        loadState = .loaded
-
-        if let selectedLogID,
-           orderedLogs.contains(where: { $0.id == selectedLogID }) {
-            return
-        }
-
-        selectedLogID = orderedLogs.first?.id
     }
 
     mutating func selectLog(id: String) {
