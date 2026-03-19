@@ -426,6 +426,8 @@ private struct NodeCopyWrapper<Content: View>: View {
         HStack(spacing: 4) {
             content
 
+            Spacer(minLength: 0)
+
             if isHovered || copied {
                 VIconView(copied ? .check : .copy, size: 9)
                     .foregroundColor(
@@ -441,7 +443,9 @@ private struct NodeCopyWrapper<Content: View>: View {
                     .accessibilityLabel(copied ? "Copied" : "Copy value")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
                 isHovered = hovering
