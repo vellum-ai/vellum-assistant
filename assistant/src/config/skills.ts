@@ -28,7 +28,10 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceSkillsDir } from "../util/platform.js";
+import {
+  getWorkspaceDirDisplay,
+  getWorkspaceSkillsDir,
+} from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 
@@ -1001,6 +1004,11 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   }
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
+  // Replace {workspaceDir} placeholders with the runtime workspace display path
+  loaded.body = loaded.body.replaceAll(
+    "{workspaceDir}",
+    getWorkspaceDirDisplay(),
+  );
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
   return { skill: loaded };
