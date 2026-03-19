@@ -824,6 +824,7 @@ public final class SettingsStore: ObservableObject {
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
+                    addDeletionTombstone(type: "api_key", name: provider)
                 }
             }
         }
@@ -2365,6 +2366,7 @@ public final class SettingsStore: ObservableObject {
         } catch {
             log.error("Failed to persist inference provider: \(error.localizedDescription)")
         }
+        scheduleRoutingSourceRefresh()
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
