@@ -42,7 +42,8 @@ jobs:
           echo "debug_run=$DEBUG_RUN" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
-    needs: [ci-assistant]
+    needs: [extract-version, ci-assistant]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -117,7 +118,7 @@ jobs:
     needs: [extract-version, push-assistant-image]
     # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -151,13 +152,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          scope: vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}@push
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -174,32 +168,23 @@ jobs:
         id: tags
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
-          DOCKERHUB_IMAGE="vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
           DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
           if [ "$DEBUG_RUN" = "true" ]; then
             GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
           else
             GCP_TAGS="${GCP_IMAGE}:${SHA}"
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
 
           echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Create GCP manifest list and push
         working-directory: /tmp/digests
@@ -210,20 +195,6 @@ jobs:
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.gcp_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
-          docker buildx imagetools create $TAG_ARGS $SOURCES
-
-      - name: Create Docker Hub manifest list and push
-        if: false
-        working-directory: /tmp/digests
-        run: |
-          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          # Copy the already-published per-platform manifests from GCP into Docker Hub.
-          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -270,7 +241,8 @@ jobs:
           fi
 
   push-gateway-image:
-    needs: [ci-gateway]
+    needs: [extract-version, ci-gateway]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -341,7 +313,8 @@ jobs:
           retention-days: 1
 
   push-credential-executor-image:
-    needs: [ci-credential-executor]
+    needs: [extract-version, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -413,7 +386,7 @@ jobs:
     needs: [extract-version, push-gateway-image]
     # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -447,13 +420,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          scope: vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}@push
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -470,32 +436,23 @@ jobs:
         id: tags
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
-          DOCKERHUB_IMAGE="vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
           DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
           if [ "$DEBUG_RUN" = "true" ]; then
             GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
           else
             GCP_TAGS="${GCP_IMAGE}:${SHA}"
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
 
           echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Create GCP manifest list and push
         working-directory: /tmp/digests
@@ -506,20 +463,6 @@ jobs:
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.gcp_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
-          docker buildx imagetools create $TAG_ARGS $SOURCES
-
-      - name: Create Docker Hub manifest list and push
-        if: false
-        working-directory: /tmp/digests
-        run: |
-          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          # Copy the already-published per-platform manifests from GCP into Docker Hub.
-          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -569,7 +512,7 @@ jobs:
     needs: [extract-version, push-credential-executor-image]
     # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
     # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ needs.extract-version.outputs.debug_run != 'true' && always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -603,13 +546,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          scope: vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}@push
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -626,32 +562,23 @@ jobs:
         id: tags
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-          DOCKERHUB_IMAGE="vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
           DEBUG_RUN="${{ needs.extract-version.outputs.debug_run }}"
 
           if [ "$DEBUG_RUN" = "true" ]; then
             GCP_TAGS="${GCP_IMAGE}:${VERSION}"
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${VERSION}"
           else
             GCP_TAGS="${GCP_IMAGE}:${SHA}"
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
             GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
-
-            DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
-            DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
 
           echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Create GCP manifest list and push
         working-directory: /tmp/digests
@@ -662,20 +589,6 @@ jobs:
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.gcp_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
-          docker buildx imagetools create $TAG_ARGS $SOURCES
-
-      - name: Create Docker Hub manifest list and push
-        if: false
-        working-directory: /tmp/digests
-        run: |
-          SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          # Copy the already-published per-platform manifests from GCP into Docker Hub.
-          SOURCES=$(printf "${SOURCE_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -736,21 +649,18 @@ jobs:
             image_name_secret: ASSISTANT_IMAGE_NAME
             context: .
             dockerfile: assistant/Dockerfile
-            cache_scope: assistant-dockerhub
             feature_flag_path: assistant/src/config/feature-flag-registry.json
           - service: gateway
             runs_on: ubuntu-latest
             image_name_secret: GATEWAY_IMAGE_NAME
             context: gateway
             dockerfile: gateway/Dockerfile
-            cache_scope: gateway-dockerhub
             feature_flag_path: gateway/src/feature-flag-registry.json
           - service: credential-executor
             runs_on: ubuntu-latest
             image_name_secret: CREDENTIAL_EXECUTOR_IMAGE_NAME
             context: .
             dockerfile: credential-executor/Dockerfile
-            cache_scope: credential-executor-dockerhub
             feature_flag_path: ""
     steps:
       - name: Checkout
@@ -801,8 +711,6 @@ jobs:
           push: true
           provenance: false
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 
       - name: Summary
         run: |
