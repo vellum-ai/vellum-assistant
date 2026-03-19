@@ -63,6 +63,10 @@ export function initSentry(): void {
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
+        // device_id is read from ~/.vellum/device.json (shared with the macOS client).
+        // This may create device.json before macOS migrates a legacy UserDefaults ID,
+        // but the daemon already calls getDeviceId() elsewhere (e.g. telemetry reporter),
+        // so this doesn't introduce a new race.
         device_id: getDeviceId(),
         ...(getPlatformOrganizationId()
           ? { organization_id: getPlatformOrganizationId() }

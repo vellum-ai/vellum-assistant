@@ -286,6 +286,11 @@ enum LogExporter {
                 // so log exports correlate with daemon Sentry events and telemetry.
                 "device_id": SentryDeviceInfo.deviceId,
             ]
+            // user_id mirrors the Sentry user tag set by SentryDeviceInfo.updateUserTag
+            // so log exports can be correlated with authenticated Sentry events.
+            if let userId = AppDelegate.shared?.authManager.currentUser?.id {
+                metadata["user_id"] = userId
+            }
             if !formData.name.isEmpty {
                 metadata["name"] = formData.name
             }
