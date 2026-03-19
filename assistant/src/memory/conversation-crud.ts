@@ -12,11 +12,19 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import { deleteOrphanAttachments } from "./attachments-store.js";
-import { projectAssistantMessage } from "./conversation-attention-store.js";
+import { UserError } from "../util/errors.js";
+import {
+  deleteOrphanAttachments,
+  linkAttachmentToMessage,
+} from "./attachments-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "./conversation-attention-store.js";
 import {
   initConversationDir,
   removeConversationDir,
+  syncMessageToDisk,
   updateMetaFile,
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
@@ -272,6 +280,167 @@ export function getConversationType(
 export function getConversationMemoryScopeId(conversationId: string): string {
   const conv = getConversation(conversationId);
   return conv?.memoryScopeId ?? "default";
+}
+
+export function forkConversation(params: {
+  conversationId: string;
+  throughMessageId?: string;
+}): ConversationRow {
+  const { conversationId, throughMessageId } = params;
+  const db = getDb();
+  const sourceConversation = getConversation(conversationId);
+
+  if (!sourceConversation) {
+    throw new UserError(`Conversation ${conversationId} not found`);
+  }
+
+  const sourceMessages = db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .all()
+    .map(parseMessage);
+
+  const copyBoundaryIndex =
+    throughMessageId == null
+      ? sourceMessages.length - 1
+      : sourceMessages.findIndex((message) => message.id === throughMessageId);
+
+  if (throughMessageId != null && copyBoundaryIndex === -1) {
+    throw new UserError(
+      `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
+    );
+  }
+
+  const messagesToCopy =
+    copyBoundaryIndex >= 0
+      ? sourceMessages.slice(0, copyBoundaryIndex + 1)
+      : ([] as MessageRow[]);
+  const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
+  const forkTitle = `${sourceConversation.title ?? "Untitled"} (Fork)`;
+  const forkedConversation = createConversation({
+    title: forkTitle,
+    conversationType: "standard",
+  });
+
+  db.update(conversations)
+    .set({
+      forkParentConversationId: sourceConversation.id,
+      forkParentMessageId,
+    })
+    .where(eq(conversations.id, forkedConversation.id))
+    .run();
+
+  const forkedMessageIds = new Map<string, string>();
+  let latestForkedAssistant:
+    | { messageId: string; messageAt: number }
+    | null = null;
+
+  for (const message of messagesToCopy) {
+    const forkedMessageId = uuid();
+    db.insert(messages)
+      .values({
+        id: forkedMessageId,
+        conversationId: forkedConversation.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        metadata: message.metadata,
+      })
+      .run();
+    forkedMessageIds.set(message.id, forkedMessageId);
+
+    if (message.role === "assistant") {
+      latestForkedAssistant = {
+        messageId: forkedMessageId,
+        messageAt: message.createdAt,
+      };
+    }
+  }
+
+  const attachmentIdMap = new Map<string, string>();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) continue;
+
+    const attachmentLinks = db
+      .select({
+        attachmentId: messageAttachments.attachmentId,
+        position: messageAttachments.position,
+      })
+      .from(messageAttachments)
+      .where(eq(messageAttachments.messageId, message.id))
+      .orderBy(messageAttachments.position)
+      .all();
+    const uncachedAttachmentLinks = attachmentLinks.filter(
+      (link) => !attachmentIdMap.has(link.attachmentId),
+    );
+    const stagingMessageId =
+      uncachedAttachmentLinks.length > 0 ? uuid() : null;
+
+    if (stagingMessageId) {
+      db.insert(messages)
+        .values({
+          id: stagingMessageId,
+          conversationId: forkedConversation.id,
+          role: message.role,
+          content: "",
+          createdAt: message.createdAt,
+          metadata: null,
+        })
+        .run();
+    }
+
+    for (const link of attachmentLinks) {
+      const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
+      if (cachedAttachmentId) {
+        db.insert(messageAttachments)
+          .values({
+            id: uuid(),
+            messageId: forkedMessageId,
+            attachmentId: cachedAttachmentId,
+            position: link.position,
+            createdAt: Date.now(),
+          })
+          .run();
+        continue;
+      }
+
+      const scopedAttachmentId = linkAttachmentToMessage(
+        stagingMessageId ?? forkedMessageId,
+        link.attachmentId,
+        link.position,
+      );
+      attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
+    }
+
+    if (stagingMessageId) {
+      relinkAttachments([stagingMessageId], forkedMessageId);
+      db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
+    }
+
+    syncMessageToDisk(
+      forkedConversation.id,
+      forkedMessageId,
+      forkedConversation.createdAt,
+    );
+  }
+
+  seedForkedConversationAttention({
+    conversationId: forkedConversation.id,
+    latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
+    latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
+  });
+
+  const persistedFork = getConversation(forkedConversation.id);
+  if (!persistedFork) {
+    throw new Error(
+      `Failed to load forked conversation ${forkedConversation.id} after creation`,
+    );
+  }
+
+  return persistedFork;
 }
 
 /**
