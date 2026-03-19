@@ -156,8 +156,10 @@ struct ChatBubble: View {
 
     /// Whether the text/attachment bubble should be rendered.
     /// Tool calls for assistant messages render outside the bubble as separate chips,
-    /// so only show the bubble when there's actual text, attachment content, or
-    /// attachment warnings to show.
+    /// so only show the bubble when there's actual text or attachment content.
+    /// Attachment warnings render independently outside the bubble (via
+    /// `attachmentWarningBanners`) and must NOT trigger bubble display — otherwise
+    /// a warning-only message produces an empty bubble chrome with nothing inside.
     ///
     /// NOTE: When inline surfaces are present, the bubble is intentionally hidden
     /// even if the message also contains text. This is by design — the assistant's
@@ -172,7 +174,7 @@ struct ChatBubble: View {
             let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
-        return hasText || !message.attachments.isEmpty || !message.attachmentWarnings.isEmpty
+        return hasText || !message.attachments.isEmpty
     }
 
     var body: some View {

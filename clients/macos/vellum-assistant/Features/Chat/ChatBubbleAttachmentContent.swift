@@ -285,9 +285,21 @@ extension ChatBubble {
     /// Returns the image attachments that should still render in the attachment grid.
     /// When inline tool previews are visible, the matching tool-block images are
     /// hidden so we do not duplicate the same image twice. Non-tool images remain.
+    ///
+    /// After a history reload, `sourceType` is nil (not persisted in the DB), so
+    /// we fall back to the old all-or-nothing approach: hide all image attachments
+    /// when the count matches the inline tool call count — this avoids duplicates
+    /// at the cost of hiding non-tool images (rare in practice).
     func visibleAttachmentImages(_ images: [ChatAttachment]) -> [ChatAttachment] {
         guard shouldRenderToolProgressInline, inlineToolCallImageCount > 0 else {
             return images
+        }
+
+        let anyHasSourceType = images.contains { $0.sourceType != nil }
+        if !anyHasSourceType {
+            // History reload: sourceType unavailable — fall back to hiding all
+            // images when count matches to avoid duplicating inline tool previews.
+            return images.count <= inlineToolCallImageCount ? [] : images
         }
 
         var remainingInlineToolImages = inlineToolCallImageCount
