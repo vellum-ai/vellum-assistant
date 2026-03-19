@@ -227,7 +227,16 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations",
       method: "DELETE",
       policyKey: "conversations",
-      handler: () => {
+      handler: ({ req }) => {
+        const confirm = req.headers.get("x-confirm-destructive");
+        if (confirm !== "clear-all-conversations") {
+          return httpError(
+            "BAD_REQUEST",
+            "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
+              "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
+            400,
+          );
+        }
         deps.clearAllConversations();
         return new Response(null, { status: 204 });
       },

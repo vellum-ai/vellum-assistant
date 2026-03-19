@@ -129,7 +129,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "btw", scopes: ["chat.write"] },
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations:POST", scopes: ["chat.write"] },
-  { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/fork", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
@@ -470,6 +469,12 @@ for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
     allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
   });
 }
+
+// Clear-all conversations: elevated to settings.write (destructive bulk operation)
+registerPolicy("conversations:DELETE", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+});
 
 // Channel inbound: gateway-only
 registerPolicy("channels/inbound", {
