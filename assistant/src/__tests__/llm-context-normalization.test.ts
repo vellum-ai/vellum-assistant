@@ -553,6 +553,56 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
+  test("normalizes Anthropic document attachments in request prompt sections", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_009,
+      requestPayload: {
+        model: "claude-sonnet",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                title: "agenda.pdf",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: "JVBERi0xLjQK",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      responsePayload: undefined,
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: undefined,
+      requestMessageCount: 1,
+      requestToolCount: 0,
+      responseMessageCount: undefined,
+      responseToolCallCount: undefined,
+      responsePreview: undefined,
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "[document: agenda.pdf]",
+      },
+    ]);
+  });
+
   test("normalizes Anthropic web_search_tool_result blocks", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_004,

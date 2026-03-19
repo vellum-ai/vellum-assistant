@@ -284,6 +284,7 @@ function normalizeAnthropicRequestPayload(
     (asRecordArray(message.content) ?? []).some((block) => {
       const type = asString(block.type);
       return (
+        type === "document" ||
         type === "tool_use" ||
         type === "server_tool_use" ||
         type === "tool_result" ||
@@ -848,17 +849,9 @@ function collectAnthropicText(content: unknown): string | undefined {
 
   const textParts: string[] = [];
   for (const block of blocks) {
-    const type = asString(block.type);
-    if (type === "text") {
-      const text = asString(block.text);
-      if (text) {
-        textParts.push(text);
-      }
-      continue;
-    }
-
-    if (type === "image") {
-      textParts.push("[image]");
+    const text = collectAnthropicBlockText(block);
+    if (text) {
+      textParts.push(text);
     }
   }
 
@@ -877,17 +870,9 @@ function collectAnthropicMessageText(content: unknown): string | undefined {
 
   const textParts: string[] = [];
   for (const block of blocks) {
-    const type = asString(block.type);
-    if (type === "text") {
-      const text = asString(block.text);
-      if (text) {
-        textParts.push(text);
-      }
-      continue;
-    }
-
-    if (type === "image") {
-      textParts.push("[image]");
+    const text = collectAnthropicBlockText(block);
+    if (text) {
+      textParts.push(text);
     }
   }
 
@@ -917,6 +902,27 @@ function collectAnthropicPreviewText(content: unknown): string | undefined {
   }
 
   return joinTextParts(textParts);
+}
+
+function collectAnthropicBlockText(
+  block: Record<string, unknown>,
+): string | undefined {
+  const type = asString(block.type);
+  if (type === "text") {
+    const text = asString(block.text);
+    return text ? text : undefined;
+  }
+
+  if (type === "image") {
+    return "[image]";
+  }
+
+  if (type === "document") {
+    const title = asString(block.title);
+    return title ? `[document: ${title}]` : "[document]";
+  }
+
+  return undefined;
 }
 
 function collectAnthropicReasoningText(
