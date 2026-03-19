@@ -18,7 +18,10 @@ struct WindowDragArea: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 {
-                window?.zoom(nil)
+                // Let the event propagate to TitleBarZoomableWindow.mouseUp
+                // which respects the AppleActionOnDoubleClick system preference
+                // (Minimize / None / Maximize) and handles custom zoom restore.
+                super.mouseDown(with: event)
             } else {
                 window?.performDrag(with: event)
             }
