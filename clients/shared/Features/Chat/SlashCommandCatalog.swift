@@ -120,6 +120,15 @@ public enum ChatSlashCommandCatalog {
             sendPathPlatforms: allPlatforms
         ),
         ChatSlashCommandDescriptor(
+            name: "fork",
+            description: "Fork the current conversation into a new branch",
+            icon: "arrow.triangle.branch",
+            selectionBehavior: .autoSend,
+            pickerPlatforms: [.macos],
+            helpBubblePlatforms: allPlatforms,
+            sendPathPlatforms: allPlatforms
+        ),
+        ChatSlashCommandDescriptor(
             name: "pair",
             description: "Generate pairing info for connecting a mobile device",
             icon: "qrcode",

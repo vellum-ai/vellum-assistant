@@ -144,6 +144,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
+      "/fork — Fork the current conversation into a new branch",
       "/pair — Generate pairing info for connecting a mobile device",
     ];
   }
@@ -154,6 +155,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
+      "/fork — Fork the current conversation into a new branch",
     ];
   }
 

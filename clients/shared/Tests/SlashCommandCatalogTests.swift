@@ -8,7 +8,7 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .macos,
             surface: .picker
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/pair"])
+        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork", "/pair"])
     }
 
     func testMacOSHelpOrderMatchesExpectedDesktopCommands() {
@@ -16,18 +16,18 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .macos,
             surface: .helpBubble
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/pair"])
+        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork", "/pair"])
     }
 
-    func testIOSHelpOmitsPairingCommand() {
+    func testIOSHelpOmitsPairingCommandButShowsFork() {
         let commands = ChatSlashCommandCatalog.commands(
             for: .ios,
             surface: .helpBubble
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw"])
+        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork"])
     }
 
-    func testIOSPickerOmitsPairingCommand() {
+    func testIOSPickerOmitsForkAndPairingCommands() {
         let commands = ChatSlashCommandCatalog.commands(
             for: .ios,
             surface: .picker
@@ -90,6 +90,11 @@ final class SlashCommandCatalogTests: XCTestCase {
             surface: .sendPath
         ))
         XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/fork",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
             "/btw follow up",
             platform: .macos,
             surface: .sendPath
@@ -112,6 +117,11 @@ final class SlashCommandCatalogTests: XCTestCase {
         ))
         XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
             "/pair foo",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/fork foo",
             platform: .macos,
             surface: .sendPath
         ))
@@ -144,10 +154,24 @@ final class SlashCommandCatalogTests: XCTestCase {
             surface: .sendPath
         ))
         XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/FORK",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
             "/BTW follow up",
             platform: .macos,
             surface: .sendPath
         ))
+    }
+
+    func testForkUsesAutoSendBehaviorWhereDiscoverable() {
+        let descriptor = ChatSlashCommandCatalog.descriptor(
+            forRawInput: "/fork",
+            platform: .macos,
+            surface: .picker
+        )
+        XCTAssertEqual(descriptor?.selectionBehavior, .autoSend)
     }
 
     func testPairIsAvailableOnIOSSendPathButHiddenFromDiscoverySurfaces() {
@@ -167,6 +191,30 @@ final class SlashCommandCatalogTests: XCTestCase {
             platform: .ios,
             surface: .helpBubble
         ))
+    }
+
+    func testForkIsAvailableOnIOSSendPathAndHelpButHiddenFromPicker() {
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/fork",
+            platform: .ios,
+            surface: .sendPath
+        ))
+
+        XCTAssertNil(ChatSlashCommandCatalog.descriptor(
+            forRawInput: "/fork",
+            platform: .ios,
+            surface: .picker
+        ))
+
+        let helpDescriptor = ChatSlashCommandCatalog.descriptor(
+            forRawInput: "/fork",
+            platform: .ios,
+            surface: .helpBubble
+        )
+        XCTAssertEqual(
+            helpDescriptor?.description,
+            "Fork the current conversation into a new branch"
+        )
     }
 
     func testModelMetadataRefreshOnlyForExactModelsCommand() {

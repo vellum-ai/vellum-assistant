@@ -39,6 +39,7 @@ describe("resolveSlash /commands interface-aware help", () => {
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
+      "/fork — Fork the current conversation into a new branch",
       "/pair — Generate pairing info for connecting a mobile device",
     ]);
     expect(lines).not.toContain(
@@ -46,7 +47,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
   });
 
-  test("renders iOS command help without /pair", async () => {
+  test("renders iOS command help with /fork but without /pair", async () => {
     const lines = await resolveCommandsLines(
       makeSlashContext({ userMessageInterface: "ios" }),
     );
@@ -55,6 +56,7 @@ describe("resolveSlash /commands interface-aware help", () => {
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
+      "/fork — Fork the current conversation into a new branch",
     ]);
   });
 
