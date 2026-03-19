@@ -51,6 +51,22 @@ export async function resolveOAuthConnection(
     if (services[managedKey as keyof Services].mode === "managed") {
       const ctx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
+
+      // Validate prerequisites before making network calls so that
+      // partially configured installs get the same clear error that
+      // PlatformOAuthConnection would produce, rather than an opaque
+      // fetch failure from resolvePlatformConnectionId().
+      const missing: string[] = [];
+      if (!ctx.platformBaseUrl) missing.push("platform base URL");
+      if (!ctx.assistantApiKey) missing.push("assistant API key");
+      if (!assistantId) missing.push("assistant ID");
+      if (missing.length > 0) {
+        throw new Error(
+          `Platform-managed connection for "${providerKey}" cannot be created: missing ${missing.join(", ")}. ` +
+            `Log in to the Vellum platform or switch to using your own OAuth app.`,
+        );
+      }
+
       const providerSlug = providerKey.replace(/^integration:/, "");
 
       const connectionId = await resolvePlatformConnectionId({
