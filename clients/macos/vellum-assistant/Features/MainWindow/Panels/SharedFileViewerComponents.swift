@@ -115,7 +115,7 @@ struct FileContentView: View {
             }
         }
         .onChange(of: viewMode) { _, newMode in
-            isActivelyEditing = false
+            if newMode != .source { isActivelyEditing = false }
             let modes = availableViewModes(for: fileName, mimeType: mimeType)
             guard modes.count > 1 else { return }
             let preference = newMode == .source ? "source" : "preview"

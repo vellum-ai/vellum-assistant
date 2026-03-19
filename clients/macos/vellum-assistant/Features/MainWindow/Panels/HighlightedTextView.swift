@@ -15,12 +15,12 @@ struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
     let isEditable: Bool
+    @Binding var isActivelyEditing: Bool
     var onTextChange: ((String) -> Void)?
 
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
-    @Binding var isActivelyEditing: Bool
     @State private var highlightVersion: UInt64 = 0
     @State private var contentReady = false
     @State private var cachedLineCount: Int = 1
