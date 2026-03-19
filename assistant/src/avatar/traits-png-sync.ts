@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
+import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
 
 const log = getLogger("traits-png-sync");
@@ -35,8 +36,8 @@ function renderAndWriteAvatarFiles(
 ): boolean {
   const pngPath = join(avatarDir, "avatar-image.png");
 
-  // Render PNG first — this validates trait IDs (composeSvg throws on
-  // unknown components), so we fail before writing anything to disk.
+  // Render PNG first so we fail before writing anything to disk.
+  // Trait ID validation has already been performed by the caller.
   const pngBuffer = renderCharacterPng(
     traits.bodyShape,
     traits.eyeStyle,
@@ -73,8 +74,8 @@ function renderAndWriteAvatarFiles(
  * character-ascii.txt in one atomic operation.  Accepts the trait values
  * directly so callers don't need to touch the filesystem first.
  *
- * Renders the PNG before writing the traits file so that if rendering fails
- * (e.g. unknown component IDs), neither file is modified.
+ * Validates trait IDs against the component set, then renders the PNG before
+ * writing the traits file so that if rendering fails, neither file is modified.
  */
 export function writeTraitsAndRenderAvatar(
   traits: CharacterTraits,
@@ -94,14 +95,42 @@ export function writeTraitsAndRenderAvatar(
     };
   }
 
+  // Validate trait IDs against the known component set so that unknown values
+  // are surfaced as input-validation errors (400) rather than server errors (500).
+  const components = getCharacterComponents();
+  const validBodyShapes = components.bodyShapes.map((b) => b.id);
+  if (!validBodyShapes.includes(traits.bodyShape)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown body shape: "${traits.bodyShape}". Valid IDs: ${validBodyShapes.join(", ")}`,
+    };
+  }
+  const validEyeStyles = components.eyeStyles.map((e) => e.id);
+  if (!validEyeStyles.includes(traits.eyeStyle)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown eye style: "${traits.eyeStyle}". Valid IDs: ${validEyeStyles.join(", ")}`,
+    };
+  }
+  const validColors = components.colors.map((c) => c.id);
+  if (!validColors.includes(traits.color)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown color: "${traits.color}". Valid IDs: ${validColors.join(", ")}`,
+    };
+  }
+
   const avatarDir = join(getWorkspaceDir(), "data", "avatar");
   const traitsPath = join(avatarDir, "character-traits.json");
 
   try {
     mkdirSync(avatarDir, { recursive: true });
 
-    // Render avatar files first — validates trait IDs before committing
-    // the traits file, so we never leave traits and PNG out of sync.
+    // Render avatar files first — trait IDs are already validated above,
+    // so errors here are genuine render failures (disk I/O, Resvg, etc.).
     const asciiWritten = renderAndWriteAvatarFiles(traits, avatarDir);
 
     // Write traits file atomically (after successful render)
