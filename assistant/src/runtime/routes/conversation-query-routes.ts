@@ -1,19 +1,27 @@
 /**
- * HTTP route definitions for model configuration, conversation search,
- * message content, LLM context inspection, and queued message deletion.
+ * HTTP route definitions for model configuration, embedding configuration,
+ * conversation search, message content, LLM context inspection, and queued
+ * message deletion.
  *
  * These routes expose conversation query functionality over the HTTP API.
  *
  * GET    /v1/model                      — current model info
  * PUT    /v1/model                      — set model
  * PUT    /v1/model/image-gen            — set image-gen model
+ * GET    /v1/config/embeddings          — current embedding config
+ * PUT    /v1/config/embeddings          — set embedding provider/model
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
+import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import {
+  getEmbeddingConfigInfo,
+  setEmbeddingConfig,
+} from "../../daemon/handlers/config-embeddings.js";
 import {
   getModelInfo,
   type ModelSetContext,
@@ -31,6 +39,9 @@ import type { RouteDefinition } from "../http-router.js";
 import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
 
 const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
+const validEmbeddingProviderSet = new Set<string>(
+  VALID_MEMORY_EMBEDDING_PROVIDERS,
+);
 
 type LlmContextNormalizationResult = ReturnType<
   typeof normalizeLlmContextPayloads
@@ -168,6 +179,64 @@ export function conversationQueryRouteDefinitions(
           return httpError(
             "INTERNAL_ERROR",
             `Failed to set image gen model: ${message}`,
+            500,
+          );
+        }
+      },
+    },
+
+    // ── Embedding config ─────────────────────────────────────────────
+    {
+      endpoint: "config/embeddings",
+      method: "GET",
+      policyKey: "config/embeddings",
+      handler: async () => {
+        const info = await getEmbeddingConfigInfo();
+        return Response.json(info);
+      },
+    },
+    {
+      endpoint: "config/embeddings",
+      method: "PUT",
+      policyKey: "config/embeddings",
+      handler: async ({ req }) => {
+        if (!deps.getModelSetContext) {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Embedding config not available",
+            500,
+          );
+        }
+        const body = (await req.json()) as {
+          provider?: string;
+          model?: string;
+        };
+        if (!body.provider || typeof body.provider !== "string") {
+          return httpError(
+            "BAD_REQUEST",
+            "Missing required field: provider",
+            400,
+          );
+        }
+        if (!validEmbeddingProviderSet.has(body.provider)) {
+          return httpError(
+            "BAD_REQUEST",
+            `Invalid provider "${body.provider}". Valid providers: ${[...validEmbeddingProviderSet].join(", ")}`,
+            400,
+          );
+        }
+        try {
+          const info = await setEmbeddingConfig(
+            body.provider,
+            body.model,
+            deps.getModelSetContext(),
+          );
+          return Response.json(info);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to set embedding config: ${message}`,
             500,
           );
         }
