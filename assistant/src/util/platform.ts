@@ -8,7 +8,11 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import {
+  getBaseDataDir,
+  getIsContainerized,
+  getWorkspaceDirOverride,
+} from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -365,13 +369,19 @@ export function getSignalsDir(): string {
 // Currently not used by call-sites; wired in later PRs.
 
 /**
- * Returns ~/.vellum/workspace — the workspace root for user-facing state.
+ * Returns the workspace root for user-facing state.
+ *
+ * When the WORKSPACE_DIR env var is set, returns that value (used in
+ * containerized deployments where the workspace is a separate volume).
+ * Otherwise falls back to ~/.vellum/workspace.
  *
  * WARNING: The entire workspace directory is included in diagnostic log exports
  * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
  * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
+  const override = getWorkspaceDirOverride();
+  if (override) return override;
   return join(getRootDir(), "workspace");
 }
 
