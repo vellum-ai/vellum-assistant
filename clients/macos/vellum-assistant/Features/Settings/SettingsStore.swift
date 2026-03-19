@@ -85,6 +85,7 @@ public final class SettingsStore: ObservableObject {
         "openai": [
             ("gpt-5.4", "GPT-5.4"),
             ("gpt-5.2", "GPT-5.2"),
+            ("gpt-5.4-mini", "GPT-5.4 Mini"),
             ("gpt-5.4-nano", "GPT-5.4 Nano"),
         ],
         "gemini": [
