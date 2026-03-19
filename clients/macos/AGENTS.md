@@ -155,7 +155,7 @@ DesignSystem/
 │   ├── Navigation/      (VTabBar, VSegmentedControl)
 │   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
 │   └── Display/         (VCard, VEmptyState)
-├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())
+├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground(), .vTooltip())
 └── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
 ```
 

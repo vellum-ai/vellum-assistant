@@ -365,7 +365,7 @@ struct ComposerView: View {
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
     private var composerActionBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: VSpacing.xs) {
             // Left side
             if isSending && !hasPendingConfirmation {
                 Spacer()
@@ -378,6 +378,7 @@ struct ComposerView: View {
                     action: { onAttach() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Attach file")
 
                 Spacer()
             }
@@ -401,6 +402,7 @@ struct ComposerView: View {
                     action: { onVoiceModeToggle?() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Live voice conversation")
 
                 // Dictate button
                 VButton(
@@ -411,6 +413,7 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Click to dictate or hold \(pttKeyDisplayName)")
 
                 // Send button (always visible, disabled when empty)
                 VButton(
@@ -423,25 +426,41 @@ struct ComposerView: View {
                     composerFocus = true
                     onSend()
                 }
-            } else if canSend {
+            } else if !hasPendingConfirmation {
+                // Mic button (visible with or without text)
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .disabled(!hasAPIKey)
+
+                // Send button
                 VButton(
                     label: "Send message",
                     iconOnly: VIcon.arrowUp.rawValue,
                     style: .primary,
+                    isDisabled: !canSend,
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
                     onSend()
                 }
             } else {
-                VButton(
-                    label: isRecording ? "Stop recording" : "Start voice input",
-                    iconOnly: VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onMicrophoneToggle() }
-                )
-                .disabled(!hasAPIKey)
+                // Pending confirmation — send only if possible
+                if canSend {
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        onSend()
+                    }
+                }
             }
         }
     }
@@ -576,6 +595,11 @@ VStreamingWaveform(
         }
     }
 
+    /// Display name for the PTT activation key, used in the mic button tooltip.
+    private var pttKeyDisplayName: String {
+        PTTActivator.fromStored().displayName
+    }
+
     var canSend: Bool {
         // Block send while an attachment is still loading: the user tapping Send
         // before the async load completes would drop the attachment from the message.
@@ -585,3 +609,4 @@ VStreamingWaveform(
     }
 
 }
+
