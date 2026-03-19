@@ -590,6 +590,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-self-knowledge",
+      "name": "vellum-self-knowledge",
+      "description": "Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active",
+      "metadata": {
+        "emoji": "🪞",
+        "vellum": {
+          "display-name": "Vellum Self-Knowledge"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
