@@ -361,6 +361,7 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     let interactionClient: any InteractionClientProtocol
@@ -901,8 +902,14 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: any DaemonClientProtocol, interactionClient: any InteractionClientProtocol = InteractionClient(), onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(
+        daemonClient: any DaemonClientProtocol,
+        settingsClient: any SettingsClientProtocol = SettingsClient(),
+        interactionClient: any InteractionClientProtocol = InteractionClient(),
+        onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
+    ) {
         self.daemonClient = daemonClient
+        self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
@@ -1137,10 +1144,12 @@ public final class ChatViewModel: ObservableObject {
         // `confirmation_state_changed` events for all resolution paths.
         // No client-side pessimistic denial is needed.
 
-        // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
-        if (text == "/model" || text == "/models") && !hasSkillInvocation {
+        // Refresh model state only for slash commands that explicitly opt in.
+        let shouldRefreshModelMetadata = !hasSkillInvocation
+            && ChatSlashCommandCatalog.shouldRefreshModelMetadata(forRawInput: text)
+        if shouldRefreshModelMetadata {
             Task {
-                let info = await SettingsClient().fetchModelInfo()
+                let info = await self.settingsClient.fetchModelInfo()
                 if let model = info?.model {
                     self.selectedModel = model
                 }
@@ -1157,7 +1166,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         // Fire auto-title callback on the first user message (skip slash commands
-        // like /model so the conversation title isn't set to a command string)
+        // so the conversation title isn't set to a command token)
         if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(rawText)
@@ -1217,8 +1226,8 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isModelCommand = text == "/model" || text == "/models" || text.hasPrefix("/model ")
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !isModelCommand
+        let hasSlashCommandToken = ChatSlashCommandCatalog.normalizedCommandName(from: text) != nil
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !hasSlashCommandToken
 
         let willBeQueued = isSending && conversationId != nil
         var queuedMessageId: UUID?
