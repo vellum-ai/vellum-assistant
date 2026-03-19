@@ -17,6 +17,8 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.isStarted)
         XCTAssertFalse(p.showsActionsMenu)
         XCTAssertFalse(p.canCopy)
+        XCTAssertFalse(p.showsForkConversationAction)
+        XCTAssertFalse(p.showsForkParentLink)
     }
 
     func testConversationNotVisibleShowsNewConversation() {
@@ -28,6 +30,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         )
         XCTAssertEqual(p.displayTitle, "New conversation")
         XCTAssertFalse(p.showsActionsMenu)
+        XCTAssertFalse(p.showsForkParentLink)
     }
 
     // MARK: - Started standard conversation
@@ -43,6 +46,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertEqual(p.displayTitle, "Test Conversation")
         XCTAssertTrue(p.isStarted)
         XCTAssertTrue(p.showsActionsMenu)
+        XCTAssertTrue(p.showsForkConversationAction)
     }
 
     // MARK: - Private conversation
@@ -57,6 +61,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertTrue(p.isStarted)
         XCTAssertTrue(p.isPrivateConversation)
         XCTAssertFalse(p.showsActionsMenu)
+        XCTAssertFalse(p.showsForkConversationAction)
     }
 
     // MARK: - Not started (no conversationId, no messages)
@@ -72,6 +77,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.isStarted)
         XCTAssertFalse(p.showsActionsMenu)
         XCTAssertFalse(p.canCopy)
+        XCTAssertFalse(p.showsForkConversationAction)
     }
 
     // MARK: - Pin state
@@ -84,5 +90,27 @@ final class ConversationHeaderPresentationTests: XCTestCase {
             isConversationVisible: true
         )
         XCTAssertTrue(p.isPinned)
+    }
+
+    func testForkedConversationShowsParentLinkMetadata() {
+        let conversation = ConversationModel(
+            title: "Forked",
+            conversationId: "session-fork",
+            forkParent: ConversationForkParent(
+                conversationId: "session-parent",
+                messageId: "msg-parent",
+                title: "Original"
+            )
+        )
+        let p = ConversationHeaderPresentation(
+            activeConversation: conversation,
+            activeViewModel: nil,
+            isConversationVisible: true
+        )
+
+        XCTAssertTrue(p.showsForkParentLink)
+        XCTAssertEqual(p.forkParentTitle, "Original")
+        XCTAssertEqual(p.forkParentConversationId, "session-parent")
+        XCTAssertEqual(p.forkParentMessageId, "msg-parent")
     }
 }

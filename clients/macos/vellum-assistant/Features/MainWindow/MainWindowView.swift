@@ -224,6 +224,17 @@ struct MainWindowView: View {
         sidebar.renameText = conversation.title
     }
 
+    func openForkParentConversation() {
+        guard let parentConversationId = conversationHeaderPresentation.forkParentConversationId else { return }
+        let sourceMessageId = conversationHeaderPresentation.forkParentMessageId
+        Task {
+            _ = await conversationManager.openForkParentConversation(
+                conversationId: parentConversationId,
+                sourceMessageId: sourceMessageId
+            )
+        }
+    }
+
     var body: some View {
         coreLayoutView
             .opacity(showComingAlive ? 0 : 1)
@@ -419,6 +430,14 @@ struct MainWindowView: View {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
                     onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                    onForkConversation: {
+                        Task {
+                            await conversationManager.forkActiveConversation()
+                            await MainActor.run {
+                                dismissConversationDrawer()
+                            }
+                        }
+                    },
                     onPin: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.pinConversation(id: id)
@@ -435,6 +454,7 @@ struct MainWindowView: View {
                         dismissConversationDrawer()
                     },
                     onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                    onOpenForkParent: { openForkParentConversation() },
                     showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
@@ -922,6 +942,14 @@ struct MainWindowView: View {
             ConversationActionsDrawer(
                 presentation: conversationHeaderPresentation,
                 onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                onForkConversation: {
+                    Task {
+                        await conversationManager.forkActiveConversation()
+                        await MainActor.run {
+                            dismissConversationDrawer()
+                        }
+                    }
+                },
                 onPin: {
                     guard let id = conversationManager.activeConversationId else { return }
                     conversationManager.pinConversation(id: id)

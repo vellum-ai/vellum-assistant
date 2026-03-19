@@ -13,24 +13,16 @@ private let archivedConversationsNewKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
-/// Abstraction for fetching individual conversations, decoupled from DaemonClient.
+/// Abstraction for direct conversation mutations, decoupled from DaemonClient.
 @MainActor
 protocol ConversationClientProtocol {
-    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Conversation?
     func deleteConversation(_ conversationId: String) async
 }
 
-/// Fetches conversation data via GatewayHTTPClient.
+/// Gateway-backed conversation mutation client.
 @MainActor
 struct ConversationClient: ConversationClientProtocol {
     nonisolated init() {}
-
-    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Conversation? {
-        let result: (SingleConversationResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
-        )
-        return result?.0?.conversation
-    }
 
     func deleteConversation(_ conversationId: String) async {
         let response = try? await GatewayHTTPClient.delete(
@@ -843,6 +835,52 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return true
     }
 
+    @discardableResult
+    func openForkParentConversation(conversationId: String, sourceMessageId: String?) async -> Bool {
+        if selectConversationByConversationId(conversationId) {
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
+            applyPendingAnchorMessageIfPossible(
+                localConversationId: activeConversationId,
+                daemonMessageId: sourceMessageId
+            )
+            return true
+        }
+
+        guard let conversation = await conversationDetailClient.fetchConversation(conversationId: conversationId) else {
+            return false
+        }
+
+        if selectConversationByConversationId(conversationId) {
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
+            applyPendingAnchorMessageIfPossible(
+                localConversationId: activeConversationId,
+                daemonMessageId: sourceMessageId
+            )
+            return true
+        }
+
+        if isConversationArchived(conversation.id) {
+            var archived = archivedConversationIds
+            archived.remove(conversation.id)
+            archivedConversationIds = archived
+        }
+
+        guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
+            return false
+        }
+
+        selectConversation(id: localConversationId)
+        applyPendingAnchorMessageIfPossible(
+            localConversationId: localConversationId,
+            daemonMessageId: sourceMessageId
+        )
+        return true
+    }
+
     /// Select a conversation by conversation ID, fetching it on-demand from the server if not locally available.
     /// Returns `true` if the conversation was found (or fetched) and selected, `false` on failure.
     /// If the conversation is archived, it is automatically unarchived since the caller
@@ -859,7 +897,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         // Slow path: fetch the conversation via the gateway and insert it locally
-        guard let conversation = await conversationClient.fetchConversationById(conversationId) else {
+        guard let conversation = await conversationDetailClient.fetchConversation(conversationId: conversationId) else {
             return false
         }
 
@@ -887,7 +925,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         guard let localConversationId = upsertConversation(
-            from: conversationListItem(from: conversation),
+            from: conversation,
             isArchived: false
         ) else {
             return false
@@ -940,7 +978,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived,
-                fallbackPinnedOrder: existingConversation.pinnedOrder
+                fallbackPinnedOrder: existingConversation.pinnedOrder,
+                fallbackForkParent: existingConversation.forkParent
             )
             mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = chatViewModels[existingConversation.id] {
@@ -966,31 +1005,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return conversationModel.id
     }
 
-    private func conversationListItem(from conversation: ConversationsListResponse.Conversation) -> ConversationListResponseItem {
-        ConversationListResponseItem(
-            id: conversation.id,
-            title: conversation.title,
-            createdAt: conversation.createdAt,
-            updatedAt: conversation.updatedAt,
-            conversationType: conversation.conversationType,
-            source: conversation.source,
-            scheduleJobId: conversation.scheduleJobId,
-            channelBinding: conversation.channelBinding,
-            conversationOriginChannel: conversation.conversationOriginChannel,
-            conversationOriginInterface: conversation.conversationOriginInterface,
-            assistantAttention: conversation.assistantAttention,
-            displayOrder: conversation.displayOrder,
-            isPinned: conversation.isPinned,
-            forkParent: conversation.forkParent
-        )
-    }
-
     private func conversationModel(
         from item: ConversationListResponseItem,
         localId: UUID = UUID(),
         createdAt: Date? = nil,
         isArchived: Bool,
-        fallbackPinnedOrder: Int? = nil
+        fallbackPinnedOrder: Int? = nil,
+        fallbackForkParent: ConversationForkParent? = nil
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
@@ -1014,8 +1035,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            forkParent: item.forkParent
+            forkParent: item.forkParent ?? fallbackForkParent
         )
+    }
+
+    private func applyPendingAnchorMessageIfPossible(localConversationId: UUID?, daemonMessageId: String?) {
+        guard let localConversationId,
+              let daemonMessageId,
+              let messageId = UUID(uuidString: daemonMessageId) else { return }
+        setPendingAnchorMessage(conversationId: localConversationId, messageId: messageId)
     }
 
     // MARK: - Render Cache Management

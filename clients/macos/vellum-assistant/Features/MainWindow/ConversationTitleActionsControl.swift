@@ -6,22 +6,42 @@ import VellumAssistantShared
 struct ConversationTitleActionsControl: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
+    let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
     let onArchive: () -> Void
     let onRename: () -> Void
+    let onOpenForkParent: () -> Void
     @Binding var showDrawer: Bool
 
     var body: some View {
-        VButton(
-            label: presentation.displayTitle,
-            rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
-            style: .ghost
-        ) {
-            if presentation.showsActionsMenu {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    showDrawer.toggle()
+        VStack(alignment: .leading, spacing: 2) {
+            VButton(
+                label: presentation.displayTitle,
+                rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
+                style: .ghost
+            ) {
+                if presentation.showsActionsMenu {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        showDrawer.toggle()
+                    }
                 }
+            }
+
+            if let parentTitle = presentation.forkParentTitle, presentation.showsForkParentLink {
+                Button(action: onOpenForkParent) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.gitBranch, size: 11)
+                        Text("Forked from \(parentTitle)")
+                            .font(VFont.small)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Open parent conversation")
             }
         }
     }
@@ -31,6 +51,7 @@ struct ConversationTitleActionsControl: View {
 struct ConversationActionsDrawer: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
+    let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
     let onArchive: () -> Void
@@ -40,6 +61,10 @@ struct ConversationActionsDrawer: View {
         VStack(alignment: .leading, spacing: 0) {
             if presentation.canCopy {
                 SidebarPrimaryRow(icon: VIcon.copy.rawValue, label: "Copy full conversation", action: onCopy)
+            }
+
+            if presentation.showsForkConversationAction {
+                SidebarPrimaryRow(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
             }
 
             SidebarPrimaryRow(
