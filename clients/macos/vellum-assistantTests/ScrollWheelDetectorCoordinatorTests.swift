@@ -115,9 +115,38 @@ final class ScrollWheelDetectorCoordinatorTests: XCTestCase {
         // Other diagnostic kinds should not be throttled.
         XCTAssertTrue(coordinator.shouldRecordDiagnostic(kind: .detectorInstall))
         XCTAssertTrue(coordinator.shouldRecordDiagnostic(kind: .detectorInstall))
-        XCTAssertTrue(coordinator.shouldRecordDiagnostic(kind: .detectorUpdate))
         XCTAssertTrue(coordinator.shouldRecordDiagnostic(kind: .detectorRemove))
         XCTAssertTrue(coordinator.shouldRecordDiagnostic(kind: .scrollPositionChanged))
+    }
+
+    // MARK: - Detector Update Throttle
+
+    func testFirstDetectorUpdateCallIsAllowed() {
+        let coordinator = makeCoordinator()
+        XCTAssertTrue(
+            coordinator.shouldRecordDiagnostic(kind: .detectorUpdate),
+            "First detectorUpdate diagnostic should always be recorded"
+        )
+    }
+
+    func testRapidDetectorUpdateCallsAreThrottled() {
+        let coordinator = makeCoordinator()
+
+        // First call passes.
+        let first = coordinator.shouldRecordDiagnostic(kind: .detectorUpdate)
+        XCTAssertTrue(first)
+
+        // Immediate second call should be throttled (< 1.0s has elapsed).
+        let second = coordinator.shouldRecordDiagnostic(kind: .detectorUpdate)
+        XCTAssertFalse(second, "Rapid detectorUpdate call should be throttled")
+    }
+
+    func testDetectorUpdateThrottleIntervalIsOneSecond() {
+        XCTAssertEqual(
+            ScrollWheelDetector.Coordinator.detectorUpdateThrottleInterval,
+            1.0,
+            "Detector update throttle interval should be 1.0 seconds"
+        )
     }
 
     // MARK: - Stable Detector ID
