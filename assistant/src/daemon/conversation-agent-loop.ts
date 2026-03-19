@@ -43,6 +43,7 @@ import {
   updateConversationContextWindow,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -1538,10 +1539,22 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
     });
 
+    const syncLastAssistantMessageToDisk = (): void => {
+      if (!state.lastAssistantMessageId) return;
+      const convForDisk = getConversation(ctx.conversationId);
+      if (!convForDisk) return;
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        convForDisk.createdAt,
+      );
+    };
+
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
+      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -1577,6 +1590,7 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
+      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {

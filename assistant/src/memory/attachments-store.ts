@@ -1,18 +1,26 @@
 /**
  * Assistant-owned attachment storage.
  *
- * All attachments are stored on disk; the database row references the
- * on-disk file path. Provides upload, delete, and message-linkage operations.
+ * Attachments uploaded ahead of message persistence are staged in the database.
+ * Once linked to a message, the canonical file is materialized directly into
+ * that conversation's attachments/ directory and the database row points there.
  */
 
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
 
@@ -45,6 +53,257 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getConversationDirName(
+  conversationId: string,
+  createdAtMs: number,
+): string {
+  const isoDate = new Date(createdAtMs).toISOString().replace(/:/g, "-");
+  return `${conversationId}_${isoDate}`;
+}
+
+function getConversationAttachmentsDirPath(
+  conversationId: string,
+  createdAtMs: number,
+): string {
+  return join(
+    getConversationsDir(),
+    getConversationDirName(conversationId, createdAtMs),
+    "attachments",
+  );
+}
+
+function resolveUniqueFilename(dir: string, filename: string): string {
+  const sanitized = basename(filename);
+  const existingPath = join(dir, sanitized);
+  if (!existsSync(existingPath)) return sanitized;
+
+  const ext = extname(sanitized);
+  const base = basename(sanitized, ext);
+  let counter = 2;
+  let candidate = `${base}-${counter}${ext}`;
+  while (existsSync(join(dir, candidate))) {
+    counter++;
+    candidate = `${base}-${counter}${ext}`;
+  }
+  return candidate;
+}
+
+function computeSizeBytesFromBase64(dataBase64: string): number {
+  const padding = dataBase64.endsWith("==")
+    ? 2
+    : dataBase64.endsWith("=")
+      ? 1
+      : 0;
+  return Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
+}
+
+interface AttachmentRow {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+  dataBase64: string;
+  contentHash: string | null;
+  thumbnailBase64: string | null;
+  filePath: string | null;
+  createdAt: number;
+  sourcePath: string | null;
+}
+
+function getAttachmentRow(attachmentId: string): AttachmentRow | null {
+  return (
+    rawGet<AttachmentRow>(
+      `SELECT
+         id,
+         original_filename AS originalFilename,
+         mime_type AS mimeType,
+         size_bytes AS sizeBytes,
+         kind,
+         data_base64 AS dataBase64,
+         content_hash AS contentHash,
+         thumbnail_base64 AS thumbnailBase64,
+         file_path AS filePath,
+         created_at AS createdAt,
+         source_path AS sourcePath
+       FROM attachments
+       WHERE id = ?`,
+      attachmentId,
+    ) ?? null
+  );
+}
+
+function getMessageConversationContext(
+  messageId: string,
+): { conversationId: string; conversationCreatedAt: number } | null {
+  return (
+    rawGet<{ conversationId: string; conversationCreatedAt: number }>(
+      `SELECT
+         m.conversation_id AS conversationId,
+         c.created_at AS conversationCreatedAt
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE m.id = ?`,
+      messageId,
+    ) ?? null
+  );
+}
+
+function listLinkedConversationIds(attachmentId: string): string[] {
+  return rawAll<{ conversationId: string }>(
+    `SELECT DISTINCT m.conversation_id AS conversationId
+     FROM message_attachments ma
+     JOIN messages m ON m.id = ma.message_id
+     WHERE ma.attachment_id = ?`,
+    attachmentId,
+  ).map((row) => row.conversationId);
+}
+
+function cloneAttachmentRow(row: AttachmentRow): AttachmentRow {
+  const clonedId = uuid();
+  const db = getDb();
+  const now = Date.now();
+
+  db.insert(attachments)
+    .values({
+      id: clonedId,
+      originalFilename: row.originalFilename,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      kind: row.kind,
+      dataBase64: row.dataBase64,
+      contentHash: null,
+      thumbnailBase64: row.thumbnailBase64,
+      filePath: row.filePath,
+      createdAt: now,
+    })
+    .run();
+
+  if (row.sourcePath) {
+    rawRun(
+      `UPDATE attachments SET source_path = ? WHERE id = ?`,
+      row.sourcePath,
+      clonedId,
+    );
+  }
+
+  return {
+    ...row,
+    id: clonedId,
+    createdAt: now,
+  };
+}
+
+function insertMessageAttachmentLink(
+  messageId: string,
+  attachmentId: string,
+  position: number,
+): void {
+  const db = getDb();
+  db.insert(messageAttachments)
+    .values({
+      id: uuid(),
+      messageId,
+      attachmentId,
+      position,
+      createdAt: Date.now(),
+    })
+    .run();
+}
+
+function persistAttachmentFilePath(
+  attachmentId: string,
+  targetPath: string,
+  sourcePath?: string | null,
+): void {
+  if (sourcePath) {
+    rawRun(
+      `UPDATE attachments
+       SET file_path = ?, data_base64 = '', source_path = COALESCE(source_path, ?)
+       WHERE id = ?`,
+      targetPath,
+      sourcePath,
+      attachmentId,
+    );
+    return;
+  }
+
+  rawRun(
+    `UPDATE attachments SET file_path = ?, data_base64 = '' WHERE id = ?`,
+    targetPath,
+    attachmentId,
+  );
+}
+
+function materializeAttachmentIntoConversation(
+  row: AttachmentRow,
+  conversationId: string,
+  conversationCreatedAt: number,
+): void {
+  const attachDir = getConversationAttachmentsDirPath(
+    conversationId,
+    conversationCreatedAt,
+  );
+  mkdirSync(attachDir, { recursive: true });
+
+  if (row.filePath && existsSync(row.filePath) && dirname(row.filePath) === attachDir) {
+    if (row.dataBase64) {
+      rawRun(`UPDATE attachments SET data_base64 = '' WHERE id = ?`, row.id);
+    }
+    return;
+  }
+
+  const resolvedName = resolveUniqueFilename(attachDir, row.originalFilename);
+  const targetPath = join(attachDir, resolvedName);
+
+  let sourcePath = row.sourcePath;
+  if (row.dataBase64) {
+    writeFileSync(targetPath, Buffer.from(row.dataBase64, "base64"));
+  } else {
+    const readablePath = [row.filePath, row.sourcePath].find(
+      (path): path is string => !!path && existsSync(path),
+    );
+    if (!readablePath) return;
+
+    if (!sourcePath && readablePath !== row.filePath) {
+      sourcePath = readablePath;
+    } else if (
+      !sourcePath &&
+      readablePath === row.filePath &&
+      dirname(readablePath) !== attachDir
+    ) {
+      sourcePath = readablePath;
+    }
+
+    copyFileSync(readablePath, targetPath);
+  }
+
+  persistAttachmentFilePath(row.id, targetPath, sourcePath);
+}
+
+function scopeAttachmentToConversation(
+  attachmentId: string,
+  conversationId: string,
+  conversationCreatedAt: number,
+): string {
+  let row = getAttachmentRow(attachmentId);
+  if (!row) {
+    throw new Error(`Attachment not found: ${attachmentId}`);
+  }
+
+  const linkedConversationIds = listLinkedConversationIds(attachmentId);
+  if (linkedConversationIds.some((id) => id !== conversationId)) {
+    row = cloneAttachmentRow(row);
+  }
+
+  materializeAttachmentIntoConversation(
+    row,
+    conversationId,
+    conversationCreatedAt,
+  );
+  return row.id;
+}
+
 // ---------------------------------------------------------------------------
 // Size and encoding limits
 // ---------------------------------------------------------------------------
@@ -53,8 +312,8 @@ function formatBytes(bytes: number): string {
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /**
- * Write decoded base64 data to disk under the workspace attachments directory.
- * Returns the absolute file path of the written file.
+ * Legacy helper kept for historical backfills that still need to materialize
+ * old attachment rows from inline base64 data.
  */
 export function writeAttachmentToDisk(
   dataBase64: string,
@@ -211,14 +470,6 @@ export function validateAttachmentUpload(
   return { ok: true };
 }
 
-/**
- * Compute a content hash for deduplication. Uses Bun.hash (wyhash) for speed,
- * encoded as base-36 for compact storage.
- */
-function computeContentHash(dataBase64: string): string {
-  return Bun.hash(dataBase64).toString(36);
-}
-
 // ---------------------------------------------------------------------------
 // File-backed attachment storage (avoids reading large files into memory)
 // ---------------------------------------------------------------------------
@@ -254,6 +505,8 @@ export function uploadFileBackedAttachment(
       createdAt: now,
     })
     .run();
+
+  rawRun(`UPDATE attachments SET source_path = ? WHERE id = ?`, filePath, id);
 
   return {
     id,
@@ -340,17 +593,17 @@ export function getFilePathBySourcePath(
  * Returns null if the attachment does not exist or the file is missing.
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
-  const db = getDb();
-  const row = db
-    .select({ filePath: attachments.filePath })
-    .from(attachments)
-    .where(eq(attachments.id, attachmentId))
-    .get();
-
-  if (!row?.filePath) return null;
+  const row = getAttachmentRow(attachmentId);
+  if (!row) return null;
 
   try {
-    return readFileSync(row.filePath);
+    if (row.filePath) {
+      return readFileSync(row.filePath);
+    }
+    if (row.dataBase64) {
+      return Buffer.from(row.dataBase64, "base64");
+    }
+    return null;
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       return null;
@@ -359,27 +612,16 @@ export function getAttachmentContent(attachmentId: string): Buffer | null {
   }
 }
 
-export function uploadAttachment(
-  filename: string,
-  mimeType: string,
+function validateAttachmentPayload(
   dataBase64: string,
-  sourcePath?: string,
-): StoredAttachment {
+  options?: { skipSizeLimit?: boolean },
+): number {
   if (!isValidBase64(dataBase64)) {
     throw new AttachmentUploadError("Invalid base64 encoding");
   }
 
-  const padding = dataBase64.endsWith("==")
-    ? 2
-    : dataBase64.endsWith("=")
-      ? 1
-      : 0;
-  const sizeBytes = Math.max(
-    0,
-    Math.floor((dataBase64.length * 3) / 4) - padding,
-  );
-
-  if (sizeBytes > MAX_UPLOAD_BYTES) {
+  const sizeBytes = computeSizeBytesFromBase64(dataBase64);
+  if (!options?.skipSizeLimit && sizeBytes > MAX_UPLOAD_BYTES) {
     throw new AttachmentUploadError(
       `Attachment too large: ${formatBytes(sizeBytes)} exceeds ${formatBytes(
         MAX_UPLOAD_BYTES,
@@ -387,41 +629,20 @@ export function uploadAttachment(
     );
   }
 
+  return sizeBytes;
+}
+
+export function uploadAttachment(
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+  sourcePath?: string,
+): StoredAttachment {
+  const sizeBytes = validateAttachmentPayload(dataBase64);
+
   const db = getDb();
-  const contentHash = computeContentHash(dataBase64);
-
-  // Dedup: if an attachment with the same content already exists, return it
-  // instead of storing a duplicate.
-  const existing = db
-    .select({
-      id: attachments.id,
-      originalFilename: attachments.originalFilename,
-      mimeType: attachments.mimeType,
-      sizeBytes: attachments.sizeBytes,
-      kind: attachments.kind,
-      thumbnailBase64: attachments.thumbnailBase64,
-      createdAt: attachments.createdAt,
-    })
-    .from(attachments)
-    .where(eq(attachments.contentHash, contentHash))
-    .get();
-
-  if (existing) {
-    if (sourcePath) {
-      rawRun(
-        `UPDATE attachments SET source_path = ? WHERE id = ?`,
-        sourcePath,
-        existing.id,
-      );
-    }
-    return existing;
-  }
-
   const now = Date.now();
   const kind = classifyKind(mimeType);
-
-  // Always write to disk
-  const filePath = writeAttachmentToDisk(dataBase64, filename);
 
   const record = {
     id: uuid(),
@@ -429,9 +650,9 @@ export function uploadAttachment(
     mimeType,
     sizeBytes,
     kind,
-    dataBase64: "",
-    filePath,
-    contentHash,
+    dataBase64,
+    filePath: null,
+    contentHash: null,
     createdAt: now,
   };
 
@@ -453,6 +674,126 @@ export function uploadAttachment(
     kind,
     thumbnailBase64: null,
     createdAt: now,
+  };
+}
+
+export function attachInlineAttachmentToMessage(
+  messageId: string,
+  position: number,
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+  options?: { sourcePath?: string; skipSizeLimit?: boolean },
+): StoredAttachment {
+  const sizeBytes = validateAttachmentPayload(dataBase64, {
+    skipSizeLimit: options?.skipSizeLimit,
+  });
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const attachDir = getConversationAttachmentsDirPath(
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+  );
+  mkdirSync(attachDir, { recursive: true });
+  const resolvedName = resolveUniqueFilename(attachDir, filename);
+  const targetPath = join(attachDir, resolvedName);
+  writeFileSync(targetPath, Buffer.from(dataBase64, "base64"));
+
+  const now = Date.now();
+  const id = uuid();
+  const kind = classifyKind(mimeType);
+  const db = getDb();
+
+  db.insert(attachments)
+    .values({
+      id,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes,
+      kind,
+      dataBase64: "",
+      filePath: targetPath,
+      contentHash: null,
+      createdAt: now,
+    })
+    .run();
+
+  if (options?.sourcePath) {
+    rawRun(
+      `UPDATE attachments SET source_path = ? WHERE id = ?`,
+      options.sourcePath,
+      id,
+    );
+  }
+
+  insertMessageAttachmentLink(messageId, id, position);
+
+  return {
+    id,
+    originalFilename: filename,
+    mimeType,
+    sizeBytes,
+    kind,
+    thumbnailBase64: null,
+    createdAt: now,
+  };
+}
+
+export function attachFileBackedAttachmentToMessage(
+  messageId: string,
+  position: number,
+  filename: string,
+  mimeType: string,
+  sourceFilePath: string,
+  sizeBytes: number,
+): StoredAttachment & { filePath: string } {
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const attachDir = getConversationAttachmentsDirPath(
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+  );
+  mkdirSync(attachDir, { recursive: true });
+  const resolvedName = resolveUniqueFilename(attachDir, filename);
+  const targetPath = join(attachDir, resolvedName);
+  copyFileSync(sourceFilePath, targetPath);
+
+  const now = Date.now();
+  const id = uuid();
+  const kind = classifyKind(mimeType);
+  const db = getDb();
+
+  db.insert(attachments)
+    .values({
+      id,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes,
+      kind,
+      dataBase64: "",
+      filePath: targetPath,
+      createdAt: now,
+    })
+    .run();
+
+  rawRun(`UPDATE attachments SET source_path = ? WHERE id = ?`, sourceFilePath, id);
+  insertMessageAttachmentLink(messageId, id, position);
+
+  return {
+    id,
+    originalFilename: filename,
+    mimeType,
+    sizeBytes,
+    kind,
+    thumbnailBase64: null,
+    createdAt: now,
+    filePath: targetPath,
   };
 }
 
@@ -485,9 +826,8 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
 
   if (!existing) return "not_found";
 
-  // With content-hash deduplication, multiple messages may reference the same
-  // attachment row. Only delete the attachment (and cascade its links) when no
-  // message_attachments rows still point to it.
+  // An attachment row can still be shared by multiple messages inside the same
+  // conversation. Only delete it when no remaining links point to the row.
   const refCount = db
     .select({ id: messageAttachments.id })
     .from(messageAttachments)
@@ -562,17 +902,19 @@ export function linkAttachmentToMessage(
   messageId: string,
   attachmentId: string,
   position: number,
-): void {
-  const db = getDb();
-  db.insert(messageAttachments)
-    .values({
-      id: uuid(),
-      messageId,
-      attachmentId,
-      position,
-      createdAt: Date.now(),
-    })
-    .run();
+): string {
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const scopedAttachmentId = scopeAttachmentToConversation(
+    attachmentId,
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+  );
+  insertMessageAttachmentLink(messageId, scopedAttachmentId, position);
+  return scopedAttachmentId;
 }
 
 /**

@@ -15,10 +15,10 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
+  attachInlineAttachmentToMessage,
   attachmentExists,
   AttachmentUploadError,
   linkAttachmentToMessage,
-  uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import {
@@ -394,8 +394,14 @@ export async function persistUserMessage(
           );
           continue;
         }
-        const stored = uploadAttachment(a.filename, a.mimeType, a.data);
-        linkAttachmentToMessage(persistedUserMessage.id, stored.id, i);
+        attachInlineAttachmentToMessage(
+          persistedUserMessage.id,
+          i,
+          a.filename,
+          a.mimeType,
+          a.data,
+          { sourcePath: a.filePath },
+        );
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(

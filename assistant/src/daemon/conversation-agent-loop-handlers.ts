@@ -721,16 +721,6 @@ export async function handleMessageComplete(
   );
   state.lastAssistantMessageId = assistantMsg.id;
 
-  // Sync assistant message to disk view
-  const convForDisk = getConversation(deps.ctx.conversationId);
-  if (convForDisk) {
-    syncMessageToDisk(
-      deps.ctx.conversationId,
-      assistantMsg.id,
-      convForDisk.createdAt,
-    );
-  }
-
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
   // message_id IS NULL belong to the current turn.

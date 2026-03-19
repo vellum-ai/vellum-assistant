@@ -1,12 +1,8 @@
 import {
+  attachInlineAttachmentToMessage,
   AttachmentUploadError,
   getFilePathForAttachment,
-  linkAttachmentToMessage,
-  MAX_UPLOAD_BYTES,
   setAttachmentThumbnail,
-  uploadAttachment,
-  uploadFileBackedAttachment,
-  writeAttachmentToDisk,
 } from "../memory/attachments-store.js";
 import {
   check,
@@ -208,27 +204,14 @@ export async function resolveAssistantAttachments(
       const draft = assistantAttachments[i];
       let stored;
       try {
-        // uploadAttachment always writes to disk now. For oversized files
-        // that exceed the upload limit, use the file-backed path which
-        // bypasses the size check.
-        if (draft.sizeBytes > MAX_UPLOAD_BYTES) {
-          const diskFilePath = writeAttachmentToDisk(
-            draft.dataBase64,
-            draft.filename,
-          );
-          stored = uploadFileBackedAttachment(
-            draft.filename,
-            draft.mimeType,
-            diskFilePath,
-            draft.sizeBytes,
-          );
-        } else {
-          stored = uploadAttachment(
-            draft.filename,
-            draft.mimeType,
-            draft.dataBase64,
-          );
-        }
+        stored = attachInlineAttachmentToMessage(
+          lastAssistantMessageId,
+          i,
+          draft.filename,
+          draft.mimeType,
+          draft.dataBase64,
+          { skipSizeLimit: true },
+        );
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
@@ -242,7 +225,6 @@ export async function resolveAssistantAttachments(
         }
         throw err;
       }
-      linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
       const isVideo = draft.mimeType.startsWith("video/");
       // Only omit data for videos — they have an end-to-end lazy-load path
       // via /v1/attachments/:id/content. Other types (images, PDFs) still need
