@@ -45,7 +45,6 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
-        viewMode = .source
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
