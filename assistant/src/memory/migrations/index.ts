@@ -126,6 +126,7 @@ export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-star
 export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-display-metadata.js";
 export { migrateConversationForkLineage } from "./183-add-conversation-fork-lineage.js";
 export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
+export { migrateMemoryArchiveTables } from "./186-memory-archive.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
