@@ -826,7 +826,7 @@ sequenceDiagram
 
     Note over Daemon: LLM call fails or<br/>processing error occurs
     Daemon->>Daemon: classifyConversationError(error, ctx)
-    Daemon->>DC: conversation_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
+    Daemon->>DC: conversation_error {conversationId, code,<br/>userMessage, retryable, debugDetails?}
     DC->>DC: broadcast to all subscribers
     DC->>VM: subscribe() stream delivers message
     VM->>VM: set conversationError property<br/>clear isThinking / isCancelling
@@ -837,7 +837,7 @@ sequenceDiagram
     alt User taps Retry (retryable == true)
         UI->>VM: retryAfterConversationError()
         VM->>VM: dismissConversationError()<br/>+ regenerateLastMessage()
-        VM->>DC: regenerate {sessionId}
+        VM->>DC: regenerate {conversationId}
         DC->>Daemon: HTTP POST /v1/messages
     else User taps Dismiss
         UI->>VM: dismissConversationError()
@@ -1525,7 +1525,7 @@ sequenceDiagram
 
 ### Key design decisions
 
-- **Recursion guard**: A module-level `Set<sessionId>` prevents concurrent swarms within the same session while allowing independent sessions to run their own swarms in parallel.
+- **Recursion guard**: A module-level `Set<conversationId>` prevents concurrent swarms within the same conversation while allowing independent conversations to run their own swarms in parallel.
 - **Abort signal**: The tool checks `context.signal?.aborted` before planning and before execution. The signal is also forwarded into `executeSwarm` and the worker backend, enabling cooperative cancellation of in-flight workers.
 - **DAG scheduling**: Tasks with dependencies are topologically ordered. Independent tasks run in parallel up to `maxWorkers`.
 - **Per-task retries**: Failed tasks retry up to `maxRetriesPerTask` before being marked failed. Dependents are transitively blocked.
@@ -1568,7 +1568,7 @@ sequenceDiagram
 
     Note over Daemon: Processing previous request...<br/>Reaches safe tool-loop checkpoint
 
-    Daemon-->>DC: generation_handoff (sessionId, queuedCount)
+    Daemon-->>DC: generation_handoff (conversationId, queuedCount)
     Note over Daemon: Daemon yields current generation
 
     Daemon-->>DC: message_dequeued
@@ -1585,7 +1585,7 @@ sequenceDiagram
 
 ## Trace System — Debug Panel Data Flow
 
-The trace system provides real-time observability of daemon session internals. Each session creates a `TraceEmitter` that emits structured `trace_event` SSE events as the session processes requests, makes LLM calls, and executes tools.
+The trace system provides real-time observability of daemon conversation internals. Each conversation creates a `TraceEmitter` that emits structured `trace_event` SSE events as the conversation processes requests, makes LLM calls, and executes tools.
 
 ```mermaid
 sequenceDiagram
@@ -1636,41 +1636,41 @@ sequenceDiagram
     TE-->>DC: trace_event (message_complete)
     DC-->>TS: ingest()
 
-    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by session and requestId,<br/>capped at 5000 per session
+    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by conversation and requestId,<br/>capped at 5000 per conversation
 
-    TS-->>DP: @Published eventsBySession
+    TS-->>DP: @Published eventsByConversation
     Note over DP: Metrics strip: requests, LLM calls,<br/>tokens (in/out), avg latency, failures<br/>Timeline: events grouped by requestId
 ```
 
 ### Trace Event Kinds
 
-Events emitted during a session lifecycle:
+Events emitted during a conversation lifecycle:
 
-| Kind                        | Emitted by         | When                                                                                            |
-| --------------------------- | ------------------ | ----------------------------------------------------------------------------------------------- |
-| `request_received`          | Handlers / Session | User message or surface action arrives                                                          |
-| `request_queued`            | Handlers / Session | Message queued while session is busy                                                            |
-| `request_dequeued`          | Session            | Queued message begins processing                                                                |
-| `llm_call_started`          | Session            | LLM API call initiated                                                                          |
-| `llm_call_finished`         | Session            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
-| `assistant_message`         | Session            | Assistant response assembled (carries `toolUseCount`)                                           |
-| `tool_started`              | ToolTraceListener  | Tool execution begins                                                                           |
-| `tool_permission_requested` | ToolTraceListener  | Permission check needed (carries `riskLevel`)                                                   |
-| `tool_permission_decided`   | ToolTraceListener  | Permission granted or denied (carries `decision`)                                               |
-| `tool_finished`             | ToolTraceListener  | Tool execution completed (carries `durationMs`)                                                 |
-| `tool_failed`               | ToolTraceListener  | Tool execution failed (carries `durationMs`)                                                    |
-| `secret_detected`           | ToolTraceListener  | Secret found in tool output                                                                     |
-| `generation_handoff`        | Session            | Yielding to next queued message                                                                 |
-| `message_complete`          | Session            | Full request processing finished                                                                |
-| `generation_cancelled`      | Session            | User cancelled the generation                                                                   |
-| `request_error`             | Handlers / Session | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
+| Kind                        | Emitted by              | When                                                                                            |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `request_received`          | Handlers / Conversation | User message or surface action arrives                                                          |
+| `request_queued`            | Handlers / Conversation | Message queued while conversation is busy                                                       |
+| `request_dequeued`          | Conversation            | Queued message begins processing                                                                |
+| `llm_call_started`          | Conversation            | LLM API call initiated                                                                          |
+| `llm_call_finished`         | Conversation            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
+| `assistant_message`         | Conversation            | Assistant response assembled (carries `toolUseCount`)                                           |
+| `tool_started`              | ToolTraceListener       | Tool execution begins                                                                           |
+| `tool_permission_requested` | ToolTraceListener       | Permission check needed (carries `riskLevel`)                                                   |
+| `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
+| `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
+| `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
+| `secret_detected`           | ToolTraceListener       | Secret found in tool output                                                                     |
+| `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
+| `message_complete`          | Conversation            | Full request processing finished                                                                |
+| `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
+| `request_error`             | Handlers / Conversation | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
 
 ### Architecture
 
-- **TraceEmitter** (daemon, per-session): Constructed with a `sessionId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the session's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
+- **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
+- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
 - **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
-- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by session and requestId, and enforces a retention cap of 5,000 events per session. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
+- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
 
 ---
