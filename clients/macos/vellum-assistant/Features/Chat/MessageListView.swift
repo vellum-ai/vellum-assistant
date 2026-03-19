@@ -107,6 +107,7 @@ struct MessageListView: View {
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -320,6 +321,33 @@ struct MessageListView: View {
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
             effectiveStatusText: effectiveStatusText
         )
+    }
+
+    var hasForkActionHandler: Bool {
+        onForkFromMessage != nil || AppDelegate.shared?.mainWindow?.conversationManager != nil
+    }
+
+    func canFork(from message: ChatMessage) -> Bool {
+        hasForkActionHandler && message.daemonMessageId != nil && !message.isStreaming
+    }
+
+    func forkFromMessage(_ daemonMessageId: String) {
+        if let onForkFromMessage {
+            onForkFromMessage(daemonMessageId)
+            return
+        }
+
+        Task { @MainActor in
+            await AppDelegate.shared?.mainWindow?.conversationManager
+                .forkConversation(throughDaemonMessageId: daemonMessageId)
+        }
+    }
+
+    var forkFromMessageAction: ((String) -> Void)? {
+        guard hasForkActionHandler else { return nil }
+        return { daemonMessageId in
+            forkFromMessage(daemonMessageId)
+        }
     }
 
     /// Pre-compute which message indices should show a timestamp divider.
@@ -733,6 +761,7 @@ struct MessageListView: View {
                             onSurfaceAction: onSurfaceAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            onForkFromMessage: forkFromMessageAction,
                             showInspectButton: showInspectButton,
                             onInspectMessage: onInspectMessage,
                             onRehydrateMessage: onRehydrateMessage,
@@ -1395,6 +1424,7 @@ private struct MessageCellView: View, Equatable {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
@@ -1438,6 +1468,7 @@ private struct MessageCellView: View, Equatable {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
                 onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
@@ -1571,6 +1602,7 @@ private struct MessageCellView: View, Equatable {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
                 onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,

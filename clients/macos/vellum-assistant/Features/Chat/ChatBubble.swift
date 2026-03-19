@@ -12,6 +12,7 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
@@ -63,8 +64,11 @@ struct ChatBubble: View {
     private var canInspectMessage: Bool {
         showInspectButton && !isUser && message.daemonMessageId != nil
     }
+    var canForkFromMessage: Bool {
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+    }
     private var hasOverflowActions: Bool {
-        hasCopyableText || canReportMessage || canInspectMessage
+        hasCopyableText || canReportMessage || canInspectMessage || canForkFromMessage
     }
     private var showOverflowMenu: Bool {
         hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
@@ -335,6 +339,24 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Report message")
+            }
+            if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
+                Button {
+                    onForkFromMessage(daemonMessageId)
+                } label: {
+                    Label {
+                        Text("Fork from here")
+                            .font(VFont.caption)
+                    } icon: {
+                        VIconView(.gitBranch, size: 11)
+                    }
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Fork from here")
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
                 Button {
