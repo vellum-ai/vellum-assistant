@@ -9,7 +9,7 @@ import XCTest
 final class ConversationForkIOSTests: XCTestCase {
     private let connectedCacheKey = "ios_connected_conversations_cache_v1"
 
-    func testForkConversationPublishesSelectionAndPersistsLineageInConnectedCache() async {
+    func testForkConversationPublishesSelectionAndPersistsLineageInConnectedCache() async throws {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
@@ -32,21 +32,22 @@ final class ConversationForkIOSTests: XCTestCase {
         )
         store.conversations = [parent]
 
-        let forkedLocalId = try XCTUnwrap(await store.forkConversation(
+        let forkedLocalId = await store.forkConversation(
             conversationLocalId: parent.id,
             throughDaemonMessageId: "msg-root"
-        ))
+        )
+        let unwrappedForkedLocalId = try XCTUnwrap(forkedLocalId)
 
         XCTAssertEqual(forkClient.requests.count, 1)
         XCTAssertEqual(forkClient.requests.first?.conversationId, "conv-parent")
         XCTAssertEqual(forkClient.requests.first?.throughMessageId, "msg-root")
-        XCTAssertEqual(store.selectionRequest?.conversationLocalId, forkedLocalId)
+        XCTAssertEqual(store.selectionRequest?.conversationLocalId, unwrappedForkedLocalId)
 
-        let forkedConversation = try XCTUnwrap(store.conversations.first(where: { $0.id == forkedLocalId }))
+        let forkedConversation = try XCTUnwrap(store.conversations.first(where: { $0.id == unwrappedForkedLocalId }))
         XCTAssertEqual(forkedConversation.conversationId, "conv-forked")
         XCTAssertEqual(forkedConversation.forkParent?.conversationId, "conv-parent")
         XCTAssertEqual(forkedConversation.forkParent?.messageId, "msg-root")
-        XCTAssertEqual(store.conversations.first?.id, forkedLocalId)
+        XCTAssertEqual(store.conversations.first?.id, unwrappedForkedLocalId)
 
         let restoredStore = IOSConversationStore(
             daemonClient: daemonClient,
