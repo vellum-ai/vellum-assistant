@@ -437,6 +437,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps.create", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps.delete", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps/connections", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps/connect", scopes: ["settings.write"] },
+  { endpoint: "oauth/connections", scopes: ["settings.write"] },
 
   // Ingress config
   { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },
