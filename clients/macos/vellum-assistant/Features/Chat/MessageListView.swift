@@ -1142,7 +1142,21 @@ struct MessageListView: View {
                     newValue: minY,
                     previous: anchorTracker.lastMinY
                 )
-                guard case .accept(let accepted) = decision else { return }
+                switch decision {
+                case .rejectNonFinite:
+                    // The anchor was deallocated by the LazyVStack (no child reports
+                    // a finite value, so the preference reduces to its .infinity default).
+                    // Mark the anchor as off-screen so the "Scroll to latest" button can appear.
+                    if anchorTracker.isVisible {
+                        anchorTracker.isVisible = false
+                        log.debug("Anchor preference non-finite — marking anchor invisible (deallocated by LazyVStack)")
+                    }
+                    return
+                case .rejectDeadZone:
+                    return
+                case .accept(let accepted):
+                    break  // fall through to existing handler
+                }
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                 recordScrollLoopEvent(.anchorPreferenceChange)
                 anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
