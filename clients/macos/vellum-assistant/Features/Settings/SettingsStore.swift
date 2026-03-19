@@ -63,8 +63,6 @@ public final class SettingsStore: ObservableObject {
 
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
-    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x").
-    @Published var providerMaskedKeys: [String: String] = [:]
 
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
@@ -316,7 +314,6 @@ public final class SettingsStore: ObservableObject {
     /// that would otherwise reinitialize providers and evict idle conversations.
     private var lastDaemonModel: String?
     private var lastDaemonProvider: String?
-    private var lastDaemonMaskedKeys: [String: String] = [:]
     private var pendingVerificationSessionChannel: String?
     private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
     private var verificationStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
@@ -901,7 +898,6 @@ public final class SettingsStore: ObservableObject {
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
 
-        applyLocalMaskedKeyFallback()
     }
 
     func hasKeyForProvider(_ provider: String) -> Bool {
@@ -910,28 +906,6 @@ public final class SettingsStore: ObservableObject {
 
     func maskedKeyForProvider(_ provider: String) -> String {
         Self.maskKey(APIKeyManager.getKey(for: provider))
-    }
-
-    /// Backfills daemon-masked keys with local keychain/file-storage masks
-    /// when the daemon has not reported a value yet.
-    private func applyLocalMaskedKeyFallback() {
-        var merged = lastDaemonMaskedKeys
-        for provider in APIKeyManager.allSyncableProviders {
-            if let existing = merged[provider], !existing.isEmpty {
-                continue
-            }
-            let localMask = maskedKeyForProvider(provider)
-            if !localMask.isEmpty {
-                merged[provider] = localMask
-            }
-        }
-        let elevenLabsMask = maskedKeyForProvider("elevenlabs")
-        if (merged["elevenlabs"] ?? "").isEmpty, !elevenLabsMask.isEmpty {
-            merged["elevenlabs"] = elevenLabsMask
-        }
-        if merged != providerMaskedKeys {
-            providerMaskedKeys = merged
-        }
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
@@ -997,10 +971,6 @@ public final class SettingsStore: ObservableObject {
         if let allProviders = response.allProviders, !allProviders.isEmpty {
             self.providerCatalog = allProviders
         }
-        if let maskedKeys = response.maskedKeys {
-            self.lastDaemonMaskedKeys = maskedKeys
-        }
-        applyLocalMaskedKeyFallback()
     }
 
     // MARK: - Dynamic Provider Catalog Helpers
@@ -1137,15 +1107,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Awaitable variant used by reconnect sync so follow-up refreshes happen
-    /// only after the daemon has accepted key updates.
-    private func syncKeyToDaemonAwaiting(provider: String, value: String) async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
-        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
-        _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
-    }
-
     /// Sync an API key to the daemon with server-side validation.
     /// Returns a result indicating success or a validation error message.
     private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
@@ -1251,15 +1212,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Awaitable variant used by reconnect sync so model refresh happens after
-    /// credential updates land in daemon state.
-    private func syncCredentialToDaemonAwaiting(name: String, value: String) async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
-        let body: [String: String] = ["type": "credential", "name": name, "value": value]
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
-        _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
-    }
-
     /// Notify the daemon that a credential was deleted.
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
@@ -1292,28 +1244,16 @@ public final class SettingsStore: ObservableObject {
 
             for provider in APIKeyManager.allSyncableProviders {
                 if let key = APIKeyManager.getKey(for: provider) {
-                    await syncKeyToDaemonAwaiting(provider: provider, value: key)
+                    syncKeyToDaemon(provider: provider, value: key)
                 }
             }
 
             // ElevenLabs uses the credential type, not api_key
             if let key = APIKeyManager.getKey(for: "elevenlabs") {
-                await syncCredentialToDaemonAwaiting(name: "elevenlabs:api_key", value: key)
+                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
             }
 
             replayDeletionTombstones()
-            // Re-fetch model info after reconnect-time key replay so maskedKeys
-            // reflect newly synced provider secrets.
-            refreshModelInfo()
-            // Some runtime environments can lag slightly after POST /secrets.
-            // Follow up once more to converge UI state without requiring user
-            // interaction.
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                await MainActor.run {
-                    self?.refreshModelInfo()
-                }
-            }
         }
     }
 
@@ -2209,18 +2149,14 @@ public final class SettingsStore: ObservableObject {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            // Local assistants should always reflect persisted workspace config.
-            // Remote assistants may not have local workspace state, so retain
-            // daemon-reported provider/model once available.
-            if !isCurrentAssistantRemote {
-                if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-                if let model = inference["model"] as? String { self.selectedModel = model }
-            } else {
-                if lastDaemonProvider == nil,
-                   let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-                if lastDaemonProvider == nil,
-                   let model = inference["model"] as? String { self.selectedModel = model }
-            }
+            // Only apply local config provider/model as a fallback when the daemon
+            // hasn't yet reported an authoritative value. Once the daemon responds
+            // via applyModelInfoResponse, its values take precedence over local
+            // config which may be stale (especially for remote assistants).
+            if lastDaemonProvider == nil,
+               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+            if lastDaemonProvider == nil,
+               let model = inference["model"] as? String { self.selectedModel = model }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {

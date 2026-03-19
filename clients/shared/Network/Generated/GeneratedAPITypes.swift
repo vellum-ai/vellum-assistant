@@ -2700,16 +2700,14 @@ public struct ModelInfo: Codable, Sendable {
     public let configuredProviders: [String]?
     public let availableModels: [CatalogModel]?
     public let allProviders: [ProviderCatalogEntry]?
-    public let maskedKeys: [String: String]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil, allProviders: [ProviderCatalogEntry]? = nil, maskedKeys: [String: String]? = nil) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil, allProviders: [ProviderCatalogEntry]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
         self.configuredProviders = configuredProviders
         self.availableModels = availableModels
         self.allProviders = allProviders
-        self.maskedKeys = maskedKeys
     }
 }
 

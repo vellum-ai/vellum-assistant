@@ -258,7 +258,6 @@ export interface ModelInfo {
     apiKeyUrl?: string;
     apiKeyPlaceholder?: string;
   }>;
-  maskedKeys?: Record<string, string>;
 }
 
 export interface HistoryResponseToolCall {

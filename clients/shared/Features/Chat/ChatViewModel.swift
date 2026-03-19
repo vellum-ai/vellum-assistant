@@ -309,11 +309,6 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.providerCatalog }
         set { messageManager.providerCatalog = newValue }
     }
-    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x"), updated via `model_info` messages.
-    public var providerMaskedKeys: [String: String] {
-        get { messageManager.providerMaskedKeys }
-        set { messageManager.providerMaskedKeys = newValue }
-    }
 
     // MARK: - Forwarding properties — ChatAttachmentManager
 
@@ -1206,9 +1201,6 @@ public final class ChatViewModel: ObservableObject {
                 if let allProviders = info?.allProviders, !allProviders.isEmpty {
                     self.providerCatalog = allProviders
                 }
-                if let maskedKeys = info?.maskedKeys {
-                    self.providerMaskedKeys = maskedKeys
-                }
             }
         }
 
@@ -1782,9 +1774,6 @@ public final class ChatViewModel: ObservableObject {
             }
             if let allProviders = info?.allProviders, !allProviders.isEmpty {
                 self.providerCatalog = allProviders
-            }
-            if let maskedKeys = info?.maskedKeys {
-                self.providerMaskedKeys = maskedKeys
             }
         }
     }
@@ -3048,9 +3037,6 @@ public final class ChatViewModel: ObservableObject {
             }
             if let allProviders = info?.allProviders, !allProviders.isEmpty {
                 self.providerCatalog = allProviders
-            }
-            if let maskedKeys = info?.maskedKeys {
-                self.providerMaskedKeys = maskedKeys
             }
         }
     }

@@ -57,11 +57,7 @@ struct InferenceServiceCard: View {
     // MARK: - Computed State
 
     private var isConnected: Bool {
-        let daemonHasMaskedKey = !(store.providerMaskedKeys[effectiveProvider] ?? "").isEmpty
-        if isCustomProviderEnabled {
-            return store.hasKeyForProvider(effectiveProvider) || daemonHasMaskedKey
-        }
-        return store.hasKey || daemonHasMaskedKey
+        isCustomProviderEnabled ? store.hasKeyForProvider(effectiveProvider) : store.hasKey
     }
 
     private var isLoggedIn: Bool {
@@ -302,22 +298,9 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let currentMask: String = {
-            // Prefer daemon-reported masks when available (authoritative for
-            // remote/managed contexts), but fall back to local keychain masks
-            // so onboarding-written keys render immediately before daemon sync.
-            if let daemonMask = store.providerMaskedKeys[effectiveProvider], !daemonMask.isEmpty {
-                return daemonMask
-            }
-            let localMask = store.maskedKeyForProvider(effectiveProvider)
-            if !localMask.isEmpty {
-                return localMask
-            }
-            return ""
-        }()
         let placeholder: String = {
-            if !currentMask.isEmpty {
-                return currentMask
+            if isConnected {
+                return "••••••••••••••••"
             }
             if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
                 return providerPlaceholder
@@ -329,7 +312,6 @@ struct InferenceServiceCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             SecureField(placeholder, text: $apiKeyText)
-                .id("inference-api-key-\(effectiveProvider)-\(placeholder)")
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)

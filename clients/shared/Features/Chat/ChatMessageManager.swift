@@ -81,8 +81,6 @@ public final class ChatMessageManager: ObservableObject {
     /// Full provider catalog from daemon, updated via `model_info` messages.
     /// Seeded with inline defaults so the UI has data before the first daemon fetch completes.
     @Published public var providerCatalog: [ProviderCatalogEntry] = ProviderCatalogEntry.defaultCatalog
-    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x"), updated via `model_info` messages.
-    @Published public var providerMaskedKeys: [String: String] = [:]
 
 }
 
