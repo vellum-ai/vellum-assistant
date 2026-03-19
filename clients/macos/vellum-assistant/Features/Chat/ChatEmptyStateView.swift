@@ -270,7 +270,7 @@ private struct PillButtonStyle: ButtonStyle {
 }
 
 /// Simple flow layout that wraps children horizontally.
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
