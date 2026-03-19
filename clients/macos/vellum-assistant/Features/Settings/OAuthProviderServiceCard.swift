@@ -312,6 +312,7 @@ struct OAuthProviderServiceCard: View {
                             .foregroundColor(VColor.systemNegativeStrong)
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Delete OAuth App")
                     .transition(.opacity.animation(VAnimation.fast))
                 }
             }
