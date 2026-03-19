@@ -328,6 +328,7 @@ describe("migrateLegacyEntry", () => {
         daemonPort: 8000,
         gatewayPort: 8001,
         qdrantPort: 8002,
+        cesPort: 8090,
         pidFile: "/my/path/.vellum/vellum.pid",
       },
     };
