@@ -86,15 +86,34 @@ type StoreFile = StoreFileV1 | StoreFileV2;
 // ---------------------------------------------------------------------------
 
 const STORE_KEY_FILENAME = "store.key";
+const KEYS_ENC_FILENAME = "keys.enc";
+
+// ---------------------------------------------------------------------------
+// Security directory resolution
+// ---------------------------------------------------------------------------
 
 /**
- * Read the v2 store key file from `<vellumRoot>/protected/store.key`.
+ * Resolve the directory containing `keys.enc` and `store.key`.
+ *
+ * When `CREDENTIAL_SECURITY_DIR` is set, files are read from (and written to)
+ * that directory directly. This allows Docker deployments to mount a separate
+ * CES-only security volume.
+ *
+ * When the env var is unset, falls back to `<vellumRoot>/protected/` for
+ * backwards compatibility.
+ */
+function resolveSecurityDir(vellumRoot: string): string {
+  return process.env.CREDENTIAL_SECURITY_DIR || join(vellumRoot, "protected");
+}
+
+/**
+ * Read the v2 store key file from the security directory.
  * Returns the raw 32-byte key buffer, or null if the file is missing,
  * wrong size, or unreadable.
  */
 function readStoreKey(vellumRoot: string): Buffer | null {
   try {
-    const keyPath = join(vellumRoot, "protected", STORE_KEY_FILENAME);
+    const keyPath = join(resolveSecurityDir(vellumRoot), STORE_KEY_FILENAME);
     if (!existsSync(keyPath)) return null;
     const buf = readFileSync(keyPath);
     if (buf.length !== KEY_LENGTH) return null;
@@ -230,7 +249,7 @@ export function createLocalSecureKeyBackend(
   vellumRoot: string,
   options?: { entropyOverride?: string; entropyGetter?: () => string | undefined },
 ): SecureKeyBackend {
-  const storePath = join(vellumRoot, "protected", "keys.enc");
+  const storePath = join(resolveSecurityDir(vellumRoot), KEYS_ENC_FILENAME);
   const staticEntropy = options?.entropyOverride;
   const entropyGetter = options?.entropyGetter;
 
