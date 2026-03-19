@@ -464,7 +464,7 @@ struct ConversationListView: View {
                         } label: {
                             Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
-                        .tint(VColor.systemMidStrong)
+                        .tint(VColor.systemNegativeHover)
                     }
                     .swipeActions(edge: .leading) {
                         Button {
@@ -594,7 +594,7 @@ struct ConversationListView: View {
                     } label: {
                         Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
-                    .tint(VColor.systemMidStrong)
+                    .tint(VColor.systemNegativeHover)
                 }
                 .swipeActions(edge: .leading) {
                     Button {
@@ -629,7 +629,7 @@ struct ConversationListView: View {
                             } label: {
                                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
-                            .tint(VColor.systemMidStrong)
+                            .tint(VColor.systemNegativeHover)
                         }
                         .swipeActions(edge: .leading) {
                             Button {

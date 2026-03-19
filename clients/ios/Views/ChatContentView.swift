@@ -662,10 +662,10 @@ struct ChatContentView: View {
 
     private func conversationErrorAccent(_ category: ConversationErrorCategory) -> Color {
         switch category {
-        case .rateLimit: return VColor.systemMidStrong
+        case .rateLimit: return VColor.systemNegativeHover
         case .providerNetwork: return .orange
         case .conversationAborted: return VColor.contentSecondary
-        case .contextTooLarge: return VColor.systemMidStrong
+        case .contextTooLarge: return VColor.systemNegativeHover
         default: return VColor.systemNegativeStrong
         }
     }
