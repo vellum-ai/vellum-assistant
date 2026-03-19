@@ -24,6 +24,7 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
+    var catalogModels: [(id: String, name: String)] = []
     var configuredProviders: Set<String> = []
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
@@ -223,6 +224,7 @@ struct ChatView: View {
                             assistantActivityReason: assistantActivityReason,
                             assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
+                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders,
                             activeSubagents: activeSubagents,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,

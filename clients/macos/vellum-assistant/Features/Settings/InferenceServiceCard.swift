@@ -46,7 +46,7 @@ struct InferenceServiceCard: View {
     }
 
     private var providerDisplayName: String {
-        SettingsStore.inferenceProviderDisplayNames[effectiveProvider] ?? effectiveProvider
+        store.dynamicProviderDisplayName(effectiveProvider)
     }
 
     // MARK: - Computed State
@@ -144,10 +144,9 @@ struct InferenceServiceCard: View {
         }
         .onChange(of: draftProvider) { _, newProvider in
             if isCustomProviderEnabled {
-                let defaultModel = SettingsStore.inferenceProviderDefaultModel[newProvider]
-                    ?? SettingsStore.inferenceProviderModels[newProvider]?.first?.id
-                    ?? ""
-                store.selectedModel = defaultModel
+                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
+                let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
+                store.selectedModel = defaultModel.isEmpty ? fallback : defaultModel
             }
             apiKeyText = ""
         }
@@ -195,8 +194,8 @@ struct InferenceServiceCard: View {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $draftProvider,
-                options: SettingsStore.inferenceProviders.map { provider in
-                    (label: SettingsStore.inferenceProviderDisplayNames[provider] ?? provider, value: provider)
+                options: store.dynamicProviderIds.map { provider in
+                    (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
         }
@@ -209,7 +208,15 @@ struct InferenceServiceCard: View {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            SecureField("Enter your API key", text: $apiKeyText)
+            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
+                Text(masked)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            SecureField(
+                isConnected ? "Enter a new key to replace the existing one" : "Enter your API key",
+                text: $apiKeyText
+            )
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
@@ -238,7 +245,7 @@ struct InferenceServiceCard: View {
         }
     }
 
-    /// Hardcoded Anthropic-only model dropdown (flag off, backward compat).
+    /// Anthropic-only model dropdown (flag off, backward compat).
     private var defaultModelPicker: some View {
         VDropdown(
             placeholder: "Select a model\u{2026}",
@@ -246,8 +253,8 @@ struct InferenceServiceCard: View {
                 get: { store.selectedModel },
                 set: { store.selectedModel = $0 }
             ),
-            options: SettingsStore.availableModels.map { model in
-                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+            options: store.dynamicProviderModels("anthropic").map { model in
+                (label: model.displayName, value: model.id)
             }
         )
     }
@@ -260,7 +267,7 @@ struct InferenceServiceCard: View {
                 get: { store.selectedModel },
                 set: { store.selectedModel = $0 }
             ),
-            options: (SettingsStore.inferenceProviderModels[draftProvider] ?? []).map { model in
+            options: store.dynamicProviderModels(draftProvider).map { model in
                 (label: model.displayName, value: model.id)
             }
         )
@@ -296,13 +303,16 @@ struct InferenceServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
+            let displayName = providerDisplayName
             if isCustomProviderEnabled {
                 store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast?("\(displayName) API key saved", .success)
                 })
             } else {
                 store.saveAPIKey(trimmedKey, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast?("API key saved", .success)
                 })
             }
         }
