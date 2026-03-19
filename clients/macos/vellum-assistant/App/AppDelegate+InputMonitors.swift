@@ -387,13 +387,11 @@ extension AppDelegate {
             ?? (PermissionManager.screenRecordingStatus() != .granted)
 
         let window = QuickInputWindow()
-        window.onSubmit = { [weak self, weak window] message, imageData in
-            let notify = window?.notifyOnComplete ?? false
-            self?.handleQuickInputSubmit(message, imageData: imageData, notifyOnComplete: notify)
+        window.onSubmit = { [weak self] message, imageData in
+            self?.handleQuickInputSubmit(message, imageData: imageData)
         }
-        window.onSubmitToConversation = { [weak self, weak window] message, imageData in
-            let notify = window?.notifyOnComplete ?? false
-            self?.handleQuickInputSubmitToConversation(message, imageData: imageData, notifyOnComplete: notify)
+        window.onSubmitToConversation = { [weak self] message, imageData in
+            self?.handleQuickInputSubmitToConversation(message, imageData: imageData)
         }
         window.onSelectConversation = { [weak self] conversationId in
             self?.handleQuickInputSelectConversation(conversationId)
@@ -436,13 +434,11 @@ extension AppDelegate {
             guard let self else { return }
 
             let window = QuickInputWindow()
-            window.onSubmit = { [weak self, weak window] message, imgData in
-                let notify = window?.notifyOnComplete ?? false
-                self?.handleQuickInputSubmit(message, imageData: imgData, notifyOnComplete: notify)
+            window.onSubmit = { [weak self] message, imgData in
+                self?.handleQuickInputSubmit(message, imageData: imgData)
             }
-            window.onSubmitToConversation = { [weak self, weak window] message, imgData in
-                let notify = window?.notifyOnComplete ?? false
-                self?.handleQuickInputSubmitToConversation(message, imageData: imgData, notifyOnComplete: notify)
+            window.onSubmitToConversation = { [weak self] message, imgData in
+                self?.handleQuickInputSubmitToConversation(message, imageData: imgData)
             }
             window.onSelectConversation = { [weak self] conversationId in
                 self?.handleQuickInputSelectConversation(conversationId)
@@ -465,7 +461,7 @@ extension AppDelegate {
         selectionWindow.show()
     }
 
-    func handleQuickInputSubmit(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
+    func handleQuickInputSubmit(_ message: String, imageData: Data?) {
         // Ensure mainWindow exists so we can get a ChatViewModel.
         // Never show it — quick input is fire-and-forget.
         ensureMainWindowExists()
@@ -492,7 +488,7 @@ extension AppDelegate {
         }
     }
 
-    func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
+    func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
             if let imageData {
