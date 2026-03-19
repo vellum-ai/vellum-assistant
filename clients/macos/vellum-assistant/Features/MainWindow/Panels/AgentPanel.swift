@@ -337,7 +337,6 @@ struct AgentPanelContent: View {
         let onSelect: () -> Void
         let onDelete: () -> Void
         @State private var isHovered = false
-        @State private var isPillHovered = false
 
         private var isRemovable: Bool {
             skill.source == "managed" || skill.source == "clawhub"
@@ -361,9 +360,7 @@ struct AgentPanelContent: View {
 
                             Spacer()
 
-                            // Placeholder for tag alignment (invisible, same size as pill)
                             VSkillTypePill(source: skill.source)
-                                .opacity(isPillHovered && isRemovable ? 0 : 1)
                         }
 
                         // Description — fixed 2-line height for uniform cards
@@ -387,37 +384,19 @@ struct AgentPanelContent: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .onHover { isHovered = $0 }
-            // Overlay the uninstall pill on top of the tag area
+            // Trash button overlay for installed skills (shown on card hover)
             .overlay(alignment: .topTrailing) {
-                if isRemovable {
-                    Group {
-                        if isPillHovered {
-                            Button {
-                                onDelete()
-                            } label: {
-                                HStack(spacing: VSpacing.xs) {
-                                    VIconView(.circleX, size: 10)
-                                    Text("Uninstall")
-                                        .font(VFont.caption)
-                                }
-                                .foregroundColor(VColor.systemNegativeStrong)
-                                .padding(.horizontal, VSpacing.md)
-                                .padding(.vertical, VSpacing.xs)
-                                .background(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .fill(VColor.systemNegativeWeak)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            // Invisible hover target matching the pill position
-                            Color.clear
-                                .frame(width: 80, height: 24)
-                        }
+                if isRemovable && isHovered {
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        tooltip: "Uninstall skill"
+                    ) {
+                        onDelete()
                     }
-                    .onHover { isPillHovered = $0 }
-                    .padding(.top, VSpacing.lg)
-                    .padding(.trailing, VSpacing.lg)
+                    .padding(.top, VSpacing.sm)
+                    .padding(.trailing, VSpacing.sm)
                 }
             }
             .contextMenu {
@@ -541,7 +520,7 @@ struct AgentPanelContent: View {
                     .frame(maxHeight: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceOverlay)
+                            .fill(VColor.surfaceLift)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
