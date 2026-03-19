@@ -88,6 +88,7 @@ export type AgentEvent =
       cacheCreationInputTokens?: number;
       cacheReadInputTokens?: number;
       model: string;
+      actualProvider?: string;
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
@@ -352,6 +353,7 @@ export class AgentLoop {
           cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
+          actualProvider: response.actualProvider ?? this.provider.name,
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
