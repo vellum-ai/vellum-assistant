@@ -2103,6 +2103,7 @@ public final class SettingsStore: ObservableObject {
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
             if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+            if let model = inference["model"] as? String { self.selectedModel = model }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {
