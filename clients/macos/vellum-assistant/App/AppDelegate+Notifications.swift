@@ -233,6 +233,13 @@ extension AppDelegate {
         deepLinkMetadata: [String: AnyCodable]?,
         deliveryId: String? = nil
     ) {
+        // Play the custom notification sound in addition to the system notification sound.
+        // The system sound (`UNNotificationSound.default`) plays when the banner appears,
+        // while this custom sound plays immediately when the notification is posted.
+        // Both are kept so users get the system banner sound even if custom sounds are disabled,
+        // and the custom sound provides the configurable audio feedback from SoundManager.
+        SoundManager.shared.play(.notification)
+
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

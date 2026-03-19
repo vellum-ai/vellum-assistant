@@ -501,6 +501,11 @@ class AvatarLayerView: NSView {
         guard animationsActive, configPokeEnabled else { return }
         guard let rootLayer = layer else { return }
 
+        // Play the character poke sound immediately on click, before starting the
+        // wobble animation. NSSound.play() is non-blocking so it won't delay the
+        // animation start — both fire in the same run-loop tick.
+        SoundManager.shared.play(.characterPoke)
+
         // Remove any in-progress poke animation (enables interruptible rapid clicks)
         rootLayer.removeAnimation(forKey: "poke")
 
