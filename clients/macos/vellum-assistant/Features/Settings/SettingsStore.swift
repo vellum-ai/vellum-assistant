@@ -199,13 +199,16 @@ public final class SettingsStore: ObservableObject {
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
-    /// Current Google OAuth mode. Values: "managed" or "your-own".
-    @Published var googleOAuthMode: String = "your-own"
-    @Published var googleOAuthConnections: [OAuthConnectionEntry] = []
-    @Published var googleOAuthIsConnecting: Bool = false
-    @Published var googleOAuthError: String? = nil
+    /// Managed OAuth mode per provider (keyed by managedServiceConfigKey). Values: "managed" or "your-own".
+    @Published var managedOAuthMode: [String: String] = [:]
+    /// Managed OAuth connections per provider (keyed by managedServiceConfigKey).
+    @Published var managedOAuthConnections: [String: [OAuthConnectionEntry]] = [:]
+    /// Whether a managed OAuth connect flow is in progress (keyed by managedServiceConfigKey).
+    @Published var managedOAuthIsConnecting: [String: Bool] = [:]
+    /// Managed OAuth errors per provider (keyed by managedServiceConfigKey).
+    @Published var managedOAuthError: [String: String] = [:]
     /// Strong reference to prevent the auth session from being deallocated mid-flow.
-    private var googleOAuthWebAuthSession: ASWebAuthenticationSession?
+    private var managedOAuthWebAuthSession: ASWebAuthenticationSession?
 
     // MARK: - Your Own OAuth State
 
@@ -2139,7 +2142,7 @@ public final class SettingsStore: ObservableObject {
         }
         if let googleOAuth = services["google-oauth"] as? [String: Any],
            let mode = googleOAuth["mode"] as? String {
-            self.googleOAuthMode = mode
+            self.managedOAuthMode["integration:google"] = mode
         }
     }
 
@@ -2192,18 +2195,21 @@ public final class SettingsStore: ObservableObject {
         scheduleRoutingSourceRefresh()
     }
 
-    func setGoogleOAuthMode(_ mode: String) {
-        googleOAuthMode = mode
+    func setManagedOAuthMode(_ mode: String, providerKey: String) {
+        managedOAuthMode[providerKey] = mode
         guard !isCurrentAssistantRemote else { return }
+        // Derive config key from provider metadata or fall back to the provider slug
+        let configKey = yourOwnProviderMeta(for: providerKey)?.platformOAuthSlug ?? providerKey
+        let serviceKey = configKey.contains(":") ? configKey : "\(configKey)-oauth"
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var googleOAuth = services["google-oauth"] as? [String: Any] ?? [:]
-        googleOAuth["mode"] = mode
-        services["google-oauth"] = googleOAuth
+        var svc = services[serviceKey] as? [String: Any] ?? [:]
+        svc["mode"] = mode
+        services[serviceKey] = svc
         do {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
-            log.error("Failed to merge workspace config for google-oauth mode: \(error)")
+            log.error("Failed to merge workspace config for \(serviceKey) mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2285,46 +2291,51 @@ public final class SettingsStore: ObservableObject {
         return postBootstrapResolved
     }
 
-    func fetchGoogleOAuthConnections(userId: String? = nil) async {
-        guard googleOAuthMode == "managed" else { return }
+    func fetchManagedOAuthConnections(providerKey: String, userId: String? = nil) async {
+        guard managedOAuthMode[providerKey] == "managed" else { return }
         guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
+
+        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
 
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
-            googleOAuthConnections = connections.filter { $0.provider == "google" }
-            googleOAuthError = nil
+            managedOAuthConnections[providerKey] = connections.filter { $0.provider == providerSlug }
+            managedOAuthError[providerKey] = nil
         } catch {
-            log.error("Failed to fetch Google OAuth connections: \(error)")
-            googleOAuthError = error.localizedDescription
-            googleOAuthConnections = []
+            log.error("Failed to fetch managed OAuth connections for \(providerKey): \(error)")
+            managedOAuthError[providerKey] = error.localizedDescription
+            managedOAuthConnections[providerKey] = []
         }
     }
 
-    func startGoogleOAuthConnect(userId: String? = nil) {
+    func startManagedOAuthConnect(providerKey: String, userId: String? = nil) {
+        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
+
         Task {
-            googleOAuthIsConnecting = true
-            googleOAuthError = nil
-            defer { googleOAuthIsConnecting = false }
+            managedOAuthIsConnecting[providerKey] = true
+            managedOAuthError[providerKey] = nil
+            defer { managedOAuthIsConnecting[providerKey] = false }
 
             guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
-                googleOAuthError = "No connected assistant"
+                managedOAuthError[providerKey] = "No connected assistant"
                 return
             }
 
             do {
-                let response = try await PlatformOAuthService.shared.startGoogleOAuth(
+                let response = try await PlatformOAuthService.shared.startOAuthConnect(
+                    provider: providerSlug,
                     assistantId: assistantId,
-                    redirectAfterConnect: "vellum-assistant://oauth/google/callback"
+                    redirectAfterConnect: "vellum-assistant://oauth/\(providerSlug)/callback"
                 )
 
                 guard let connectURL = URL(string: response.connect_url) else {
-                    googleOAuthError = "Invalid connect URL"
+                    managedOAuthError[providerKey] = "Invalid connect URL"
                     return
                 }
 
                 let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
                     let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { [weak self] callbackURL, error in
-                        self?.googleOAuthWebAuthSession = nil
+                        self?.managedOAuthWebAuthSession = nil
                         if let error {
                             continuation.resume(throwing: error)
                         } else if let callbackURL {
@@ -2335,7 +2346,7 @@ public final class SettingsStore: ObservableObject {
                     }
                     session.prefersEphemeralWebBrowserSession = false
                     session.presentationContextProvider = WebAuthPresentationContext.shared
-                    self.googleOAuthWebAuthSession = session
+                    self.managedOAuthWebAuthSession = session
                     session.start()
                 }
 
@@ -2343,31 +2354,31 @@ public final class SettingsStore: ObservableObject {
                 let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
 
                 if oauthStatus == "connected" {
-                    await fetchGoogleOAuthConnections(userId: userId)
+                    await fetchManagedOAuthConnections(providerKey: providerKey, userId: userId)
                 } else if oauthStatus == "error" {
                     let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
-                    googleOAuthError = errorCode ?? "OAuth connection failed"
+                    managedOAuthError[providerKey] = errorCode ?? "OAuth connection failed"
                 }
             } catch {
-                log.error("Google OAuth connect failed: \(error)")
-                googleOAuthError = error.localizedDescription
+                log.error("Managed OAuth connect failed for \(providerKey): \(error)")
+                managedOAuthError[providerKey] = error.localizedDescription
             }
         }
     }
 
-    func disconnectGoogleOAuthConnection(_ connectionId: String, userId: String? = nil) {
+    func disconnectManagedOAuthConnection(_ connectionId: String, providerKey: String, userId: String? = nil) {
         Task {
             guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
-                googleOAuthError = "No connected assistant"
+                managedOAuthError[providerKey] = "No connected assistant"
                 return
             }
 
             do {
                 try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
-                await fetchGoogleOAuthConnections(userId: userId)
+                await fetchManagedOAuthConnections(providerKey: providerKey, userId: userId)
             } catch {
-                log.error("Failed to disconnect Google OAuth connection: \(error)")
-                googleOAuthError = error.localizedDescription
+                log.error("Failed to disconnect managed OAuth connection for \(providerKey): \(error)")
+                managedOAuthError[providerKey] = error.localizedDescription
             }
         }
     }
@@ -2590,6 +2601,24 @@ public final class SettingsStore: ObservableObject {
 
     func yourOwnProviderMeta(for providerKey: String) -> OAuthProviderMetadata? {
         yourOwnOAuthProviderMetadata[providerKey]
+    }
+
+    // MARK: - Managed OAuth Convenience Accessors
+
+    func managedOAuthModeFor(_ providerKey: String) -> String {
+        managedOAuthMode[providerKey] ?? "your-own"
+    }
+
+    func managedConnections(for providerKey: String) -> [OAuthConnectionEntry] {
+        managedOAuthConnections[providerKey] ?? []
+    }
+
+    func managedIsConnecting(for providerKey: String) -> Bool {
+        managedOAuthIsConnecting[providerKey] ?? false
+    }
+
+    func managedError(for providerKey: String) -> String? {
+        managedOAuthError[providerKey]
     }
 
     func setWebSearchProvider(_ provider: String) {
@@ -3065,6 +3094,14 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let dashboard_url: String?
     let client_id_placeholder: String?
     let requires_client_secret: Int
+
+    /// Derive the platform OAuth slug from provider_key (e.g. "integration:google" → "google").
+    var platformOAuthSlug: String {
+        if provider_key.hasPrefix("integration:") {
+            return String(provider_key.dropFirst("integration:".count))
+        }
+        return provider_key
+    }
 }
 
 struct YourOwnOAuthAppsResponse: Codable, Sendable {
