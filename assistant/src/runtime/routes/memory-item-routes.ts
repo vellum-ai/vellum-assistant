@@ -37,6 +37,7 @@ type MemoryItemKind = (typeof VALID_KINDS)[number];
 const VALID_SORT_FIELDS = [
   "lastSeenAt",
   "importance",
+  "accessCount",
   "kind",
   "firstSeenAt",
 ] as const;
@@ -46,6 +47,7 @@ type SortField = (typeof VALID_SORT_FIELDS)[number];
 const SORT_COLUMN_MAP = {
   lastSeenAt: memoryItems.lastSeenAt,
   importance: memoryItems.importance,
+  accessCount: memoryItems.accessCount,
   kind: memoryItems.kind,
   firstSeenAt: memoryItems.firstSeenAt,
 } as const;

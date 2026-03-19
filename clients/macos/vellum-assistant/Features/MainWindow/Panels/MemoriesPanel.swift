@@ -7,19 +7,21 @@ private enum MemorySortOption: String, CaseIterable {
     case newest = "Newest"
     case oldest = "Oldest"
     case importance = "Importance"
+    case accessCount = "Access Count"
     case kind = "Kind"
 
     var sortField: String {
         switch self {
         case .newest, .oldest: return "lastSeenAt"
         case .importance: return "importance"
+        case .accessCount: return "accessCount"
         case .kind: return "kind"
         }
     }
 
     var sortOrder: String {
         switch self {
-        case .newest, .importance: return "desc"
+        case .newest, .importance, .accessCount: return "desc"
         case .oldest, .kind: return "asc"
         }
     }
@@ -218,4 +220,3 @@ struct MemoriesPanel: View {
         }
     }
 }
-
