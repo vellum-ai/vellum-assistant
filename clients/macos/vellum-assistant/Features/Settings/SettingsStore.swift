@@ -2186,6 +2186,7 @@ public final class SettingsStore: ObservableObject {
         } catch {
             log.error("Failed to merge workspace config for google-oauth mode: \(error)")
         }
+        scheduleRoutingSourceRefresh()
     }
 
     // MARK: - Google OAuth Connections
