@@ -144,8 +144,21 @@ export async function resolveSlash(
   content: string,
   context?: SlashContext,
 ): Promise<SlashResolution> {
+  // Handle deprecated /model command — direct users to Settings
+  const trimmed = content.trim();
+  if (
+    trimmed === "/model" ||
+    (trimmed.startsWith("/model ") && trimmed !== "/models")
+  ) {
+    return {
+      kind: "unknown",
+      message:
+        "The `/model` command has been removed. Use **Settings → Models & Services** to change your model and provider.",
+    };
+  }
+
   // Handle /models command (read-only listing)
-  if (content.trim() === "/models") {
+  if (trimmed === "/models") {
     return await resolveModelList();
   }
 
@@ -154,7 +167,7 @@ export async function resolveSlash(
   if (pairResult) return pairResult;
 
   // Handle /status command
-  if (content.trim() === "/status") {
+  if (trimmed === "/status") {
     if (!context) {
       return {
         kind: "unknown",
@@ -165,7 +178,7 @@ export async function resolveSlash(
   }
 
   // Handle /commands command
-  if (content.trim() === "/commands") {
+  if (trimmed === "/commands") {
     const lines = [
       "/commands — List all available commands",
       "/models — List all available models",
