@@ -228,12 +228,13 @@ struct MessageListView: View {
     @State private var scrollTracking = ScrollTrackingState()
 
     /// The subset of messages actually shown, honoring the pagination window.
+    /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
+    /// are excluded from rendered rows, pagination anchors, and all derived state.
     private var visibleMessages: [ChatMessage] {
-        let all = messages.filter { !$0.isSubagentNotification }
-        // When displayedMessageCount covers all messages (or is Int.max / show-all mode),
-        // return everything so new incoming messages don't collapse visible history.
-        guard displayedMessageCount < all.count else { return all }
-        return Array(all.suffix(displayedMessageCount))
+        ChatVisibleMessageFilter.paginatedMessages(
+            from: messages,
+            displayedMessageCount: displayedMessageCount
+        )
     }
 
     /// The active pending confirmation request ID, derived from the visible
