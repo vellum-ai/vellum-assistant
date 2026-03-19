@@ -137,7 +137,9 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramDeliverRequest");
     expect(schemaNames).toContain("RuntimeAttachmentMeta");
 
-    const oauthConnection = components.schemas.OAuthConnectionSummary;
+    const oauthConnection = components.schemas.OAuthConnectionSummary as {
+      properties?: Record<string, unknown>;
+    };
     expect(oauthConnection.properties?.granted_scopes).toEqual({
       type: "array",
       items: { type: "string" },
