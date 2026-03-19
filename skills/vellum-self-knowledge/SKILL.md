@@ -1,6 +1,7 @@
 ---
 name: vellum-self-knowledge
 description: Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active
+compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
   vellum:
