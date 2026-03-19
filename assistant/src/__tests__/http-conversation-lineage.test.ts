@@ -53,6 +53,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
+  batchSetDisplayOrders,
   createConversation,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
@@ -64,6 +65,8 @@ initializeDb();
 type ConversationSummary = {
   id: string;
   title: string;
+  displayOrder?: number | null;
+  isPinned?: boolean;
   forkParent?: {
     conversationId: string;
     messageId: string;
@@ -137,6 +140,28 @@ describe("conversation lineage in HTTP reads", () => {
     });
   });
 
+  test("GET /v1/conversations/:id includes pin metadata when present", async () => {
+    const conversation = createConversation("Pinned conversation");
+    batchSetDisplayOrders([
+      { id: conversation.id, displayOrder: 7, isPinned: true },
+    ]);
+    await startServer();
+
+    const response = await fetch(url(`/conversations/${conversation.id}`));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      conversation: ConversationSummary;
+    };
+
+    expect(body.conversation).toMatchObject({
+      id: conversation.id,
+      title: conversation.title ?? "Untitled",
+      displayOrder: 7,
+      isPinned: true,
+    });
+  });
+
   test("GET /v1/conversations/:id resolves the parent's current title at read time", async () => {
     const { child, parent } = seedForkedConversation({
       parentTitle: "Original parent title",
@@ -168,7 +193,9 @@ describe("conversation lineage in HTTP reads", () => {
     const listBody = (await listResponse.json()) as {
       conversations: ConversationSummary[];
     };
-    const listedChild = listBody.conversations.find((item) => item.id === child.id);
+    const listedChild = listBody.conversations.find(
+      (item) => item.id === child.id,
+    );
     expect(listedChild).toBeDefined();
     expect(listedChild?.forkParent).toBeUndefined();
 
@@ -190,7 +217,9 @@ describe("conversation lineage in HTTP reads", () => {
   }
 
   function seedForkedConversation(opts?: { parentTitle?: string }) {
-    const parent = createConversation(opts?.parentTitle ?? "Parent conversation");
+    const parent = createConversation(
+      opts?.parentTitle ?? "Parent conversation",
+    );
     const child = createConversation("Forked conversation");
 
     rawRun(
@@ -208,7 +237,10 @@ describe("conversation lineage in HTTP reads", () => {
   }
 
   async function startServer(): Promise<void> {
-    server = new RuntimeHttpServer({ port: 0, bearerToken: "test-bearer-token" });
+    server = new RuntimeHttpServer({
+      port: 0,
+      bearerToken: "test-bearer-token",
+    });
     await server.start();
   }
 

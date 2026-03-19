@@ -721,9 +721,7 @@ export class RuntimeHttpServer {
     });
   }
 
-  private buildAssistantAttention(
-    attentionState: AttentionState | undefined,
-  ):
+  private buildAssistantAttention(attentionState: AttentionState | undefined):
     | {
         hasUnseenLatestAssistantMessage: boolean;
         latestAssistantMessageAt?: number;
@@ -848,7 +846,10 @@ export class RuntimeHttpServer {
     const bindings = externalConversationStore.getBindingsForConversations([
       conversation.id,
     ]);
-    const attentionStates = getAttentionStateByConversationIds([conversation.id]);
+    const attentionStates = getAttentionStateByConversationIds([
+      conversation.id,
+    ]);
+    const displayMeta = getDisplayMetaForConversations([conversation.id]);
     const parentCache = new Map<string, ConversationRow | null>();
 
     return {
@@ -856,14 +857,13 @@ export class RuntimeHttpServer {
         conversation,
         binding: bindings.get(conversation.id),
         attentionState: attentionStates.get(conversation.id),
+        displayMeta: displayMeta.get(conversation.id),
         parentCache,
       }),
     };
   }
 
-  private getConversationManagementRouteDeps():
-    | ConversationManagementDeps
-    | null {
+  private getConversationManagementRouteDeps(): ConversationManagementDeps | null {
     if (!this.conversationManagementDeps) {
       return null;
     }

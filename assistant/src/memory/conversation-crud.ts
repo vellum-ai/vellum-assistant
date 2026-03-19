@@ -354,6 +354,21 @@ export function forkConversation(params: {
     );
   }
 
+  const visibleWindowStartIndex = Math.max(
+    0,
+    Math.min(
+      sourceConversation.contextCompactedMessageCount,
+      sourceMessages.length,
+    ),
+  );
+  const branchPointMessageId =
+    throughMessageId ?? sourceMessages.at(-1)?.id ?? null;
+  if (copyBoundaryIndex < visibleWindowStartIndex) {
+    throw new UserError(
+      `Message ${branchPointMessageId} falls inside the compacted-away prefix of conversation ${conversationId}`,
+    );
+  }
+
   const messagesToCopy =
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
@@ -369,14 +384,17 @@ export function forkConversation(params: {
     .set({
       forkParentConversationId: sourceConversation.id,
       forkParentMessageId,
+      contextSummary: sourceConversation.contextSummary,
+      contextCompactedMessageCount:
+        sourceConversation.contextCompactedMessageCount,
+      contextCompactedAt: sourceConversation.contextCompactedAt,
     })
     .where(eq(conversations.id, forkedConversation.id))
     .run();
 
   const forkedMessageIds = new Map<string, string>();
-  let latestForkedAssistant:
-    | { messageId: string; messageAt: number }
-    | null = null;
+  let latestForkedAssistant: { messageId: string; messageAt: number } | null =
+    null;
 
   for (const message of messagesToCopy) {
     const forkedMessageId = uuid();
@@ -417,8 +435,7 @@ export function forkConversation(params: {
     const uncachedAttachmentLinks = attachmentLinks.filter(
       (link) => !attachmentIdMap.has(link.attachmentId),
     );
-    const stagingMessageId =
-      uncachedAttachmentLinks.length > 0 ? uuid() : null;
+    const stagingMessageId = uncachedAttachmentLinks.length > 0 ? uuid() : null;
 
     if (stagingMessageId) {
       db.insert(messages)

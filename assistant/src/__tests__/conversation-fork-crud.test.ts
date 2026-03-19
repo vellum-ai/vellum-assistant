@@ -154,11 +154,16 @@ describe("forkConversation", () => {
     expect(forkMessages.map((message) => message.createdAt)).toEqual(
       sourceMessages.map((message) => message.createdAt),
     );
-    expect(forkMessages.map((message) => parseMetadata(message.metadata))).toEqual(
+    expect(
+      forkMessages.map((message) => parseMetadata(message.metadata)),
+    ).toEqual(
       sourceMessages.map((message) => {
         const metadata = parseMetadata(message.metadata);
         return metadata && typeof metadata === "object"
-          ? { ...(metadata as Record<string, unknown>), forkSourceMessageId: message.id }
+          ? {
+              ...(metadata as Record<string, unknown>),
+              forkSourceMessageId: message.id,
+            }
           : { forkSourceMessageId: message.id };
       }),
     );
@@ -199,6 +204,84 @@ describe("forkConversation", () => {
       "Message 1",
       "Message 2",
     ]);
+  });
+
+  test("preserves compacted context when forking from the visible window", async () => {
+    const source = createConversation("Compacted thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "Message 2", undefined, {
+      skipIndexing: true,
+    });
+    const branchPoint = await addMessage(
+      source.id,
+      "user",
+      "Message 3",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "Message 4", undefined, {
+      skipIndexing: true,
+    });
+
+    const compactedAt = Date.now();
+    getDb()
+      .update(conversations)
+      .set({
+        contextSummary: "Compacted summary",
+        contextCompactedMessageCount: 2,
+        contextCompactedAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: branchPoint.id,
+    });
+
+    expect(fork.contextSummary).toBe("Compacted summary");
+    expect(fork.contextCompactedMessageCount).toBe(2);
+    expect(fork.contextCompactedAt).toBe(compactedAt);
+    expect(fork.forkParentConversationId).toBe(source.id);
+    expect(fork.forkParentMessageId).toBe(branchPoint.id);
+  });
+
+  test("rejects forks from the compacted-away prefix", async () => {
+    const source = createConversation("Compacted thread");
+    const compactedBranchPoint = await addMessage(
+      source.id,
+      "user",
+      "Message 1",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "Message 2", undefined, {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "Message 3", undefined, {
+      skipIndexing: true,
+    });
+
+    getDb()
+      .update(conversations)
+      .set({
+        contextSummary: "Compacted summary",
+        contextCompactedMessageCount: 2,
+        contextCompactedAt: Date.now(),
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    expect(() =>
+      forkConversation({
+        conversationId: source.id,
+        throughMessageId: compactedBranchPoint.id,
+      }),
+    ).toThrow(
+      `Message ${compactedBranchPoint.id} falls inside the compacted-away prefix of conversation ${source.id}`,
+    );
   });
 
   test("rejects forks when the source conversation has no persisted messages", () => {
@@ -390,7 +473,9 @@ describe("forkConversation", () => {
     const forkRequestLogs = forkAssistant
       ? getRequestLogsByMessageId(forkAssistant.id)
       : [];
-    const forkState = getAttentionStateByConversationIds([fork.id]).get(fork.id);
+    const forkState = getAttentionStateByConversationIds([fork.id]).get(
+      fork.id,
+    );
     const forkRequestLogCount = db
       .select()
       .from(llmRequestLogs)
@@ -422,7 +507,9 @@ describe("forkConversation", () => {
     expect(forkState).toBeDefined();
     expect(forkState?.latestAssistantMessageId).toBe(forkAssistant?.id);
     expect(forkState?.lastSeenAssistantMessageId).toBe(forkAssistant?.id);
-    expect(forkState?.lastSeenAssistantMessageAt).toBe(forkAssistant?.createdAt);
+    expect(forkState?.lastSeenAssistantMessageAt).toBe(
+      forkAssistant?.createdAt,
+    );
     expect(forkRequestLogCount).toBe(0);
     expect(forkToolInvocationCount).toBe(0);
     expect(forkInboundEventCount).toBe(0);
