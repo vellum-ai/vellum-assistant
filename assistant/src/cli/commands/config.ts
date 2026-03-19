@@ -152,6 +152,7 @@ Examples:
       if (!path) {
         const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
           unrepresentable: "any",
+          io: "input",
         });
         log.info(JSON.stringify(jsonSchema, null, 2));
         return;
@@ -165,6 +166,7 @@ Examples:
 
       const jsonSchema = z.toJSONSchema(subSchema, {
         unrepresentable: "any",
+        io: "input",
       });
       log.info(JSON.stringify(jsonSchema, null, 2));
     });
