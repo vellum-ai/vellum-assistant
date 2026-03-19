@@ -66,6 +66,9 @@ final class ChatScrollLoopGuard {
         /// Timestamp when the guard last tripped (nil if never tripped or reset).
         var lastTripTime: TimeInterval?
 
+        /// Timestamp of the most recent event of any kind (for quiet-window detection).
+        var lastEventTime: TimeInterval?
+
         /// Whether the guard is currently in cooldown (suppressing warnings).
         var inCooldown: Bool = false
     }
@@ -99,13 +102,15 @@ final class ChatScrollLoopGuard {
         // Append the new event.
         state.events[kind, default: []].append(timestamp)
 
-        // Check if cooldown has expired (quiet window elapsed).
-        if state.inCooldown, let lastTrip = state.lastTripTime {
-            // Re-arm if cooldown duration has passed.
-            if timestamp - lastTrip >= Self.cooldownDuration {
+        // Re-arm cooldown only after a full quiet window with no events.
+        if state.inCooldown, let lastEvent = state.lastEventTime {
+            if timestamp - lastEvent >= Self.cooldownDuration {
                 state.inCooldown = false
             }
         }
+
+        // Track the latest event time (must come after the cooldown check).
+        state.lastEventTime = timestamp
 
         // Check thresholds.
         let anchorCount = state.events[.anchorPreferenceChange]?.count ?? 0
