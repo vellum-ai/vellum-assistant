@@ -571,12 +571,13 @@ export async function stopContainers(
 
 /**
  * Capture the current image references for running service containers.
- * Returns a partial record of service → image tag string (e.g.
- * "vellumai/vellum-assistant:v1.2.3"). Used before stopping containers
- * so we can roll back to these exact images if the new version fails
- * readiness checks.
+ * Returns a complete record of service → image tag string for all three
+ * services (e.g. "vellumai/vellum-assistant:v1.2.3"). Used before stopping
+ * containers so we can roll back to these exact images if the new version
+ * fails readiness checks.
  *
- * Returns null if no containers could be inspected (e.g. fresh install).
+ * Returns null if any container could not be inspected (e.g. fresh install
+ * or partial deployment).
  */
 export async function captureImageRefs(
   res: ReturnType<typeof dockerResourceNames>,
