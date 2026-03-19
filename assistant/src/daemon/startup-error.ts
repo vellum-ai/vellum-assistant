@@ -104,6 +104,7 @@ export function categorizeDaemonError(err: unknown): DaemonStartupError {
     message.startsWith("Invalid RUNTIME_HTTP_PORT") ||
     message.startsWith("Invalid integer for GATEWAY_PORT") ||
     message.startsWith("Invalid integer for RUNTIME_HTTP_PORT") ||
+    message.startsWith("Invalid integer for QDRANT_HTTP_PORT") ||
     /\benv\b.*\bvalidat/i.test(message) ||
     /\bvalidat.*\benv\b/i.test(message)
   ) {
