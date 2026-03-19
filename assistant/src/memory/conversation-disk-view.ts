@@ -203,10 +203,11 @@ export function flattenContentBlocks(rawContent: string): FlattenedContent {
  * appending a suffix (e.g., `photo-2.png`, `photo-3.png`).
  */
 export function resolveUniqueFilename(dir: string, filename: string): string {
-  if (!existsSync(join(dir, filename))) return filename;
+  const sanitized = basename(filename);
+  if (!existsSync(join(dir, sanitized))) return sanitized;
 
-  const ext = extname(filename);
-  const base = basename(filename, ext);
+  const ext = extname(sanitized);
+  const base = basename(sanitized, ext);
   let counter = 2;
   let candidate: string;
   do {

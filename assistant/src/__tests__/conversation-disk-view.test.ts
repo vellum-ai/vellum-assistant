@@ -315,6 +315,14 @@ describe("resolveUniqueFilename", () => {
     expect(resolveUniqueFilename(dir, "README")).toBe("README-2");
     rmSync(dir, { recursive: true });
   });
+
+  test("strips path traversal sequences from filename", () => {
+    const dir = mkdtempSync(join(tmpdir(), "unique-fn-"));
+    expect(resolveUniqueFilename(dir, "../../evil.txt")).toBe("evil.txt");
+    expect(resolveUniqueFilename(dir, "../secret.png")).toBe("secret.png");
+    expect(resolveUniqueFilename(dir, "foo/bar/baz.txt")).toBe("baz.txt");
+    rmSync(dir, { recursive: true });
+  });
 });
 
 // ---------------------------------------------------------------------------
