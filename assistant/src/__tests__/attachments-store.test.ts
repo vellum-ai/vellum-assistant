@@ -52,7 +52,7 @@ import {
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawGet, resetDb } from "../memory/db.js";
 
 initializeDb();
 
@@ -103,12 +103,20 @@ describe("uploadAttachment", () => {
     expect(content.toString()).toBe("hello");
   });
 
-  test("stores empty dataBase64 in DB row", () => {
+  test("stores empty dataBase64 in DB row but hydrates on read", () => {
     const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
-    const row = getAttachmentById(stored.id);
 
+    // The raw DB row stores empty dataBase64 since content is on disk
+    const rawRow = rawGet<{ data_base64: string }>(
+      "SELECT data_base64 FROM attachments WHERE id = ?",
+      stored.id,
+    );
+    expect(rawRow!.data_base64).toBe("");
+
+    // But getAttachmentById hydrates from disk
+    const row = getAttachmentById(stored.id);
     expect(row).not.toBeNull();
-    expect(row!.dataBase64).toBe("");
+    expect(row!.dataBase64).toBe("dGVzdA==");
   });
 
   test("classifies image MIME as image kind", () => {
@@ -334,15 +342,15 @@ describe("deleteAttachment", () => {
 describe("getAttachmentsByIds", () => {
   beforeEach(resetTables);
 
-  test("returns matching attachments with empty dataBase64", () => {
+  test("returns matching attachments with hydrated dataBase64", () => {
     const a = uploadAttachment("a.txt", "text/plain", "AAAA");
     const b = uploadAttachment("b.txt", "text/plain", "BBBB");
 
     const results = getAttachmentsByIds([a.id, b.id]);
     expect(results).toHaveLength(2);
-    // dataBase64 is always empty since content is on disk
-    expect(results[0].dataBase64).toBe("");
-    expect(results[1].dataBase64).toBe("");
+    // dataBase64 is hydrated from on-disk files
+    expect(results[0].dataBase64).toBe("AAAA");
+    expect(results[1].dataBase64).toBe("BBBB");
   });
 
   test("returns empty array for empty IDs list", () => {
@@ -364,15 +372,15 @@ describe("getAttachmentsByIds", () => {
 describe("getAttachmentById", () => {
   beforeEach(resetTables);
 
-  test("returns attachment with empty dataBase64 when found", () => {
+  test("returns attachment with hydrated dataBase64 when found", () => {
     const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
     const result = getAttachmentById(stored.id);
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(stored.id);
     expect(result!.originalFilename).toBe("report.pdf");
-    // dataBase64 is empty; content is on disk
-    expect(result!.dataBase64).toBe("");
+    // dataBase64 is hydrated from on-disk file (round-trips via binary)
+    expect(result!.dataBase64).toBe("JVBE");
   });
 
   test("returns null for nonexistent ID", () => {
@@ -399,8 +407,8 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(linked).toHaveLength(1);
     expect(linked[0].id).toBe(stored.id);
     expect(linked[0].originalFilename).toBe("chart.png");
-    // dataBase64 is empty; content is on disk
-    expect(linked[0].dataBase64).toBe("");
+    // dataBase64 is hydrated from on-disk file
+    expect(linked[0].dataBase64).toBe("iVBORw0K");
   });
 
   test("returns attachments in position order", async () => {
