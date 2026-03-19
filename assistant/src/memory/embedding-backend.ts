@@ -203,6 +203,22 @@ function getCachedOrCreate<T extends EmbeddingBackend>(
   return instance;
 }
 
+/**
+ * Look up a previously cached backend instance. Returns undefined when no
+ * cached entry exists. Used as a fallback when a provider key lookup
+ * returns undefined — a transient credential-store outage should not
+ * disable a provider whose backend is already warmed in memory. Explicit
+ * key deletion triggers `clearEmbeddingBackendCache()` which empties the
+ * cache, so a stale backend is never returned after intentional removal.
+ */
+function getCached(
+  provider: string,
+  model: string,
+  extras?: string[],
+): EmbeddingBackend | undefined {
+  return backendCache.get(cacheKey(provider, model, extras));
+}
+
 function geminiCacheExtras(config: AssistantConfig): string[] {
   const extras: string[] = [];
   if (config.memory.embeddings.geminiTaskType) {
@@ -287,7 +303,16 @@ export async function selectEmbeddingBackend(
         };
       case "openai": {
         const openaiKey = await getProviderKeyAsync("openai");
-        if (!openaiKey) continue;
+        if (!openaiKey) {
+          // Preserve cached backend on transient credential-store failures.
+          // Explicit key deletion clears the cache via clearEmbeddingBackendCache().
+          const cached = getCached(
+            "openai",
+            config.memory.embeddings.openaiModel,
+          );
+          if (cached) return { backend: cached, reason: null };
+          continue;
+        }
         return {
           backend: getCachedOrCreate(
             "openai",
@@ -303,7 +328,15 @@ export async function selectEmbeddingBackend(
       }
       case "gemini": {
         const geminiKey = await getProviderKeyAsync("gemini");
-        if (!geminiKey) continue;
+        if (!geminiKey) {
+          const cached = getCached(
+            "gemini",
+            config.memory.embeddings.geminiModel,
+            geminiCacheExtras(config),
+          );
+          if (cached) return { backend: cached, reason: null };
+          continue;
+        }
         return {
           backend: getCachedOrCreate(
             "gemini",
@@ -552,6 +585,13 @@ async function selectFallbackBackends(
                 ),
             ),
           );
+        } else {
+          // Preserve cached backend on transient credential-store failures.
+          const cached = getCached(
+            "openai",
+            config.memory.embeddings.openaiModel,
+          );
+          if (cached) backends.push(cached);
         }
         break;
       }
@@ -574,6 +614,14 @@ async function selectFallbackBackends(
               geminiCacheExtras(config),
             ),
           );
+        } else {
+          // Preserve cached backend on transient credential-store failures.
+          const cached = getCached(
+            "gemini",
+            config.memory.embeddings.geminiModel,
+            geminiCacheExtras(config),
+          );
+          if (cached) backends.push(cached);
         }
         break;
       }
