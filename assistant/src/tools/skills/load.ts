@@ -24,6 +24,7 @@ import {
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -76,7 +77,9 @@ function formatToolSchemas(
 
   for (const tool of manifest.tools) {
     lines.push(`${toolHeadingLevel} ${tool.name}`);
-    lines.push(tool.description);
+    lines.push(
+      tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
+    );
 
     const schema = tool.input_schema;
     const properties = schema.properties as
