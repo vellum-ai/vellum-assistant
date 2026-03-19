@@ -734,17 +734,23 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - On-Demand Content Rehydration
 
+    /// Message IDs currently being rehydrated — prevents duplicate concurrent fetches.
+    private var rehydratingMessageIds: Set<UUID> = []
+
     /// Fetch full (untruncated) content for a message that was loaded with truncated
     /// text/tool results or had its heavy content stripped. No-ops if the message is
-    /// not found or doesn't need rehydration.
+    /// not found, doesn't need rehydration, or is already being fetched.
     public func rehydrateMessage(id: UUID) {
+        guard !rehydratingMessageIds.contains(id) else { return }
         guard let idx = messages.firstIndex(where: { $0.id == id }),
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         guard daemonClient.isConnected else { return }
+        rehydratingMessageIds.insert(id)
         Task { [weak self] in
             guard let self else { return }
+            defer { self.rehydratingMessageIds.remove(id) }
             if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
                 self.handleMessageContentResponse(response)
             }

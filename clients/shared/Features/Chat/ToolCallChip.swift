@@ -206,14 +206,24 @@ public struct ToolCallChip: View {
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
-                                ScrollView {
+                                let lineCount = result.components(separatedBy: "\n").count
+                                if lineCount > 500 {
+                                    ScrollView {
+                                        Text(result)
+                                            .font(VFont.monoSmall)
+                                            .foregroundColor(VColor.contentSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    .frame(maxHeight: 400)
+                                } else {
                                     Text(result)
                                         .font(VFont.monoSmall)
                                         .foregroundColor(VColor.contentSecondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
-                                .frame(maxHeight: 200)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
