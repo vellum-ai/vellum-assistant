@@ -413,7 +413,7 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
-                .vTooltip("Click to dictate or hold \(pttKeyDisplayName)")
+                .vTooltip(micTooltipText)
 
                 // Send button (always visible, disabled when empty)
                 VButton(
@@ -437,7 +437,7 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
-                .vTooltip("Click to dictate or hold \(pttKeyDisplayName)")
+                .vTooltip(micTooltipText)
 
                 // Send button
                 VButton(
@@ -598,9 +598,13 @@ VStreamingWaveform(
         }
     }
 
-    /// Display name for the PTT activation key, used in the mic button tooltip.
-    private var pttKeyDisplayName: String {
-        PTTActivator.fromStored().displayName
+    /// Tooltip text for the mic button. Includes the PTT hold hint only when PTT is enabled.
+    private var micTooltipText: String {
+        let activator = PTTActivator.fromStored()
+        if activator.kind == .none {
+            return "Click to dictate"
+        }
+        return "Click to dictate or hold \(activator.displayName)"
     }
 
     var canSend: Bool {
