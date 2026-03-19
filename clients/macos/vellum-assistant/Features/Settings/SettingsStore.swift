@@ -2563,7 +2563,7 @@ public final class SettingsStore: ObservableObject {
                         errorMsg = "HTTP \(response.statusCode)"
                     }
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(errorMsg)" }
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
@@ -2572,7 +2572,7 @@ public final class SettingsStore: ObservableObject {
 
                 guard let authURL = URL(string: connectResponse.auth_url) else {
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Invalid auth URL" }
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
@@ -2606,12 +2606,12 @@ public final class SettingsStore: ObservableObject {
                         if elapsed >= timeout { break }
                     }
 
-                    self.yourOwnOAuthConnectingAppId = nil
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                 }
             } catch {
                 log.error("Failed to start Your Own OAuth connect: \(error)")
                 if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(error.localizedDescription)" }
-                self.yourOwnOAuthConnectingAppId = nil
+                if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
             }
         }
     }
