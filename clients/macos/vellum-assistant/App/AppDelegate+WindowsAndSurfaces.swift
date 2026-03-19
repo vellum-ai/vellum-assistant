@@ -691,7 +691,8 @@ extension AppDelegate {
     public func showSettingsTab(_ tab: String) {
         // Don't gate on feature flags here — let SettingsPanel decide visibility
         // based on its own flag state when it processes pendingSettingsTab.
-        if let settingsTab = SettingsTab(rawValue: tab) {
+        // Use fromRawValue to resolve legacy tab names (e.g. "Archived Threads").
+        if let settingsTab = SettingsTab.fromRawValue(tab) {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)

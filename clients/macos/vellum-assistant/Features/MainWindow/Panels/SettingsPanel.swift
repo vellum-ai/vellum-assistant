@@ -24,9 +24,15 @@ enum SettingsTab: String {
         return tabs
     }
 
-    /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
+    /// Resolves a tab name string to a SettingsTab, with backward compatibility for old names.
     static func fromRawValue(_ value: String, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
-        guard let tab = SettingsTab(rawValue: value) else { return nil }
+        // Support old raw values for backward compatibility
+        let tab: SettingsTab?
+        switch value {
+        case "Archived Threads": tab = .archivedConversations
+        default: tab = SettingsTab(rawValue: value)
+        }
+        guard let tab else { return nil }
         // Block feature-flagged tabs when disabled
         if tab == .billing && !billingEnabled { return nil }
         if tab == .developer && !developerEnabled { return nil }
