@@ -131,7 +131,7 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Workspace Export & Secrets
 
-The entire ~/.vellum/workspace directory (minus embedding models and Qdrant vector indices) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.** Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
+The entire ~/.vellum/workspace directory (minus embedding models, Qdrant vector indices, attachments, and conversation disk-view files) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.** Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
 
 ## Release Update Hygiene
 
