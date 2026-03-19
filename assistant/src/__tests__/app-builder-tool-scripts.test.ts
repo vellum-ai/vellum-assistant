@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
-import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -26,24 +25,11 @@ function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
   return {
     getApp: () => makeApp(),
     listApps: () => [makeApp()],
-    queryAppRecords: () => [],
-    listAppFiles: () => ["index.html"],
-    readAppFile: () => "<h1>Hi</h1>",
     createApp: (params) =>
       makeApp({ name: params.name, description: params.description }),
     updateApp: (id, updates) => makeApp({ id, ...updates }),
     deleteApp: () => {},
     writeAppFile: () => {},
-    editAppFile: () =>
-      ({
-        ok: true,
-        updatedContent: "new",
-        matchCount: 1,
-        matchMethod: "exact",
-        similarity: 1,
-        actualOld: "old",
-        actualNew: "new",
-      }) as EditEngineResult,
     ...overrides,
   };
 }
