@@ -200,7 +200,9 @@ struct DebugSnapshot: Codable {
     ///
     /// Contains only identifiers, flags, counts, timestamps, and numeric geometry.
     /// Never includes message text, tool input/output bodies, surface HTML,
-    /// or attachment data.
+    /// or attachment data. Geometry fields are already sanitized upstream by
+    /// `NumericSanitizer` — non-finite values are replaced with `nil` and their
+    /// names are recorded in `nonFiniteFields`.
     struct TranscriptDiagnostics: Codable {
         let capturedAt: Date
         let messageCount: Int
@@ -222,6 +224,9 @@ struct DebugSnapshot: Codable {
         let containerWidth: Double?
         let lastScrollToReason: String?
         let lastLoopWarningTimestamp: Date?
+        /// Names of geometry fields whose original values were non-finite
+        /// (nan, inf, -inf) and were replaced with `nil` during sanitization.
+        let nonFiniteFields: [String]?
 
         init(from snapshot: ChatTranscriptSnapshot) {
             self.capturedAt = snapshot.capturedAt
@@ -244,6 +249,7 @@ struct DebugSnapshot: Codable {
             self.containerWidth = snapshot.containerWidth
             self.lastScrollToReason = snapshot.lastScrollToReason
             self.lastLoopWarningTimestamp = snapshot.lastLoopWarningTimestamp
+            self.nonFiniteFields = snapshot.nonFiniteFields
         }
     }
 
