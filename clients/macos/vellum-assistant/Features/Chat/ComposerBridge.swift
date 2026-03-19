@@ -92,7 +92,9 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
     private static func unregisterDragTypes(in view: NSView) {
         if view is NSTextView {
-            view.unregisterDraggedTypes()
+            // Re-register with text-only types so text drag-and-drop still
+            // works while file/image drops fall through to the ChatView handler.
+            view.registerForDraggedTypes([.string, .rtf, .rtfd])
         }
         for subview in view.subviews {
             unregisterDragTypes(in: subview)

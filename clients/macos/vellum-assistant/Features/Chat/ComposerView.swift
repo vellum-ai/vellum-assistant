@@ -51,8 +51,6 @@ struct ComposerView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    let onDropImageData: ((Data, String?) -> Void)?
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
