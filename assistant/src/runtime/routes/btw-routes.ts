@@ -14,17 +14,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { buildSystemPrompt } from "../../prompts/system-prompt.js";
-import {
-  createTimeout,
-  userMessage,
-} from "../../providers/provider-send-message.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
+import { runBtwSidechain } from "../btw-sidechain.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
@@ -159,73 +154,42 @@ async function handleBtw(
   const conversation =
     await deps.sendMessageDeps.getOrCreateConversation(conversationId);
 
-  const messages = [...conversation.getMessages(), userMessage(trimmedContent)];
-  const tools = buildToolDefinitions();
-  const { signal: timeoutSignal, cleanup: cleanupTimeout } =
-    createTimeout(30_000);
-
-  // Combine the timeout signal with the request's abort signal so that
-  // disconnection or timeout both cancel the provider call.
-  const combinedController = new AbortController();
-  const onTimeoutAbort = () => combinedController.abort();
-  const onRequestAbort = () => combinedController.abort();
-  timeoutSignal.addEventListener("abort", onTimeoutAbort, { once: true });
-  req.signal.addEventListener("abort", onRequestAbort, { once: true });
-  const combinedSignal = combinedController.signal;
-
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
       (async () => {
         try {
-          // Preserve any conversation-specific systemPromptOverride so
-          // side-chain responses match the active conversation contract.  Only
-          // fall back to a fresh prompt (excluding BOOTSTRAP.md) for
-          // default conversations where no override was provided.
-          const systemPrompt = conversation.hasSystemPromptOverride
-            ? conversation.systemPrompt
-            : buildSystemPrompt({ excludeBootstrap: true });
-
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
-          let textDeltaCount = 0;
-          let collectedText = "";
-          await conversation.provider.sendMessage(
-            messages,
-            tools,
-            systemPrompt,
-            {
-              config: {
-                max_tokens: 1024,
-                tool_choice: { type: "none" },
-                modelIntent: "latency-optimized",
-              },
-              onEvent: (event) => {
-                if (event.type === "text_delta") {
-                  textDeltaCount++;
-                  if (isIntroRequest) collectedText += event.text;
-                  controller.enqueue(
-                    encoder.encode(
-                      `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                    ),
-                  );
-                }
-              },
-              signal: combinedSignal,
+          const result = await runBtwSidechain({
+            content: trimmedContent,
+            conversation,
+            signal: req.signal,
+            onEvent: (event) => {
+              if (event.type === "text_delta") {
+                controller.enqueue(
+                  encoder.encode(
+                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
+                  ),
+                );
+              }
             },
-          );
+          });
 
-          if (textDeltaCount === 0) {
+          if (!result.hadTextDeltas) {
             log.warn(
-              { conversationKey, messageCount: messages.length },
+              {
+                conversationKey,
+                messageCount: conversation.getMessages().length + 1,
+              },
               "btw side-chain completed with no text deltas",
             );
           }
 
           // Cache the generated identity intro for subsequent requests.
-          if (isIntroRequest && collectedText.trim()) {
+          if (isIntroRequest && result.text) {
             try {
-              setCachedIntro(collectedText.trim());
+              setCachedIntro(result.text);
               log.debug("Cached identity intro text");
             } catch {
               // Non-fatal — next request will regenerate.
@@ -249,10 +213,6 @@ async function handleBtw(
           } catch {
             /* stream already closed */
           }
-        } finally {
-          cleanupTimeout();
-          timeoutSignal.removeEventListener("abort", onTimeoutAbort);
-          req.signal.removeEventListener("abort", onRequestAbort);
         }
       })();
     },
