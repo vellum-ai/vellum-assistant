@@ -646,7 +646,7 @@ struct ActiveChatViewWrapper: View {
                 settingsStore.setModel(modelId)
             },
             selectedModel: settingsStore.selectedModel,
-            catalogModels: settingsStore.dynamicProviderModels("anthropic").map { (id: $0.id, name: $0.displayName) },
+            catalogModels: settingsStore.dynamicProviderModels(settingsStore.selectedInferenceProvider).map { (id: $0.id, name: $0.displayName) },
             configuredProviders: settingsStore.configuredProviders,
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
