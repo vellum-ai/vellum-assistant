@@ -391,7 +391,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
-            } else if !hasPendingConfirmation {
+            } else if inputText.isEmpty && !hasPendingConfirmation {
                 // Live voice button
                 VButton(
                     label: "Voice mode",
@@ -418,6 +418,16 @@ struct ComposerView: View {
                     iconOnly: VIcon.arrowUp.rawValue,
                     style: .primary,
                     isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
+                }
+            } else if canSend {
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
