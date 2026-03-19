@@ -114,11 +114,14 @@ export async function run(
     );
 
     if (visibleAttachments.length === 0 && attachmentIds.length > 0) {
-      return {
-        content:
-          "None of the specified attachments could be found or are accessible.",
-        isError: true,
-      };
+      // Only error if source_paths won't provide images either
+      if (!sourcePaths || sourcePaths.length === 0) {
+        return {
+          content:
+            "None of the specified attachments could be found or are accessible.",
+          isError: true,
+        };
+      }
     }
 
     sourceImages = visibleAttachments
@@ -139,8 +142,8 @@ export async function run(
       .filter((img): img is NonNullable<typeof img> => img !== undefined);
   }
 
-  // Resolve source images from file paths (sandboxed to workingDir)
-  if (sourcePaths && sourcePaths.length > 0) {
+  // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
+  if (mode === "edit" && sourcePaths && sourcePaths.length > 0) {
     const errors: string[] = [];
     const validPathImages: Array<{ mimeType: string; dataBase64: string }> = [];
     for (const filePath of sourcePaths) {
@@ -160,7 +163,10 @@ export async function run(
         dataBase64: buffer.toString("base64"),
       });
     }
-    if (validPathImages.length === 0) {
+    if (
+      validPathImages.length === 0 &&
+      (!sourceImages || sourceImages.length === 0)
+    ) {
       return {
         content: `None of the specified file paths could be read.\n${errors.join("\n")}`,
         isError: true,
