@@ -584,6 +584,48 @@ describe("deleteConversation — private scope cleanup", () => {
     expect(embeddingRow).toBeNull();
   });
 
+  test("conversationStarters cleaned up", () => {
+    const conv = createConversation({ conversationType: "private" });
+    const scopeId = conv.memoryScopeId;
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert a conversation_starters row with the private scopeId
+    raw
+      .query(
+        `INSERT INTO conversation_starters (id, label, prompt, generation_batch, scope_id, card_type, created_at)
+         VALUES ('starter-1', 'Test starter', 'Tell me about tests', 1, ?, 'chip', ?)`,
+      )
+      .run(scopeId, now);
+
+    // Also insert a default-scope starter that should NOT be deleted
+    raw
+      .query(
+        `INSERT INTO conversation_starters (id, label, prompt, generation_batch, scope_id, card_type, created_at)
+         VALUES ('starter-default', 'Default starter', 'Hello', 1, 'default', 'chip', ?)`,
+      )
+      .run(now);
+
+    deleteConversation(conv.id);
+
+    // Private-scope starter should be gone
+    const starterRow = raw
+      .query("SELECT * FROM conversation_starters WHERE id = 'starter-1'")
+      .get();
+    expect(starterRow).toBeNull();
+
+    // Default-scope starter should still exist
+    const defaultStarterRow = raw
+      .query("SELECT * FROM conversation_starters WHERE id = 'starter-default'")
+      .get();
+    expect(defaultStarterRow).not.toBeNull();
+  });
+
   test("no duplicate IDs", async () => {
     const conv = createConversation({ conversationType: "private" });
     const scopeId = conv.memoryScopeId;
