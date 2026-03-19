@@ -56,7 +56,7 @@ struct PrivateConversationsSection: View {
                 } header: {
                     Text("Private Conversations")
                 } footer: {
-                    Text("These conversations are not included in your regular chat history and are excluded from session restoration.")
+                    Text("These conversations are not included in your regular chat history and are excluded from conversation restoration.")
                 }
             }
 
