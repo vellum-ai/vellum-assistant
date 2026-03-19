@@ -41,7 +41,7 @@ mock.module("../runtime/auth/external-assistant-id.js", () => ({
 }));
 
 // Import after mocking
-import { backfillInstallationIdMigration } from "../workspace/migrations/011-backfill-installation-id.js";
+import { backfillInstallationIdMigration } from "../workspace/migrations/002-backfill-installation-id.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,7 +68,7 @@ function setupFs(fileContents: Record<string, string>): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("011-backfill-installation-id migration", () => {
+describe("002-backfill-installation-id migration", () => {
   beforeEach(() => {
     existsSyncFn.mockClear();
     readFileSyncFn.mockClear();
@@ -320,9 +320,9 @@ describe("011-backfill-installation-id migration", () => {
     expect(parsed.assistants[1].installationId).toBe("sqlite-id");
   });
 
-  test("has migration id 011-backfill-installation-id", () => {
+  test("has migration id 002-backfill-installation-id", () => {
     expect(backfillInstallationIdMigration.id).toBe(
-      "011-backfill-installation-id",
+      "002-backfill-installation-id",
     );
   });
 });
