@@ -133,16 +133,16 @@ describe("renderWorkspaceTopLevelContext", () => {
     };
 
     const result = renderWorkspaceTopLevelContext(snapshot, {
-      currentConversationPath: "conversations/conv-1_2026-03-19T12-00-00.000Z/",
+      currentConversationPath: "conversations/2026-03-19T12-00-00.000Z_conv-1/",
       currentConversationAttachmentsPath:
-        "conversations/conv-1_2026-03-19T12-00-00.000Z/attachments/",
+        "conversations/2026-03-19T12-00-00.000Z_conv-1/attachments/",
     });
 
     expect(result).toContain(
-      "Current conversation folder: conversations/conv-1_2026-03-19T12-00-00.000Z/",
+      "Current conversation folder: conversations/2026-03-19T12-00-00.000Z_conv-1/",
     );
     expect(result).toContain(
-      "Attachment files: conversations/conv-1_2026-03-19T12-00-00.000Z/attachments/",
+      "Attachment files: conversations/2026-03-19T12-00-00.000Z_conv-1/attachments/",
     );
   });
 });
