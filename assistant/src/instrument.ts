@@ -2,7 +2,12 @@ import { arch, hostname, platform, release } from "node:os";
 
 import * as Sentry from "@sentry/node";
 
-import { getPlatformOrganizationId, getSentryDsn } from "./config/env.js";
+import {
+  getPlatformOrganizationId,
+  getPlatformUserId,
+  getSentryDsn,
+} from "./config/env.js";
+import { getDeviceId } from "./util/device-id.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
@@ -58,9 +63,11 @@ export function initSentry(): void {
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
+        device_id: getDeviceId(),
         ...(getPlatformOrganizationId()
           ? { organization_id: getPlatformOrganizationId() }
           : {}),
+        ...(getPlatformUserId() ? { user_id: getPlatformUserId() } : {}),
       },
     },
     beforeSend(event) {
@@ -107,6 +114,17 @@ export function setSentryOrganizationId(
   organizationId: string | undefined,
 ): void {
   Sentry.setTag("organization_id", organizationId || undefined);
+}
+
+/**
+ * Set (or clear) the user_id tag on the global Sentry scope.
+ *
+ * Called after the platform user ID is rehydrated from the credential
+ * store or updated at runtime so that every subsequent Sentry event
+ * includes the user context.
+ */
+export function setSentryUserId(userId: string | undefined): void {
+  Sentry.setTag("user_id", userId || undefined);
 }
 
 // ── Dynamic conversation-scoped Sentry tags ─────────────────────────
