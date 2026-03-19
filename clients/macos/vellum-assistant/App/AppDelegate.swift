@@ -151,6 +151,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     @AppStorage("themePreference") private var themePreference: String = "system"
 
+    public func applicationWillFinishLaunching(_ notification: Notification) {
+        // Ensure the macOS app menu consistently says "Vellum" (Hide Vellum,
+        // Quit Vellum, etc.) regardless of the executable name — which may
+        // differ between production builds (renamed to "Vellum" by build.sh)
+        // and development builds (SPM target name).
+        ProcessInfo.processInfo.processName = "Vellum"
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // ── Single-instance guard ──────────────────────────────────────
         // If another copy of this app is already running (e.g. Sparkle
