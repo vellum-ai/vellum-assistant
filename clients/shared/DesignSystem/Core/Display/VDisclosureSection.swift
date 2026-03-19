@@ -28,6 +28,8 @@ public struct VDisclosureSection<Content: View>: View {
     @Binding public var isExpanded: Bool
     @ViewBuilder public let content: () -> Content
 
+    @State private var isHovered = false
+
     public init(
         size: Size = .default,
         title: String,
@@ -79,6 +81,41 @@ public struct VDisclosureSection<Content: View>: View {
         }
     }
 
+    private var headerLeadingPadding: CGFloat {
+        switch size {
+        case .default: return 0
+        case .compact: return VSpacing.xs
+        }
+    }
+
+    private var headerTrailingPadding: CGFloat {
+        switch size {
+        case .default: return 0
+        case .compact: return VSpacing.sm
+        }
+    }
+
+    private var headerVerticalPadding: CGFloat {
+        switch size {
+        case .default: return 0
+        case .compact: return VSpacing.xs
+        }
+    }
+
+    private var headerMinHeight: CGFloat? {
+        switch size {
+        case .default: return nil
+        case .compact: return 32
+        }
+    }
+
+    private var iconColor: Color {
+        switch size {
+        case .default: return VColor.contentTertiary
+        case .compact: return VColor.primaryBase
+        }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -89,7 +126,7 @@ public struct VDisclosureSection<Content: View>: View {
                 HStack(spacing: headerSpacing) {
                     if let icon {
                         VIconView(.resolve(icon), size: iconSize)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(iconColor)
                             .frame(width: 20)
                     }
 
@@ -113,10 +150,20 @@ public struct VDisclosureSection<Content: View>: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }
+                .padding(.leading, headerLeadingPadding)
+                .padding(.trailing, headerTrailingPadding)
+                .padding(.vertical, headerVerticalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: headerMinHeight)
+                .background(
+                    size == .compact && isHovered ? VColor.surfaceBase : Color.clear
+                )
+                .animation(VAnimation.fast, value: isHovered)
+                .clipShape(RoundedRectangle(cornerRadius: size == .compact ? VRadius.md : 0))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { isHovered = $0 }
             .pointerCursor()
             .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")

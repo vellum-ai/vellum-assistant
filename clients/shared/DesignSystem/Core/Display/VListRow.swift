@@ -44,7 +44,14 @@ public struct VListRow<Content: View>: View {
         }
     }
 
-    private var horizontalPadding: CGFloat {
+    private var leadingPadding: CGFloat {
+        switch size {
+        case .default: return VSpacing.lg
+        case .compact: return VSpacing.xs
+        }
+    }
+
+    private var trailingPadding: CGFloat {
         switch size {
         case .default: return VSpacing.lg
         case .compact: return VSpacing.sm
@@ -58,16 +65,26 @@ public struct VListRow<Content: View>: View {
         }
     }
 
+    private var minRowHeight: CGFloat? {
+        switch size {
+        case .default: return nil
+        case .compact: return 32
+        }
+    }
+
     private var rowContent: some View {
         content()
             .padding(.vertical, verticalPadding)
-            .padding(.horizontal, horizontalPadding)
+            .padding(.leading, leadingPadding)
+            .padding(.trailing, trailingPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: minRowHeight)
             .background(
                 isSelected ? VColor.surfaceActive :
                 isHovered ? VColor.surfaceBase :
                 Color.clear
             )
+            .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .contentShape(Rectangle())
             .onHover { hovering in
