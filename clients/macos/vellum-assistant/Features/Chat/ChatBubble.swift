@@ -351,20 +351,6 @@ struct ChatBubble: View {
                 // async task completions (markdown parsing, image decoding) would
                 // trigger full re-compositing of the entire message on every change.
                 .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
-                // Rasterize completed, non-interactive assistant bubbles via Metal.
-                // drawingGroup() flattens the view subtree into an offscreen render
-                // pass, which is faster for complex static content during scrolling.
-                // Skipped for: streaming messages, user messages, interleaved content,
-                // messages with pending tool calls, and messages still processing —
-                // all of which contain interactive or in-flight elements.
-                .modifier(ConditionalDrawingGroup(isActive: !isUser
-                    && !message.isStreaming
-                    && !cachedHasInterleavedContent
-                    && !isProcessingAfterTools
-                    && activeConfirmationRequestId == nil
-                    && message.toolCalls.allSatisfy(\.isComplete)
-                    && message.inlineSurfaces.isEmpty
-                ))
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -678,23 +664,6 @@ private struct ConditionalCompositingGroup: ViewModifier {
     func body(content: Content) -> some View {
         if isActive {
             content.compositingGroup()
-        } else {
-            content
-        }
-    }
-}
-
-/// Applies `.drawingGroup()` only when active, rasterizing the view subtree via Metal.
-/// This is faster than compositingGroup for complex static content (completed assistant
-/// messages) because it flattens the entire subtree into a single texture. Must NOT be
-/// applied to views with interactive elements (buttons, toggles) as it prevents SwiftUI
-/// from hit-testing subviews individually.
-private struct ConditionalDrawingGroup: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.drawingGroup()
         } else {
             content
         }
