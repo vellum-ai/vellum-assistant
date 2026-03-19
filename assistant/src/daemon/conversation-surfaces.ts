@@ -774,11 +774,16 @@ export function handleSurfaceAction(
     surfaceData,
   );
 
+  // Use broadcastToAllClients so events reach the SSE hub — sendToClient is
+  // reset to a no-op between HTTP requests (see history-restored path for
+  // full rationale).
+  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+
   // Forms are one-shot surfaces — auto-complete immediately so the client
   // transitions from the "Submitting…" spinner to a completion chip without
   // requiring the LLM to call ui_dismiss.
   if (pending.surfaceType === "form") {
-    ctx.sendToClient({
+    emit({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -839,9 +844,6 @@ export function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  // Use broadcastToAllClients so events reach the SSE hub (see history-restored
-  // path above for rationale).
-  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
   const onEvent = (msg: ServerMessage) => emit(msg);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
