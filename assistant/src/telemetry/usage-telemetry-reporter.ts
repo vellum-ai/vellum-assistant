@@ -193,7 +193,7 @@ export class UsageTelemetryReporter {
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
       const payload = {
-        installation_id: getDeviceId(),
+        device_id: getDeviceId(),
         assistant_id: assistantId,
         app_version: APP_VERSION,
         ...(organizationId ? { organization_id: organizationId } : {}),
