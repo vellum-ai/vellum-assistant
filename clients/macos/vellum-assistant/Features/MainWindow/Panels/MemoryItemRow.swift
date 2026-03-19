@@ -35,13 +35,14 @@ struct MemoryItemRow: View {
                             VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
                         }
 
-                        Text(item.relativeLastSeen)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-
                         VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
                             .accessibilityLabel("Delete memory")
                     }
+
+                    // Timestamp
+                    Text(item.relativeLastSeen)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
 
                     // Description — fixed 2-line height for uniform cards
                     Text(item.statement)
