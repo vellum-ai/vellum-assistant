@@ -21,6 +21,30 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
+function parseGrantedScopes(grantedScopes: string | string[] | null | undefined): string[] {
+  if (Array.isArray(grantedScopes)) {
+    return grantedScopes.filter((scope): scope is string => typeof scope === "string");
+  }
+
+  if (typeof grantedScopes !== "string" || grantedScopes.trim() === "") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(grantedScopes) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((scope): scope is string => typeof scope === "string");
+  } catch {
+    return [];
+  }
+}
+
+function normalizeHasRefreshToken(
+  hasRefreshToken: boolean | number | null | undefined,
+): boolean {
+  return hasRefreshToken === true || hasRefreshToken === 1;
+}
+
 /**
  * Build route definitions for OAuth app and connection CRUD endpoints.
  */
@@ -171,9 +195,9 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
             id: row.id,
             provider_key: row.providerKey,
             account_info: row.accountInfo,
-            granted_scopes: row.grantedScopes,
+            granted_scopes: parseGrantedScopes(row.grantedScopes),
             status: row.status,
-            has_refresh_token: row.hasRefreshToken,
+            has_refresh_token: normalizeHasRefreshToken(row.hasRefreshToken),
             expires_at: row.expiresAt,
             created_at: row.createdAt,
             updated_at: row.updatedAt,

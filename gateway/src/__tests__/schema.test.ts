@@ -136,6 +136,15 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramDocument");
     expect(schemaNames).toContain("TelegramDeliverRequest");
     expect(schemaNames).toContain("RuntimeAttachmentMeta");
+
+    const oauthConnection = components.schemas.OAuthConnectionSummary;
+    expect(oauthConnection.properties?.granted_scopes).toEqual({
+      type: "array",
+      items: { type: "string" },
+    });
+    expect(oauthConnection.properties?.has_refresh_token).toEqual({
+      type: "boolean",
+    });
   });
 
   test("returns a JSON-serializable object", () => {
