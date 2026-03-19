@@ -186,8 +186,11 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         }
         XCTAssertEqual(tripCount, 1)
 
-        // Advance by less than cooldown duration and fire another burst.
-        timestamp += ChatScrollLoopGuard.cooldownDuration * 0.5
+        // Advance slightly but stay well within the cooldown window.
+        // The trip fired at ~event 40 of the first burst, so elapsed time
+        // from the trip is (remaining burst) + gap + (second burst).
+        // Keep the total under cooldownDuration (2 s).
+        timestamp += 0.1
 
         for _ in 0..<50 {
             if guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp) != nil {

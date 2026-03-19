@@ -286,6 +286,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Check https://example.com for details. ")
         ))
+        viewModel.flushStreamingBuffer()
 
         // Then attach a dynamic page with preview
         let msg = makeDynamicPageSurfaceMessage(
@@ -525,6 +526,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Check it out:")
         ))
+        viewModel.flushStreamingBuffer()
 
         let msg = makeDynamicPageSurfaceMessage(
             surfaceId: "surface-order-test",
