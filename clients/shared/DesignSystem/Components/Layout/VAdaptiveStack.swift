@@ -6,6 +6,11 @@ import SwiftUI
 /// and `VStack` (compact fallback) based on available horizontal space. This avoids
 /// manual breakpoint calculations and follows Apple's recommended adaptive layout API.
 ///
+/// - Note: `ViewThatFits` evaluates the content closure for both the `HStack`
+///   and `VStack` branches to measure which fits. For lightweight views (labels,
+///   buttons, dropdowns) this is negligible, but avoid placing views with expensive
+///   initialization or side effects inside the closure.
+///
 /// Usage:
 ///
 ///     VAdaptiveStack {
@@ -14,9 +19,9 @@ import SwiftUI
 ///     }
 ///
 public struct VAdaptiveStack<Content: View>: View {
-    public var horizontalAlignment: VerticalAlignment = .center
-    public var verticalAlignment: HorizontalAlignment = .leading
-    public var spacing: CGFloat = VSpacing.md
+    public let horizontalAlignment: VerticalAlignment
+    public let verticalAlignment: HorizontalAlignment
+    public let spacing: CGFloat
     @ViewBuilder public let content: () -> Content
 
     public init(
