@@ -70,7 +70,7 @@ describe("injectActivityField", () => {
     expect("activity" in props0).toBe(false);
   });
 
-  test("adds activity to required when already in top-level properties but not required", () => {
+  test("returns unchanged when activity is in top-level properties but not required", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
@@ -79,12 +79,14 @@ describe("injectActivityField", () => {
       }),
     ];
     const result = injectActivityField(defs);
+    // Should be the exact same object reference (no modification)
+    expect(Object.is(result[0], defs[0])).toBe(true);
     const schema = result[0].input_schema as Record<string, unknown>;
     const props = schema.properties as Record<string, unknown>;
-    // Original activity type preserved (no overwrite)
+    // Original activity type preserved
     expect(props.activity).toEqual({ type: "number" });
-    // activity added to required
-    expect(schema.required).toEqual(["foo", "activity"]);
+    // required NOT modified — don't promote server-defined optional activity
+    expect(schema.required).toEqual(["foo"]);
   });
 
   test("returns unchanged when activity is in both top-level properties AND required", () => {
@@ -256,11 +258,7 @@ describe("injectActivityField", () => {
     expect(result).toEqual([]);
   });
 
-  test("every tool with object schema has activity in required after injection", () => {
-    // Regression test: if a tool defines `activity` in its properties but
-    // omits it from `required`, injectActivityField() skips that tool
-    // (because schemaDefinesProperty returns true), leaving `activity`
-    // optional. This test catches that scenario.
+  test("injects activity only on tools that don't define it at all", () => {
     const defs = [
       // Normal tool without activity — should get it injected
       makeDef("tool_a", {
@@ -268,7 +266,7 @@ describe("injectActivityField", () => {
         properties: { foo: { type: "string" } },
         required: ["foo"],
       }),
-      // BUG SCENARIO: tool defines activity in properties but NOT in required
+      // Tool defines activity in properties but NOT in required — left unchanged
       makeDef("tool_b", {
         type: "object",
         properties: {
@@ -277,7 +275,7 @@ describe("injectActivityField", () => {
         },
         required: ["bar"],
       }),
-      // Tool that correctly defines activity in both properties AND required
+      // Tool that defines activity in both properties AND required — left unchanged
       makeDef("tool_c", {
         type: "object",
         properties: {
@@ -294,15 +292,24 @@ describe("injectActivityField", () => {
 
     const result = injectActivityField(defs);
 
-    for (const def of result) {
-      const schema = def.input_schema as Record<string, unknown>;
-      if (schema.type !== "object" || !schema.properties) continue;
+    // tool_a: activity injected and required
+    const schemaA = result[0].input_schema as Record<string, unknown>;
+    expect(
+      (schemaA.properties as Record<string, unknown>).activity,
+    ).toBeDefined();
+    expect(schemaA.required).toEqual(["foo", "activity"]);
 
-      const required = schema.required;
-      expect(Array.isArray(required) && required.includes("activity")).toBe(
-        true,
-      );
-    }
+    // tool_b: unchanged (activity optional, not promoted)
+    expect(Object.is(result[1], defs[1])).toBe(true);
+    const schemaB = result[1].input_schema as Record<string, unknown>;
+    expect(schemaB.required).toEqual(["bar"]);
+
+    // tool_c: unchanged (activity already present and required)
+    expect(Object.is(result[2], defs[2])).toBe(true);
+
+    // tool_d, tool_e: unchanged
+    expect(Object.is(result[3], defs[3])).toBe(true);
+    expect(Object.is(result[4], defs[4])).toBe(true);
   });
 });
 
