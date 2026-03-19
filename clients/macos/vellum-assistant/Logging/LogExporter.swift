@@ -97,12 +97,10 @@ enum LogExporter {
             if let activeConversation = conversationManager?.activeConversation {
                 extra["conversation_title"] = activeConversation.title
                 if let conversationId = activeConversation.conversationId {
-                    tags["session_id"] = conversationId
-                    // conversation_id mirrors session_id — the daemon tags its
-                    // Sentry events with both names for the same value. Setting
-                    // it here enables cross-project search: find the daemon error
-                    // that corresponds to a macOS log report by querying
-                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    // Setting conversation_id enables cross-project search: find
+                    // the daemon error that corresponds to a macOS log report by
+                    // querying conversation_id in the vellum-assistant-brain
+                    // Sentry project.
                     // For conversation-scoped exports, conversation_id was already set
                     // to the reported conversation's ID above — don't overwrite it with
                     // the active conversation's ID.
