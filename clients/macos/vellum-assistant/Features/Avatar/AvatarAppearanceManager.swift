@@ -251,15 +251,25 @@ final class AvatarAppearanceManager {
         updateDockIcon()
     }
 
-    /// Reloads the custom avatar from disk. Called when the daemon notifies
-    /// that the avatar image has been regenerated (via `avatar_updated` event).
-    /// Invalidates all cached images so SwiftUI views pick up the new avatar.
+    /// Reloads the custom avatar from disk and refreshes the assistant name.
+    /// Called when the daemon notifies that the avatar image has been
+    /// regenerated (via `avatar_updated` event), after reconnection
+    /// (`proceedToApp`), and after assistant switches.
+    /// Invalidates all cached images so SwiftUI views pick up the new avatar,
+    /// and re-reads the identity so the dock label reflects the current assistant.
     func reloadAvatar() {
+        assistantName = AssistantDisplayName.resolve(
+            IdentityInfo.load()?.name,
+            fallback: "V"
+        )
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
+        cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
+        cachedFullFallbackName = nil
         loadCustomAvatar()
         loadAvatarComponents()
+        updateDockLabel()
     }
 
     /// Clears all cached avatar state and resets the dock icon to the default
