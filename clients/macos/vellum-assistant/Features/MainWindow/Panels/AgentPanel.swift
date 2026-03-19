@@ -412,58 +412,8 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Title row: back + icon + name + tag + delete
-            HStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: "Back",
-                    iconOnly: VIcon.chevronLeft.rawValue,
-                    style: .ghost,
-                    tooltip: "Back to Skills"
-                ) {
-                    withAnimation(VAnimation.standard) {
-                        selectedInstalledSkillId = nil
-                    }
-                }
+            skillDetailTitleRow(skill)
 
-                // Small inline icon
-                if let emoji = skill.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 16))
-                        .frame(width: 20, height: 20)
-                } else {
-                    VIconView(.zap, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 20, height: 20)
-                }
-
-                Text(skill.name)
-                    .font(VFont.cardTitle)
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-
-                if skill.updateAvailable {
-                    Text("UPDATE")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.systemNegativeHover)
-                }
-
-                Spacer()
-
-                VSkillTypePill(source: skill.source)
-
-                if skill.source == "managed" || skill.source == "clawhub" {
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        tooltip: "Uninstall skill"
-                    ) {
-                        skillToDelete = skill
-                    }
-                }
-            }
-
-            // Description
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.body)
@@ -471,76 +421,8 @@ struct AgentPanelContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Meta info
-            HStack(spacing: VSpacing.lg) {
-                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                    skillMetaItem(icon: .tag, value: "v\(installedVersion)")
-                }
-
-                if skill.updateAvailable {
-                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
-                    } else {
-                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
-                    }
-                }
-
-                if let provenance = skill.provenance,
-                   provenance.kind == "third-party",
-                   let urlString = provenance.sourceUrl,
-                   let url = URL(string: urlString) {
-                    Link(destination: url) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.externalLink, size: 9)
-                            Text("View on \(provenance.provider ?? "source")")
-                                .font(VFont.small)
-                        }
-                        .foregroundColor(VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Two-pane file browser — two rounded cards side by side (matching workspace)
-            HStack(alignment: .top, spacing: VSpacing.xl) {
-                // Left: file tree sidebar — rounded card with background
-                skillFilesSection
-                    .frame(width: 280, alignment: .topLeading)
-                    .frame(maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceBase)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-
-                // Right: file content viewer — rounded card with background
-                Group {
-                    if let selectedPath = expandedFilePath,
-                       let filesResponse = skillsManager.selectedSkillFiles,
-                       let file = filesResponse.files.first(where: { $0.path == selectedPath }),
-                       !file.isBinary,
-                       let content = file.content {
-                        FileContentView(
-                            fileName: file.path,
-                            mimeType: file.mimeType,
-                            content: .constant(content),
-                            viewMode: $skillFileViewMode
-                        )
-                    } else {
-                        VEmptyState(
-                            title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                            icon: VIcon.fileText.rawValue
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceBase)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            skillDetailMetaInfo(skill)
+            skillDetailFileBrowser
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
@@ -567,6 +449,134 @@ struct AgentPanelContent: View {
         .onDisappear {
             expandedFilePath = nil
             skillsManager.clearSkillDetail()
+        }
+    }
+
+    @ViewBuilder
+    private func skillDetailTitleRow(_ skill: SkillInfo) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            VButton(
+                label: "Back",
+                iconOnly: VIcon.chevronLeft.rawValue,
+                style: .ghost,
+                tooltip: "Back to Skills"
+            ) {
+                withAnimation(VAnimation.standard) {
+                    selectedInstalledSkillId = nil
+                }
+            }
+
+            if let emoji = skill.emoji, !emoji.isEmpty {
+                Text(emoji)
+                    .font(.system(size: 16))
+                    .frame(width: 20, height: 20)
+            } else {
+                VIconView(.zap, size: 12)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 20, height: 20)
+            }
+
+            Text(skill.name)
+                .font(VFont.cardTitle)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+
+            if skill.updateAvailable {
+                Text("UPDATE")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.systemNegativeHover)
+            }
+
+            Spacer()
+
+            VSkillTypePill(source: skill.source)
+
+            if skill.source == "managed" || skill.source == "clawhub" {
+                VButton(
+                    label: "Delete",
+                    iconOnly: VIcon.trash.rawValue,
+                    style: .dangerGhost,
+                    tooltip: "Uninstall skill"
+                ) {
+                    skillToDelete = skill
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func skillDetailMetaInfo(_ skill: SkillInfo) -> some View {
+        HStack(spacing: VSpacing.lg) {
+            if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
+                skillMetaItem(icon: .tag, value: "v\(installedVersion)")
+            }
+
+            if skill.updateAvailable {
+                if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
+                    skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
+                } else {
+                    skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
+                }
+            }
+
+            if let provenance = skill.provenance,
+               provenance.kind == "third-party",
+               let urlString = provenance.sourceUrl,
+               let url = URL(string: urlString) {
+                Link(destination: url) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.externalLink, size: 9)
+                        Text("View on \(provenance.provider ?? "source")")
+                            .font(VFont.small)
+                    }
+                    .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var skillDetailFileBrowser: some View {
+        HStack(alignment: .top, spacing: VSpacing.xl) {
+            skillFilesSection
+                .frame(width: 280, alignment: .topLeading)
+                .frame(maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceBase)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+
+            skillDetailFileContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceBase)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var skillDetailFileContent: some View {
+        if let selectedPath = expandedFilePath,
+           let filesResponse = skillsManager.selectedSkillFiles,
+           let file = filesResponse.files.first(where: { $0.path == selectedPath }),
+           !file.isBinary,
+           let content = file.content {
+            FileContentView(
+                fileName: file.path,
+                mimeType: file.mimeType,
+                content: .constant(content),
+                viewMode: $skillFileViewMode
+            )
+        } else {
+            VEmptyState(
+                title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                icon: VIcon.fileText.rawValue
+            )
         }
     }
 
