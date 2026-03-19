@@ -140,7 +140,7 @@ final class ConversationForkMessageActionIOSTests: XCTestCase {
         timeout: TimeInterval,
         file: StaticString = #filePath,
         line: UInt = #line,
-        condition: @escaping @Sendable () -> Bool
+        condition: @escaping () -> Bool
     ) async {
         let deadline = ContinuousClock.now + .seconds(timeout)
         while !condition() && ContinuousClock.now < deadline {
