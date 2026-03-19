@@ -886,37 +886,4 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return request
     }
 
-
-    // MARK: - Interface Files
-
-    /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
-    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
-    /// Returns the file content as a string, or `nil` if the file does not exist.
-    public func fetchInterfaceFile(path: String) async -> String? {
-        let request: URLRequest
-
-        if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/v1/interfaces/\(path)") else { return nil }
-            var r = URLRequest(url: url)
-            r.timeoutInterval = 5
-            if let token = httpTransport.bearerToken, !token.isEmpty {
-                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            request = r
-        } else if let r = buildLocalRequest(target: .daemon, path: "v1/interfaces/\(path)", timeout: 5) {
-            request = r
-        } else {
-            return nil
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-
 }
