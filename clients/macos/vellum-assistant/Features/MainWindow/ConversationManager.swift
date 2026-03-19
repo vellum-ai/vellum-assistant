@@ -8,6 +8,8 @@ import Combine
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
 // Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"
+// Intermediate builds may have written under this key before the compat fix.
+private let archivedConversationsNewKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
@@ -1853,10 +1855,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     private var archivedConversationIds: Set<String> {
         get {
-            Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
+            let legacy = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
+            let newer = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? [])
+            let merged = legacy.union(newer)
+            // Migrate: consolidate into the canonical key and remove the intermediate key.
+            if !newer.isEmpty {
+                UserDefaults.standard.set(Array(merged), forKey: archivedConversationsKey)
+                UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
+            }
+            return merged
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: archivedConversationsKey)
+            // Clean up the intermediate key if it exists.
+            UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
         }
     }
 
