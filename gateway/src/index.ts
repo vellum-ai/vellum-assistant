@@ -665,27 +665,27 @@ async function main() {
       handler: (req) => oauthAppsProxy.handleCreateApp(req),
     },
     {
-      path: /^\/v1\/oauth\/apps\/([^/]+)$/,
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) => oauthAppsProxy.handleDeleteApp(req, params[0]),
     },
     {
-      path: /^\/v1\/oauth\/apps\/([^/]+)\/connections$/,
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/connections\/?$/,
       method: "GET",
       auth: "edge",
       handler: (req, params) =>
         oauthAppsProxy.handleListConnections(req, params[0]),
     },
     {
-      path: /^\/v1\/oauth\/connections\/([^/]+)$/,
+      path: /^\/v1\/oauth\/connections\/([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) =>
         oauthAppsProxy.handleDeleteConnection(req, params[0]),
     },
     {
-      path: /^\/v1\/oauth\/apps\/([^/]+)\/connect$/,
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/connect\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req, params) => oauthAppsProxy.handleConnect(req, params[0]),
