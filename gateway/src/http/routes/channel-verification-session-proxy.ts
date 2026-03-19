@@ -150,7 +150,8 @@ export function createChannelVerificationSessionProxyHandler(
       req: Request,
       clientIp?: string,
     ): Promise<Response> {
-      const lockPath = join(getRootDir(), "guardian-init.lock");
+      const lockDir = process.env.GATEWAY_SECURITY_DIR || getRootDir();
+      const lockPath = join(lockDir, "guardian-init.lock");
       if (existsSync(lockPath) || guardianInitInFlight) {
         log.warn("Guardian init rejected — already bootstrapped");
         return Response.json(
