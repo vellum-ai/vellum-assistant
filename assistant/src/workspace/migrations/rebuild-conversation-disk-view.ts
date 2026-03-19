@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -52,6 +53,42 @@ function convergeDualConversationDirsToCanonical(
   if (!existsSync(canonicalDirPath) || !existsSync(legacyDirPath)) return;
   if (!hasExpectedDiskViewArtifacts(conv, canonicalDirPath)) return;
   rmSync(legacyDirPath, { recursive: true, force: true });
+}
+
+function getProjectedAttachmentFilenames(messagesPath: string): Set<string> {
+  const filenames = new Set<string>();
+  if (!existsSync(messagesPath)) return filenames;
+
+  const raw = readFileSync(messagesPath, "utf-8");
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line) as { attachments?: unknown };
+      if (!Array.isArray(parsed.attachments)) continue;
+      for (const attachment of parsed.attachments) {
+        if (typeof attachment === "string") {
+          filenames.add(attachment);
+        }
+      }
+    } catch {
+      // Ignore malformed lines. A later replay will rewrite them.
+    }
+  }
+
+  return filenames;
+}
+
+function pruneUnreferencedProjectedAttachments(
+  attachDir: string,
+  messagesPath: string,
+): void {
+  if (!existsSync(attachDir)) return;
+
+  const referenced = getProjectedAttachmentFilenames(messagesPath);
+  for (const entry of readdirSync(attachDir)) {
+    if (referenced.has(entry)) continue;
+    rmSync(join(attachDir, entry), { recursive: true, force: true });
+  }
 }
 
 /**
@@ -106,10 +143,12 @@ export function rebuildConversationDiskViewFromDb(): void {
     if (existsSync(messagesPath)) {
       rmSync(messagesPath, { force: true });
     }
-    if (existsSync(attachDir)) {
-      rmSync(attachDir, { recursive: true, force: true });
-    }
     writeFileSync(messagesPath, "");
+
+    // Preserve already materialized attachment files across repair replay.
+    // Some rows have data_base64 compacted away and only retain their
+    // conversation-scoped file_path, so removing attachments/ here would
+    // make the content unrecoverable.
     mkdirSync(attachDir, { recursive: true });
 
     // Query all messages for this conversation and sync each to disk
@@ -128,6 +167,7 @@ export function rebuildConversationDiskViewFromDb(): void {
     // idempotency check won't skip a conversation with incomplete messages
     // if the migration is interrupted mid-loop.
     updateMetaFile(conv);
+    pruneUnreferencedProjectedAttachments(attachDir, messagesPath);
     convergeDualConversationDirsToCanonical(
       conv,
       canonicalDirPath,

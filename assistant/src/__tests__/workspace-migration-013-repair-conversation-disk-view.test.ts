@@ -56,7 +56,7 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
 import {
   attachments,
   conversations,
@@ -90,6 +90,7 @@ function resetConversationsDir() {
 }
 
 function seedConversationRows(): {
+  attachmentId: string;
   conversationId: string;
   conversationCreatedAt: number;
   conversationUpdatedAt: number;
@@ -151,7 +152,12 @@ function seedConversationRows(): {
     })
     .run();
 
-  return { conversationId, conversationCreatedAt, conversationUpdatedAt };
+  return {
+    attachmentId,
+    conversationId,
+    conversationCreatedAt,
+    conversationUpdatedAt,
+  };
 }
 
 function toConversationTimestamp(createdAtMs: number): string {
@@ -305,8 +311,8 @@ describe("013-repair-conversation-disk-view migration", () => {
 
     const legacyAttachmentsDir = join(legacyDirPath, "attachments");
     mkdirSync(legacyAttachmentsDir, { recursive: true });
-    writeFileSync(join(legacyDirPath, "meta.json"), "{\"legacy\":true}\n");
-    writeFileSync(join(legacyDirPath, "messages.jsonl"), "{\"legacy\":true}\n");
+    writeFileSync(join(legacyDirPath, "meta.json"), '{"legacy":true}\n');
+    writeFileSync(join(legacyDirPath, "messages.jsonl"), '{"legacy":true}\n');
     writeFileSync(join(legacyAttachmentsDir, "legacy.txt"), "legacy");
 
     repairConversationDiskViewMigration.run(workspaceDir);
@@ -321,19 +327,75 @@ describe("013-repair-conversation-disk-view migration", () => {
     expect(
       readFileSync(canonicalMessagesPath, "utf-8").trim().split("\n"),
     ).toHaveLength(1);
-    expect(JSON.parse(readFileSync(canonicalMessagesPath, "utf-8").trim())).toEqual(
-      {
-        role: "user",
-        ts: "2026-03-18T16:01:00.000Z",
-        content: "Repair missing disk view",
-        attachments: ["transcript.txt"],
-      },
-    );
+    expect(
+      JSON.parse(readFileSync(canonicalMessagesPath, "utf-8").trim()),
+    ).toEqual({
+      role: "user",
+      ts: "2026-03-18T16:01:00.000Z",
+      content: "Repair missing disk view",
+      attachments: ["transcript.txt"],
+    });
     expect(readdirSync(canonicalAttachmentsDir).sort()).toEqual([
       "transcript.txt",
     ]);
     expect(
       readFileSync(join(canonicalAttachmentsDir, "transcript.txt"), "utf-8"),
     ).toBe("hello world");
+  });
+
+  test("preserves compacted attachment files while pruning stale projected files during repair", () => {
+    const {
+      attachmentId,
+      conversationId,
+      conversationCreatedAt,
+      conversationUpdatedAt,
+    } = seedConversationRows();
+    const conversationDir = getConversationDirPath(
+      conversationId,
+      conversationCreatedAt,
+    );
+    const messagesPath = join(conversationDir, "messages.jsonl");
+    const attachmentsDir = join(conversationDir, "attachments");
+    const transcriptPath = join(attachmentsDir, "transcript.txt");
+    const stalePath = join(attachmentsDir, "stale.txt");
+
+    mkdirSync(attachmentsDir, { recursive: true });
+    writeFileSync(
+      join(conversationDir, "meta.json"),
+      JSON.stringify(
+        {
+          id: conversationId,
+          title: "Repair Test",
+          type: "standard",
+          channel: "desktop",
+          createdAt: new Date(conversationCreatedAt).toISOString(),
+          updatedAt: new Date(conversationUpdatedAt - 1000).toISOString(),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    writeFileSync(messagesPath, '{"role":"user","content":"stale"}\n');
+    writeFileSync(transcriptPath, "hello world");
+    writeFileSync(stalePath, "stale");
+
+    rawRun(
+      `UPDATE attachments
+       SET data_base64 = '', file_path = ?, source_path = NULL
+       WHERE id = ?`,
+      transcriptPath,
+      attachmentId,
+    );
+
+    repairConversationDiskViewMigration.run(workspaceDir);
+
+    expect(readFileSync(transcriptPath, "utf-8")).toBe("hello world");
+    expect(existsSync(stalePath)).toBe(false);
+    expect(JSON.parse(readFileSync(messagesPath, "utf-8").trim())).toEqual({
+      role: "user",
+      ts: "2026-03-18T16:01:00.000Z",
+      content: "Repair missing disk view",
+      attachments: ["transcript.txt"],
+    });
   });
 });
