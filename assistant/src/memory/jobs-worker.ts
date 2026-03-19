@@ -15,6 +15,7 @@ import {
   embedEpisodeJob,
   embedItemJob,
   embedMediaJob,
+  embedObservationJob,
   embedSegmentJob,
   embedSummaryJob,
 } from "./job-handlers/embedding.js";
@@ -274,6 +275,9 @@ async function processJob(
       return;
     case "embed_episode":
       await embedEpisodeJob(job, config);
+      return;
+    case "embed_observation":
+      await embedObservationJob(job, config);
       return;
     case "extract_items":
       await extractItemsJob(job);

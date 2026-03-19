@@ -14,6 +14,7 @@ import {
   memoryChunks,
   memoryEpisodes,
   memoryItems,
+  memoryObservations,
   memorySegments,
   memorySummaries,
   messages,
@@ -142,6 +143,40 @@ export async function embedMediaJob(
     kind: asset.mediaType,
     subject: asset.title,
     memory_scope_id: "default",
+  });
+}
+
+export async function embedObservationJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const observationId = asString(job.payload.observationId);
+  const chunkId = asString(job.payload.chunkId);
+  if (!observationId || !chunkId) return;
+
+  const db = getDb();
+  const observation = db
+    .select()
+    .from(memoryObservations)
+    .where(eq(memoryObservations.id, observationId))
+    .get();
+  if (!observation) return;
+
+  const chunk = db
+    .select()
+    .from(memoryChunks)
+    .where(eq(memoryChunks.id, chunkId))
+    .get();
+  if (!chunk) return;
+
+  await embedAndUpsert(config, "observation", chunk.id, chunk.content, {
+    observation_id: observationId,
+    conversation_id: observation.conversationId,
+    role: observation.role,
+    modality: observation.modality,
+    source: observation.source,
+    created_at: observation.createdAt,
+    memory_scope_id: observation.scopeId,
   });
 }
 

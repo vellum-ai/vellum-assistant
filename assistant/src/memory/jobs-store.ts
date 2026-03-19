@@ -14,6 +14,7 @@ export type MemoryJobType =
   | "embed_summary"
   | "embed_chunk"
   | "embed_episode"
+  | "embed_observation"
   | "extract_items"
   | "extract_entities"
   | "cleanup_stale_superseded_items"
@@ -38,6 +39,7 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_summary",
   "embed_chunk",
   "embed_episode",
+  "embed_observation",
   "embed_media",
   "embed_attachment",
 ];

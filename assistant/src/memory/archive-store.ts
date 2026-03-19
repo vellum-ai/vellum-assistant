@@ -3,10 +3,15 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { estimateTextTokens } from "../context/token-estimator.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db.js";
+import { getDb, rawChanges } from "./db.js";
 import { enqueueMemoryJob, type MemoryJobType } from "./jobs-store.js";
-import { memoryChunks, memoryEpisodes } from "./schema.js";
+import {
+  memoryChunks,
+  memoryEpisodes,
+  memoryObservations,
+} from "./schema.js";
 
 const log = getLogger("memory-archive-store");
 
@@ -18,6 +23,17 @@ const log = getLogger("memory-archive-store");
  * scope, the chunk is skipped.
  */
 export function computeChunkContentHash(
+  scopeId: string,
+  content: string,
+): string {
+  return createHash("sha256").update(`${scopeId}|${content}`).digest("hex");
+}
+
+/**
+ * Compute a SHA-256 hash of the observation content, scoped by scopeId.
+ * Used for idempotent chunk deduplication.
+ */
+export function computeObservationContentHash(
   scopeId: string,
   content: string,
 ): string {
@@ -190,7 +206,7 @@ export function insertResolutionEpisode(params: InsertEpisodeParams): {
   return insertEpisodeAndEnqueue(params);
 }
 
-// ── Internal ────────────────────────────────────────────────────────
+// ── Internal (episode) ──────────────────────────────────────────────
 
 function insertEpisodeAndEnqueue(params: InsertEpisodeParams): {
   episodeId: string;
@@ -226,4 +242,159 @@ function insertEpisodeAndEnqueue(params: InsertEpisodeParams): {
   );
 
   return { episodeId, jobId };
+}
+
+// ── Observation types ───────────────────────────────────────────────
+
+export interface InsertObservationParams {
+  conversationId: string;
+  messageId?: string | null;
+  role: string;
+  content: string;
+  scopeId?: string;
+  modality?: string;
+  source?: string | null;
+}
+
+export interface InsertedObservation {
+  observationId: string;
+  chunkId: string | null;
+  contentHash: string;
+  embeddingJobId: string | null;
+}
+
+// ── Observation insert helpers ──────────────────────────────────────
+
+/**
+ * Insert a raw observation row and its associated chunk. If a chunk with the
+ * same content hash already exists in the scope, the chunk insert is skipped
+ * (idempotent dual-write safety). An `embed_observation` job is enqueued when
+ * a new chunk is created.
+ *
+ * Returns the observation ID, chunk ID (null if deduplicated), content hash,
+ * and embedding job ID (null if no new chunk was created).
+ */
+export function insertObservation(
+  params: InsertObservationParams,
+): InsertedObservation {
+  const db = getDb();
+  const now = Date.now();
+  const scopeId = params.scopeId ?? "default";
+  const modality = params.modality ?? "text";
+
+  const observationId = uuid();
+  const contentHash = computeObservationContentHash(scopeId, params.content);
+
+  // Insert the observation row
+  db.insert(memoryObservations)
+    .values({
+      id: observationId,
+      scopeId,
+      conversationId: params.conversationId,
+      messageId: params.messageId ?? null,
+      role: params.role,
+      content: params.content,
+      modality,
+      source: params.source ?? null,
+      createdAt: now,
+    })
+    .run();
+
+  // Attempt to insert the chunk — the unique index on (scope_id, content_hash)
+  // will cause a conflict if this content was already chunked. We use
+  // onConflictDoNothing to silently skip the duplicate.
+  const chunkId = uuid();
+  const tokenEstimate = estimateTextTokens(params.content);
+
+  db.insert(memoryChunks)
+    .values({
+      id: chunkId,
+      scopeId,
+      observationId,
+      content: params.content,
+      tokenEstimate,
+      contentHash,
+      createdAt: now,
+    })
+    .onConflictDoNothing({
+      target: [memoryChunks.scopeId, memoryChunks.contentHash],
+    })
+    .run();
+
+  // Drizzle bun:sqlite .run() returns void; use rawChanges() to detect no-ops
+  const chunkInserted = rawChanges() > 0;
+
+  let embeddingJobId: string | null = null;
+  if (chunkInserted) {
+    embeddingJobId = enqueueMemoryJob("embed_observation", {
+      observationId,
+      chunkId,
+    });
+    log.debug(
+      { observationId, chunkId, contentHash, embeddingJobId },
+      "Inserted observation with new chunk, enqueued embed job",
+    );
+  } else {
+    log.debug(
+      { observationId, contentHash },
+      "Inserted observation, chunk deduplicated by content hash",
+    );
+  }
+
+  return {
+    observationId,
+    chunkId: chunkInserted ? chunkId : null,
+    contentHash,
+    embeddingJobId,
+  };
+}
+
+/**
+ * Insert multiple observations in a single transaction.
+ * Returns the results for each insertion.
+ */
+export function insertObservations(
+  observations: InsertObservationParams[],
+): InsertedObservation[] {
+  const db = getDb();
+  const results: InsertedObservation[] = [];
+  db.transaction((tx) => {
+    // We don't use `tx` directly for individual inserts because
+    // insertObservation uses getDb() internally. Instead, the transaction
+    // wrapper ensures atomicity at the SQLite level.
+    void tx;
+    for (const obs of observations) {
+      results.push(insertObservation(obs));
+    }
+  });
+  return results;
+}
+
+/**
+ * Look up an observation by ID.
+ */
+export function getObservation(
+  observationId: string,
+): typeof memoryObservations.$inferSelect | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(memoryObservations)
+    .where(eq(memoryObservations.id, observationId))
+    .get();
+}
+
+/**
+ * Look up a chunk by observation ID. Returns the first chunk linked to the
+ * given observation, or undefined if none exists.
+ */
+export function getChunkByObservationId(
+  observationId: string,
+): typeof memoryChunks.$inferSelect | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(memoryChunks)
+    .where(eq(memoryChunks.observationId, observationId))
+    .get();
 }
