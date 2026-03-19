@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import cliPkg from "../package.json";
+import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
@@ -26,6 +27,7 @@ import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
 
 const commands = {
+  backup,
   clean,
   client,
   hatch,
@@ -51,6 +53,7 @@ function printHelp(): void {
   console.log("Usage: vellum <command> [options]");
   console.log("");
   console.log("Commands:");
+  console.log("  backup   Export a backup of a running assistant");
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  hatch    Create a new assistant instance");
