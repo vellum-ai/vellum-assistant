@@ -232,6 +232,10 @@ final class ChatDiagnosticsStore {
     /// Maximum number of session log files to retain on disk.
     static let maxSessionLogFiles = 10
 
+    /// Maximum number of per-conversation transcript snapshots retained.
+    /// When exceeded, the least-recently-updated conversation is evicted.
+    static let maxTranscriptSnapshots = 10
+
     // MARK: - State
 
     /// Bounded ring buffer of recent events (oldest evicted first).
@@ -239,6 +243,10 @@ final class ChatDiagnosticsStore {
 
     /// Per-conversation transcript snapshots, keyed by conversation ID.
     private(set) var transcriptSnapshots: [String: ChatTranscriptSnapshot] = [:]
+
+    /// Insertion/access order for transcript snapshot keys (most recent last).
+    /// Used for LRU eviction when `transcriptSnapshots` exceeds `maxTranscriptSnapshots`.
+    private var snapshotOrder: [String] = []
 
     // MARK: - Session Log
 
@@ -311,8 +319,25 @@ final class ChatDiagnosticsStore {
     // MARK: - Transcript Snapshots
 
     /// Updates the transcript snapshot for a conversation.
+    ///
+    /// Maintains an LRU eviction policy: when the number of snapshots exceeds
+    /// `maxTranscriptSnapshots`, the least-recently-updated conversation is removed.
     func updateSnapshot(_ snapshot: ChatTranscriptSnapshot) {
-        transcriptSnapshots[snapshot.conversationId] = snapshot
+        let key = snapshot.conversationId
+
+        // Move this key to the end of the order (most recently used).
+        if let index = snapshotOrder.firstIndex(of: key) {
+            snapshotOrder.remove(at: index)
+        }
+        snapshotOrder.append(key)
+
+        transcriptSnapshots[key] = snapshot
+
+        // Evict oldest entries if over capacity.
+        while snapshotOrder.count > Self.maxTranscriptSnapshots {
+            let evicted = snapshotOrder.removeFirst()
+            transcriptSnapshots.removeValue(forKey: evicted)
+        }
     }
 
     /// Returns the current snapshot for a conversation, if any.
@@ -323,6 +348,9 @@ final class ChatDiagnosticsStore {
     /// Removes the snapshot for a conversation.
     func removeSnapshot(for conversationId: String) {
         transcriptSnapshots.removeValue(forKey: conversationId)
+        if let index = snapshotOrder.firstIndex(of: conversationId) {
+            snapshotOrder.remove(at: index)
+        }
     }
 
     // MARK: - Session Log Writing
