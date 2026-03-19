@@ -48,6 +48,7 @@ final class HangContextWriter: @unchecked Sendable {
     private var writeGeneration: Int = 0
     private var latestStallStartTime: Date?
     private var latestStallDurationSeconds: Double = 0
+    private var latestSamplingSkipped: Bool = false
 
     private let encoder: JSONEncoder
 
@@ -94,6 +95,7 @@ final class HangContextWriter: @unchecked Sendable {
         writeGeneration += 1
         latestStallStartTime = stallStartTime
         latestStallDurationSeconds = stallDurationSeconds
+        latestSamplingSkipped = samplingSkipped
         lock.unlock()
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
@@ -158,18 +160,20 @@ final class HangContextWriter: @unchecked Sendable {
             let sortedSnapshots = snapshots.values.sorted { $0.conversationId < $1.conversationId }
 
             // If a newer write occurred (e.g. Stage 2) while we were awaiting
-            // diagnostics, use its duration so we don't overwrite with a stale value.
+            // diagnostics, use its values so we don't overwrite with stale data.
             self.lock.lock()
             let useLatest = self.writeGeneration > capturedGeneration
             let actualStartTime = useLatest ? (self.latestStallStartTime ?? stallStartTime) : stallStartTime
             let actualDuration = useLatest ? self.latestStallDurationSeconds : stallDurationSeconds
+            let actualSamplingSkipped = self.latestSamplingSkipped
             self.lock.unlock()
 
             self.writeHangContextSync(
                 stallStartTime: actualStartTime,
                 stallDurationSeconds: actualDuration,
                 recentEvents: events,
-                transcriptSnapshots: sortedSnapshots
+                transcriptSnapshots: sortedSnapshots,
+                samplingSkipped: actualSamplingSkipped
             )
         }
     }
