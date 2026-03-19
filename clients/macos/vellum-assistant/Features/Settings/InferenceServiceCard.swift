@@ -151,6 +151,15 @@ struct InferenceServiceCard: View {
             }
             apiKeyText = ""
         }
+        .onChange(of: draftMode) { _, newMode in
+            if newMode == "managed" && isCustomProviderEnabled {
+                let anthropicModels = SettingsStore.inferenceProviderModels["anthropic"] ?? []
+                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == store.selectedModel }
+                if !isCurrentModelAnthropic {
+                    store.selectedModel = SettingsStore.inferenceProviderDefaultModel["anthropic"] ?? "claude-opus-4-6"
+                }
+            }
+        }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
             Button("Continue") { performSave() }
@@ -254,13 +263,14 @@ struct InferenceServiceCard: View {
 
     /// Per-provider catalog model dropdown (flag on).
     private var providerModelPicker: some View {
-        VDropdown(
+        let provider = draftMode == "managed" ? "anthropic" : draftProvider
+        return VDropdown(
             placeholder: "Select a model\u{2026}",
             selection: Binding(
                 get: { store.selectedModel },
                 set: { store.selectedModel = $0 }
             ),
-            options: (SettingsStore.inferenceProviderModels[draftProvider] ?? []).map { model in
+            options: (SettingsStore.inferenceProviderModels[provider] ?? []).map { model in
                 (label: model.displayName, value: model.id)
             }
         )
@@ -309,7 +319,8 @@ struct InferenceServiceCard: View {
 
         // Persist model selection
         if isCustomProviderEnabled {
-            store.setModel(store.selectedModel, provider: draftProvider)
+            let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
+            store.setModel(store.selectedModel, provider: saveProvider)
         } else {
             store.setModel(store.selectedModel)
         }
