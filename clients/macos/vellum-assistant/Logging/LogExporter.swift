@@ -13,8 +13,10 @@ private let log = Logger(
 /// that users can share with support for debugging.
 ///
 /// Log sources included:
-/// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
-/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
+/// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSONL diagnostic logs
+/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes transcript diagnostics)
+/// - `~/Library/Application Support/vellum-assistant/hang-context.json` — hang diagnostic context written during main-thread stalls
+/// - `~/Library/Application Support/vellum-assistant/hang-sample*.txt` — process sample captures from prolonged stalls
 /// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
 /// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
@@ -205,23 +207,10 @@ enum LogExporter {
             try? fileManager.removeItem(at: tempDir)
         }
 
-        // 1. Session logs — ~/Library/Application Support/vellum-assistant/logs/
+        // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
         if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let sessionLogDir = appSupport.appendingPathComponent("vellum-assistant/logs", isDirectory: true)
-            copyDirectoryContents(
-                from: sessionLogDir,
-                to: tempDir.appendingPathComponent("session-logs", isDirectory: true),
-                fileManager: fileManager
-            )
-
-            // 2. Debug state snapshot
-            let debugState = appSupport.appendingPathComponent("vellum-assistant/debug-state.json")
-            if fileManager.fileExists(atPath: debugState.path) {
-                try? fileManager.copyItem(
-                    at: debugState,
-                    to: tempDir.appendingPathComponent("debug-state.json")
-                )
-            }
+            let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+            collectClientArtifacts(from: appSupportDir, into: tempDir, fileManager: fileManager)
         }
 
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
@@ -366,6 +355,66 @@ enum LogExporter {
                 try process.run()
             } catch {
                 continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    // MARK: - Client Artifact Collection
+
+    /// Copies client-side diagnostic artifacts from the Application Support
+    /// `vellum-assistant/` directory into the export staging directory.
+    ///
+    /// Artifacts collected:
+    /// - `logs/` — per-session JSONL diagnostic logs (→ `session-logs/`)
+    /// - `debug-state.json` — live debug snapshot
+    /// - `hang-context.json` — hang diagnostic context from main-thread stalls
+    /// - `hang-sample*.txt` — process sample captures from prolonged stalls
+    ///
+    /// All copies are best-effort: missing files are silently skipped.
+    nonisolated static func collectClientArtifacts(
+        from sourceDir: URL,
+        into destDir: URL,
+        fileManager: FileManager = .default
+    ) {
+        // Session logs
+        let sessionLogDir = sourceDir.appendingPathComponent("logs", isDirectory: true)
+        copyDirectoryContents(
+            from: sessionLogDir,
+            to: destDir.appendingPathComponent("session-logs", isDirectory: true),
+            fileManager: fileManager
+        )
+
+        // Debug state snapshot
+        let debugState = sourceDir.appendingPathComponent("debug-state.json")
+        if fileManager.fileExists(atPath: debugState.path) {
+            try? fileManager.copyItem(
+                at: debugState,
+                to: destDir.appendingPathComponent("debug-state.json")
+            )
+        }
+
+        // Hang context — written by MainThreadStallDetector during prolonged stalls
+        let hangContext = sourceDir.appendingPathComponent("hang-context.json")
+        if fileManager.fileExists(atPath: hangContext.path) {
+            try? fileManager.copyItem(
+                at: hangContext,
+                to: destDir.appendingPathComponent("hang-context.json")
+            )
+        }
+
+        // Hang sample files — process samples captured during prolonged main-thread stalls
+        if fileManager.fileExists(atPath: sourceDir.path),
+           let contents = try? fileManager.contentsOfDirectory(
+               at: sourceDir,
+               includingPropertiesForKeys: nil,
+               options: [.skipsHiddenFiles]
+           ) {
+            for file in contents where file.lastPathComponent.hasPrefix("hang-sample")
+                && file.pathExtension == "txt" {
+                try? fileManager.copyItem(
+                    at: file,
+                    to: destDir.appendingPathComponent(file.lastPathComponent)
+                )
             }
         }
     }
