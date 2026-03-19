@@ -775,6 +775,8 @@ export function handleUsage(
         deps.ctx.conversationId,
         JSON.stringify(event.rawRequest),
         JSON.stringify(event.rawResponse),
+        undefined,
+        deps.ctx.provider.name,
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");

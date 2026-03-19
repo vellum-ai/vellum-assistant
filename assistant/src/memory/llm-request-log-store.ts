@@ -10,6 +10,7 @@ export function recordRequestLog(
   requestPayload: string,
   responsePayload: string,
   messageId?: string,
+  provider?: string,
 ): void {
   const db = getDb();
   db.insert(llmRequestLogs)
@@ -17,6 +18,7 @@ export function recordRequestLog(
       id: uuid(),
       conversationId,
       messageId: messageId ?? null,
+      provider: provider ?? null,
       requestPayload,
       responsePayload,
       createdAt: Date.now(),
@@ -70,6 +72,7 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
   id: string;
   conversationId: string;
   messageId: string | null;
+  provider: string | null;
   requestPayload: string;
   responsePayload: string;
   createdAt: number;
@@ -81,6 +84,7 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
         id: llmRequestLogs.id,
         conversationId: llmRequestLogs.conversationId,
         messageId: llmRequestLogs.messageId,
+        provider: llmRequestLogs.provider,
         requestPayload: llmRequestLogs.requestPayload,
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
@@ -101,7 +105,9 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
   }
 
   try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(message.metadata));
+    const parsed = messageMetadataSchema.safeParse(
+      JSON.parse(message.metadata),
+    );
     const sourceMessageId =
       parsed.success && typeof parsed.data.forkSourceMessageId === "string"
         ? parsed.data.forkSourceMessageId

@@ -32,6 +32,36 @@ import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
 
 const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 
+type LlmContextNormalizationResult = ReturnType<
+  typeof normalizeLlmContextPayloads
+>;
+
+type LlmContextSummaryResponse = NonNullable<
+  Omit<NonNullable<LlmContextNormalizationResult["summary"]>, "provider">
+> & {
+  provider: string;
+};
+
+type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
+  summary?: LlmContextSummaryResponse;
+};
+
+function applyStoredProviderToLlmContextResult(
+  normalized: LlmContextNormalizationResult,
+  provider: string | null,
+): LlmContextRouteResult {
+  if (!provider) {
+    return normalized as LlmContextRouteResult;
+  }
+
+  return {
+    ...normalized,
+    summary: normalized.summary
+      ? { ...normalized.summary, provider }
+      : { provider },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Dependency interfaces
 // ---------------------------------------------------------------------------
@@ -222,12 +252,16 @@ export function conversationQueryRouteDefinitions(
               responsePayload,
               createdAt: log.createdAt,
             });
+            const result = applyStoredProviderToLlmContextResult(
+              normalized,
+              log.provider,
+            );
             return {
               id: log.id,
               requestPayload,
               responsePayload,
               createdAt: log.createdAt,
-              ...normalized,
+              ...result,
             };
           }),
         });
