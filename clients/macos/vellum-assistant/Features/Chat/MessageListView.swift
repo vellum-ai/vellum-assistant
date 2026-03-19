@@ -1418,15 +1418,19 @@ private struct MessageCellView: View, Equatable {
         ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders, providerCatalog: providerCatalog)
     }
 
+    private func commandListFallbackMessage(for message: ChatMessage) -> ChatMessage {
+        var fallbackMessage = message
+        fallbackMessage.commandList = nil
+        return fallbackMessage
+    }
+
     @ViewBuilder
     private func commandListView(for message: ChatMessage, nextDecidedConfirmation: ToolConfirmationData? = nil) -> some View {
         if let commandEntries = CommandListBubble.parsedEntries(from: message.text) {
             CommandListBubble(commands: commandEntries)
         } else {
-            var fallbackMessage = message
-            fallbackMessage.commandList = nil
             ChatBubble(
-                message: fallbackMessage,
+                message: commandListFallbackMessage(for: message),
                 decidedConfirmation: nextDecidedConfirmation,
                 onSurfaceAction: onSurfaceAction,
                 onDismissDocumentWidget: { surfaceId in
