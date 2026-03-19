@@ -30,6 +30,8 @@ struct InferenceServiceCard: View {
     @State private var draftProvider: String = "anthropic"
     /// Snapshot of the provider at card appear — used to detect provider changes.
     @State private var initialProvider: String = ""
+    /// Guards against provider-change side-effects during initial load.
+    @State private var didInitialSync = false
 
     // MARK: - Feature Flag
 
@@ -142,6 +144,7 @@ struct InferenceServiceCard: View {
             initialModel = store.selectedModel
             draftProvider = store.selectedInferenceProvider
             initialProvider = store.selectedInferenceProvider
+            didInitialSync = true
 
             // If the user is not authenticated and the persisted mode is
             // "managed", reset the draft so the UI shows "your-own".
@@ -191,8 +194,13 @@ struct InferenceServiceCard: View {
             }
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
+            // Sync draft & baseline when the daemon reports a provider
+            // update. Also refresh the model baseline so hasChanges does
+            // not flag a stale diff against the old provider's model.
             draftProvider = newValue
             initialProvider = newValue
+            draftModel = store.selectedModel
+            initialModel = store.selectedModel
         }
         .onChange(of: store.selectedModel) { _, newValue in
             // Sync draft & baseline when external changes arrive (e.g. daemon model info refresh)
@@ -200,6 +208,13 @@ struct InferenceServiceCard: View {
             initialModel = newValue
         }
         .onChange(of: draftProvider) { _, newProvider in
+            // Only reset the model and API key text for user-initiated
+            // provider changes. Skip during initial load (onAppear sets
+            // draftProvider before didInitialSync is true) and during
+            // external store syncs (onChange of store.selectedInferenceProvider
+            // updates both draftProvider and initialProvider together, so
+            // they will match).
+            guard didInitialSync, newProvider != initialProvider else { return }
             if isCustomProviderEnabled {
                 let defaultModel = store.dynamicProviderDefaultModel(newProvider)
                 let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
