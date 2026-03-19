@@ -57,11 +57,7 @@ struct InferenceServiceCard: View {
     // MARK: - Computed State
 
     private var isConnected: Bool {
-        let daemonHasMaskedKey = !(store.providerMaskedKeys[effectiveProvider] ?? "").isEmpty
-        if isCustomProviderEnabled {
-            return store.hasKeyForProvider(effectiveProvider) || daemonHasMaskedKey
-        }
-        return store.hasKey || daemonHasMaskedKey
+        isCustomProviderEnabled ? store.hasKeyForProvider(effectiveProvider) : store.hasKey
     }
 
     private var isLoggedIn: Bool {
@@ -303,15 +299,8 @@ struct InferenceServiceCard: View {
 
     private var apiKeyField: some View {
         let currentMask: String = {
-            // Prefer daemon-reported masks when available (authoritative for
-            // remote/managed contexts), but fall back to local keychain masks
-            // so onboarding-written keys render immediately before daemon sync.
-            if let daemonMask = store.providerMaskedKeys[effectiveProvider], !daemonMask.isEmpty {
-                return daemonMask
-            }
-            let localMask = store.maskedKeyForProvider(effectiveProvider)
-            if !localMask.isEmpty {
-                return localMask
+            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
+                return masked
             }
             return ""
         }()
