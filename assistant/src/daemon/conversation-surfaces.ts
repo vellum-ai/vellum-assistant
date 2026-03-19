@@ -744,6 +744,8 @@ export function handleSurfaceAction(
   const accumulatedState = ctx.accumulatedSurfaceState.get(surfaceId);
   if (accumulatedState && Object.keys(accumulatedState).length > 0) {
     fallbackContent += `\n\nAccumulated surface state: ${JSON.stringify(accumulatedState)}`;
+    // One-shot: clear accumulated state so it isn't re-injected on subsequent actions.
+    ctx.accumulatedSurfaceState.delete(surfaceId);
   }
   // When a relay_prompt button also carries selection data (e.g. list/table
   // surface with a canned prompt + user-selected rows), append the selection
