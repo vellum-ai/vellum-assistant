@@ -549,7 +549,7 @@ extension AppDelegate {
                     self?.startSessionTask?.cancel()
                     self?.currentSession?.cancel()
                     self?.ambientAgent.resume()
-                    self?.surfaceManager.dismissAll()
+                    self?.surfaceManager.dismissFloatingOnly()
                     self?.toolConfirmationNotificationService.dismissAll()
                     self?.secretPromptManager.dismissAll()
                 }

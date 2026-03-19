@@ -329,6 +329,16 @@ final class SurfaceManager: ObservableObject {
         dismissSurfaceById(message.surfaceId)
     }
 
+    /// Dismiss only floating panel surfaces, leaving workspace-routed surfaces untouched.
+    /// Used by the global Escape handler to avoid destroying workspace apps when the user
+    /// presses Escape in another application.
+    func dismissFloatingOnly() {
+        let floatingIds = Array(panels.keys).filter { !workspaceRoutedSurfaces.contains($0) }
+        for id in floatingIds {
+            dismissSurfaceById(id)
+        }
+    }
+
     func dismissAll() {
         for observer in closeObservers.values {
             NotificationCenter.default.removeObserver(observer)
