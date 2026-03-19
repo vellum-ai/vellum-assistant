@@ -1503,7 +1503,7 @@ private struct MessageCellView: View, Equatable {
             modelListView(for: message)
                 .id(message.id)
         } else if message.commandList != nil {
-            CommandListBubble()
+            CommandListBubble(platform: .macos)
                 .id(message.id)
         } else if let guardianDecision = message.guardianDecision {
             GuardianDecisionBubble(
