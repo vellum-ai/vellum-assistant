@@ -89,7 +89,6 @@ struct MessageListView: View {
     let assistantActivityReason: String?
     let assistantStatusText: String?
     let selectedModel: String
-    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
     let activeSubagents: [SubagentInfo]
@@ -110,7 +109,6 @@ struct MessageListView: View {
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
     var resolveHttpPort: (() -> Int?) = { nil }
-    var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
@@ -739,10 +737,8 @@ struct MessageListView: View {
                             onRetryConversationError: onRetryConversationError,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
-                            onModelPickerSelect: onModelPickerSelect,
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
-                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders,
                             providerCatalog: providerCatalog
                         )
@@ -1357,8 +1353,6 @@ private struct MessageCellView: View, Equatable {
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
-            && lhs.catalogModels.count == rhs.catalogModels.count
-            && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.providerCatalog.count == rhs.providerCatalog.count
             && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) })
@@ -1401,24 +1395,12 @@ private struct MessageCellView: View, Equatable {
     var onRetryConversationError: ((UUID) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var onModelPickerSelect: ((UUID, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     let selectedModel: String
-    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
-
-    private func modelPickerView(for msg: ChatMessage) -> some View {
-        ModelPickerBubble(
-            models: catalogModels,
-            selectedModelId: selectedModel,
-            onSelect: { modelId in
-                onModelPickerSelect?(msg.id, modelId)
-            }
-        )
-    }
 
     private func modelListView(for msg: ChatMessage) -> some View {
         ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders, providerCatalog: providerCatalog)
@@ -1505,9 +1487,6 @@ private struct MessageCellView: View, Equatable {
                     .id(message.id)
                 }
             }
-        } else if message.modelPicker != nil {
-            modelPickerView(for: message)
-                .id(message.id)
         } else if message.modelList != nil {
             modelListView(for: message)
                 .id(message.id)

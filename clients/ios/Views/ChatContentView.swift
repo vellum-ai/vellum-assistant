@@ -60,30 +60,6 @@ struct ChatContentView: View {
         return Array(all.suffix(viewModel.displayedMessageCount))
     }
 
-    private var modelPickerModels: [(id: String, name: String)] {
-        if let currentProvider = viewModel.providerCatalog.first(where: { provider in
-            provider.models.contains(where: { $0.id == viewModel.selectedModel })
-        }) {
-            return currentProvider.models.map { model in
-                (id: model.id, name: model.displayName)
-            }
-        }
-
-        var seenModelIds = Set<String>()
-        let allCatalogModels = viewModel.providerCatalog.flatMap { provider in
-            provider.models.compactMap { model -> (id: String, name: String)? in
-                guard seenModelIds.insert(model.id).inserted else { return nil }
-                return (id: model.id, name: model.displayName)
-            }
-        }
-
-        if !allCatalogModels.isEmpty {
-            return allCatalogModels
-        }
-
-        return [(id: viewModel.selectedModel, name: viewModel.selectedModel)]
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Messages area — empty state when no messages, otherwise scrollable list
@@ -321,20 +297,7 @@ struct ChatContentView: View {
 
     @ViewBuilder
     private func messageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
-        if message.modelPicker != nil {
-            ModelPickerBubble(
-                models: modelPickerModels,
-                selectedModelId: viewModel.selectedModel,
-                onSelect: { modelId in
-                    viewModel.setModel(modelId)
-                }
-            )
-            .id(message.id)
-            .transition(.asymmetric(
-                insertion: .move(edge: .bottom).combined(with: .opacity),
-                removal: .opacity
-            ))
-        } else if message.modelList != nil {
+        if message.modelList != nil {
             ModelListBubble(
                 currentModel: viewModel.selectedModel,
                 configuredProviders: viewModel.configuredProviders,

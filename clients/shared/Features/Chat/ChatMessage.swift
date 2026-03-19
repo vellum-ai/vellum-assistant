@@ -1541,10 +1541,6 @@ public struct GuardianDecisionData: Equatable {
     }
 }
 
-public struct ModelPickerData: Equatable {
-    public init() {}
-}
-
 public struct ModelListData: Equatable {
     public init() {}
 }
@@ -1649,7 +1645,6 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Non-nil when this message is a guardian decision prompt.
     public var guardianDecision: GuardianDecisionData?
     public var skillInvocation: SkillInvocationData?
-    public var modelPicker: ModelPickerData?
     public var modelList: ModelListData?
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
