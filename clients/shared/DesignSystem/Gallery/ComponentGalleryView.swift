@@ -143,14 +143,14 @@ struct ComponentGalleryView: View {
                             Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
                                 .tag(GalleryPage.overview(category))
                         } else {
-                            Section {
+                            DisclosureGroup {
                                 Label { Text("Overview") } icon: { VIconView(.layers, size: 14) }
                                     .tag(GalleryPage.overview(category))
                                 ForEach(category.components, id: \.id) { component in
                                     Text(component.title)
                                         .tag(GalleryPage.component(category, component.id))
                                 }
-                            } header: {
+                            } label: {
                                 Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
                             }
                         }
