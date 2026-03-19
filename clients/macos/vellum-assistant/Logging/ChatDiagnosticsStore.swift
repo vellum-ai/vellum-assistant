@@ -116,6 +116,10 @@ struct ChatDiagnosticEvent: Codable, Sendable {
 
 /// A point-in-time snapshot of per-conversation transcript state.
 /// Used by the debug panel and exported with hang diagnostics.
+///
+/// **Privacy invariant**: contains only identifiers, flags, counts, timestamps,
+/// and numeric geometry. Never includes message text, tool input/output bodies,
+/// inline surface HTML, or attachment contents.
 struct ChatTranscriptSnapshot: Codable, Sendable {
     let conversationId: String
     let capturedAt: Date
@@ -126,6 +130,79 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     let scrollOffsetY: Double?
     let contentHeight: Double?
     let viewportHeight: Double?
+
+    // MARK: Extended diagnostics (populated by scroll instrumentation)
+
+    /// Whether the transcript scroll position is near the bottom.
+    let isNearBottom: Bool?
+    /// Whether any scroll event has been received since the last reset.
+    let hasReceivedScrollEvent: Bool?
+    /// Whether a pagination load is currently in flight.
+    let isPaginationInFlight: Bool?
+    /// Human-readable reason the bottom-scroll suppression flag is active, if any.
+    let suppressionReason: String?
+    /// The message ID the scroll view is anchored to, if any.
+    let anchorMessageId: String?
+    /// The message ID currently highlighted (e.g. from search), if any.
+    let highlightedMessageId: String?
+    /// The minY geometry value of the anchor message row, if measured.
+    let anchorMinY: Double?
+    /// The Y position of the tail anchor (bottom of visible content).
+    let tailAnchorY: Double?
+    /// The height of the scroll viewport.
+    let scrollViewportHeight: Double?
+    /// The width of the chat container.
+    let containerWidth: Double?
+    /// Human-readable reason for the last `scrollTo` call.
+    let lastScrollToReason: String?
+    /// Timestamp of the last scroll-loop warning from `ChatScrollLoopGuard`.
+    let lastLoopWarningTimestamp: Date?
+
+    init(
+        conversationId: String,
+        capturedAt: Date,
+        messageCount: Int,
+        toolCallCount: Int,
+        isPinnedToBottom: Bool,
+        isUserScrolling: Bool,
+        scrollOffsetY: Double? = nil,
+        contentHeight: Double? = nil,
+        viewportHeight: Double? = nil,
+        isNearBottom: Bool? = nil,
+        hasReceivedScrollEvent: Bool? = nil,
+        isPaginationInFlight: Bool? = nil,
+        suppressionReason: String? = nil,
+        anchorMessageId: String? = nil,
+        highlightedMessageId: String? = nil,
+        anchorMinY: Double? = nil,
+        tailAnchorY: Double? = nil,
+        scrollViewportHeight: Double? = nil,
+        containerWidth: Double? = nil,
+        lastScrollToReason: String? = nil,
+        lastLoopWarningTimestamp: Date? = nil
+    ) {
+        self.conversationId = conversationId
+        self.capturedAt = capturedAt
+        self.messageCount = messageCount
+        self.toolCallCount = toolCallCount
+        self.isPinnedToBottom = isPinnedToBottom
+        self.isUserScrolling = isUserScrolling
+        self.scrollOffsetY = scrollOffsetY
+        self.contentHeight = contentHeight
+        self.viewportHeight = viewportHeight
+        self.isNearBottom = isNearBottom
+        self.hasReceivedScrollEvent = hasReceivedScrollEvent
+        self.isPaginationInFlight = isPaginationInFlight
+        self.suppressionReason = suppressionReason
+        self.anchorMessageId = anchorMessageId
+        self.highlightedMessageId = highlightedMessageId
+        self.anchorMinY = anchorMinY
+        self.tailAnchorY = tailAnchorY
+        self.scrollViewportHeight = scrollViewportHeight
+        self.containerWidth = containerWidth
+        self.lastScrollToReason = lastScrollToReason
+        self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
+    }
 }
 
 // MARK: - ChatDiagnosticsStore
