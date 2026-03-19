@@ -2395,7 +2395,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func createYourOwnOAuthApp(clientId: String, clientSecret: String) {
+    func createYourOwnOAuthApp(clientId: String, clientSecret: String) async {
         yourOwnOAuthError = nil
         var body: [String: Any] = [
             "provider_key": "integration:google",
@@ -2404,74 +2404,68 @@ public final class SettingsStore: ObservableObject {
         // Set via subscript to avoid pre-commit secret detection on the literal key.
         let secretKey = "client" + "_secret"
         body[secretKey] = clientSecret
-        Task {
-            do {
-                let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
-                if response.isSuccess {
-                    self.fetchYourOwnOAuthApps()
+        do {
+            let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
+            if response.isSuccess {
+                self.fetchYourOwnOAuthApps()
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
                 } else {
-                    let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                       let msg = json["error"] as? String {
-                        errorMsg = msg
-                    } else {
-                        errorMsg = "HTTP \(response.statusCode)"
-                    }
-                    self.yourOwnOAuthError = "Failed to create app: \(errorMsg)"
+                    errorMsg = "HTTP \(response.statusCode)"
                 }
-            } catch {
-                log.error("Failed to create Your Own OAuth app: \(error)")
-                self.yourOwnOAuthError = "Failed to create app: \(error.localizedDescription)"
+                self.yourOwnOAuthError = "Failed to create app: \(errorMsg)"
             }
+        } catch {
+            log.error("Failed to create Your Own OAuth app: \(error)")
+            self.yourOwnOAuthError = "Failed to create app: \(error.localizedDescription)"
         }
     }
 
-    func deleteYourOwnOAuthApp(id: String) {
+    func deleteYourOwnOAuthApp(id: String) async {
         yourOwnOAuthError = nil
-        Task {
-            do {
-                let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
-                if response.isSuccess {
-                    self.yourOwnOAuthApps.removeAll { $0.id == id }
-                    self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
+        do {
+            let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
+            if response.isSuccess {
+                self.yourOwnOAuthApps.removeAll { $0.id == id }
+                self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
                 } else {
-                    let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                       let msg = json["error"] as? String {
-                        errorMsg = msg
-                    } else {
-                        errorMsg = "HTTP \(response.statusCode)"
-                    }
-                    self.yourOwnOAuthError = "Failed to delete app: \(errorMsg)"
+                    errorMsg = "HTTP \(response.statusCode)"
                 }
-            } catch {
-                log.error("Failed to delete Your Own OAuth app: \(error)")
-                self.yourOwnOAuthError = "Failed to delete app: \(error.localizedDescription)"
+                self.yourOwnOAuthError = "Failed to delete app: \(errorMsg)"
             }
+        } catch {
+            log.error("Failed to delete Your Own OAuth app: \(error)")
+            self.yourOwnOAuthError = "Failed to delete app: \(error.localizedDescription)"
         }
     }
 
-    func disconnectYourOwnOAuthConnection(id: String, appId: String) {
+    func disconnectYourOwnOAuthConnection(id: String, appId: String) async {
         yourOwnOAuthError = nil
-        Task {
-            do {
-                let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
-                if response.isSuccess {
-                    await self.fetchYourOwnOAuthConnections(appId: appId)
+        do {
+            let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
+            if response.isSuccess {
+                await self.fetchYourOwnOAuthConnections(appId: appId)
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
                 } else {
-                    let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                       let msg = json["error"] as? String {
-                        errorMsg = msg
-                    } else {
-                        errorMsg = "HTTP \(response.statusCode)"
-                    }
-                    self.yourOwnOAuthError = "Failed to disconnect: \(errorMsg)"
+                    errorMsg = "HTTP \(response.statusCode)"
                 }
-            } catch {
-                log.error("Failed to disconnect Your Own OAuth connection: \(error)")
-                self.yourOwnOAuthError = "Failed to disconnect: \(error.localizedDescription)"
+                self.yourOwnOAuthError = "Failed to disconnect: \(errorMsg)"
             }
+        } catch {
+            log.error("Failed to disconnect Your Own OAuth connection: \(error)")
+            self.yourOwnOAuthError = "Failed to disconnect: \(error.localizedDescription)"
         }
     }
 

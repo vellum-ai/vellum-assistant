@@ -88,7 +88,7 @@ struct GoogleOAuthServiceCard: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 if let app = appToDelete {
-                    store.deleteYourOwnOAuthApp(id: app.id)
+                    Task { await store.deleteYourOwnOAuthApp(id: app.id) }
                     appToDelete = nil
                 }
             }
@@ -101,7 +101,7 @@ struct GoogleOAuthServiceCard: View {
             Button("Cancel", role: .cancel) {}
             Button("Disconnect", role: .destructive) {
                 if let conn = disconnectConnection, let appId = disconnectAppId {
-                    store.disconnectYourOwnOAuthConnection(id: conn.id, appId: appId)
+                    Task { await store.disconnectYourOwnOAuthConnection(id: conn.id, appId: appId) }
                     disconnectConnection = nil
                     disconnectAppId = nil
                 }
@@ -388,9 +388,11 @@ struct GoogleOAuthServiceCard: View {
                     isDisabled: createAppClientId.isEmpty || createAppClientSecret.isEmpty || createAppIsSubmitting
                 ) {
                     createAppIsSubmitting = true
-                    store.createYourOwnOAuthApp(clientId: createAppClientId, clientSecret: createAppClientSecret)
-                    createAppIsSubmitting = false
-                    showCreateAppSheet = false
+                    Task {
+                        await store.createYourOwnOAuthApp(clientId: createAppClientId, clientSecret: createAppClientSecret)
+                        createAppIsSubmitting = false
+                        showCreateAppSheet = false
+                    }
                 }
             }
         }
