@@ -618,10 +618,18 @@ export function handleSurfaceAction(
     const prompt =
       isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
 
+    // Read accumulated state once — used by both relay and custom action paths.
+    const accState = ctx.accumulatedSurfaceState.get(surfaceId);
+    const hasAccState = accState && Object.keys(accState).length > 0;
+
     let content: string;
     let displayContent: string | undefined;
     if (prompt) {
       content = prompt;
+      // Re-append accumulated state so the LLM sees it, matching the pending path.
+      if (hasAccState) {
+        content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
+      }
     } else {
       // Custom action from an app (e.g. sendAction('answer_selected', {...}))
       const summary = actionId
@@ -631,10 +639,8 @@ export function handleSurfaceAction(
       if (data && Object.keys(data).length > 0) {
         content += `\n\nAction data: ${JSON.stringify(data)}`;
       }
-      const accState = ctx.accumulatedSurfaceState.get(surfaceId);
-      if (accState && Object.keys(accState).length > 0) {
+      if (hasAccState) {
         content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
-        ctx.accumulatedSurfaceState.delete(surfaceId);
       }
       displayContent = summary;
     }
@@ -669,6 +675,12 @@ export function handleSurfaceAction(
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
       return;
+    }
+
+    // One-shot: clear accumulated state now that the message has been accepted.
+    // Deferred until after rejection check so state is preserved for retry on rejection.
+    if (hasAccState) {
+      ctx.accumulatedSurfaceState.delete(surfaceId);
     }
 
     // Echo the prompt to the client so it appears in the chat UI.
