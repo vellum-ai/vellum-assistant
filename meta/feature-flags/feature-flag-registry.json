@@ -280,6 +280,14 @@
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
       "defaultEnabled": false
+    },
+    {
+      "id": "inline-skill-commands",
+      "scope": "assistant",
+      "key": "feature_flags.inline-skill-commands.enabled",
+      "label": "Inline Skill Command Expansion",
+      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
+      "defaultEnabled": false
     }
   ]
 }
