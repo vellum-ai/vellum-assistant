@@ -108,6 +108,7 @@ struct SettingsPanel: View {
     @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isGoogleOAuthEnabled: Bool = false
+    @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -116,6 +117,7 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
+    private static let embeddingProviderFeatureFlagKey = "feature_flags.settings-embedding-provider.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -224,6 +226,8 @@ struct SettingsPanel: View {
                     isBillingEnabled = enabled
                 } else if key == Self.googleOAuthFeatureFlagKey {
                     isGoogleOAuthEnabled = enabled
+                } else if key == Self.embeddingProviderFeatureFlagKey {
+                    isEmbeddingProviderEnabled = enabled
                 }
             }
         }
@@ -398,12 +402,14 @@ struct SettingsPanel: View {
                 showToast: showToast
             )
 
-            // EMBEDDING
-            EmbeddingServiceCard(
-                store: store,
-                apiKeyText: $embeddingKeyText,
-                showToast: showToast
-            )
+            // EMBEDDING (feature-flagged)
+            if isEmbeddingProviderEnabled {
+                EmbeddingServiceCard(
+                    store: store,
+                    apiKeyText: $embeddingKeyText,
+                    showToast: showToast
+                )
+            }
 
             // GOOGLE OAUTH (feature-flagged)
             if isGoogleOAuthEnabled {
@@ -550,6 +556,9 @@ struct SettingsPanel: View {
                 if let googleOAuthFlag = flags.first(where: { $0.key == Self.googleOAuthFeatureFlagKey }) {
                     isGoogleOAuthEnabled = googleOAuthFlag.enabled
                 }
+                if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
+                    isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
+                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -570,6 +579,9 @@ struct SettingsPanel: View {
         }
         if let googleOAuthEnabled = resolved[Self.googleOAuthFeatureFlagKey] {
             isGoogleOAuthEnabled = googleOAuthEnabled
+        }
+        if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
+            isEmbeddingProviderEnabled = embeddingProviderEnabled
         }
 
         consumeDeferredDeepLinkIfVisible()
