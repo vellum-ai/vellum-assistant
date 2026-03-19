@@ -32,8 +32,13 @@ struct HighlightedTextView: View {
     /// Total number of search matches in the text.
     private var searchMatchCount: Int {
         guard !searchQuery.isEmpty else { return 0 }
-        return findMatchRanges().count
+        return VCodeView.findMatchRanges(in: text, query: searchQuery).count
     }
+
+    /// Approximate width of a single digit in the gutter font.
+    private static let gutterDigitWidth: CGFloat = 8
+    /// Horizontal padding (leading + trailing) inside the gutter.
+    private static let gutterPadding: CGFloat = 16
 
     var body: some View {
         Group {
@@ -54,13 +59,13 @@ struct HighlightedTextView: View {
             }
         }
         .task {
-            cachedLineCount = Self.countLines(in: text)
+            cachedLineCount = VCodeView.countLines(in: text)
             contentReady = true
         }
         .onChange(of: isActivelyEditing) { _, editing in
             if !editing {
                 highlightVersion &+= 1
-                cachedLineCount = Self.countLines(in: text)
+                cachedLineCount = VCodeView.countLines(in: text)
             }
         }
         .onChange(of: language) { _, _ in
@@ -79,7 +84,7 @@ struct HighlightedTextView: View {
 
         return VStack(spacing: 0) {
             if isSearchVisible {
-                SourceSearchBar(
+                VCodeSearchBar(
                     searchQuery: $searchQuery,
                     currentMatchIndex: $currentMatchIndex,
                     matchCount: searchMatchCount,
@@ -120,7 +125,7 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
-            cachedLineCount = Self.countLines(in: text)
+            cachedLineCount = VCodeView.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -144,27 +149,11 @@ struct HighlightedTextView: View {
         )
         .onChange(of: text) { _, _ in
             highlightVersion &+= 1
-            cachedLineCount = Self.countLines(in: text)
+            cachedLineCount = VCodeView.countLines(in: text)
         }
     }
 
     // MARK: - Search
-
-    /// Finds all case-insensitive occurrences of `searchQuery` in `text`.
-    private func findMatchRanges() -> [Range<String.Index>] {
-        guard !searchQuery.isEmpty else { return [] }
-
-        var ranges: [Range<String.Index>] = []
-        var searchStart = text.startIndex
-
-        while searchStart < text.endIndex,
-              let range = text.range(of: searchQuery, options: .caseInsensitive, range: searchStart..<text.endIndex) {
-            ranges.append(range)
-            searchStart = range.upperBound
-        }
-
-        return ranges
-    }
 
     private func dismissSearch() {
         isSearchVisible = false
@@ -179,7 +168,7 @@ struct HighlightedTextView: View {
                 Text("\(num)")
                     .font(VFont.monoSmall)
                     .foregroundStyle(Self.gutterTextColor)
-                    .frame(height: Self.lineHeight)
+                    .frame(height: VCodeView.lineHeight)
             }
         }
         .padding(.top, VSpacing.sm)
@@ -189,104 +178,10 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Line height for the text content font, derived from NSLayoutManager so the
-    /// gutter matches the actual line spacing NSTextView uses (which rounds each
-    /// metric component individually rather than ceiling the sum).
-    private static let lineHeight: CGFloat = {
-        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let layoutManager = NSLayoutManager()
-        return layoutManager.defaultLineHeight(for: nsFont)
-    }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
-        return CGFloat(digitCount * 8 + 16)
-    }
-
-    /// Counts newlines in `text` without allocating N substrings.
-    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
-    private static func countLines(in text: String) -> Int {
-        var count = 1
-        for byte in text.utf8 where byte == 0x0A { count += 1 }
-        return count
-    }
-}
-
-// MARK: - Source Search Bar
-
-/// Search bar for the file viewer source view. Displays match count, prev/next navigation,
-/// and a close button.
-private struct SourceSearchBar: View {
-    @Binding var searchQuery: String
-    @Binding var currentMatchIndex: Int
-    let matchCount: Int
-    let onDismiss: () -> Void
-
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.search, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
-
-                TextField("Search...", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .focused($isFocused)
-                    .onSubmit { goToNextMatch() }
-
-                if !searchQuery.isEmpty {
-                    Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .fixedSize()
-
-                    Button(action: goToPreviousMatch) {
-                        VIconView(.chevronUp, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(matchCount == 0)
-                    .accessibilityLabel("Previous match")
-
-                    Button(action: goToNextMatch) {
-                        VIconView(.chevronDown, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(matchCount == 0)
-                    .accessibilityLabel("Next match")
-                }
-
-                Button(action: onDismiss) {
-                    VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close search")
-            }
-            .padding(VSpacing.sm)
-            .background(VColor.surfaceOverlay)
-
-            Divider()
-        }
-        .onAppear { isFocused = true }
-        .onChange(of: searchQuery) { _, _ in
-            currentMatchIndex = 0
-        }
-    }
-
-    private func goToPreviousMatch() {
-        guard matchCount > 0 else { return }
-        currentMatchIndex = currentMatchIndex > 0 ? currentMatchIndex - 1 : matchCount - 1
-    }
-
-    private func goToNextMatch() {
-        guard matchCount > 0 else { return }
-        currentMatchIndex = currentMatchIndex < matchCount - 1 ? currentMatchIndex + 1 : 0
+        return CGFloat(digitCount) * Self.gutterDigitWidth + Self.gutterPadding
     }
 }
 
@@ -302,7 +197,7 @@ private struct CodeTextView: NSViewRepresentable {
     var onEscape: (() -> Void)?
     var onCommandF: (() -> Void)?
 
-    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
+    func makeNSView(context: Context) -> VCodeHorizontalScrollView {
         // TextKit 1 stack — matches the gutter's NSLayoutManager.defaultLineHeight computation
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
@@ -331,16 +226,7 @@ private struct CodeTextView: NSViewRepresentable {
         )
         textView.autoresizingMask = [.width]
 
-        // Font — DMMono-Regular 13pt with ss05 stylistic set (conventional "f")
-        let baseFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let descriptor = baseFont.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        textView.font = NSFont(descriptor: descriptor, size: 13) ?? baseFont
+        textView.font = VFont.nsMono
         textView.textColor = NSColor(VColor.contentDefault)
         textView.backgroundColor = .clear
         textView.drawsBackground = false
@@ -365,7 +251,7 @@ private struct CodeTextView: NSViewRepresentable {
         textView.onCommandF = onCommandF
         textView.string = text
 
-        let scrollView = HorizontalOnlyScrollView()
+        let scrollView = VCodeHorizontalScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
@@ -376,7 +262,7 @@ private struct CodeTextView: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
+    func updateNSView(_ scrollView: VCodeHorizontalScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
@@ -399,7 +285,7 @@ private struct CodeTextView: NSViewRepresentable {
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        nsView: HorizontalOnlyScrollView,
+        nsView: VCodeHorizontalScrollView,
         context: Context
     ) -> CGSize? {
         guard let textView = nsView.documentView as? CodeNSTextView,
@@ -446,17 +332,5 @@ private class CodeNSTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
-    }
-}
-
-/// NSScrollView that only handles horizontal scrolling, forwarding vertical
-/// scroll events to the parent responder chain (SwiftUI's vertical ScrollView).
-private class HorizontalOnlyScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
-            super.scrollWheel(with: event)
-        } else {
-            nextResponder?.scrollWheel(with: event)
-        }
     }
 }

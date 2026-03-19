@@ -101,24 +101,22 @@ struct FileContentView: View {
                 }
 
                 if isContentHovered && !isActivelyEditing {
-                    HStack(spacing: VSpacing.md) {
-                        if isEditable {
-                            Button(action: {
+                    HStack(spacing: VSpacing.xs) {
+                        if isEditable && effectiveMode == .source {
+                            VButton(
+                                label: "Edit",
+                                iconOnly: VIcon.pencil.rawValue,
+                                style: .ghost,
+                                iconSize: 28
+                            ) {
                                 viewMode = .source
                                 isActivelyEditing = true
-                            }) {
-                                VIconView(.pencil, size: 14)
-                                    .foregroundColor(VColor.contentSecondary)
                             }
-                            .buttonStyle(.plain)
-                            .help("Edit")
-                            .accessibilityLabel("Edit")
-                            .pointerCursor()
                         }
 
                         VCopyButton(text: content, iconSize: 14, accessibilityHint: "Copy all")
                     }
-                    .padding(VSpacing.sm)
+                    .padding(VSpacing.xs)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .fill(VColor.surfaceOverlay.opacity(0.9))

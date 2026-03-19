@@ -102,7 +102,7 @@ public struct VCopyButton: View {
         copied = true
         resetTask?.cancel()
         resetTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled else { return }
             copied = false
         }

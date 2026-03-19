@@ -50,38 +50,9 @@ public struct VCodeView: View {
     }
 
     public var body: some View {
-        let lineCount = cachedLineCount
-        let gutterWidth = gutterWidth(for: lineCount)
-
         VStack(spacing: 0) {
-            if isSearchVisible {
-                VCodeSearchBar(
-                    searchQuery: $searchQuery,
-                    currentMatchIndex: $currentMatchIndex,
-                    matchCount: searchMatchCount,
-                    onDismiss: dismissSearch
-                )
-            }
-
-            GeometryReader { geometry in
-                ScrollView([.vertical]) {
-                    HStack(alignment: .top, spacing: 0) {
-                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
-
-                        VCodeTextView(
-                            text: text,
-                            highlighter: highlighter,
-                            highlightVersion: highlightVersion,
-                            searchQuery: searchQuery,
-                            currentMatchIndex: currentMatchIndex,
-                            matchRanges: isSearchVisible ? findMatchRanges() : []
-                        )
-                        .frame(minWidth: geometry.size.width - gutterWidth)
-                    }
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .background(Self.editorBackground)
-            }
+            searchBar
+            editorContent
         }
         .onKeyPress("f", phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
@@ -107,6 +78,52 @@ public struct VCodeView: View {
         }
     }
 
+    // MARK: - Sub-views
+
+    /// Search match count for the current query.
+    private var searchMatchCount: Int {
+        guard !searchQuery.isEmpty else { return 0 }
+        return Self.findMatchRanges(in: text, query: searchQuery).count
+    }
+
+    @ViewBuilder
+    private var searchBar: some View {
+        if isSearchVisible {
+            VCodeSearchBar(
+                searchQuery: $searchQuery,
+                currentMatchIndex: $currentMatchIndex,
+                matchCount: searchMatchCount,
+                onDismiss: dismissSearch
+            )
+        }
+    }
+
+    private var editorContent: some View {
+        let lineCount = cachedLineCount
+        let gutterWidth = gutterWidth(for: lineCount)
+
+        return GeometryReader { geometry in
+            ScrollView([.vertical]) {
+                HStack(alignment: .top, spacing: 0) {
+                    lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+
+                    VCodeTextView(
+                        text: text,
+                        highlighter: highlighter,
+                        highlightVersion: highlightVersion,
+                        searchQuery: searchQuery,
+                        currentMatchIndex: currentMatchIndex,
+                        matchRanges: isSearchVisible
+                            ? Self.findMatchRanges(in: text, query: searchQuery) : []
+                    )
+                    .frame(minWidth: geometry.size.width - gutterWidth)
+                }
+                .frame(minHeight: geometry.size.height, alignment: .topLeading)
+            }
+            .background(Self.editorBackground)
+        }
+    }
+
     // MARK: - Colors
 
     private static let editorBackground = VColor.surfaceOverlay
@@ -115,19 +132,15 @@ public struct VCodeView: View {
 
     // MARK: - Search
 
-    private var searchMatchCount: Int {
-        guard !searchQuery.isEmpty else { return 0 }
-        return findMatchRanges().count
-    }
-
-    private func findMatchRanges() -> [Range<String.Index>] {
-        guard !searchQuery.isEmpty else { return [] }
+    /// Finds all case-insensitive occurrences of `query` in `text`.
+    public static func findMatchRanges(in text: String, query: String) -> [Range<String.Index>] {
+        guard !query.isEmpty else { return [] }
 
         var ranges: [Range<String.Index>] = []
         var searchStart = text.startIndex
 
         while searchStart < text.endIndex,
-              let range = text.range(of: searchQuery, options: .caseInsensitive, range: searchStart..<text.endIndex) {
+              let range = text.range(of: query, options: .caseInsensitive, range: searchStart..<text.endIndex) {
             ranges.append(range)
             searchStart = range.upperBound
         }
@@ -160,20 +173,24 @@ public struct VCodeView: View {
 
     /// Line height derived from NSLayoutManager so the gutter matches the
     /// actual line spacing NSTextView uses.
-    static let lineHeight: CGFloat = {
-        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    public static let lineHeight: CGFloat = {
         let layoutManager = NSLayoutManager()
-        return layoutManager.defaultLineHeight(for: nsFont)
+        return layoutManager.defaultLineHeight(for: VFont.nsMono)
     }()
+
+    /// Approximate width of a single digit in the gutter font.
+    private static let gutterDigitWidth: CGFloat = 8
+    /// Horizontal padding (leading + trailing) inside the gutter.
+    private static let gutterPadding: CGFloat = 16
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
-        return CGFloat(digitCount * 8 + 16)
+        return CGFloat(digitCount) * Self.gutterDigitWidth + Self.gutterPadding
     }
 
     /// Counts newlines without allocating N substrings.
-    static func countLines(in text: String) -> Int {
+    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
+    public static func countLines(in text: String) -> Int {
         var count = 1
         for byte in text.utf8 where byte == 0x0A { count += 1 }
         return count
@@ -196,18 +213,8 @@ struct VCodeTextView: NSViewRepresentable {
     let currentMatchIndex: Int
     let matchRanges: [Range<String.Index>]
 
-    /// The monospaced font used for code display. Matches `SyntaxTheme.nsFont`.
-    private static let codeFont: NSFont = {
-        let base = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let descriptor = base.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        return NSFont(descriptor: descriptor, size: 13) ?? base
-    }()
+    /// The monospaced font used for code display, sourced from the design system.
+    private static let codeFont: NSFont = VFont.nsMono
 
     func makeNSView(context: Context) -> VCodeHorizontalScrollView {
         let textStorage = NSTextStorage()
@@ -417,15 +424,27 @@ struct VCodeTextView: NSViewRepresentable {
 
 /// Search bar for code views. Displays match count, prev/next navigation,
 /// and a close button.
-struct VCodeSearchBar: View {
-    @Binding var searchQuery: String
-    @Binding var currentMatchIndex: Int
-    let matchCount: Int
-    let onDismiss: () -> Void
+public struct VCodeSearchBar: View {
+    @Binding public var searchQuery: String
+    @Binding public var currentMatchIndex: Int
+    public let matchCount: Int
+    public let onDismiss: () -> Void
 
     @FocusState private var isFocused: Bool
 
-    var body: some View {
+    public init(
+        searchQuery: Binding<String>,
+        currentMatchIndex: Binding<Int>,
+        matchCount: Int,
+        onDismiss: @escaping () -> Void
+    ) {
+        self._searchQuery = searchQuery
+        self._currentMatchIndex = currentMatchIndex
+        self.matchCount = matchCount
+        self.onDismiss = onDismiss
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.search, size: 12)

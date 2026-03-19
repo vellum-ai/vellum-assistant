@@ -43,27 +43,10 @@ struct SyntaxTheme: Sendable {
     private static let italicFont = VFont.mono.italic()
     private static let defaultForeground = VColor.contentDefault
 
-    // Pre-resolved NSFont for AppKit-based text views (NSTextView).
-    // DMMono-Regular 13pt with ss05 stylistic set (conventional "f").
-    static let nsFont: NSFont = {
-        let base = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let descriptor = base.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        return NSFont(descriptor: descriptor, size: 13) ?? base
-    }()
-
-    static let nsBoldFont: NSFont = {
-        NSFontManager.shared.convert(nsFont, toHaveTrait: .boldFontMask)
-    }()
-
-    static let nsItalicFont: NSFont = {
-        NSFontManager.shared.convert(nsFont, toHaveTrait: .italicFontMask)
-    }()
+    /// The canonical NSFont for code display, sourced from the design system.
+    static let nsFont: NSFont = VFont.nsMono
+    static let nsBoldFont: NSFont = VFont.nsMonoBold
+    static let nsItalicFont: NSFont = VFont.nsMonoItalic
 
     /// Returns the `NSColor` for the given syntax token type.
     static func nsColor(for tokenType: SyntaxTokenType) -> NSColor {

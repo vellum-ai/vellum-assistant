@@ -67,7 +67,7 @@ private enum JSONNode: Identifiable {
     private static func prettyPrint(_ obj: Any) -> String {
         guard let data = try? JSONSerialization.data(
             withJSONObject: obj,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            options: [.prettyPrinted, .withoutEscapingSlashes]
         ) else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
@@ -236,25 +236,31 @@ struct JSONTreeView: View {
 
     @ViewBuilder
     private func toolbar(_ node: JSONNode) -> some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.xs) {
             Spacer()
-            Button("Expand All") {
+            VButton(
+                label: "Expand All",
+                iconOnly: VIcon.maximize.rawValue,
+                style: .ghost,
+                iconSize: 24,
+                tooltip: "Expand All"
+            ) {
                 withAnimation(VAnimation.fast) {
                     expandedPaths = collectContainerPaths(node)
                 }
             }
-            .buttonStyle(.plain)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
 
-            Button("Collapse All") {
+            VButton(
+                label: "Collapse All",
+                iconOnly: VIcon.minimize.rawValue,
+                style: .ghost,
+                iconSize: 24,
+                tooltip: "Collapse All"
+            ) {
                 withAnimation(VAnimation.fast) {
                     expandedPaths.removeAll()
                 }
             }
-            .buttonStyle(.plain)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
