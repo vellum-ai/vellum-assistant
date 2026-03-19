@@ -1,4 +1,3 @@
-import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -324,29 +323,8 @@ struct PairingQRCodeSheet: View {
     }
 
     /// Compute a stable, privacy-safe host identifier.
-    /// SHA-256 of the IOPlatformUUID + an app-specific salt.
+    /// Delegates to the shared `HostIdComputer` implementation.
     static func computeHostId() -> String {
-        let platformUUID = getPlatformUUID() ?? UUID().uuidString
-        let salt = "vellum-assistant-host-id"
-        let input = Data((platformUUID + salt).utf8)
-        let hash = SHA256.hash(data: input)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
-    private static func getPlatformUUID() -> String? {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        let key = kIOPlatformUUIDKey as CFString
-        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
-            .takeRetainedValue() as? String else {
-            return nil
-        }
-        return uuid
+        return HostIdComputer.computeHostId()
     }
 }
