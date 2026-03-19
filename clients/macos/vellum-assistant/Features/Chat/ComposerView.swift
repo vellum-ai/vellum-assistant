@@ -452,7 +452,16 @@ struct ComposerView: View {
                 }
                 .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
-                // Pending confirmation — mic for dictation, send if possible
+                // Pending confirmation — show same buttons as empty-input state
+                VButton(
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onVoiceModeToggle?() }
+                )
+                .disabled(!hasAPIKey)
+
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
                     iconOnly: VIcon.mic.rawValue,
@@ -462,16 +471,15 @@ struct ComposerView: View {
                 )
                 .disabled(!hasAPIKey)
 
-                if canSend {
-                    VButton(
-                        label: "Send message",
-                        iconOnly: VIcon.arrowUp.rawValue,
-                        style: .primary,
-                        iconSize: composerActionButtonSize
-                    ) {
-                        composerFocus = true
-                        onSend()
-                    }
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
                 }
             }
         }
