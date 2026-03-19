@@ -2509,8 +2509,10 @@ public final class SettingsStore: ObservableObject {
 
                 NSWorkspace.shared.open(authURL)
 
-                // Start polling for new connections
-                let initialCount = self.yourOwnOAuthConnectionsByApp[appId]?.count ?? 0
+                // Start polling — detect new connections OR re-authed (updated) connections
+                let existingConnections = self.yourOwnOAuthConnectionsByApp[appId] ?? []
+                let initialCount = existingConnections.count
+                let maxUpdatedAt = existingConnections.map(\.updated_at).max() ?? 0
                 self.yourOwnOAuthConnectPollingTask?.cancel()
                 self.yourOwnOAuthConnectPollingTask = Task {
                     let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
@@ -2522,16 +2524,17 @@ public final class SettingsStore: ObservableObject {
                         guard !Task.isCancelled else { break }
 
                         await self.fetchYourOwnOAuthConnections(appId: appId)
-                        let currentCount = self.yourOwnOAuthConnectionsByApp[appId]?.count ?? 0
+                        let current = self.yourOwnOAuthConnectionsByApp[appId] ?? []
 
-                        if currentCount > initialCount {
-                            break
-                        }
+                        // New connection added
+                        if current.count > initialCount { break }
+
+                        // Existing connection re-authed (updated_at changed)
+                        let currentMaxUpdatedAt = current.map(\.updated_at).max() ?? 0
+                        if currentMaxUpdatedAt > maxUpdatedAt { break }
 
                         let elapsed = DispatchTime.now().uptimeNanoseconds - startTime
-                        if elapsed >= timeout {
-                            break
-                        }
+                        if elapsed >= timeout { break }
                     }
 
                     self.yourOwnOAuthConnectingAppId = nil
