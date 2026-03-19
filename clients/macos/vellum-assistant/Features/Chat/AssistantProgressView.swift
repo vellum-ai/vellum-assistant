@@ -116,6 +116,17 @@ struct AssistantProgressView: View {
         toolCalls.contains { $0.pendingConfirmation != nil }
     }
 
+    /// Stable identifier for this progress group, derived from the first tool call's UUID.
+    /// Used in diagnostics to correlate auto-expand events to a specific step group.
+    private var groupId: String {
+        toolCalls.first?.id.uuidString ?? "no-tools"
+    }
+
+    /// Number of tool calls in this group that have completed.
+    private var completedToolCount: Int {
+        toolCalls.filter(\.isComplete).count
+    }
+
     private var isActive: Bool {
         switch phase {
         case .thinking, .toolRunning, .streamingCode, .toolsCompleteThinking, .processing:
@@ -201,9 +212,10 @@ struct AssistantProgressView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
+            let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
-                reason: "phase_change:\(newPhase) denied=\(deniedCount) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                reason: "phase_change:\(newPhase) group=\(groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(completedToolCount)/\(toolCalls.count) denied=\(deniedCount) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
                 toolCallCount: toolCalls.count
             ))
             if newPhase == .processing {
@@ -217,7 +229,7 @@ struct AssistantProgressView: View {
             {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag",
+                    reason: "auto_expand:completed_steps_flag group=\(groupId) phase=\(newPhase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
                     toolCallCount: toolCalls.count
                 ))
                 withAnimation(VAnimation.fast) {
@@ -271,7 +283,7 @@ struct AssistantProgressView: View {
             {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag_on_appear",
+                    reason: "auto_expand:completed_steps_flag_on_appear group=\(groupId) phase=\(phase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
                     toolCallCount: toolCalls.count
                 ))
                 isExpanded = true
