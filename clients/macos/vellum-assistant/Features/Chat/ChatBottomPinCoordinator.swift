@@ -121,6 +121,10 @@ final class ChatBottomPinCoordinator {
     /// The in-flight async task driving the active session's retry loop.
     private var sessionTask: Task<Void, Never>?
 
+    /// Monotonically increasing generation counter. Incremented each time a new
+    /// session task is started so that stale tasks don't clobber newer sessions.
+    private var sessionGeneration: Int = 0
+
     /// Callback invoked when the coordinator decides a scroll-to-bottom should
     /// be executed. The caller (typically MessageListView) performs the actual
     /// `proxy.scrollTo` call. The Bool return indicates whether the pin was
@@ -243,6 +247,8 @@ final class ChatBottomPinCoordinator {
 
     private func startSessionTask(animated: Bool) {
         sessionTask?.cancel()
+        sessionGeneration += 1
+        let generation = sessionGeneration
 
         // Immediate first attempt — synchronous so callers see the result
         // before yielding (important for tests and single-frame UI updates).
@@ -252,7 +258,7 @@ final class ChatBottomPinCoordinator {
         let pinned = onPinRequested?(session.reason, animated) ?? false
 
         if pinned {
-            completeSession()
+            completeSession(generation: generation)
             return
         }
 
@@ -260,6 +266,7 @@ final class ChatBottomPinCoordinator {
         sessionTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
+                guard self.sessionGeneration == generation else { break }
                 guard var currentSession = self.activeSession else { break }
                 guard !currentSession.isExhausted else {
                     log.debug("Pin session exhausted after \(currentSession.attemptCount) attempts")
@@ -291,17 +298,18 @@ final class ChatBottomPinCoordinator {
                 let succeeded = self.onPinRequested?(currentSession.reason, animated) ?? false
 
                 if succeeded {
-                    self.completeSession()
+                    self.completeSession(generation: generation)
                     return
                 }
             }
 
             // Clean up if we fell through without completing.
-            self?.completeSession()
+            self?.completeSession(generation: generation)
         }
     }
 
-    private func completeSession() {
+    private func completeSession(generation: Int) {
+        guard sessionGeneration == generation else { return }
         sessionTask = nil
         activeSession = nil
     }
