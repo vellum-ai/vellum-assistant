@@ -46,11 +46,11 @@ extension AppDelegate {
             return
         }
 
-        let hasAssistants = lockfileHasAssistants()
+        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged }
         let authView: AnyView
 
-        if hasAssistants {
-            // Returning user with existing assistant — show clean sign-in, not full onboarding
+        if hasManagedAssistants {
+            // Returning managed user — show clean sign-in, not full onboarding
             authView = AnyView(ReauthView(
                 authManager: authManager,
                 onComplete: { [weak self] in
@@ -58,8 +58,8 @@ extension AppDelegate {
                 }
             ))
         } else {
-            // No assistants — show full onboarding (shouldn't normally happen via this path,
-            // but included as a safety net)
+            // No managed assistants — show full onboarding which includes
+            // skip/authless flows for local and remote assistant setups
             OnboardingState.clearPersistedState()
             let state = OnboardingState()
             state.shouldPersist = false
