@@ -3,10 +3,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 
 import { findAssistantByName } from "../lib/assistant-config";
-import {
-  loadGuardianToken,
-  leaseGuardianToken,
-} from "../lib/guardian-token";
+import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
 
 function getBackupsDir(): string {
   const dataHome =
@@ -73,14 +70,26 @@ export async function backup(): Promise<void> {
   // Obtain an auth token
   let accessToken: string;
   const tokenData = loadGuardianToken(entry.assistantId);
-  if (
-    tokenData &&
-    new Date(tokenData.accessTokenExpiresAt) > new Date()
-  ) {
+  if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
     accessToken = tokenData.accessToken;
   } else {
-    const freshToken = await leaseGuardianToken(entry.runtimeUrl, name);
-    accessToken = freshToken.accessToken;
+    try {
+      const freshToken = await leaseGuardianToken(
+        entry.runtimeUrl,
+        entry.assistantId,
+      );
+      accessToken = freshToken.accessToken;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+        console.error(
+          `Error: Could not connect to assistant '${name}'. Is it running?`,
+        );
+        console.error(`Try: vellum wake ${name}`);
+        process.exit(1);
+      }
+      throw err;
+    }
   }
 
   // Call the export endpoint
@@ -113,9 +122,7 @@ export async function backup(): Promise<void> {
 
   if (!response.ok) {
     const body = await response.text();
-    console.error(
-      `Error: Export failed (${response.status}): ${body}`,
-    );
+    console.error(`Error: Export failed (${response.status}): ${body}`);
     process.exit(1);
   }
 

@@ -11,9 +11,11 @@ import { dirname, join } from "node:path";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getRootDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
+import * as trustClient from "./trust-client.js";
 import type {
   AcceptStarterBundleResult,
   StarterBundleRule,
@@ -21,7 +23,10 @@ import type {
 } from "./trust-store-interface.js";
 import type { PolicyContext, TrustRule } from "./types.js";
 
-export type { AcceptStarterBundleResult, StarterBundleRule } from "./trust-store-interface.js";
+export type {
+  AcceptStarterBundleResult,
+  StarterBundleRule,
+} from "./trust-store-interface.js";
 export type { TrustStoreBackend } from "./trust-store-interface.js";
 
 const log = getLogger("trust-store");
@@ -737,13 +742,371 @@ const fileTrustStoreBackend: TrustStoreBackend = {
   getStarterBundleRules,
 };
 
+// ─── Gateway-backed trust store adapter ─────────────────────────────────────
+//
+// When the daemon runs in a container (IS_CONTAINERIZED=true), trust rules
+// are stored in the gateway — not on the local filesystem. This adapter
+// wraps the async gateway HTTP client into the synchronous TrustStoreBackend
+// interface using an in-memory cache.
+//
+// Read operations serve from the cache. Write operations call the gateway
+// synchronously (via curl), then update the cache from the response.
+// A background timer refreshes the cache every CACHE_TTL_MS.
+
+const CACHE_TTL_MS = 5_000;
+
+/**
+ * Gateway-backed trust store that caches rules in memory and refreshes
+ * on a TTL. Satisfies the synchronous TrustStoreBackend interface by
+ * reading from cache and writing via synchronous HTTP calls.
+ */
+class GatewayTrustStoreAdapter implements TrustStoreBackend {
+  private rules: TrustRule[] = [];
+  private starterBundleAccepted = false;
+  private initialized = false;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly listeners: Array<() => void> = [];
+
+  /** Pattern cache — mirrors the file-based store's approach. */
+  private readonly gwCompiledPatterns = new Map<string, Minimatch>();
+  private readonly gwInvalidPatterns = new Set<string>();
+
+  // ── Initialization ──────────────────────────────────────────────────────
+
+  /**
+   * Ensure the cache is populated. Blocks synchronously on the first call
+   * by fetching rules from the gateway via the sync client. Subsequent
+   * calls are no-ops because the background refresh timer keeps the cache
+   * current.
+   */
+  private ensureInitialized(): void {
+    if (this.initialized) return;
+    try {
+      this.rules = trustClient.getAllRulesSync();
+      this.rules.sort(ruleOrder);
+      this.rebuildPatternCache();
+      // Infer starterBundleAccepted from the fetched rules — if any starter
+      // rule IDs are present, the bundle was accepted.
+      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
+    } catch (err) {
+      log.error(
+        { err },
+        "Failed to load trust rules from gateway; using empty rule set",
+      );
+      this.rules = [];
+    }
+    this.initialized = true;
+    this.startRefreshTimer();
+  }
+
+  private startRefreshTimer(): void {
+    if (this.refreshTimer != null) return;
+    this.refreshTimer = setInterval(() => {
+      this.refreshCache();
+    }, CACHE_TTL_MS);
+    // Unref so the timer doesn't prevent the process from exiting.
+    if (
+      this.refreshTimer &&
+      typeof this.refreshTimer === "object" &&
+      "unref" in this.refreshTimer
+    ) {
+      (this.refreshTimer as NodeJS.Timeout).unref();
+    }
+  }
+
+  private refreshCache(): void {
+    try {
+      const fresh = trustClient.getAllRulesSync();
+      fresh.sort(ruleOrder);
+      const oldJson = JSON.stringify(this.rules);
+      this.rules = fresh;
+      this.rebuildPatternCache();
+      // Detect starter bundle acceptance
+      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
+      if (JSON.stringify(fresh) !== oldJson) {
+        this.notifyListeners();
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to refresh trust rules from gateway; using stale cache",
+      );
+    }
+  }
+
+  private rebuildPatternCache(): void {
+    this.gwCompiledPatterns.clear();
+    this.gwInvalidPatterns.clear();
+    for (const rule of this.rules) {
+      if (typeof rule.pattern !== "string") continue;
+      if (!this.gwCompiledPatterns.has(rule.pattern)) {
+        try {
+          this.gwCompiledPatterns.set(
+            rule.pattern,
+            new Minimatch(rule.pattern),
+          );
+        } catch {
+          // skip invalid patterns
+        }
+      }
+    }
+  }
+
+  private getCompiledPattern(pattern: string): Minimatch | null {
+    if (this.gwInvalidPatterns.has(pattern)) return null;
+    let compiled = this.gwCompiledPatterns.get(pattern);
+    if (!compiled) {
+      try {
+        compiled = new Minimatch(pattern);
+        this.gwCompiledPatterns.set(pattern, compiled);
+      } catch {
+        this.gwInvalidPatterns.add(pattern);
+        return null;
+      }
+    }
+    return compiled;
+  }
+
+  private notifyListeners(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  // ── TrustStoreBackend implementation ────────────────────────────────────
+
+  getAllRules(): TrustRule[] {
+    this.ensureInitialized();
+    return [...this.rules];
+  }
+
+  findHighestPriorityRule(
+    tool: string,
+    commands: string[],
+    scope: string,
+    ctx?: PolicyContext,
+  ): TrustRule | null {
+    this.ensureInitialized();
+    const ephemeral = ctx?.ephemeralRules ?? [];
+    const allRules =
+      ephemeral.length > 0
+        ? [...ephemeral, ...this.rules].sort(ruleOrder)
+        : this.rules;
+
+    for (const rule of allRules) {
+      if (rule.tool !== tool) continue;
+      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesExecutionTarget(rule, ctx)) continue;
+      const compiled = this.getCompiledPattern(rule.pattern);
+      if (!compiled) continue;
+      for (const command of commands) {
+        if (compiled.match(command)) {
+          return rule;
+        }
+      }
+    }
+    return null;
+  }
+
+  findMatchingRule(
+    tool: string,
+    command: string,
+    scope: string,
+  ): TrustRule | null {
+    this.ensureInitialized();
+    for (const rule of this.rules) {
+      if (rule.tool !== tool) continue;
+      if (rule.decision !== "allow") continue;
+      const compiled = this.getCompiledPattern(rule.pattern);
+      if (!compiled || !compiled.match(command)) continue;
+      if (!matchesScope(rule.scope, scope)) continue;
+      return rule;
+    }
+    return null;
+  }
+
+  findDenyRule(tool: string, command: string, scope: string): TrustRule | null {
+    this.ensureInitialized();
+    for (const rule of this.rules) {
+      if (rule.tool !== tool) continue;
+      if (rule.decision !== "deny") continue;
+      const compiled = this.getCompiledPattern(rule.pattern);
+      if (!compiled || !compiled.match(command)) continue;
+      if (!matchesScope(rule.scope, scope)) continue;
+      return rule;
+    }
+    return null;
+  }
+
+  addRule(
+    tool: string,
+    pattern: string,
+    scope: string,
+    decision: "allow" | "deny" | "ask" = "allow",
+    priority: number = 100,
+    options?: {
+      allowHighRisk?: boolean;
+      executionTarget?: string;
+    },
+  ): TrustRule {
+    if (tool.startsWith("__internal:"))
+      throw new Error(
+        `Cannot create internal pseudo-rule via addRule: ${tool}`,
+      );
+    this.ensureInitialized();
+    const rule = trustClient.addRuleSync({
+      tool,
+      pattern,
+      scope,
+      decision,
+      priority,
+      allowHighRisk: options?.allowHighRisk,
+      executionTarget: options?.executionTarget,
+    });
+    // Update local cache
+    this.rules = [...this.rules, rule].sort(ruleOrder);
+    this.rebuildPatternCache();
+    this.notifyListeners();
+    log.info({ rule }, "Added trust rule via gateway");
+    return rule;
+  }
+
+  updateRule(
+    id: string,
+    updates: {
+      tool?: string;
+      pattern?: string;
+      scope?: string;
+      decision?: "allow" | "deny" | "ask";
+      priority?: number;
+    },
+  ): TrustRule {
+    if (updates.tool?.startsWith("__internal:"))
+      throw new Error(
+        `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
+      );
+    this.ensureInitialized();
+    const rule = trustClient.updateRuleSync(id, updates);
+    // Update local cache
+    const idx = this.rules.findIndex((r) => r.id === id);
+    if (idx >= 0) {
+      this.rules[idx] = rule;
+    } else {
+      this.rules.push(rule);
+    }
+    this.rules = [...this.rules].sort(ruleOrder);
+    this.rebuildPatternCache();
+    this.notifyListeners();
+    log.info({ rule }, "Updated trust rule via gateway");
+    return rule;
+  }
+
+  removeRule(id: string): boolean {
+    this.ensureInitialized();
+    const success = trustClient.removeRuleSync(id);
+    if (success) {
+      this.rules = this.rules.filter((r) => r.id !== id);
+      this.rebuildPatternCache();
+      this.notifyListeners();
+      log.info({ id }, "Removed trust rule via gateway");
+    }
+    return success;
+  }
+
+  clearAllRules(): void {
+    this.ensureInitialized();
+    trustClient.clearRulesSync();
+    this.starterBundleAccepted = false;
+    // Re-fetch to get the default rules the gateway preserves
+    try {
+      this.rules = trustClient.getAllRulesSync();
+      this.rules.sort(ruleOrder);
+    } catch {
+      this.rules = [];
+    }
+    this.rebuildPatternCache();
+    this.notifyListeners();
+    log.info("Cleared all user trust rules via gateway");
+  }
+
+  acceptStarterBundle(): AcceptStarterBundleResult {
+    this.ensureInitialized();
+    const result = trustClient.acceptStarterBundleSync();
+    this.starterBundleAccepted = true;
+    // Refresh cache to include the newly added starter rules
+    try {
+      this.rules = trustClient.getAllRulesSync();
+      this.rules.sort(ruleOrder);
+    } catch {
+      // Keep stale cache
+    }
+    this.rebuildPatternCache();
+    this.notifyListeners();
+    log.info(
+      { rulesAdded: result.rulesAdded },
+      "Starter approval bundle accepted via gateway",
+    );
+    return { ...result, alreadyAccepted: result.rulesAdded === 0 };
+  }
+
+  isStarterBundleAccepted(): boolean {
+    this.ensureInitialized();
+    return this.starterBundleAccepted;
+  }
+
+  onRulesChanged(listener: () => void): void {
+    this.listeners.push(listener);
+  }
+
+  clearCache(): void {
+    this.initialized = false;
+    this.rules = [];
+    this.starterBundleAccepted = false;
+    this.gwCompiledPatterns.clear();
+    this.gwInvalidPatterns.clear();
+    if (this.refreshTimer != null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  patternMatchesCandidate(pattern: string, candidate: string): boolean {
+    const compiled = this.getCompiledPattern(pattern);
+    if (!compiled) return false;
+    return compiled.match(candidate);
+  }
+
+  getStarterBundleRules(): StarterBundleRule[] {
+    // Starter bundle definitions are static — same regardless of backend.
+    return getStarterBundleRules();
+  }
+}
+
+/** Singleton gateway adapter instance (lazily created). */
+let gatewayTrustStoreBackend: GatewayTrustStoreAdapter | null = null;
+
+function getGatewayTrustStore(): GatewayTrustStoreAdapter {
+  if (!gatewayTrustStoreBackend) {
+    gatewayTrustStoreBackend = new GatewayTrustStoreAdapter();
+  }
+  return gatewayTrustStoreBackend;
+}
+
 /**
  * Returns the active trust store backend.
  *
- * Currently always returns the file-based implementation. A future PR will
- * add a gateway-backed backend for containerized deployments and switch
- * based on `getIsContainerized()`.
+ * When `IS_CONTAINERIZED=true`, returns a gateway-backed adapter that
+ * proxies all trust operations through the gateway HTTP API. The daemon
+ * never reads or writes `protected/trust.json` directly in Docker.
+ *
+ * When `IS_CONTAINERIZED=false`, returns the file-based implementation
+ * (no change from previous behavior).
  */
 export function getTrustStore(): TrustStoreBackend {
+  if (getIsContainerized()) {
+    return getGatewayTrustStore();
+  }
   return fileTrustStoreBackend;
 }
