@@ -442,24 +442,17 @@ private class ClickReportingTextView: NSTextView {
     var onContentClick: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) {
-        let mouseDownLocation = event.locationInWindow
+        let downLocation = event.locationInWindow
         super.mouseDown(with: event)
-
-        // NSTextView handles click/drag tracking inside mouseDown and may not
-        // invoke our mouseUp override afterward, so detect the completed click
-        // here once AppKit returns control to us.
-        guard event.clickCount == 1 else { return }
-
-        // Only fire if the mouse didn't move significantly (i.e. not a drag
-        // for text selection). A 3-point threshold accounts for minor jitter.
-        let mouseUpLocation = window?.mouseLocationOutsideOfEventStream ?? mouseDownLocation
-        let dx = abs(mouseUpLocation.x - mouseDownLocation.x)
-        let dy = abs(mouseUpLocation.y - mouseDownLocation.y)
+        // super.mouseDown blocks until mouse-up (NSTextView runs a tracking
+        // loop for text selection). Detect click vs drag here, not in mouseUp
+        // which is never called through the normal responder chain.
+        guard let currentEvent = window?.currentEvent else { return }
+        let upLocation = currentEvent.locationInWindow
+        let dx = abs(upLocation.x - downLocation.x)
+        let dy = abs(upLocation.y - downLocation.y)
         if dx < 3 && dy < 3 {
-            let onContentClick = onContentClick
-            DispatchQueue.main.async {
-                onContentClick?()
-            }
+            onContentClick?()
         }
     }
 }
