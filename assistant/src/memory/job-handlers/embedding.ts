@@ -11,6 +11,7 @@ import type { MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
 import {
   mediaAssets,
+  memoryEpisodes,
   memoryItems,
   memorySegments,
   memorySummaries,
@@ -157,5 +158,27 @@ export async function embedAttachmentJob(
     message_id: messageId,
     conversation_id: message.conversationId,
     memory_scope_id: memoryScopeId,
+  });
+}
+
+export async function embedEpisodeJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const episodeId = asString(job.payload.episodeId);
+  if (!episodeId) return;
+  const db = getDb();
+  const episode = db
+    .select()
+    .from(memoryEpisodes)
+    .where(eq(memoryEpisodes.id, episodeId))
+    .get();
+  if (!episode) return;
+  const text = `[episode] ${episode.title}: ${episode.summary}`;
+  await embedAndUpsert(config, "episode", episode.id, text, {
+    conversation_id: episode.conversationId,
+    created_at: episode.startAt,
+    last_seen_at: episode.endAt,
+    memory_scope_id: episode.scopeId,
   });
 }
