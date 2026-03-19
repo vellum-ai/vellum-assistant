@@ -509,14 +509,14 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane file browser — two rounded cards side by side (matching workspace)
-            HStack(alignment: .top, spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.xl) {
                 // Left: file tree sidebar — rounded card with background
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceLift)
+                            .fill(VColor.surfaceBase)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
@@ -543,7 +543,7 @@ struct AgentPanelContent: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceLift)
+                        .fill(VColor.surfaceBase)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
