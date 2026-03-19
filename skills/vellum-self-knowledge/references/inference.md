@@ -59,6 +59,6 @@ assistant config get services.inference.provider
 
 ## How Inference Routing Works
 
-The daemon initializes a provider registry on startup, with a primary provider from config and fallback providers ordered by `providerOrder`. When a request is made, the primary provider is used first; if it fails, fallbacks are tried in order.
+The assistant initializes a provider registry on startup, with a primary provider from config and fallback providers ordered by `providerOrder`. When a request is made, the primary provider is used first; if it fails, fallbacks are tried in order.
 
 Model intents (`latency-optimized`, `quality-optimized`, `vision-optimized`) can select different models within the same provider, allowing the system to route to a faster or more capable model depending on the task without switching providers.
