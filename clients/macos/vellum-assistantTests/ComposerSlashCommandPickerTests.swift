@@ -15,19 +15,19 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
         XCTAssertFalse(SlashCommand.all.contains(where: { $0.name == "model" }))
     }
 
-    func testBtwSelectionInsertsTrailingSpaceWithoutAutoSend() {
+    func testBtwSelectionInsertsTrailingSpaceWithoutAutoSend() throws {
         let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "btw" }))
         XCTAssertEqual(command.selectedInputText, "/btw ")
         XCTAssertFalse(command.shouldAutoSendOnSelect)
     }
 
-    func testPairSelectionAutoSendsWithoutTrailingSpace() {
+    func testPairSelectionAutoSendsWithoutTrailingSpace() throws {
         let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "pair" }))
         XCTAssertEqual(command.selectedInputText, "/pair")
         XCTAssertTrue(command.shouldAutoSendOnSelect)
     }
 
-    func testBtwTabCompletionUsesSelectionInsertionText() {
+    func testBtwTabCompletionUsesSelectionInsertionText() throws {
         let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "btw" }))
         XCTAssertEqual(ComposerView.slashCommandInputTextForSelection(command), "/btw ")
     }

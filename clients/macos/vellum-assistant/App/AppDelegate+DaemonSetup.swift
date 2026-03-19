@@ -298,7 +298,9 @@ extension AppDelegate {
         // override properties; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
             if msg.key == "ttsVoiceId" {
-                OpenAIVoiceService.overrideVoiceId = msg.value
+                Task { @MainActor in
+                    OpenAIVoiceService.overrideVoiceId = msg.value
+                }
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             } else if msg.key == "voiceConversationTimeoutSeconds" {
                 let parsed = Int(msg.value)

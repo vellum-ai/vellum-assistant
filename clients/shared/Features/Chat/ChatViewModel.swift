@@ -1257,12 +1257,11 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let hasRecognizedSlashCommand = ChatSlashCommandCatalog.isRecognizedSlashCommand(
-            text,
-            platform: sendPathPlatform,
-            surface: .sendPath
+        let shouldBypassWorkspaceRefinement = ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
+            forRawInput: text,
+            platform: sendPathPlatform
         )
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !hasRecognizedSlashCommand
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !shouldBypassWorkspaceRefinement
 
         let willBeQueued = isSending && conversationId != nil
         var queuedMessageId: UUID?
@@ -2884,39 +2883,6 @@ public final class ChatViewModel: ObservableObject {
             activeSubagents.append(info)
         }
 
-        // Tag assistant messages that follow "/models" user messages
-        // so the client renders the table UI instead of plain text.
-        var hasModelCommand = false
-        for i in chatMessages.indices {
-            guard chatMessages[i].role == .user,
-                  i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
-            let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if userText == "/models" {
-                chatMessages[i + 1].modelList = ModelListData()
-                hasModelCommand = true
-            } else if userText == "/commands" {
-                chatMessages[i + 1].commandList = CommandListData()
-            }
-        }
-        // Refresh model/provider state so the picker/table has correct data on restart
-        if hasModelCommand {
-            Task {
-                let info = await SettingsClient().fetchModelInfo()
-                if let model = info?.model {
-                    self.selectedModel = model
-                }
-                if let providers = info?.configuredProviders {
-                    self.configuredProviders = Set(providers)
-                }
-                if let allProviders = info?.allProviders, !allProviders.isEmpty {
-                    self.providerCatalog = allProviders
-                }
-                if let maskedKeys = info?.maskedKeys {
-                    self.providerMaskedKeys = maskedKeys
-                }
-            }
-        }
-
         // Update daemon pagination cursor from the response metadata.
         self.hasMoreHistory = hasMore
         self.historyCursor = oldestTimestamp
@@ -2928,7 +2894,9 @@ public final class ChatViewModel: ObservableObject {
             // Flush any buffered partial output before prepending — the prepend
             // shifts positional indices so stale buffer entries would corrupt.
             flushPartialOutputBuffer()
-            self.messages = chatMessages + self.messages
+            var mergedMessages = chatMessages + self.messages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Use Int.max if no more pages exist.
             if hasMore {
@@ -2942,6 +2910,7 @@ public final class ChatViewModel: ObservableObject {
             self.loadMoreTimeoutTask = nil
             self.isLoadingMoreMessages = false
             trimOldMessagesIfNeeded()
+            refreshModelMetadataIfNeeded(hasModelCommand)
             return
         }
 
@@ -2987,9 +2956,12 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if !isDuplicate { localOnly.append(local) }
             }
-            self.messages = chatMessages + localOnly
+            var mergedMessages = chatMessages + localOnly
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
             self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
+            refreshModelMetadataIfNeeded(hasModelCommand)
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -3004,9 +2976,15 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 uniqueHistory = chatMessages
             }
-            self.messages = uniqueHistory + self.messages
+            var mergedMessages = uniqueHistory + self.messages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
+            refreshModelMetadataIfNeeded(hasModelCommand)
         } else {
-            self.messages = chatMessages
+            var taggedMessages = chatMessages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &taggedMessages)
+            self.messages = taggedMessages
+            refreshModelMetadataIfNeeded(hasModelCommand)
         }
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
@@ -3017,6 +2995,48 @@ public final class ChatViewModel: ObservableObject {
         trimOldMessagesIfNeeded()
         // Fetch pending guardian prompts when history loads (conversation open/restore)
         refreshGuardianPrompts()
+    }
+
+    private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
+        var hasModelCommand = false
+
+        for i in chatMessages.indices {
+            guard chatMessages[i].role == .user,
+                  i + 1 < chatMessages.count,
+                  chatMessages[i + 1].role == .assistant else {
+                continue
+            }
+
+            let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if userText == "/models" {
+                chatMessages[i + 1].modelList = ModelListData()
+                hasModelCommand = true
+            } else if userText == "/commands" {
+                chatMessages[i + 1].commandList = CommandListData()
+            }
+        }
+
+        return hasModelCommand
+    }
+
+    private func refreshModelMetadataIfNeeded(_ shouldRefresh: Bool) {
+        guard shouldRefresh else { return }
+
+        Task {
+            let info = await SettingsClient().fetchModelInfo()
+            if let model = info?.model {
+                self.selectedModel = model
+            }
+            if let providers = info?.configuredProviders {
+                self.configuredProviders = Set(providers)
+            }
+            if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                self.providerCatalog = allProviders
+            }
+            if let maskedKeys = info?.maskedKeys {
+                self.providerMaskedKeys = maskedKeys
+            }
+        }
     }
 
     deinit {

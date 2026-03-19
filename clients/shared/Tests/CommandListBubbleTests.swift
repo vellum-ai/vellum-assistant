@@ -29,4 +29,30 @@ final class CommandListBubbleTests: XCTestCase {
 
         XCTAssertNil(CommandListBubble.parsedEntries(from: assistantText))
     }
+
+    func testParsedEntriesSupportMarkdownWrappedCommandTokens() {
+        let assistantText = """
+        COMMANDS
+        - `/commands` — List all available commands
+        - `/models` — List all available models
+        """
+
+        let parsed = CommandListBubble.parsedEntries(from: assistantText)
+
+        XCTAssertEqual(parsed?.map(\.id), ["/commands", "/models"])
+        XCTAssertEqual(parsed?.map(\.description), [
+            "List all available commands",
+            "List all available models",
+        ])
+    }
+
+    func testParsedEntriesReturnNilWhenAssistantTextMixesIntroProseWithCommandRows() {
+        let assistantText = """
+        Here are the commands you can use:
+        - /commands — List all available commands
+        - /models — List all available models
+        """
+
+        XCTAssertNil(CommandListBubble.parsedEntries(from: assistantText))
+    }
 }

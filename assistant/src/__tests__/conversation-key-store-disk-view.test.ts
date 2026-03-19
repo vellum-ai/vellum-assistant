@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
 import { eq } from "drizzle-orm";
 
 const testDir = realpathSync(
@@ -66,7 +67,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb, getDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversationKeys, conversations } from "../memory/schema.js";
 
 initializeDb();

@@ -217,6 +217,32 @@ final class SlashCommandCatalogTests: XCTestCase {
         )
     }
 
+    func testDeprecatedDaemonManagedCommandsStillBypassWorkspaceRefinement() {
+        XCTAssertTrue(ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
+            forRawInput: "/model",
+            platform: .macos
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
+            forRawInput: "/opus explain this",
+            platform: .macos
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
+            forRawInput: "/OPUS explain this",
+            platform: .macos
+        ))
+
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/model",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/OPUS explain this",
+            platform: .macos,
+            surface: .sendPath
+        ))
+    }
+
     func testModelMetadataRefreshOnlyForExactModelsCommand() {
         XCTAssertTrue(ChatSlashCommandCatalog.shouldRefreshModelMetadata(
             forRawInput: "/models",
