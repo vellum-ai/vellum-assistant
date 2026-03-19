@@ -26,6 +26,11 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "perplexity") return mockPerplexitySecureKey;
     return undefined;
   },
+  getProviderKeyAsync: async (provider: string) => {
+    if (provider === "brave") return mockBraveSecureKey;
+    if (provider === "perplexity") return mockPerplexitySecureKey;
+    return undefined;
+  },
 }));
 
 mock.module("../../../util/logger.js", () => ({
