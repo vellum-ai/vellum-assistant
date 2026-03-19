@@ -15,6 +15,9 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.preview, .source]
     }
+    if ext == "json" || mime.hasPrefix("application/json") {
+        return [.tree, .source]
+    }
     return [.source]
 }
 
@@ -46,6 +49,10 @@ struct FileContentView: View {
     var isEditable: Bool = false
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
+    @Binding var isActivelyEditing: Bool
+    @State private var isContentHovered = false
+    @State private var expandAllTrigger = 0
+    @State private var collapseAllTrigger = 0
 
     private func syncViewMode() {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
@@ -81,27 +88,103 @@ struct FileContentView: View {
 
             Divider().background(VColor.borderBase)
 
-            switch viewMode {
-            case .source:
-                HighlightedTextView(
-                    text: isEditable ? $content : .constant(content),
-                    language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
-                    isEditable: isEditable,
-                    onTextChange: onTextChange
-                )
-                .id(fileName)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .preview:
-                MarkdownPreviewView(content: content)
+            ZStack(alignment: .topTrailing) {
+                switch viewMode {
+                case .source:
+                    HighlightedTextView(
+                        text: isEditable ? $content : .constant(content),
+                        language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
+                        isEditable: isEditable,
+                        isActivelyEditing: $isActivelyEditing,
+                        onTextChange: onTextChange
+                    )
+                    .id(fileName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .preview:
+                    MarkdownPreviewView(content: content)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                case .tree:
+                    JSONTreeView(
+                        content: content,
+                        expandAllTrigger: expandAllTrigger,
+                        collapseAllTrigger: collapseAllTrigger
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .tree:
-                JSONTreeView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+
+                if isContentHovered && !isActivelyEditing {
+                    hoverOverlay
+                }
+            }
+            .onHover { hovering in
+                isContentHovered = hovering
             }
         }
+        .onChange(of: viewMode) { _, newMode in
+            if newMode != .source { isActivelyEditing = false }
+            let modes = availableViewModes(for: fileName, mimeType: mimeType)
+            guard modes.count > 1 else { return }
+            let preference = newMode == .source ? "source" : "preview"
+            UserDefaults.standard.set(preference, forKey: "fileViewerPreferredMode")
+        }
+        .onChange(of: fileName) { _, _ in
+            isActivelyEditing = false
+            syncViewMode()
+        }
         .onAppear { syncViewMode() }
-        .onChange(of: fileName) { syncViewMode() }
         .onChange(of: mimeType) { syncViewMode() }
+    }
+
+    // MARK: - Hover Overlay
+
+    /// Floating toolbar shown on hover over the file content area.
+    /// Source mode: Edit + Copy. Tree mode: Expand All + Collapse All + Copy.
+    /// Preview mode: Copy only.
+    @ViewBuilder
+    private var hoverOverlay: some View {
+        HStack(spacing: VSpacing.xs) {
+            if isEditable && viewMode == .source {
+                VButton(
+                    label: "Edit",
+                    iconOnly: VIcon.pencil.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Edit"
+                ) {
+                    isActivelyEditing = true
+                }
+            }
+
+            if viewMode == .tree {
+                VButton(
+                    label: "Expand All",
+                    iconOnly: VIcon.maximize.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Expand All"
+                ) {
+                    expandAllTrigger += 1
+                }
+
+                VButton(
+                    label: "Collapse All",
+                    iconOnly: VIcon.minimize.rawValue,
+                    style: .ghost,
+                    iconSize: 28,
+                    tooltip: "Collapse All"
+                ) {
+                    collapseAllTrigger += 1
+                }
+            }
+
+            VCopyButton(text: content, iconSize: 28, accessibilityHint: "Copy all")
+        }
+        .padding(VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay.opacity(0.9))
+        )
+        .padding(VSpacing.sm)
     }
 }
 

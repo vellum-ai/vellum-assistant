@@ -34,6 +34,7 @@ final class WorkspaceBrowserState {
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
     var viewMode: FileViewMode = .source
+    var isActivelyEditing: Bool = false
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
@@ -46,27 +47,52 @@ final class WorkspaceBrowserState {
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
         let ext = (targetPath as NSString).pathExtension.lowercased()
-        if ext == "md" || ext == "markdown" {
+        let prefersSource = UserDefaults.standard.string(forKey: "fileViewerPreferredMode") == "source"
+        if prefersSource {
+            viewMode = .source
+        } else if ext == "md" || ext == "markdown" {
             viewMode = .preview
+        } else if ext == "json" {
+            viewMode = .tree
         } else {
             viewMode = .source
         }
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
+        isActivelyEditing = false
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
-            editableContent = detail?.content ?? ""
-            originalContent = detail?.content ?? ""
+            let raw = detail?.content ?? ""
+            let isJSON = ext == "json"
+                || detail?.mimeType.lowercased().hasPrefix("application/json") == true
+            let content = isJSON ? Self.prettyPrintJSON(raw) : raw
+            if isJSON, !prefersSource, viewMode != .tree {
+                viewMode = .tree
+            }
+            editableContent = content
+            originalContent = content
             isDirty = false
             isSaving = false
             isLoadingFile = false
         }
         fileLoadTask = task
+    }
+
+    /// Returns a pretty-printed version of `text`, falling back to the
+    /// original string on any JSON parse error.
+    private static func prettyPrintJSON(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed),
+              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .withoutEscapingSlashes]),
+              let result = String(data: pretty, encoding: .utf8) else {
+            return text
+        }
+        return result
     }
 }
 
@@ -727,7 +753,11 @@ private struct WorkspaceFileViewer: View {
                     showReadOnlyBadge: readOnly,
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
-                    }
+                    },
+                    isActivelyEditing: Binding(
+                        get: { state.isActivelyEditing },
+                        set: { state.isActivelyEditing = $0 }
+                    )
                 )
             } else {
                 FileContentHeaderBar(
@@ -747,7 +777,7 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            if isText && !readOnly && state.isDirty {
+            if isText && !readOnly && state.isActivelyEditing {
                 Divider().background(VColor.borderBase)
                 HStack {
                     Spacer()
@@ -756,7 +786,7 @@ private struct WorkspaceFileViewer: View {
                             label: "Discard",
                             style: .ghost,
                             size: .compact,
-                            isDisabled: state.isSaving
+                            isDisabled: state.isSaving || !state.isDirty
                         ) {
                             state.editableContent = state.originalContent
                             state.isDirty = false
@@ -768,7 +798,7 @@ private struct WorkspaceFileViewer: View {
                             label: "Save",
                             style: .primary,
                             size: .compact,
-                            isDisabled: state.isSaving
+                            isDisabled: state.isSaving || !state.isDirty
                         ) {
                             Task { await saveFile(path: detail.path) }
                         }

@@ -147,6 +147,8 @@ declare -a SAFE_LINE_PATTERNS=(
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
+    # Inline JSON-schema property definition (e.g. `client_secret: { type: "string" },`).
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*type:"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     # Also covers union types like `clientSecret: string | undefined;`.
