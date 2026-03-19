@@ -666,7 +666,6 @@ struct MainWindowView: View {
                         errorManager: viewModel.errorManager,
                         hasAPIKey: windowState.hasAPIKey,
                         needsInferenceApiKey: windowState.needsInferenceApiKey,
-                        inferenceProviderDisplayName: windowState.inferenceProviderDisplayName,
                         onOpenModelsAndServices: {
                             settingsStore.pendingSettingsTab = .modelsAndServices
                             windowState.selection = .panel(.settings)
@@ -680,7 +679,7 @@ struct MainWindowView: View {
                     )
                 } else if windowState.needsInferenceApiKey {
                     ChatConversationErrorToast(
-                        message: "Add your \(windowState.inferenceProviderDisplayName) API key to start chatting.",
+                        message: "Add an API key to start chatting.",
                         icon: .keyRound,
                         accentColor: VColor.systemMidStrong,
                         actionLabel: "Open Settings",
@@ -1014,7 +1013,6 @@ private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
     let needsInferenceApiKey: Bool
-    let inferenceProviderDisplayName: String
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -1027,7 +1025,7 @@ private struct ErrorToastOverlay: View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
             if needsInferenceApiKey {
                 ChatConversationErrorToast(
-                    message: "Add your \(inferenceProviderDisplayName) API key to start chatting.",
+                    message: "Add an API key to start chatting.",
                     icon: .keyRound,
                     accentColor: VColor.systemMidStrong,
                     actionLabel: "Open Settings",
