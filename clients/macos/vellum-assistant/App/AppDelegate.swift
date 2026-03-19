@@ -206,6 +206,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // can appear as a blank window during activation policy transitions).
         NSWindow.allowsAutomaticWindowTabbing = false
 
+        // Migrate legacy privacy keys (collectUsageDataEnabled,
+        // sendPerformanceReports) to their canonical equivalents
+        // synchronously so the Sentry gate below sees the correct value.
+        Self.migratePrivacyDefaults()
+
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.

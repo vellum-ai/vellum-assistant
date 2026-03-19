@@ -466,32 +466,56 @@ extension AppDelegate {
 
     // MARK: - Privacy
 
-    /// Reads both privacy keys from UserDefaults (with legacy fallbacks),
-    /// applies Sentry state based on sendDiagnostics, syncs both keys to
-    /// the daemon, and cleans up legacy UserDefaults keys.
+    /// Synchronously migrates legacy privacy UserDefaults keys to their
+    /// canonical equivalents. Must be called **before** Sentry initialization
+    /// so that users who opted out via the old `collectUsageDataEnabled`
+    /// master switch are respected from the very first SDK decision.
+    ///
+    /// This is the local-only (UserDefaults) portion of the migration.
+    /// The daemon-sync portion still happens asynchronously in
+    /// `syncPrivacyConfig()` after the daemon connects.
+    static func migratePrivacyDefaults() {
+        let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+        let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
+
+        let legacySendDiagnostics = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+        let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+        let sendDiagnostics = canonicalSendDiagnostics ?? legacySendDiagnostics ?? collectUsageData
+
+        // Write canonical keys so downstream reads (Sentry init, MetricKitManager)
+        // see the migrated values without needing legacy fallback chains.
+        if let collectUsageData {
+            UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
+        }
+        if let sendDiagnostics {
+            UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
+        }
+
+        // Clean up legacy keys
+        UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
+        UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
+        UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+    }
+
+    /// Reads both privacy keys from UserDefaults, applies Sentry state based
+    /// on sendDiagnostics, and syncs both keys to the daemon.
+    ///
+    /// Legacy key migration has already been performed by
+    /// `migratePrivacyDefaults()` at launch, so this method only reads
+    /// canonical keys.
     ///
     /// Only syncs a key to the daemon when a value is explicitly present in
-    /// UserDefaults (including legacy keys). When no local value exists we
-    /// leave the daemon's persisted config untouched — defaulting to `true`
-    /// and pushing that upstream would silently re-enable telemetry for
-    /// users who previously opted out on a different machine or after a
-    /// UserDefaults reset.
+    /// UserDefaults. When no local value exists we leave the daemon's
+    /// persisted config untouched — defaulting to `true` and pushing that
+    /// upstream would silently re-enable telemetry for users who previously
+    /// opted out on a different machine or after a UserDefaults reset.
     func syncPrivacyConfig() {
         Task {
-            // Read with legacy fallbacks for first launch after upgrade.
-            // Keep track of whether a value was explicitly set vs defaulted,
-            // so we only sync explicitly-set values to the daemon.
-            let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
-            let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-            let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             let hasExplicitCollectUsageData = collectUsageData != nil
 
-            let legacySendDiagnostics = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
-            let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            // Fall back to the legacy sendPerformanceReports key first, then
-            // to legacy collectUsageData keys so users who opted out via the
-            // old master switch keep Sentry disabled.
-            let sendDiagnostics = canonicalSendDiagnostics ?? legacySendDiagnostics ?? collectUsageData
+            let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             let hasExplicitSendDiagnostics = sendDiagnostics != nil
 
             // Apply Sentry state based on sendDiagnostics (default true when absent)
@@ -509,17 +533,6 @@ extension AppDelegate {
 
             let tosAccepted = UserDefaults.standard.bool(forKey: "tosAccepted")
             log.info("ToS accepted: \(tosAccepted, privacy: .public)")
-
-            // Clean up legacy keys and write canonical ones
-            UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
-            UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
-            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
-            if let collectUsageData {
-                UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
-            }
-            if let sendDiagnostics {
-                UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
-            }
         }
     }
 
