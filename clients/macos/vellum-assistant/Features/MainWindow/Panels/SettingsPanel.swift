@@ -23,21 +23,6 @@ enum SettingsTab: String {
         tabs.append(.archivedConversations)
         return tabs
     }
-
-    /// Resolves a tab name string to a SettingsTab, with backward compatibility for old names.
-    static func fromRawValue(_ value: String, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
-        // Support old raw values for backward compatibility
-        let tab: SettingsTab?
-        switch value {
-        case "Archived Threads": tab = .archivedConversations
-        default: tab = SettingsTab(rawValue: value)
-        }
-        guard let tab else { return nil }
-        // Block feature-flagged tabs when disabled
-        if tab == .billing && !billingEnabled { return nil }
-        if tab == .developer && !developerEnabled { return nil }
-        return tab
-    }
 }
 
 @MainActor
