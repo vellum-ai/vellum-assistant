@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { registerAppCommands } from "./apps.js";
 import { registerConnectionCommands } from "./connections.js";
+import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
 
 export function registerOAuthCommand(program: Command): void {
@@ -49,4 +50,10 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerConnectionCommands(oauth);
+
+  // ---------------------------------------------------------------------------
+  // platform — subcommand group
+  // ---------------------------------------------------------------------------
+
+  registerPlatformCommands(oauth);
 }
