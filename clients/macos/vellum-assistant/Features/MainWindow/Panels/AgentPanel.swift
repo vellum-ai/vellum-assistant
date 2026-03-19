@@ -491,7 +491,7 @@ struct AgentPanelContent: View {
                 Text(skill.description)
                     .font(VFont.body)
                     .foregroundColor(VColor.contentSecondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             // Meta info
@@ -524,14 +524,16 @@ struct AgentPanelContent: View {
                 }
             }
 
-            // Two-pane file browser — identical to WorkspacePanel layout
-            HStack(spacing: 0) {
-                // Left: file tree sidebar (matches WorkspaceTreeSidebar — no background)
+            // Two-pane file browser — matching workspace panel style
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                // Left: file tree sidebar (rounded card like workspace)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
-                // Right: file content viewer (matches WorkspaceFileViewer)
+                // Right: file content viewer (rounded card like workspace)
                 Group {
                     if let selectedPath = expandedFilePath,
                        let filesResponse = skillsManager.selectedSkillFiles,
@@ -544,16 +546,6 @@ struct AgentPanelContent: View {
                             content: .constant(content),
                             viewMode: $skillFileViewMode
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .fill(VColor.surfaceBase)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.borderBase, lineWidth: 1)
-                        )
-                        .padding(.horizontal, VSpacing.md)
                     } else {
                         VEmptyState(
                             title: hasViewableFiles ? "Select a file to view" : "No viewable files",
@@ -563,6 +555,7 @@ struct AgentPanelContent: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VColor.surfaceOverlay)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
