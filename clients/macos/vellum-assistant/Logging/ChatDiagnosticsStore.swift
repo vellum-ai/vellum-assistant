@@ -1,0 +1,319 @@
+import Foundation
+import os
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "ChatDiagnostics"
+)
+
+// MARK: - Event Payloads
+
+/// Kind of diagnostic event. Later PRs add new cases; the raw value is the
+/// string written into the JSONL session log so it must remain stable.
+enum ChatDiagnosticEventKind: String, Codable, Sendable {
+    case scrollPositionChanged
+    case scrollLoopDetected
+    case progressCardTransition
+    case transcriptSnapshotCaptured
+    case stallDetected
+    case appLifecycle
+}
+
+/// Content-safe diagnostic event.
+///
+/// **Privacy invariant**: events record only identifiers, flags, counts, and
+/// geometry. They never include message text, tool input/output bodies,
+/// inline surface HTML, or attachment contents.
+struct ChatDiagnosticEvent: Codable, Sendable {
+    /// Auto-generated unique identifier for this event.
+    let id: String
+    /// When the event was recorded.
+    let timestamp: Date
+    /// The diagnostic event category.
+    let kind: ChatDiagnosticEventKind
+    /// Conversation the event relates to, if any.
+    let conversationId: String?
+    /// Human-readable reason or trigger description (no user content).
+    let reason: String?
+
+    // MARK: Counts & flags
+
+    /// Number of messages in the transcript at event time.
+    let messageCount: Int?
+    /// Number of visible tool calls at event time.
+    let toolCallCount: Int?
+    /// Whether the transcript was pinned to the bottom.
+    let isPinnedToBottom: Bool?
+    /// Whether the user was actively scrolling.
+    let isUserScrolling: Bool?
+
+    // MARK: Geometry
+
+    /// Scroll offset Y at event time.
+    let scrollOffsetY: Double?
+    /// Visible content height at event time.
+    let contentHeight: Double?
+    /// Viewport height at event time.
+    let viewportHeight: Double?
+
+    init(
+        kind: ChatDiagnosticEventKind,
+        conversationId: String? = nil,
+        reason: String? = nil,
+        messageCount: Int? = nil,
+        toolCallCount: Int? = nil,
+        isPinnedToBottom: Bool? = nil,
+        isUserScrolling: Bool? = nil,
+        scrollOffsetY: Double? = nil,
+        contentHeight: Double? = nil,
+        viewportHeight: Double? = nil
+    ) {
+        self.id = UUID().uuidString
+        self.timestamp = Date()
+        self.kind = kind
+        self.conversationId = conversationId
+        self.reason = reason
+        self.messageCount = messageCount
+        self.toolCallCount = toolCallCount
+        self.isPinnedToBottom = isPinnedToBottom
+        self.isUserScrolling = isUserScrolling
+        self.scrollOffsetY = scrollOffsetY
+        self.contentHeight = contentHeight
+        self.viewportHeight = viewportHeight
+    }
+
+    /// Test-only initializer that allows setting id and timestamp explicitly.
+    init(
+        id: String,
+        timestamp: Date,
+        kind: ChatDiagnosticEventKind,
+        conversationId: String? = nil,
+        reason: String? = nil,
+        messageCount: Int? = nil,
+        toolCallCount: Int? = nil,
+        isPinnedToBottom: Bool? = nil,
+        isUserScrolling: Bool? = nil,
+        scrollOffsetY: Double? = nil,
+        contentHeight: Double? = nil,
+        viewportHeight: Double? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.kind = kind
+        self.conversationId = conversationId
+        self.reason = reason
+        self.messageCount = messageCount
+        self.toolCallCount = toolCallCount
+        self.isPinnedToBottom = isPinnedToBottom
+        self.isUserScrolling = isUserScrolling
+        self.scrollOffsetY = scrollOffsetY
+        self.contentHeight = contentHeight
+        self.viewportHeight = viewportHeight
+    }
+}
+
+// MARK: - Transcript Snapshot
+
+/// A point-in-time snapshot of per-conversation transcript state.
+/// Used by the debug panel and exported with hang diagnostics.
+struct ChatTranscriptSnapshot: Codable, Sendable {
+    let conversationId: String
+    let capturedAt: Date
+    let messageCount: Int
+    let toolCallCount: Int
+    let isPinnedToBottom: Bool
+    let isUserScrolling: Bool
+    let scrollOffsetY: Double?
+    let contentHeight: Double?
+    let viewportHeight: Double?
+}
+
+// MARK: - ChatDiagnosticsStore
+
+/// Shared diagnostics store for the chat transcript.
+///
+/// Owns three pieces of content-safe state:
+/// 1. A bounded in-memory ring buffer of recent `ChatDiagnosticEvent` values.
+/// 2. A per-conversation `ChatTranscriptSnapshot`.
+/// 3. A per-launch JSONL session log file under
+///    `~/Library/Application Support/vellum-assistant/logs/`.
+@MainActor
+final class ChatDiagnosticsStore {
+
+    static let shared = ChatDiagnosticsStore()
+
+    // MARK: - Configuration
+
+    /// Maximum number of events retained in the in-memory ring buffer.
+    static let ringBufferCapacity = 500
+
+    /// Maximum session log file size in bytes (1 MB).
+    static let maxSessionLogBytes = 1_048_576
+
+    /// Maximum number of session log files to retain on disk.
+    static let maxSessionLogFiles = 10
+
+    // MARK: - State
+
+    /// Bounded ring buffer of recent events (oldest evicted first).
+    private(set) var events: [ChatDiagnosticEvent] = []
+
+    /// Per-conversation transcript snapshots, keyed by conversation ID.
+    private(set) var transcriptSnapshots: [String: ChatTranscriptSnapshot] = [:]
+
+    // MARK: - Session Log
+
+    private let logsDirectory: URL
+    private let sessionLogURL: URL
+    private let encoder: JSONEncoder
+    private var sessionLogBytesWritten: Int = 0
+    private var sessionLogHandle: FileHandle?
+
+    // MARK: - Init
+
+    init() {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+
+        let logsDir = appSupport
+            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent("logs", isDirectory: true)
+        self.logsDirectory = logsDir
+
+        // Create logs directory if needed.
+        try? FileManager.default.createDirectory(
+            at: logsDir,
+            withIntermediateDirectories: true
+        )
+
+        // Name the session log with launch timestamp and PID.
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
+        let timestamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let filename = "chat-diagnostics-\(timestamp)-\(pid).jsonl"
+        self.sessionLogURL = logsDir.appendingPathComponent(filename)
+
+        self.encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+
+        // Create the session log file and open a handle for appending.
+        FileManager.default.createFile(atPath: sessionLogURL.path, contents: nil)
+        self.sessionLogHandle = FileHandle(forWritingAtPath: sessionLogURL.path)
+
+        // Prune old session logs.
+        pruneSessionLogs()
+
+        log.info("Chat diagnostics session log: \(self.sessionLogURL.lastPathComponent)")
+    }
+
+    deinit {
+        try? sessionLogHandle?.close()
+    }
+
+    // MARK: - Recording Events
+
+    /// Records a diagnostic event into the ring buffer and session log.
+    func record(_ event: ChatDiagnosticEvent) {
+        // Append to ring buffer, evicting oldest if at capacity.
+        events.append(event)
+        if events.count > Self.ringBufferCapacity {
+            events.removeFirst(events.count - Self.ringBufferCapacity)
+        }
+
+        // Write to session log if under size cap.
+        writeToSessionLog(event)
+    }
+
+    // MARK: - Transcript Snapshots
+
+    /// Updates the transcript snapshot for a conversation.
+    func updateSnapshot(_ snapshot: ChatTranscriptSnapshot) {
+        transcriptSnapshots[snapshot.conversationId] = snapshot
+    }
+
+    /// Returns the current snapshot for a conversation, if any.
+    func snapshot(for conversationId: String) -> ChatTranscriptSnapshot? {
+        transcriptSnapshots[conversationId]
+    }
+
+    /// Removes the snapshot for a conversation.
+    func removeSnapshot(for conversationId: String) {
+        transcriptSnapshots.removeValue(forKey: conversationId)
+    }
+
+    // MARK: - Session Log Writing
+
+    private func writeToSessionLog(_ event: ChatDiagnosticEvent) {
+        guard sessionLogBytesWritten < Self.maxSessionLogBytes else { return }
+
+        do {
+            var data = try encoder.encode(event)
+            data.append(contentsOf: [0x0A]) // newline
+            let size = data.count
+
+            guard sessionLogBytesWritten + size <= Self.maxSessionLogBytes else {
+                return
+            }
+
+            sessionLogHandle?.write(data)
+            sessionLogBytesWritten += size
+        } catch {
+            log.error("Failed to encode diagnostic event: \(error)")
+        }
+    }
+
+    // MARK: - Session Log Pruning
+
+    /// Removes older session log files so only the newest
+    /// `maxSessionLogFiles` remain.
+    func pruneSessionLogs() {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        // Filter to chat diagnostics JSONL files.
+        let diagnosticFiles = contents.filter {
+            $0.lastPathComponent.hasPrefix("chat-diagnostics-")
+                && $0.pathExtension == "jsonl"
+        }
+
+        guard diagnosticFiles.count > Self.maxSessionLogFiles else { return }
+
+        // Sort newest first by modification date.
+        let sorted = diagnosticFiles.sorted { a, b in
+            let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return aDate > bDate
+        }
+
+        // Remove all beyond the retention limit.
+        for file in sorted.dropFirst(Self.maxSessionLogFiles) {
+            do {
+                try fm.removeItem(at: file)
+                log.info("Pruned old session log: \(file.lastPathComponent)")
+            } catch {
+                log.warning("Failed to prune session log \(file.lastPathComponent): \(error)")
+            }
+        }
+    }
+
+    // MARK: - Query Helpers
+
+    /// Returns events for a specific conversation.
+    func events(for conversationId: String) -> [ChatDiagnosticEvent] {
+        events.filter { $0.conversationId == conversationId }
+    }
+
+    /// Returns the most recent N events.
+    func recentEvents(_ count: Int) -> [ChatDiagnosticEvent] {
+        Array(events.suffix(count))
+    }
+}

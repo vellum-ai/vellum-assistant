@@ -1209,6 +1209,7 @@ async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
 ): Promise<string | null> {
+  const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
@@ -1217,18 +1218,34 @@ async function generateLlmSuggestion(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     undefined, // no system prompt
-    { config: { max_tokens: 30 } },
+    { config: { max_tokens: 40, modelIntent: "latency-optimized" } },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
+  const stripped = raw.replace(/^["']+|["']+$/g, "");
 
-  if (!raw) return null;
+  if (!stripped) {
+    log.debug("Suggestion rejected: empty LLM response");
+    return null;
+  }
 
   // Take first line only, then enforce the length cap
-  const firstLine = raw.split("\n")[0].trim();
-  if (!firstLine || firstLine.length > 50) return null;
-  return firstLine;
+  const firstLine = stripped.split("\n")[0].trim();
+  if (!firstLine) {
+    log.debug(
+      { rawLength: stripped.length },
+      "Suggestion rejected: empty after first-line extraction",
+    );
+    return null;
+  }
+  if (firstLine.length <= 50) return firstLine;
+  // Truncate at last word boundary within 50 chars
+  const wordTruncated = firstLine
+    .slice(0, 50)
+    .replace(/\s+\S*$/, "")
+    .trim();
+  return wordTruncated.length >= 15 ? wordTruncated : null; // too short after truncation = bad suggestion
 }
 
 export async function handleGetSuggestion(
@@ -1355,8 +1372,16 @@ export async function handleGetSuggestion(
         }
       } catch (err) {
         suggestionInFlight.delete(msg.id);
-        log.warn({ err }, "LLM suggestion failed");
+        log.warn(
+          { err, conversationKey, messageId: msg.id },
+          "LLM suggestion failed",
+        );
       }
+    } else {
+      log.debug(
+        { conversationKey, messageId: msg.id },
+        "Suggestion skipped: no provider available",
+      );
     }
 
     return Response.json({

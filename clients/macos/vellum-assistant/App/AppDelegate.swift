@@ -198,6 +198,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         Self.shared = self
+
+        // Initialize the chat diagnostics store early so launch session
+        // metadata and first events exist even if the app wedges during startup.
+        _ = ChatDiagnosticsStore.shared
+
         MainThreadStallDetector.shared.start()
         metricKitManager = MetricKitManager()
 
