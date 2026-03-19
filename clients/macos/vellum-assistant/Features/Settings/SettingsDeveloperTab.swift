@@ -997,6 +997,9 @@ struct SettingsDeveloperTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
+                Text("Default: \(flag.defaultEnabled ? "On" : "Off")")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
             }
             Spacer()
             VToggle(isOn: flagBinding)
