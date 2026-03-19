@@ -5,6 +5,11 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { v4 as uuid } from "uuid";
 
+import {
+  CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+  conversationStartersCheckpointKey,
+} from "../memory/conversation-starters-policy.js";
+
 const testDir = mkdtempSync(
   join(tmpdir(), "conversation-starter-routes-test-"),
 );
@@ -159,6 +164,41 @@ describe("GET /v1/conversation-starters", () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe("generating");
     expect(body.starters).toHaveLength(0);
+  });
+
+  test("returns empty during the recent-attempt cooldown without re-enqueueing", async () => {
+    insertMemoryItem();
+    const now = Date.now();
+    getSqlite().run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
+      [
+        conversationStartersCheckpointKey(
+          CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+          "default",
+        ),
+        String(now),
+        now,
+      ],
+    );
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+    const jobCount = (
+      getSqlite()
+        .query(
+          `SELECT COUNT(*) AS count FROM memory_jobs WHERE type = 'generate_conversation_starters'`,
+        )
+        .get() as { count: number }
+    ).count;
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("empty");
+    expect(body.starters).toHaveLength(0);
+    expect(jobCount).toBe(0);
   });
 
   test("respects limit parameter", async () => {
