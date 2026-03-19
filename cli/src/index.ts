@@ -8,6 +8,7 @@ import { login, logout, whoami } from "./commands/login";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
+import { restore } from "./commands/restore";
 import { retire } from "./commands/retire";
 import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
@@ -34,6 +35,7 @@ const commands = {
   pair,
   ps,
   recover,
+  restore,
   retire,
   setup,
   sleep,
@@ -61,6 +63,7 @@ function printHelp(): void {
     "  ps       List assistants (or processes for a specific assistant)",
   );
   console.log("  recover  Restore a previously retired local assistant");
+  console.log("  restore  Restore a .vbundle backup into a running assistant");
   console.log("  retire   Delete an assistant instance");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
