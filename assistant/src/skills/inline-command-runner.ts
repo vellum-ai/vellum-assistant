@@ -109,6 +109,8 @@ export async function runInlineCommand(
   // and workspace dir since inline commands have no business calling internal
   // APIs or mutating workspace state.
   const env = buildSanitizedEnv();
+  delete env.INTERNAL_GATEWAY_BASE_URL;
+  delete env.VELLUM_WORKSPACE_DIR;
 
   return new Promise<InlineCommandResult>((resolve) => {
     let timedOut = false;
