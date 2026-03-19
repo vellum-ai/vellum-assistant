@@ -33,11 +33,13 @@ final class ScrollWheelDetectorRegistry {
         let detectorId: String
 
         /// The conversation this detector is attached to.
-        let conversationId: String
+        /// Mutable so `update()` can reflect conversation switches.
+        var conversationId: String
 
         /// An opaque identifier for the window hosting this detector
         /// (e.g. `NSWindow.windowNumber` or a stable window UUID).
-        let windowId: String
+        /// Mutable so `update()` can reflect window changes.
+        var windowId: String
 
         /// Monotonic timestamp when the detector was registered
         /// (e.g. `ProcessInfo.processInfo.systemUptime`).
@@ -83,10 +85,30 @@ final class ScrollWheelDetectorRegistry {
         )
     }
 
-    /// Updates the `lastUpdatedAt` timestamp for an existing entry.
+    /// Updates an existing entry's timestamp and, optionally, its
+    /// conversation/window association.
+    ///
+    /// When a conversation switch occurs, the same detector instance stays
+    /// alive but is now associated with a different conversation (and
+    /// potentially a different window). Passing the current values here
+    /// keeps the registry in sync so that `hasDuplicates` queries match
+    /// the correct context.
+    ///
     /// No-op if the detector is not registered.
-    func update(detectorId: String, timestamp: TimeInterval) {
+    func update(
+        detectorId: String,
+        timestamp: TimeInterval,
+        conversationId: String? = nil,
+        windowId: String? = nil
+    ) {
+        guard entries[detectorId] != nil else { return }
         entries[detectorId]?.lastUpdatedAt = timestamp
+        if let conversationId {
+            entries[detectorId]?.conversationId = conversationId
+        }
+        if let windowId {
+            entries[detectorId]?.windowId = windowId
+        }
     }
 
     /// Removes a detector from the registry.

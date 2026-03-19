@@ -691,13 +691,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
     }
 
-    // MARK: - Regenerate
-
-    /// Regenerate the last assistant response for a conversation.
-    public func sendRegenerate(conversationId: String) throws {
-        try send(RegenerateMessage(conversationId: conversationId))
-    }
-
     // MARK: - Conversations
 
 

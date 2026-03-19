@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { resolveSkillSelector } from "../config/skills.js";
+import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
+import { indexCatalogById } from "../skills/include-graph.js";
 import {
   isSkillSourcePath,
   normalizeFilePath,
 } from "../skills/path-classifier.js";
+import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
 import {
@@ -352,6 +355,34 @@ function resolveSkillIdAndHash(
   }
 }
 
+/**
+ * Check whether a skill (by id) has parsed inline command expansions.
+ * Returns false when the skill is not found in the catalog.
+ */
+function hasInlineExpansions(skillId: string): boolean {
+  const catalog = loadSkillCatalog();
+  const skill = catalog.find((s) => s.id === skillId);
+  return (
+    skill?.inlineCommandExpansions != null &&
+    skill.inlineCommandExpansions.length > 0
+  );
+}
+
+/**
+ * Compute the transitive version hash for a skill, returning `undefined`
+ * when computation fails (missing includes, cycle, etc.). The permission
+ * layer falls back to the any-version candidate in that case.
+ */
+function computeTransitiveHashSafe(skillId: string): string | undefined {
+  try {
+    const catalog = loadSkillCatalog();
+    const index = indexCatalogById(catalog);
+    return computeTransitiveSkillVersionHash(skillId, index);
+  } catch {
+    return undefined;
+  }
+}
+
 function canonicalizeWebFetchUrl(parsed: URL): URL {
   parsed.hash = "";
   parsed.username = "";
@@ -433,13 +464,39 @@ async function buildCommandCandidates(
       targets.push("");
     } else {
       const resolved = resolveSkillIdAndHash(rawSelector);
-      if (resolved && resolved.versionHash) {
-        // Version-specific candidate lets rules pin to an exact skill version
-        targets.push(`${resolved.id}@${resolved.versionHash}`);
+
+      // When the resolved skill contains inline command expansions and the
+      // feature flag is on, emit skill_load_dynamic: candidates so the
+      // higher-priority default ask rule catches them instead of falling
+      // through to the permissive skill_load:* allow rule.
+      const config = getConfig();
+      const inlineEnabled = isAssistantFeatureFlagEnabled(
+        "feature_flags.inline-skill-commands.enabled",
+        config,
+      );
+
+      if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
+        const transitiveHash = computeTransitiveHashSafe(resolved.id);
+        if (transitiveHash) {
+          targets.push(`skill_load_dynamic:${resolved.id}@${transitiveHash}`);
+        }
+        targets.push(`skill_load_dynamic:${resolved.id}`);
+        // Don't fall through to skill_load:* — dynamic skills use their own
+        // candidate namespace so the default ask rule applies.
+      } else {
+        if (resolved && resolved.versionHash) {
+          // Version-specific candidate lets rules pin to an exact skill version
+          targets.push(`${resolved.id}@${resolved.versionHash}`);
+        }
+        targets.push(rawSelector);
       }
-      targets.push(rawSelector);
     }
-    return [...new Set(targets)].map((target) => `${toolName}:${target}`);
+
+    // Dynamic candidates use skill_load_dynamic: prefix; normal ones use skill_load:
+    return [...new Set(targets)].map((target) => {
+      if (target.startsWith("skill_load_dynamic:")) return target;
+      return `${toolName}:${target}`;
+    });
   }
 
   if (
@@ -1084,6 +1141,32 @@ function skillLoadAllowlistStrategy(
 
   if (rawSelector) {
     const resolved = resolveSkillIdAndHash(rawSelector);
+
+    // Check whether this is a dynamic (inline-command) skill load
+    const config = getConfig();
+    const inlineEnabled = isAssistantFeatureFlagEnabled(
+      "feature_flags.inline-skill-commands.enabled",
+      config,
+    );
+
+    if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
+      const transitiveHash = computeTransitiveHashSafe(resolved.id);
+      const options: AllowlistOption[] = [];
+      if (transitiveHash) {
+        options.push({
+          label: `${resolved.id}@${transitiveHash}`,
+          description: "This exact version (pinned)",
+          pattern: `skill_load_dynamic:${resolved.id}@${transitiveHash}`,
+        });
+      }
+      options.push({
+        label: resolved.id,
+        description: "This skill (any version)",
+        pattern: `skill_load_dynamic:${resolved.id}`,
+      });
+      return options;
+    }
+
     if (resolved && resolved.versionHash) {
       return [
         {

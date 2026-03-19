@@ -449,16 +449,6 @@ extension ConversationListRequest {
     }
 }
 
-/// Sent to regenerate the last assistant response.
-/// Backed by generated `RegenerateRequest`.
-public typealias RegenerateMessage = RegenerateRequest
-
-extension RegenerateRequest {
-    public init(conversationId: String) {
-        self.init(type: "regenerate", conversationId: conversationId)
-    }
-}
-
 /// Sent to request message history for a specific conversation.
 /// Backed by generated `HistoryRequest`.
 public typealias HistoryRequestMessage = HistoryRequest

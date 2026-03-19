@@ -309,7 +309,6 @@ public final class HTTPTransport {
         case conversationsClear
         case conversationCancel(id: String)
         case conversationUndo(id: String)
-        case conversationRegenerate(id: String)
         case model
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case deleteQueuedMessage(id: String, conversationId: String)
@@ -435,9 +434,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/conversations/\(encoded)/undo", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/regenerate", nil)
         case .model:
             return ("/v1/model", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -558,9 +554,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/conversations/\(encoded)/undo/", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -1452,48 +1445,6 @@ public final class HTTPTransport {
         }
     }
 
-    func regenerateLastResponse(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRegenerate(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Regenerate succeeded for \(conversationId)")
-                // Response messages will arrive via SSE
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await regenerateLastResponse(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Regenerate failed (HTTP \(http.statusCode))")
-                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
-                onMessage?(.conversationError(ConversationErrorMessage(
-                    conversationId: conversationId,
-                    code: .regenerateFailed,
-                    userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: true,
-                    debugDetails: "HTTP \(http.statusCode): \(body)"
-                )))
-            }
-        } catch {
-            log.error("Regenerate error: \(error.localizedDescription)")
-            onMessage?(.conversationError(ConversationErrorMessage(
-                conversationId: conversationId,
-                code: .regenerateFailed,
-                userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: true,
-                debugDetails: error.localizedDescription
-            )))
-        }
-    }
 
     func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }

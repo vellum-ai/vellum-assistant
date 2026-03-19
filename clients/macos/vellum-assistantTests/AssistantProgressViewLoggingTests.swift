@@ -35,6 +35,7 @@ struct AssistantProgressViewLoggingTests {
     ///
     /// This mirrors the exact recording logic in AssistantProgressView.onAppear
     /// so that test assertions stay tightly coupled to production behavior.
+    @MainActor
     private static func simulateOnAppearAutoExpand(
         store: ChatDiagnosticsStore,
         toolCalls: [ToolCallData],

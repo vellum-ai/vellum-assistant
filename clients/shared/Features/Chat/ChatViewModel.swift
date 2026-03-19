@@ -362,6 +362,7 @@ public final class ChatViewModel: ObservableObject {
     private let btwClient: any BtwClientProtocol = BtwClient()
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
+    private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -2069,13 +2070,13 @@ public final class ChatViewModel: ObservableObject {
             startMessageLoop()
         }
 
-        do {
-            try daemonClient.send(RegenerateMessage(conversationId: conversationId))
-        } catch {
-            log.error("Failed to send regenerate: \(error.localizedDescription)")
-            isSending = false
-            isThinking = false
-            errorText = "Failed to regenerate message."
+        Task {
+            let success = await regenerateClient.regenerate(conversationId: conversationId)
+            if !success {
+                isSending = false
+                isThinking = false
+                errorText = "Failed to regenerate message."
+            }
         }
     }
 

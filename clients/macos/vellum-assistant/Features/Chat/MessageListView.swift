@@ -232,6 +232,11 @@ struct MessageListView: View {
     /// follow/detach state machine. All automatic bottom-follow requests are
     /// routed through this coordinator instead of issuing direct scrollTo calls.
     @State private var bottomPinCoordinator = ChatBottomPinCoordinator()
+    /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
+    /// Used to distinguish mid-turn tool-confirmation pauses (phase == "awaiting_confirmation")
+    /// from genuine turn endings, so the `onChange(of: isSending)` handler can decide
+    /// whether to reattach the scroll position on the next `isSending = true` transition.
+    @State private var phaseWhenSendingStopped: String = ""
     /// One-shot flag: logs a warning the first time anchor, tail, or viewport
     /// geometry is non-finite during a render pass. Visible even if the JSONL
     /// session log later fails for an unrelated reason.
@@ -1191,6 +1196,13 @@ struct MessageListView: View {
             .onAppear {
                 isAppActive = NSApp.isActive
                 configureBottomPinCoordinator(proxy: proxy)
+                // Seed the confirmation marker on initial mount — onChange(of:
+                // conversationId) doesn't fire for the initial value, so a
+                // conversation already paused in awaiting_confirmation at launch
+                // or reconnect needs the marker set here.
+                if !isSending {
+                    phaseWhenSendingStopped = assistantActivityPhase
+                }
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     // Anchor is already set and the target message is loaded —
                     // scroll to it immediately instead of falling through to bottom.
@@ -1267,9 +1279,43 @@ struct MessageListView: View {
             .onChange(of: isSending) {
                 if isSending {
                     hasReceivedScrollEvent = true
-                    // Reattach and pin to bottom when the user sends a message.
-                    bottomPinCoordinator.reattach()
-                    requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                    // Reattach and pin to bottom for user-initiated actions (send,
+                    // regenerate, retry). Skip reattach only when the daemon resumes
+                    // from a tool confirmation (not a user action during confirmation).
+                    //
+                    // Detection: when the daemon resumes, it sets both isSending=true
+                    // AND assistantActivityPhase="thinking" in the same mutation. When
+                    // the user sends/regenerates during confirmation, only isSending
+                    // changes — assistantActivityPhase stays "awaiting_confirmation"
+                    // until the daemon processes the new request.
+                    let isDaemonConfirmationResume =
+                        phaseWhenSendingStopped == "awaiting_confirmation"
+                        && assistantActivityPhase != "awaiting_confirmation"
+                    if isDaemonConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
+                        // Daemon resumed from confirmation while user was scrolled up.
+                    } else {
+                        bottomPinCoordinator.reattach()
+                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                    }
+                } else {
+                    // Capture the activity phase at the moment sending stops.
+                    // "awaiting_confirmation" marks a mid-turn pause; any other value
+                    // (idle, streaming, tool_running) marks a genuine turn ending.
+                    phaseWhenSendingStopped = assistantActivityPhase
+                }
+            }
+            .onChange(of: assistantActivityPhase) {
+                // Clear stale confirmation marker when the phase leaves
+                // "awaiting_confirmation" while isSending is still false (e.g.,
+                // confirmation denied → idle, or reconnect resets the phase).
+                // When the daemon resumes (phase → thinking AND isSending → true
+                // simultaneously), isSending is already true here, so we skip —
+                // the isSending handler needs the marker intact.
+                if !isSending
+                    && phaseWhenSendingStopped == "awaiting_confirmation"
+                    && assistantActivityPhase != "awaiting_confirmation"
+                {
+                    phaseWhenSendingStopped = assistantActivityPhase
                 }
             }
             .onChange(of: isThinking) {
@@ -1440,6 +1486,9 @@ struct MessageListView: View {
                 // hasFreshAnchorMeasurement from becoming true.
                 anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
+                // Capture the new conversation's activity phase so a conversation
+                // already paused in awaiting_confirmation is correctly tracked.
+                phaseWhenSendingStopped = isSending ? "" : assistantActivityPhase
                 // Reset the OLD conversation's scroll-loop guard state so it
                 // doesn't leak into future sessions for that conversation.
                 if let oldConvId = oldConversationId {

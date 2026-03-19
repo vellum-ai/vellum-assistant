@@ -809,19 +809,26 @@ struct ScrollWheelDetector: NSViewRepresentable {
         let now = ProcessInfo.processInfo.systemUptime
         let convId = conversationId?.uuidString ?? "none"
         let winId = nsView.window.map { String($0.windowNumber) } ?? "pending"
-        registry.update(detectorId: coordinator.detectorId, timestamp: now)
+        registry.update(
+            detectorId: coordinator.detectorId,
+            timestamp: now,
+            conversationId: convId,
+            windowId: winId
+        )
 
         let activeCount = registry.activeCount
         let hasDuplicate = registry.hasDuplicates(conversationId: convId, windowId: winId)
 
-        log.debug(
-            "ScrollWheelDetector.update detectorId=\(coordinator.detectorId) conv=\(convId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-        )
-        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-            kind: .detectorUpdate,
-            conversationId: convId,
-            reason: "detectorId=\(coordinator.detectorId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-        ))
+        if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
+            log.debug(
+                "ScrollWheelDetector.update detectorId=\(coordinator.detectorId) conv=\(convId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
+            )
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .detectorUpdate,
+                conversationId: convId,
+                reason: "detectorId=\(coordinator.detectorId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
+            ))
+        }
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -861,8 +868,13 @@ struct ScrollWheelDetector: NSViewRepresentable {
         /// Throttle interval for scroll-wheel diagnostics recording.
         /// Prevents synchronous JSON-encode + FileHandle.write on every tick.
         static let diagnosticThrottleInterval: TimeInterval = 0.5
+        /// Throttle interval for detectorUpdate diagnostics. Longer than scroll-wheel
+        /// events because updateNSView fires on every SwiftUI render pass during
+        /// streaming, which can be many times per second.
+        static let detectorUpdateThrottleInterval: TimeInterval = 1.0
         private var lastUntetherRecordTime: TimeInterval = 0
         private var lastRetetherRecordTime: TimeInterval = 0
+        private var lastDetectorUpdateRecordTime: TimeInterval = 0
 
         /// Returns true and updates the timestamp if enough time has elapsed
         /// since the last recording for the given kind.
@@ -876,6 +888,10 @@ struct ScrollWheelDetector: NSViewRepresentable {
             case .scrollWheelRetether:
                 guard now - lastRetetherRecordTime >= Self.diagnosticThrottleInterval else { return false }
                 lastRetetherRecordTime = now
+                return true
+            case .detectorUpdate:
+                guard now - lastDetectorUpdateRecordTime >= Self.detectorUpdateThrottleInterval else { return false }
+                lastDetectorUpdateRecordTime = now
                 return true
             default:
                 return true
