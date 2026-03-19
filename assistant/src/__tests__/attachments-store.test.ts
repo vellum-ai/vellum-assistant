@@ -114,7 +114,7 @@ describe("uploadAttachment", () => {
     expect(rawRow!.data_base64).toBe("");
 
     // But getAttachmentById hydrates from disk
-    const row = getAttachmentById(stored.id);
+    const row = getAttachmentById(stored.id, { hydrateFileData: true });
     expect(row).not.toBeNull();
     expect(row!.dataBase64).toBe("dGVzdA==");
   });
@@ -346,7 +346,7 @@ describe("getAttachmentsByIds", () => {
     const a = uploadAttachment("a.txt", "text/plain", "AAAA");
     const b = uploadAttachment("b.txt", "text/plain", "BBBB");
 
-    const results = getAttachmentsByIds([a.id, b.id]);
+    const results = getAttachmentsByIds([a.id, b.id], { hydrateFileData: true });
     expect(results).toHaveLength(2);
     // dataBase64 is hydrated from on-disk files
     expect(results[0].dataBase64).toBe("AAAA");
@@ -374,7 +374,7 @@ describe("getAttachmentById", () => {
 
   test("returns attachment with hydrated dataBase64 when found", () => {
     const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
-    const result = getAttachmentById(stored.id);
+    const result = getAttachmentById(stored.id, { hydrateFileData: true });
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(stored.id);

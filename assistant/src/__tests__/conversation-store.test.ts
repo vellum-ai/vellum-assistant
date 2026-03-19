@@ -557,7 +557,7 @@ describe("attachment reuse across conversation lifecycles", () => {
     await addMessage(convB.id, "user", "hello");
 
     // The attachment is retrievable by ID regardless of which conversation is active.
-    const fetched = getAttachmentById(stored.id);
+    const fetched = getAttachmentById(stored.id, { hydrateFileData: true });
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(stored.id);
     expect(fetched!.originalFilename).toBe("report.pdf");
