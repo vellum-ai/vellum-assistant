@@ -87,6 +87,15 @@ function resolveConversationDirPath(id: string, createdAtMs: number): string {
   return dirPath;
 }
 
+function ensureConversationDirPath(
+  id: string,
+  createdAtMs: number,
+): string {
+  const dirPath = resolveConversationDirPath(id, createdAtMs);
+  mkdirSync(dirPath, { recursive: true });
+  return dirPath;
+}
+
 // ---------------------------------------------------------------------------
 // Write operations
 // ---------------------------------------------------------------------------
@@ -102,8 +111,7 @@ export function initConversationDir(conv: {
   originChannel: string | null;
 }): void {
   try {
-    const dirPath = resolveConversationDirPath(conv.id, conv.createdAt);
-    mkdirSync(dirPath, { recursive: true });
+    const dirPath = ensureConversationDirPath(conv.id, conv.createdAt);
 
     const meta = {
       id: conv.id,
@@ -138,7 +146,7 @@ export function updateMetaFile(conv: {
   originChannel: string | null;
 }): void {
   try {
-    const dirPath = resolveConversationDirPath(conv.id, conv.createdAt);
+    const dirPath = ensureConversationDirPath(conv.id, conv.createdAt);
 
     const meta = {
       id: conv.id,
@@ -313,7 +321,7 @@ export function syncMessageToDisk(
       return;
     }
 
-    const dirPath = resolveConversationDirPath(conversationId, createdAtMs);
+    const dirPath = ensureConversationDirPath(conversationId, createdAtMs);
     const { content, toolCalls, toolResults } = flattenContentBlocks(
       message.content,
     );

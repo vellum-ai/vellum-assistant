@@ -117,6 +117,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
     private let conversationClient: ConversationClientProtocol
+    private let conversationForkClient: any ConversationForkClientProtocol
+    private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationRestorer: ConversationRestorer
     /// Queued renames for conversations that don't yet have a conversationId.
     /// Flushed in backfillConversationId when the daemon assigns a conversation ID.
@@ -249,10 +251,18 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), isFirstLaunch: Bool = false) {
+    init(
+        daemonClient: DaemonClient,
+        conversationClient: ConversationClientProtocol = ConversationClient(),
+        conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
+        conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
+        isFirstLaunch: Bool = false
+    ) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
         self.conversationClient = conversationClient
+        self.conversationForkClient = conversationForkClient
+        self.conversationDetailClient = conversationDetailClient
         self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
@@ -267,6 +277,36 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         daemonClient.onConversationIdResolved = { [weak self] localId, serverId in
             self?.resolveConversationId(from: localId, to: serverId)
         }
+    }
+
+    func forkActiveConversation() async {
+        await forkConversation(throughDaemonMessageId: nil)
+    }
+
+    func forkConversation(throughDaemonMessageId daemonMessageId: String?) async {
+        guard let sourceConversation = activeConversation,
+              let sourceConversationId = sourceConversation.conversationId else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+
+        activeViewModel?.errorText = nil
+
+        guard let forkedConversation = await conversationForkClient.forkConversation(
+            conversationId: sourceConversationId,
+            throughMessageId: daemonMessageId
+        ) else {
+            activeViewModel?.errorText = "Failed to fork conversation."
+            return
+        }
+
+        let resolvedConversation = await resolveConversationSummary(for: forkedConversation)
+        guard let localConversationId = upsertConversation(from: resolvedConversation, isArchived: false) else {
+            activeViewModel?.errorText = "Failed to open forked conversation."
+            return
+        }
+
+        selectConversation(id: localConversationId)
     }
 
     func createConversation() {
@@ -724,40 +764,24 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         for conversation in recentConversations {
             // If a local conversation already exists, merge server pin/order metadata.
             if let existingIdx = conversations.firstIndex(where: { $0.conversationId == conversation.id }) {
-                let isPinned = conversation.isPinned ?? false
-                var conv = conversations[existingIdx]
-                conv.isPinned = isPinned
-                conv.pinnedOrder = isPinned ? (conversation.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
-                conv.displayOrder = conversation.displayOrder.map { Int($0) }
-                conversations[existingIdx] = conv
+                conversations[existingIdx] = conversationModel(
+                    from: conversation,
+                    localId: conversations[existingIdx].id,
+                    createdAt: conversations[existingIdx].createdAt,
+                    isArchived: conversations[existingIdx].isArchived,
+                    fallbackPinnedOrder: nextPinnedOrder
+                )
                 mergeAssistantAttention(from: conversation, intoConversationAt: existingIdx)
-                if isPinned && conversation.displayOrder == nil { nextPinnedOrder += 1 }
+                if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
 
-            let isPinned = conversation.isPinned ?? false
-            let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
-            let conversationModel = ConversationModel(
-                title: conversation.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-                conversationId: conversation.id,
+            let conversationModel = conversationModel(
+                from: conversation,
                 isArchived: isConversationArchived(conversation.id),
-                isPinned: isPinned,
-                pinnedOrder: isPinned ? (conversation.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil,
-                displayOrder: conversation.displayOrder.map { Int($0) },
-                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000.0),
-                kind: conversation.conversationType == "private" ? .private : .standard,
-                source: conversation.source,
-                scheduleJobId: conversation.scheduleJobId,
-                hasUnseenLatestAssistantMessage: conversation.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
-                latestAssistantMessageAt: conversation.assistantAttention?.latestAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                },
-                lastSeenAssistantMessageAt: conversation.assistantAttention?.lastSeenAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
+                fallbackPinnedOrder: nextPinnedOrder
             )
-            if isPinned && conversation.displayOrder == nil { nextPinnedOrder += 1 }
+            if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the conversation is first accessed (e.g. selected by the user).
             conversations.append(conversationModel)
@@ -862,31 +886,74 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             archivedConversationIds = archived
         }
 
-        let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
-        let conversationModel = ConversationModel(
-            title: conversation.title,
-            createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-            conversationId: conversation.id,
-            isArchived: false,
-            isPinned: conversation.isPinned ?? false,
-            pinnedOrder: (conversation.isPinned ?? false) ? conversation.displayOrder.map { Int($0) } : nil,
-            displayOrder: conversation.displayOrder.map { Int($0) },
-            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000.0),
-            kind: .standard,
-            source: conversation.source,
-            scheduleJobId: conversation.scheduleJobId,
-            hasUnseenLatestAssistantMessage: conversation.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
-            latestAssistantMessageAt: conversation.assistantAttention?.latestAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            },
-            lastSeenAssistantMessageAt: conversation.assistantAttention?.lastSeenAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            }
-        )
+        guard let localConversationId = upsertConversation(
+            from: conversationListItem(from: conversation),
+            isArchived: false
+        ) else {
+            return false
+        }
 
+        selectConversation(id: localConversationId)
+        return true
+    }
+
+    private func resolveConversationSummary(for fallback: ConversationListResponseItem) async -> ConversationListResponseItem {
+        guard let detail = await conversationDetailClient.fetchConversation(conversationId: fallback.id) else {
+            return fallback
+        }
+        guard detail.forkParent == nil, let fallbackForkParent = fallback.forkParent else {
+            return detail
+        }
+        return ConversationListResponseItem(
+            id: detail.id,
+            title: detail.title,
+            createdAt: detail.createdAt,
+            updatedAt: detail.updatedAt,
+            conversationType: detail.conversationType,
+            source: detail.source,
+            scheduleJobId: detail.scheduleJobId,
+            channelBinding: detail.channelBinding,
+            conversationOriginChannel: detail.conversationOriginChannel,
+            conversationOriginInterface: detail.conversationOriginInterface,
+            assistantAttention: detail.assistantAttention,
+            displayOrder: detail.displayOrder,
+            isPinned: detail.isPinned,
+            forkParent: fallbackForkParent
+        )
+    }
+
+    @discardableResult
+    private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
+        guard item.conversationType != "private",
+              item.channelBinding?.sourceChannel == nil else { return nil }
+
+        if !isArchived && isConversationArchived(item.id) {
+            var archived = archivedConversationIds
+            archived.remove(item.id)
+            archivedConversationIds = archived
+        }
+
+        if let existingIdx = conversations.firstIndex(where: { $0.conversationId == item.id }) {
+            let existingConversation = conversations[existingIdx]
+            conversations[existingIdx] = conversationModel(
+                from: item,
+                localId: existingConversation.id,
+                createdAt: existingConversation.createdAt,
+                isArchived: isArchived,
+                fallbackPinnedOrder: existingConversation.pinnedOrder
+            )
+            mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
+            if let viewModel = chatViewModels[existingConversation.id] {
+                viewModel.conversationId = item.id
+                viewModel.ensureMessageLoopStarted()
+            }
+            return existingConversation.id
+        }
+
+        let conversationModel = conversationModel(from: item, isArchived: isArchived)
         let viewModel = makeViewModel()
-        viewModel.conversationId = conversation.id
-        // Leave isHistoryLoaded false so history is fetched when the conversation activates
+        viewModel.conversationId = item.id
+        // Leave isHistoryLoaded false so history is fetched when the conversation activates.
         viewModel.startMessageLoop()
 
         conversations.insert(conversationModel, at: 0)
@@ -896,9 +963,59 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToInteractionState(for: conversationModel.id, viewModel: viewModel)
         touchVMAccessOrder(conversationModel.id)
         evictStaleCachedViewModels()
+        return conversationModel.id
+    }
 
-        selectConversation(id: conversationModel.id)
-        return true
+    private func conversationListItem(from conversation: ConversationsListResponse.Conversation) -> ConversationListResponseItem {
+        ConversationListResponseItem(
+            id: conversation.id,
+            title: conversation.title,
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.updatedAt,
+            conversationType: conversation.conversationType,
+            source: conversation.source,
+            scheduleJobId: conversation.scheduleJobId,
+            channelBinding: conversation.channelBinding,
+            conversationOriginChannel: conversation.conversationOriginChannel,
+            conversationOriginInterface: conversation.conversationOriginInterface,
+            assistantAttention: conversation.assistantAttention,
+            displayOrder: conversation.displayOrder,
+            isPinned: conversation.isPinned,
+            forkParent: conversation.forkParent
+        )
+    }
+
+    private func conversationModel(
+        from item: ConversationListResponseItem,
+        localId: UUID = UUID(),
+        createdAt: Date? = nil,
+        isArchived: Bool,
+        fallbackPinnedOrder: Int? = nil
+    ) -> ConversationModel {
+        let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
+        let isPinned = item.isPinned ?? false
+        return ConversationModel(
+            id: localId,
+            title: item.title,
+            createdAt: createdAt ?? Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAtMillis) / 1000.0),
+            conversationId: item.id,
+            isArchived: isArchived,
+            isPinned: isPinned,
+            pinnedOrder: isPinned ? (item.displayOrder.map { Int($0) } ?? fallbackPinnedOrder) : nil,
+            displayOrder: item.displayOrder.map { Int($0) },
+            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0),
+            kind: item.conversationType == "private" ? .private : .standard,
+            source: item.source,
+            scheduleJobId: item.scheduleJobId,
+            hasUnseenLatestAssistantMessage: item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            forkParent: item.forkParent
+        )
     }
 
     // MARK: - Render Cache Management
@@ -1296,6 +1413,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard let self, let viewModel else { return }
             if let localId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
                 self.updateLastInteracted(conversationId: localId)
+            }
+        }
+        viewModel.onFork = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.forkActiveConversation()
             }
         }
         viewModel.onReconnectHistoryNeeded = { [weak self] conversationId in

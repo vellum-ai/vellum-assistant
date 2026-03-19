@@ -69,7 +69,7 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
 
 initializeDb();
 
@@ -240,6 +240,40 @@ describe("updateMetaFile", () => {
     );
 
     rmSync(legacyDirPath, { recursive: true, force: true });
+  });
+
+  test("recreates a missing directory before rewriting meta.json", () => {
+    const created = Date.now();
+    const updated = created + 2500;
+    initConversationDir({
+      id: "conv-update-recreate",
+      title: "Original",
+      createdAt: created,
+      conversationType: "standard",
+      originChannel: null,
+    });
+
+    const dirPath = getConversationDirPath("conv-update-recreate", created);
+    rmSync(dirPath, { recursive: true, force: true });
+
+    updateMetaFile({
+      id: "conv-update-recreate",
+      title: "Recreated",
+      createdAt: created,
+      updatedAt: updated,
+      conversationType: "standard",
+      originChannel: "desktop",
+    });
+
+    expect(existsSync(dirPath)).toBe(true);
+    expect(existsSync(join(dirPath, "meta.json"))).toBe(true);
+
+    const meta = JSON.parse(readFileSync(join(dirPath, "meta.json"), "utf-8"));
+    expect(meta.title).toBe("Recreated");
+    expect(meta.channel).toBe("desktop");
+    expect(meta.updatedAt).toBe(new Date(updated).toISOString());
+
+    rmSync(dirPath, { recursive: true, force: true });
   });
 });
 
@@ -523,6 +557,58 @@ describe("syncMessageToDisk", () => {
     );
 
     rmSync(legacyDirPath, { recursive: true, force: true });
+  });
+
+  test("recreates a missing directory before appending messages and attachments", async () => {
+    const conv = createConversation("Recreate Sync");
+    initConversationDir({
+      id: conv.id,
+      title: conv.title,
+      createdAt: conv.createdAt,
+      conversationType: conv.conversationType,
+      originChannel: null,
+    });
+
+    const msg = await addMessage(conv.id, "user", "Disk repair", undefined, {
+      skipIndexing: true,
+    });
+    const att = uploadAttachment("repair.png", "image/png", "iVBORw0K");
+    rawRun(
+      `INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      `manual-link-${msg.id}`,
+      msg.id,
+      att.id,
+      0,
+      Date.now(),
+    );
+
+    const dirPath = getConversationDirPath(conv.id, conv.createdAt);
+    const legacyDirPath = join(
+      conversationsDir,
+      getLegacyConversationDirName(conv.id, conv.createdAt),
+    );
+    rmSync(dirPath, { recursive: true, force: true });
+    rmSync(legacyDirPath, { recursive: true, force: true });
+
+    syncMessageToDisk(conv.id, msg.id, conv.createdAt);
+
+    expect(existsSync(dirPath)).toBe(true);
+    expect(existsSync(join(dirPath, "messages.jsonl"))).toBe(true);
+    expect(existsSync(join(dirPath, "attachments", "repair.png"))).toBe(true);
+
+    const lines = readFileSync(join(dirPath, "messages.jsonl"), "utf-8")
+      .trim()
+      .split("\n");
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]);
+    expect(record.content).toBe("Disk repair");
+    expect(record.attachments).toHaveLength(1);
+    expect(existsSync(join(dirPath, "attachments", record.attachments[0]))).toBe(
+      true,
+    );
+
+    rmSync(dirPath, { recursive: true, force: true });
   });
 });
 
