@@ -90,6 +90,7 @@ mock.module("../bundler/app-compiler.js", () => ({
 
 import * as appCreateScript from "../config/bundled-skills/app-builder/tools/app-create.js";
 import * as appDeleteScript from "../config/bundled-skills/app-builder/tools/app-delete.js";
+import * as appRefreshScript from "../config/bundled-skills/app-builder/tools/app-refresh.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -155,6 +156,25 @@ describe("app-builder skill tool scripts", () => {
       expect(result.isError).toBe(false);
       const parsed = JSON.parse(result.content);
       expect(parsed.deleted).toBe(true);
+      expect(parsed.appId).toBe("app-1");
+    });
+  });
+
+  // ---- app-refresh -------------------------------------------------------
+
+  describe("app-refresh", () => {
+    test("exports a run function", () => {
+      expect(typeof appRefreshScript.run).toBe("function");
+    });
+
+    test("delegates to executeAppRefresh and returns result", async () => {
+      const result = await appRefreshScript.run(
+        { app_id: "app-1" },
+        makeContext(),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.refreshed).toBe(true);
       expect(parsed.appId).toBe("app-1");
     });
   });

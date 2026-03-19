@@ -187,14 +187,9 @@ describe("baseline characterization: core app tool surface", () => {
 
     const nonProxyAppTools = [
       "app_create",
-      "app_list",
-      "app_query",
-      "app_update",
       "app_delete",
-      "app_file_list",
-      "app_file_read",
-      "app_file_edit",
-      "app_file_write",
+      "app_generate_icon",
+      "app_refresh",
     ];
 
     for (const name of nonProxyAppTools) {
