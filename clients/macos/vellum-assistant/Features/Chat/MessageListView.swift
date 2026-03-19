@@ -828,6 +828,13 @@ struct MessageListView: View {
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom = isFollowing
         }
+
+        // If detach() was called before this callback was wired up (e.g. a
+        // scroll-wheel event fired between makeNSView and onAppear), sync
+        // isNearBottom now so it isn't stuck at true permanently.
+        if !bottomPinCoordinator.isFollowingBottom {
+            isNearBottom = false
+        }
     }
 
     private var shouldAnchorThinkingToConfirmationChip: Bool {
