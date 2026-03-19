@@ -246,7 +246,11 @@ function materializeAttachmentIntoConversation(
   );
   mkdirSync(attachDir, { recursive: true });
 
-  if (row.filePath && existsSync(row.filePath) && dirname(row.filePath) === attachDir) {
+  if (
+    row.filePath &&
+    existsSync(row.filePath) &&
+    dirname(row.filePath) === attachDir
+  ) {
     if (row.dataBase64) {
       rawRun(`UPDATE attachments SET data_base64 = '' WHERE id = ?`, row.id);
     }
@@ -574,16 +578,25 @@ export function getFilePathBySourcePath(
   sourcePath: string,
   conversationId: string,
 ): string | null {
-  const row = rawGet<{ file_path: string | null }>(
-    `SELECT a.file_path FROM attachments a
-     JOIN message_attachments ma ON ma.attachment_id = a.id
-     JOIN messages m ON m.id = ma.message_id
-     WHERE a.source_path = ? AND m.conversation_id = ?
-     ORDER BY a.created_at DESC LIMIT 1`,
-    sourcePath,
-    conversationId,
-  );
-  return row?.file_path ?? null;
+  try {
+    const row = rawGet<{ file_path: string | null }>(
+      `SELECT a.file_path FROM attachments a
+       JOIN message_attachments ma ON ma.attachment_id = a.id
+       JOIN messages m ON m.id = ma.message_id
+       WHERE a.source_path = ? AND m.conversation_id = ?
+       ORDER BY a.created_at DESC LIMIT 1`,
+      sourcePath,
+      conversationId,
+    );
+    return row?.file_path ?? null;
+  } catch (err) {
+    // Some test contexts exercise the tool wrapper before attachment tables
+    // are initialized. In that case, there is no stored fallback path to use.
+    if (err instanceof Error && err.message.includes("no such table")) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -782,7 +795,11 @@ export function attachFileBackedAttachmentToMessage(
     })
     .run();
 
-  rawRun(`UPDATE attachments SET source_path = ? WHERE id = ?`, sourceFilePath, id);
+  rawRun(
+    `UPDATE attachments SET source_path = ? WHERE id = ?`,
+    sourceFilePath,
+    id,
+  );
   insertMessageAttachmentLink(messageId, id, position);
 
   return {
