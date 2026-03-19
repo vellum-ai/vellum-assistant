@@ -216,7 +216,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(runAgentLoop).toHaveBeenCalledTimes(0);
   });
 
-  test("passes undefined pendingRequestIds when no canonical hints are found", async () => {
+  test("passes empty pendingRequestIds array when no canonical hints are found", async () => {
     listPendingByDestinationMock.mockReturnValue([]);
     listCanonicalMock.mockReturnValue([]);
     routeGuardianReplyMock.mockResolvedValue({
