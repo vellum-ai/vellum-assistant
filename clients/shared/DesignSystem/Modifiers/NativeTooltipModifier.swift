@@ -197,7 +197,7 @@ private struct VTooltipContent: View {
             .padding(.vertical, VSpacing.xs)
             .background(VColor.surfaceLift)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+            .shadow(color: VColor.auxBlack.opacity(0.12), radius: 4, y: 2)
     }
 }
 
