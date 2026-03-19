@@ -27,6 +27,13 @@ struct MessageInspectorPayloadModel: Equatable {
     }
 
     init(payload: AnyCodable, preferredViewMode: MessageInspectorPayloadViewMode = .tree) {
+        if let string = payload.value as? String {
+            source = string
+            isTreeAvailable = false
+            viewMode = .source
+            return
+        }
+
         self.init(
             source: Self.renderSource(from: payload),
             preferredViewMode: preferredViewMode

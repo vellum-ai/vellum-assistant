@@ -47,11 +47,26 @@ final class MessageInspectorPayloadModelTests: XCTestCase {
         XCTAssertFalse(model.isTreeAvailable)
     }
 
-    func testTopLevelJSONFragmentStillSupportsTreeMode() {
-        let model = MessageInspectorPayloadModel(payload: AnyCodable("hello"))
+    func testTopLevelStringPayloadPreservesRawSourceVerbatim() {
+        let rawSource = "{\"answer\": \"hello \\\"world\\\"\"}"
+        let model = MessageInspectorPayloadModel(payload: AnyCodable(rawSource))
 
-        XCTAssertEqual(model.availableViewModes, [.tree, .source])
-        XCTAssertEqual(model.viewMode, .tree)
-        XCTAssertEqual(model.source, "\"hello\"")
+        XCTAssertEqual(model.availableViewModes, [.source])
+        XCTAssertEqual(model.viewMode, .source)
+        XCTAssertEqual(model.source, rawSource)
+        XCTAssertFalse(model.showsViewModePicker)
+        XCTAssertFalse(model.showsExpandCollapseActions)
+        XCTAssertFalse(model.isTreeAvailable)
+    }
+
+    func testTopLevelStringPayloadIgnoresPreferredTreeMode() {
+        let model = MessageInspectorPayloadModel(
+            payload: AnyCodable("hello"),
+            preferredViewMode: .tree
+        )
+
+        XCTAssertEqual(model.availableViewModes, [.source])
+        XCTAssertEqual(model.viewMode, .source)
+        XCTAssertEqual(model.source, "hello")
     }
 }
