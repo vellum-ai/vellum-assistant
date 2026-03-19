@@ -302,6 +302,9 @@ extension AppDelegate {
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             } else if msg.key == "voiceConversationTimeoutSeconds" {
                 let parsed = Int(msg.value)
+                if let parsed {
+                    UserDefaults.standard.set(parsed, forKey: msg.key)
+                }
                 Task { @MainActor in
                     VoiceModeManager.conversationTimeoutOverride = parsed
                 }
