@@ -1024,32 +1024,32 @@ struct SettingsDeveloperTab: View {
                 }
             }
         )
-        return HStack {
-            VToggle(isOn: flagBinding)
-                .accessibilityLabel(flag.label)
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(flag.label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    VBadge(label: flag.scope == .assistant ? "Assistant" : "macOS",
-                           tone: flag.scope == .assistant ? .accent : .neutral,
-                           emphasis: .subtle)
-                }
-                if !flag.description.isEmpty {
-                    Text(flag.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                HStack(spacing: VSpacing.xxs) {
-                    Text("Default:")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
-                    VBadge(label: flag.defaultEnabled ? "On" : "Off",
-                           tone: flag.defaultEnabled ? .danger : .neutral,
-                           emphasis: .subtle)
-                }
+        return VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.sm) {
+                VToggle(isOn: flagBinding)
+                    .accessibilityLabel(flag.label)
+                Text(flag.label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                VBadge(label: flag.scope == .assistant ? "Assistant" : "macOS",
+                       tone: flag.scope == .assistant ? .accent : .neutral,
+                       emphasis: .subtle)
             }
+            if !flag.description.isEmpty {
+                Text(flag.description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .padding(.leading, 46)
+            }
+            HStack(spacing: VSpacing.xxs) {
+                Text("Default:")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
+                VBadge(label: flag.defaultEnabled ? "On" : "Off",
+                       tone: flag.defaultEnabled ? .danger : .neutral,
+                       emphasis: .subtle)
+            }
+            .padding(.leading, 46)
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
