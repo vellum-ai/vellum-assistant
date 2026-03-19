@@ -314,8 +314,6 @@ public final class HTTPTransport {
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
-        // Subagents
-        case subagentMessage(id: String)
         case model
         case settingsClient
 
@@ -378,10 +376,6 @@ public final class HTTPTransport {
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
-        // Subagents
-        case .subagentMessage(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/subagents/\(encoded)/message", nil)
         case .model:
             return ("/v1/model", nil)
         case .settingsClient:
@@ -427,10 +421,6 @@ public final class HTTPTransport {
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
-        // Subagents
-        case .subagentMessage(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/subagents/\(encoded)/message/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
         // Settings

@@ -8,6 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public protocol SubagentClientProtocol {
     func abort(subagentId: String, conversationId: String?) async -> Bool
     func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse?
+    func sendMessage(subagentId: String, content: String, conversationId: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``SubagentClientProtocol``.
@@ -53,6 +54,31 @@ public struct SubagentClient: SubagentClientProtocol {
         } catch {
             log.error("fetchDetail error: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// Send a message to a subagent.
+    /// The caller is responsible for translating client-local conversation IDs
+    /// to server conversation IDs before calling this method.
+    public func sendMessage(subagentId: String, content: String, conversationId: String? = nil) async -> Bool {
+        do {
+            var body: [String: Any] = ["content": content]
+            if let conversationId { body["conversationId"] = conversationId }
+
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/subagents/\(subagentId)/message",
+                json: body,
+                timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("sendMessage failed (HTTP \(response.statusCode))")
+                return false
+            }
+            log.info("Subagent message sent for \(subagentId)")
+            return true
+        } catch {
+            log.error("sendMessage error: \(error.localizedDescription)")
+            return false
         }
     }
 
