@@ -13,6 +13,23 @@ enum ConversationAvatarFollower {
         return anchorY >= -visibilityPadding && anchorY <= viewportHeight + visibilityPadding
     }
 
+    /// Hidden avatar positions do not affect rendering, so avoid updating the
+    /// stored target unless visibility changes or the visible avatar actually moves.
+    static func shouldUpdateTarget(
+        previousAnchorY: CGFloat,
+        newAnchorY: CGFloat,
+        viewportHeight: CGFloat,
+        movementThreshold: CGFloat = 20
+    ) -> Bool {
+        let wasVisible = shouldShow(anchorY: previousAnchorY, viewportHeight: viewportHeight)
+        let isVisible = shouldShow(anchorY: newAnchorY, viewportHeight: viewportHeight)
+
+        if wasVisible != isVisible { return true }
+        if previousAnchorY.isFinite != newAnchorY.isFinite { return true }
+        guard isVisible else { return false }
+        return abs(previousAnchorY - newAnchorY) > movementThreshold
+    }
+
     static func shouldCoalesce(isSending: Bool, isThinking: Bool, isLastMessageStreaming: Bool) -> Bool {
         isSending || isThinking || isLastMessageStreaming
     }

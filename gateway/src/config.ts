@@ -137,7 +137,8 @@ export function loadConfig(): GatewayConfig {
     gatewayInternalBaseUrl,
     logFile,
     maxAttachmentBytes: {
-      telegram: 20 * 1024 * 1024, // Telegram Bot API getFile limit
+      telegram: 20 * 1024 * 1024, // Telegram Bot API getFile (download) limit
+      telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
       default: 100 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (100 MB)

@@ -2,7 +2,7 @@
  * Tests for slash command interception in the POST /v1/messages handler.
  *
  * Validates that:
- * - Built-in slash commands (/status, /model, /commands) are intercepted and
+ * - Built-in slash commands (/status, /models, /commands) are intercepted and
  *   do NOT trigger the agent loop.
  * - Regular messages pass through to the agent loop unchanged.
  */
@@ -122,12 +122,7 @@ mock.module("../daemon/conversation-process.js", () => ({
     configuredProviders: ["anthropic", "ollama"],
   }),
   isModelSlashCommand: (content: string) => {
-    const trimmed = content.trim();
-    return (
-      trimmed === "/model" ||
-      trimmed === "/models" ||
-      trimmed.startsWith("/model ")
-    );
+    return content.trim() === "/models";
   },
 }));
 

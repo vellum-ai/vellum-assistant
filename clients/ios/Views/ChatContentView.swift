@@ -164,7 +164,9 @@ struct ChatContentView: View {
     private func messageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
         if message.modelPicker != nil {
             ModelPickerBubble(
-                models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
+                models: viewModel.providerCatalog
+                    .first { $0.id == "anthropic" }
+                    .map { $0.models.map { (id: $0.id, name: $0.displayName) } } ?? [],
                 selectedModelId: viewModel.selectedModel,
                 onSelect: { modelId in
                     viewModel.setModel(modelId)
@@ -176,7 +178,7 @@ struct ChatContentView: View {
                 removal: .opacity
             ))
         } else if message.modelList != nil {
-            ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
+            ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders, providerCatalog: viewModel.providerCatalog)
                 .id(message.id)
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -216,7 +218,7 @@ struct ChatContentView: View {
                 onSurfaceRefetch: { surfaceId, conversationId in
                     viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
                 },
-                onRetryConversationError: message.isError && index == messages.count - 1 ? { viewModel.retryAfterConversationError() } : nil
+                onRetryConversationError: message.isError ? { viewModel.retryAfterConversationError(messageId: message.id) } : nil
             )
             .id(message.id)
             .transition(.asymmetric(

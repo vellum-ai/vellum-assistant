@@ -1,15 +1,16 @@
 /**
  * HTTP route definitions for model configuration, conversation search,
- * message content, and queued message deletion.
+ * message content, LLM context inspection, and queued message deletion.
  *
  * These routes expose conversation query functionality over the HTTP API.
  *
- * GET    /v1/model                   — current model info
- * PUT    /v1/model                   — set model
- * PUT    /v1/model/image-gen         — set image-gen model
- * GET    /v1/conversations/search    — search conversations
- * GET    /v1/messages/:id/content    — full message content
- * DELETE /v1/messages/queued/:id     — delete queued message
+ * GET    /v1/model                      — current model info
+ * PUT    /v1/model                      — set model
+ * PUT    /v1/model/image-gen            — set image-gen model
+ * GET    /v1/conversations/search       — search conversations
+ * GET    /v1/messages/:id/content       — full message content
+ * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
+ * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
 import {
@@ -23,6 +24,7 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
+import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -171,6 +173,43 @@ export function conversationQueryRouteDefinitions(
           return httpError("NOT_FOUND", `Message ${params.id} not found`, 404);
         }
         return Response.json(result);
+      },
+    },
+
+    // ── LLM context (request logs) for a message ───────────────────────
+    {
+      endpoint: "messages/:id/llm-context",
+      method: "GET",
+      policyKey: "messages/llm-context",
+      handler: ({ params }) => {
+        const messageId = params.id;
+        if (!messageId) {
+          return httpError("BAD_REQUEST", "message id is required", 400);
+        }
+        const logs = getRequestLogsByMessageId(messageId);
+        return Response.json({
+          messageId,
+          logs: logs.map((log) => {
+            let requestPayload: unknown;
+            try {
+              requestPayload = JSON.parse(log.requestPayload);
+            } catch {
+              requestPayload = log.requestPayload;
+            }
+            let responsePayload: unknown;
+            try {
+              responsePayload = JSON.parse(log.responsePayload);
+            } catch {
+              responsePayload = log.responsePayload;
+            }
+            return {
+              id: log.id,
+              requestPayload,
+              responsePayload,
+              createdAt: log.createdAt,
+            };
+          }),
+        });
       },
     },
 

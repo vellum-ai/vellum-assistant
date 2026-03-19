@@ -1419,12 +1419,14 @@ describe("Conversation host attachment directives", () => {
         ),
       ).toBe(true);
 
+      // Attachment warnings are no longer emitted as assistant_text_delta events
+      // (see 9d39e70ae). They are only stored on ctx.lastAttachmentWarnings.
       const warningDelta = events.find(
         (e) =>
           e.type === "assistant_text_delta" &&
           e.text.includes("Attachment warning:"),
       );
-      expect(warningDelta).toBeDefined();
+      expect(warningDelta).toBeUndefined();
       const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
     } finally {

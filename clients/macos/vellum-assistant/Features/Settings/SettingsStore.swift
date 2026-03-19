@@ -46,72 +46,14 @@ public final class SettingsStore: ObservableObject {
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
-    static let availableModels: [String] = [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-    ]
-
-    static let modelDisplayNames: [String: String] = [
-        "claude-opus-4-6": "Claude Opus 4.6",
-        "claude-sonnet-4-6": "Claude Sonnet 4.6",
-        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-    ]
-
     // MARK: - Inference Provider Selection
 
     @Published var selectedInferenceProvider: String = "anthropic"
-    @Published var inferenceAvailableModels: [CatalogModel] = []
 
-    static let inferenceProviders: [String] = [
-        "anthropic", "openai", "gemini", "ollama", "fireworks", "openrouter",
-    ]
-    static let inferenceProviderDisplayNames: [String: String] = [
-        "anthropic": "Anthropic",
-        "openai": "OpenAI",
-        "gemini": "Google Gemini",
-        "ollama": "Ollama",
-        "fireworks": "Fireworks",
-        "openrouter": "OpenRouter",
-    ]
-    /// Client-side model catalog for immediate UI updates on provider change.
-    /// Mirrors PROVIDER_MODEL_CATALOG on the daemon.
-    static let inferenceProviderModels: [String: [(id: String, displayName: String)]] = [
-        "anthropic": [
-            ("claude-opus-4-6", "Claude Opus 4.6"),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-        ],
-        "openai": [
-            ("gpt-5.2", "GPT-5.2"),
-            ("gpt-5.4", "GPT-5.4"),
-            ("gpt-5.4-nano", "GPT-5.4 Nano"),
-        ],
-        "gemini": [
-            ("gemini-3-flash", "Gemini 3 Flash"),
-            ("gemini-3-pro", "Gemini 3 Pro"),
-        ],
-        "ollama": [
-            ("llama3.2", "Llama 3.2"),
-            ("mistral", "Mistral"),
-        ],
-        "fireworks": [
-            ("accounts/fireworks/models/kimi-k2p5", "Kimi K2.5"),
-        ],
-        "openrouter": [
-            ("x-ai/grok-4", "Grok 4"),
-            ("x-ai/grok-4.20-beta", "Grok 4.20 Beta"),
-        ],
-    ]
-    /// Default model per provider (first entry from the catalog).
-    static let inferenceProviderDefaultModel: [String: String] = [
-        "anthropic": "claude-opus-4-6",
-        "openai": "gpt-5.2",
-        "gemini": "gemini-3-flash",
-        "ollama": "llama3.2",
-        "fireworks": "accounts/fireworks/models/kimi-k2p5",
-        "openrouter": "x-ai/grok-4",
-    ]
+    /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
+    @Published var providerCatalog: [ProviderCatalogEntry] = []
+    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x").
+    @Published var providerMaskedKeys: [String: String] = [:]
 
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
@@ -446,6 +388,37 @@ public final class SettingsStore: ObservableObject {
         // Load service modes (inference, image-generation) from workspace config
         loadServiceModes()
 
+        // Seed provider catalog with inline defaults so the UI has data before
+        // the first daemon fetch completes.
+        providerCatalog = [
+            ProviderCatalogEntry(id: "anthropic", displayName: "Anthropic", models: [
+                CatalogModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
+                CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+                CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
+            ], defaultModel: "claude-opus-4-6", apiKeyUrl: "https://console.anthropic.com/settings/keys"),
+            ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
+                CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
+                CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
+                CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
+            ], defaultModel: "gpt-5.4", apiKeyUrl: "https://platform.openai.com/api-keys"),
+            ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
+                CatalogModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
+                CatalogModel(id: "gemini-3-pro", displayName: "Gemini 3 Pro"),
+            ], defaultModel: "gemini-3-flash", apiKeyUrl: "https://aistudio.google.com/apikey"),
+            ProviderCatalogEntry(id: "ollama", displayName: "Ollama", models: [
+                CatalogModel(id: "llama3.2", displayName: "Llama 3.2"),
+                CatalogModel(id: "mistral", displayName: "Mistral"),
+            ], defaultModel: "llama3.2"),
+            ProviderCatalogEntry(id: "fireworks", displayName: "Fireworks", models: [
+                CatalogModel(id: "accounts/fireworks/models/kimi-k2p5", displayName: "Kimi K2.5"),
+            ], defaultModel: "accounts/fireworks/models/kimi-k2p5", apiKeyUrl: "https://fireworks.ai/account/api-keys"),
+            ProviderCatalogEntry(id: "openrouter", displayName: "OpenRouter", models: [
+                CatalogModel(id: "x-ai/grok-4", displayName: "Grok 4"),
+                CatalogModel(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
+            ], defaultModel: "x-ai/grok-4", apiKeyUrl: "https://openrouter.ai/keys"),
+        ]
+
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
         // deterministic timestamp instead of advancing each time.
@@ -673,6 +646,7 @@ public final class SettingsStore: ObservableObject {
             if result.success {
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
+                refreshModelInfo()
             } else if let error = result.error {
                 apiKeySaveError = error
                 if !result.isTransient {
@@ -700,6 +674,7 @@ public final class SettingsStore: ObservableObject {
         hasKey = false
         maskedKey = ""
         scheduleRoutingSourceRefresh()
+        refreshModelInfo()
     }
 
     func saveBraveKey(_ raw: String) {
@@ -822,6 +797,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: provider)
         refreshAPIKeyState()
         scheduleRoutingSourceRefresh()
+        refreshModelInfo()
     }
 
     func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil) {
@@ -842,11 +818,13 @@ public final class SettingsStore: ObservableObject {
             if result.success {
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
+                refreshModelInfo()
             } else if let error = result.error {
                 apiKeySaveError = error
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
+                    addDeletionTombstone(type: "api_key", name: provider)
                 }
             }
         }
@@ -950,9 +928,34 @@ public final class SettingsStore: ObservableObject {
         if let providers = response.configuredProviders {
             self.configuredProviders = Set(providers)
         }
-        if let models = response.availableModels {
-            self.inferenceAvailableModels = models
+        if let allProviders = response.allProviders, !allProviders.isEmpty {
+            self.providerCatalog = allProviders
         }
+        if let maskedKeys = response.maskedKeys {
+            self.providerMaskedKeys = maskedKeys
+        }
+    }
+
+    // MARK: - Dynamic Provider Catalog Helpers
+
+    var dynamicProviderIds: [String] {
+        providerCatalog.map(\.id)
+    }
+
+    func dynamicProviderDisplayName(_ provider: String) -> String {
+        providerCatalog.first { $0.id == provider }?.displayName ?? provider
+    }
+
+    func dynamicProviderModels(_ provider: String) -> [CatalogModel] {
+        providerCatalog.first { $0.id == provider }?.models ?? []
+    }
+
+    func dynamicProviderDefaultModel(_ provider: String) -> String {
+        providerCatalog.first { $0.id == provider }?.defaultModel ?? ""
+    }
+
+    func dynamicProviderApiKeyUrl(_ provider: String) -> String? {
+        providerCatalog.first { $0.id == provider }?.apiKeyUrl
     }
 
     // MARK: - Telegram Integration Actions
@@ -2174,25 +2177,82 @@ public final class SettingsStore: ObservableObject {
 
     /// Resolves the platform assistant UUID for OAuth endpoints.
     /// For managed assistants, the lockfile ID is the platform UUID.
-    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver.
-    private func resolvePlatformAssistantId(userId: String?) -> String? {
+    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver,
+    /// triggering bootstrap lazily if the mapping is not yet cached.
+    private func resolvePlatformAssistantId(userId: String?) async -> String? {
         guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId) else {
             return nil
         }
+
+        #if DEBUG
+        let credentialStorage = FileCredentialStorage()
+        #else
+        let credentialStorage = KeychainCredentialStorage()
+        #endif
+
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        return PlatformAssistantIdResolver.resolve(
+
+        // Try the fast synchronous path first.
+        if let resolved = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: KeychainCredentialStorage()
+            credentialStorage: credentialStorage
+        ) {
+            log.info("Resolved platform assistant ID (cached): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
+            return resolved
+        }
+
+        // For self-hosted assistants, the keychain mapping may not exist yet
+        // (bootstrap is async and may not have completed). Trigger bootstrap
+        // lazily and retry the resolve.
+        guard !assistant.isManaged else {
+            log.warning("Failed to resolve platform assistant ID for managed assistant \(connectedId, privacy: .public) (orgId=\(orgId ?? "nil", privacy: .public), userId=\(userId ?? "nil", privacy: .public))")
+            return nil
+        }
+
+        log.info("Platform assistant ID not cached — triggering lazy bootstrap for \(connectedId, privacy: .public)")
+        let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+        do {
+            _ = try await bootstrapService.bootstrap(
+                runtimeAssistantId: assistant.assistantId,
+                clientPlatform: "macos"
+            )
+        } catch {
+            // Bootstrap can persist the keychain mapping during ensure-registration
+            // but then throw on daemon injection (e.g. gateway not reachable yet).
+            // Always retry the resolve — the mapping may already be cached.
+            log.warning("Lazy bootstrap threw (mapping may still be cached): \(error.localizedDescription)")
+        }
+
+        // Re-resolve userId after bootstrap (it may have become available).
+        var postBootstrapUserId = userId
+        if postBootstrapUserId == nil {
+            let session = try? await AuthService.shared.getSession()
+            postBootstrapUserId = session?.data?.user?.id
+        }
+        let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        let postBootstrapResolved = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: postBootstrapOrgId,
+            userId: postBootstrapUserId,
+            credentialStorage: credentialStorage
         )
+        if let resolved = postBootstrapResolved {
+            log.info("Resolved platform assistant ID (after lazy bootstrap): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
+        } else {
+            log.error("Failed to resolve platform assistant ID after lazy bootstrap for runtime \(connectedId, privacy: .public) (orgId=\(postBootstrapOrgId ?? "nil", privacy: .public), userId=\(postBootstrapUserId ?? "nil", privacy: .public))")
+        }
+        return postBootstrapResolved
     }
 
     func fetchGoogleOAuthConnections(userId: String? = nil) async {
         guard googleOAuthMode == "managed" else { return }
-        guard let assistantId = resolvePlatformAssistantId(userId: userId) else { return }
+        guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
 
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
@@ -2211,7 +2271,7 @@ public final class SettingsStore: ObservableObject {
             googleOAuthError = nil
             defer { googleOAuthIsConnecting = false }
 
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
                 googleOAuthError = "No connected assistant"
                 return
             }
@@ -2262,7 +2322,7 @@ public final class SettingsStore: ObservableObject {
 
     func disconnectGoogleOAuthConnection(_ connectionId: String, userId: String? = nil) {
         Task {
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
                 googleOAuthError = "No connected assistant"
                 return
             }
@@ -2306,6 +2366,7 @@ public final class SettingsStore: ObservableObject {
         } catch {
             log.error("Failed to persist inference provider: \(error.localizedDescription)")
         }
+        scheduleRoutingSourceRefresh()
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the

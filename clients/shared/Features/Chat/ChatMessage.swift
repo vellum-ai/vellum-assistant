@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -797,6 +798,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// rehydration (empty -> populated) without expensive full-string comparison.
     public var inputRawValueLength: Int = 0
     public var result: String?
+    /// Lightweight sentinel tracking `result?.count` so that `==` can detect
+    /// rehydration without expensive full-string comparison on multi-MB results.
+    public var resultLength: Int = 0
     public var isError: Bool
     public var isComplete: Bool
     /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
@@ -845,7 +849,7 @@ public struct ToolCallData: Identifiable, Equatable {
         lhs.id == rhs.id
             && lhs.toolName == rhs.toolName
             && lhs.inputSummary == rhs.inputSummary
-            && lhs.result == rhs.result
+            && lhs.resultLength == rhs.resultLength
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
@@ -877,6 +881,7 @@ public struct ToolCallData: Identifiable, Equatable {
         self.inputRawValue = rawValue
         self.inputRawValueLength = rawValue.count
         self.result = result
+        self.resultLength = result?.count ?? 0
         self.isError = isError
         self.isComplete = isComplete
         self.arrivedBeforeText = arrivedBeforeText
@@ -892,12 +897,26 @@ public struct ToolCallData: Identifiable, Equatable {
     #if os(macOS)
     public static func decodeImage(from base64String: String?) -> NSImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return NSImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = NSImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #elseif os(iOS)
     public static func decodeImage(from base64String: String?) -> UIImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return UIImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = UIImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #else
     #error("Unsupported platform")
@@ -1728,6 +1747,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].cachedImage = nil
             toolCalls[i].imageData = nil
             toolCalls[i].result = nil
+            toolCalls[i].resultLength = 0
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil

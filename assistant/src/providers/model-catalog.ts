@@ -10,8 +10,9 @@ export const PROVIDER_MODEL_CATALOG: Record<string, CatalogModel[]> = {
     { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
   ],
   openai: [
-    { id: "gpt-5.2", displayName: "GPT-5.2" },
     { id: "gpt-5.4", displayName: "GPT-5.4" },
+    { id: "gpt-5.2", displayName: "GPT-5.2" },
+    { id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
     { id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
   ],
   gemini: [
@@ -31,8 +32,16 @@ export const PROVIDER_MODEL_CATALOG: Record<string, CatalogModel[]> = {
   ],
 };
 
-/** Display names for inference providers */
-export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+/** API key management URLs for inference providers (omit providers that don't require keys). */
+export const INFERENCE_PROVIDER_API_KEY_URLS: Record<string, string> = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  gemini: "https://aistudio.google.com/apikey",
+  fireworks: "https://fireworks.ai/account/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+};
+
+const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
@@ -40,6 +49,25 @@ export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
 };
+
+export interface ProviderCatalogEntry {
+  id: string;
+  displayName: string;
+  models: CatalogModel[];
+  defaultModel: string;
+  apiKeyUrl?: string;
+}
+
+/** Build the full provider catalog with metadata for each inference provider. */
+export function getFullProviderCatalog(): ProviderCatalogEntry[] {
+  return Object.entries(PROVIDER_MODEL_CATALOG).map(([id, models]) => ({
+    id,
+    displayName: INFERENCE_PROVIDER_DISPLAY_NAMES[id] ?? id,
+    models,
+    defaultModel: models[0]?.id ?? "",
+    apiKeyUrl: INFERENCE_PROVIDER_API_KEY_URLS[id],
+  }));
+}
 
 /** Check if a model ID is in the catalog for a given provider */
 export function isModelInCatalog(provider: string, modelId: string): boolean {

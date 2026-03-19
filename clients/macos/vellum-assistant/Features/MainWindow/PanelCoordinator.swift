@@ -376,10 +376,14 @@ extension MainWindowView {
             let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
                 Self.conversationStartersFeatureFlagKey
             )
+            let showInspectButton = assistantFeatureFlagStore.isEnabled(
+                "feature_flags.settings-developer-nav.enabled"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
+                showInspectButton: showInspectButton,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
@@ -578,6 +582,7 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
     let conversationStartersEnabled: Bool
+    var showInspectButton: Bool = false
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
@@ -591,6 +596,8 @@ struct ActiveChatViewWrapper: View {
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
+
+    @State private var inspectorMessageId: String? = nil
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -639,7 +646,9 @@ struct ActiveChatViewWrapper: View {
                 settingsStore.setModel(modelId)
             },
             selectedModel: settingsStore.selectedModel,
+            catalogModels: settingsStore.dynamicProviderModels(settingsStore.selectedInferenceProvider).map { (id: $0.id, name: $0.displayName) },
             configuredProviders: settingsStore.configuredProviders,
+            providerCatalog: settingsStore.providerCatalog,
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,
@@ -667,6 +676,10 @@ struct ActiveChatViewWrapper: View {
                     }
                 }
             },
+            showInspectButton: showInspectButton,
+            onInspectMessage: { daemonMessageId in
+                inspectorMessageId = daemonMessageId
+            },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
@@ -689,8 +702,8 @@ struct ActiveChatViewWrapper: View {
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
             },
-            onRetryConversationError: {
-                viewModel.retryAfterConversationError()
+            onRetryConversationError: { messageId in
+                viewModel.retryAfterConversationError(messageId: messageId)
             },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
@@ -735,6 +748,15 @@ struct ActiveChatViewWrapper: View {
             }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+        .sheet(isPresented: Binding(
+            get: { inspectorMessageId != nil },
+            set: { if !$0 { inspectorMessageId = nil } }
+        )) {
+            if let messageId = inspectorMessageId {
+                MessageInspectorView(messageId: messageId)
+                    .frame(minWidth: 600, minHeight: 400)
+            }
+        }
     }
 }
 

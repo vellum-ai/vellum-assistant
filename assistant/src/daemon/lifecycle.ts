@@ -142,7 +142,6 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
-    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -150,14 +149,16 @@ export async function runDaemon(): Promise<void> {
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
 
-    log.info("Daemon startup: migrations complete");
-
     seedInterfaceFiles();
 
     log.info("Daemon startup: installing templates and initializing DB");
     installTemplates();
     ensurePromptFiles();
 
+    // DB must be initialized before workspace migrations because some
+    // workspace migrations (e.g. 009-backfill-conversation-disk-view)
+    // depend on DB migrations having run (e.g. the inline-attachment-to-disk
+    // backfill that populates attachment filePaths).
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
@@ -173,6 +174,9 @@ export async function runDaemon(): Promise<void> {
       );
     }
     log.info("Daemon startup: DB initialized");
+
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+    log.info("Daemon startup: workspace migrations complete");
 
     // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.
@@ -210,17 +214,21 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Expire pending interaction-bound canonical guardian requests left over
-    // from before this process started.  Their in-memory pending-interaction
-    // session references are gone, so they can never be completed.  Only
-    // interaction-bound kinds (tool_approval, pending_question) are expired;
-    // persistent kinds (access_request, tool_grant_request) remain valid
-    // across restarts.
+    // Expire stale pending canonical guardian requests left over from before
+    // this process started.  Two categories are cleaned up:
+    //
+    // 1. Interaction-bound kinds (tool_approval, pending_question) — their
+    //    in-memory pending-interaction session references are gone, so they
+    //    can never be completed.
+    // 2. Any pending request whose expiresAt has already passed — persistent
+    //    kinds (access_request, tool_grant_request) that expired while the
+    //    daemon was stopped are transitioned so dedup logic doesn't return
+    //    stale rows.
     const expiredCount = expireAllPendingCanonicalRequests();
     if (expiredCount > 0) {
       log.info(
         { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale interaction-bound canonical request(s) from previous process`,
+        `Expired ${expiredCount} stale canonical request(s) from previous process`,
       );
     }
 
@@ -477,7 +485,7 @@ export async function runDaemon(): Promise<void> {
             title: notification.title,
             body: notification.body,
           },
-          dedupeKey: `watcher:notification:${Date.now()}`,
+          dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
       (params) => {
@@ -495,7 +503,7 @@ export async function runDaemon(): Promise<void> {
             title: params.title,
             body: params.body,
           },
-          dedupeKey: `watcher:escalation:${Date.now()}`,
+          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
         });
       },
       (info) => {
@@ -550,13 +558,22 @@ export async function runDaemon(): Promise<void> {
         getOrCreateConversation: (conversationId) =>
           server.getConversationForMessages(conversationId),
         assistantEventHub,
-        resolveAttachments: (attachmentIds) =>
-          attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+        resolveAttachments: (attachmentIds) => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          });
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
             data: a.dataBase64,
-          })),
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        },
       },
       findConversation: (conversationId) =>
         server.findConversation(conversationId),
@@ -641,13 +658,20 @@ export async function runDaemon(): Promise<void> {
     setVoiceBridgeDeps({
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
-      resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+      resolveAttachments: (attachmentIds) => {
+        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          hydrateFileData: true,
+        });
+        const sourcePaths =
+          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+        return resolved.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
           data: a.dataBase64,
-        })),
+          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+        }));
+      },
       deriveDefaultStrictSideEffects: (conversationId) => {
         const conversationType = getConversationType(conversationId);
         return conversationType === "private";

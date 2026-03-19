@@ -330,7 +330,7 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns attachments linked to a message", async () => {
     const msgId = await createMessage("assistant", "Here is a chart");
-    const stored = uploadAttachment("chart.png", "image/png", "iVBOR");
+    const stored = uploadAttachment("chart.png", "image/png", "iVBORw==");
     linkAttachmentToMessage(msgId, stored.id, 0);
 
     const result = getAttachmentsForMessage(msgId);
@@ -338,7 +338,7 @@ describe("getAttachmentsForMessage", () => {
     expect(result[0].id).toBe(stored.id);
     expect(result[0].originalFilename).toBe("chart.png");
     expect(result[0].mimeType).toBe("image/png");
-    expect(result[0].dataBase64).toBe("iVBOR");
+    expect(result[0].dataBase64).toBe("iVBORw==");
   });
 
   test("returns empty array when no attachments are linked", () => {

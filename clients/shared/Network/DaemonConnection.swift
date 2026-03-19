@@ -174,6 +174,19 @@ extension DaemonClient {
     /// `onConnectionStateChanged` callback when the health check reports
     /// disconnection.
     private func autoWakeIfDaemonDied() {
+        if isUpdateInProgress {
+            if let expiry = updateExpiresAt, Date() >= expiry {
+                log.warning("auto-wake: planned update expired — clearing stale update state and proceeding")
+                isUpdateInProgress = false
+                updateTargetVersion = nil
+                updateExpiresAt = nil
+                httpTransport?.isUpdateInProgress = false
+            } else {
+                log.info("auto-wake: skipping — planned service group update in progress")
+                return
+            }
+        }
+
         guard let wakeHandler,
               config.transportMetadata.routeMode == .runtimeFlat
         else { return }

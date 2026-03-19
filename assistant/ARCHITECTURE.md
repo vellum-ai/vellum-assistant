@@ -939,7 +939,7 @@ graph TB
     end
 
     SUBMIT --> SLASH_CHECK
-    SLASH_CHECK -->|"Yes (/model, /status, etc.)"| QA_ROUTE
+    SLASH_CHECK -->|"Yes (/models, /status, etc.)"| QA_ROUTE
     SLASH_CHECK -->|"No"| VOICE_CHECK
     VOICE_CHECK -->|"Yes"| QA_ROUTE
     VOICE_CHECK -->|"No"| CLASSIFIER
@@ -1017,12 +1017,12 @@ graph TB
 
     INPUT --> RESOLVE
     RESOLVE -->|"kind: passthrough"| PASSTHROUGH
-    RESOLVE -->|"kind: unknown<br/>(/model, /status, /commands, /pair,<br/>/models, provider shortcuts)"| HANDLED
+    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands, /pair)"| HANDLED
 ```
 
 Key behaviors:
 
-- **Built-in commands**: `/model`, `/models`, `/status`, `/commands`, `/pair`, and provider shortcuts (`/opus`, `/sonnet`, `/gpt4`, etc.) are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Built-in commands**: `/models`, `/status`, `/commands`, and `/pair` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
 - **Passthrough**: Any input that does not match a built-in command passes through to the normal agent loop, including slash-like tokens that are not recognized.
 - **Queue**: Queued messages receive the same slash resolution.
 

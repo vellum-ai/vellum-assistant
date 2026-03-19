@@ -77,7 +77,6 @@ import {
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
-  formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
@@ -1182,6 +1181,7 @@ export async function runAgentLoopImpl(
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
+        yieldedForBudget = false;
 
         updatedHistory = await ctx.agentLoop.run(
           runMessages,
@@ -1204,6 +1204,15 @@ export async function runAgentLoopImpl(
             "Post-convergence rerun still yielded at checkpoint — continuing reduction",
           );
           state.contextTooLargeDetected = true;
+
+          // Fold rerun progress into ctx.messages so the next reducer
+          // tier operates on up-to-date history instead of stale
+          // pre-rerun messages.
+          if (updatedHistory.length > preRunHistoryLength) {
+            ctx.messages = stripInjectedContext(updatedHistory);
+            preRepairMessages = updatedHistory;
+            preRunHistoryLength = updatedHistory.length;
+          }
         }
       }
 
@@ -1568,17 +1577,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-
-      const warningText = formatAttachmentWarnings(
-        attachmentResult.directiveWarnings,
-      );
-      if (warningText) {
-        onEvent({
-          type: "assistant_text_delta",
-          text: warningText,
-          conversationId: ctx.conversationId,
-        });
-      }
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {

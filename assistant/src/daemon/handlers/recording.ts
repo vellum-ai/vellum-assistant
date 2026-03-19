@@ -7,7 +7,8 @@ import {
   linkAttachmentToMessage,
   uploadFileBackedAttachment,
 } from "../../memory/attachments-store.js";
-import { addMessage } from "../../memory/conversation-crud.js";
+import { addMessage, getConversation } from "../../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { type HandlerContext, log } from "./shared.js";
 
@@ -653,6 +654,12 @@ export async function finalizeAndPublishRecording(params: {
       { recordingId, messageId, attachmentId: attachment.id },
       "Linked recording attachment to assistant message",
     );
+
+    // Sync the recording message (with attachment) to the disk view
+    const convForDisk = getConversation(conversationId);
+    if (convForDisk) {
+      syncMessageToDisk(conversationId, messageId, convForDisk.createdAt);
+    }
 
     // Skip server-side thumbnail generation for recordings — the client
     // generates thumbnails natively from the local file path using

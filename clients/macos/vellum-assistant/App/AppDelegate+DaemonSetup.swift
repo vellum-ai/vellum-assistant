@@ -225,22 +225,22 @@ extension AppDelegate {
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorShow(msg)
         }
         daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorUpdate(msg)
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentSaveResponse(msg)
         }
         daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentLoadResponse(msg)
         }
@@ -365,10 +365,13 @@ extension AppDelegate {
                 if lockfileExists && gatewayHealthy {
                     log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
                 } else {
-                    // Start the gateway when the lockfile needs creating (first launch)
-                    // OR when the gateway is unhealthy (crashed/died since last hatch).
+                    // On first launch post-onboarding, use daemonOnly: false so the CLI
+                    // creates a lockfile entry AND starts the gateway. On subsequent
+                    // launches, daemonOnly: true prevents duplicates — gateway restart
+                    // is handled separately below to avoid tearing down the daemon on
+                    // transient gateway failures.
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry && gatewayHealthy
+                    let daemonOnly = !needsLockfileEntry
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
@@ -406,6 +409,26 @@ extension AppDelegate {
                     }
                     if needsLockfileEntry {
                         _ = self.loadAssistantFromLockfile()
+                    }
+
+                    // Gateway died between app launches — attempt to restart it
+                    // separately from the daemon. If gateway startup fails, recover
+                    // the daemon so the user can still interact (just without gateway).
+                    if !needsLockfileEntry && !gatewayHealthy {
+                        log.info("Gateway unhealthy — attempting separate restart")
+                        do {
+                            try await assistantCli.hatch(name: assistantName, daemonOnly: false)
+                        } catch {
+                            log.warning("Gateway restart failed — recovering daemon: \(error)")
+                            // The full hatch may have torn down the daemon during
+                            // cleanup; re-hatch daemon-only so the user isn't left
+                            // with nothing.
+                            do {
+                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                            } catch {
+                                log.error("Daemon recovery after gateway failure also failed: \(error)")
+                            }
+                        }
                     }
                 }
             }

@@ -7,6 +7,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
+  captureImageRefs,
   DOCKERHUB_IMAGES,
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
@@ -224,6 +225,16 @@ async function upgradeDocker(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
+  console.log("📸 Capturing current image references for rollback...");
+  const previousImageRefs = await captureImageRefs(res);
+  if (previousImageRefs) {
+    console.log(
+      `   Captured refs for ${Object.keys(previousImageRefs).length} service(s)\n`,
+    );
+  } else {
+    console.log("   No existing containers found (fresh install)\n");
+  }
+
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
@@ -281,10 +292,44 @@ async function upgradeDocker(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
     );
   } else {
-    console.log(
-      `\n⚠️  Containers are running but the assistant did not become ready within the timeout.`,
-    );
-    console.log(`   Check logs with: docker logs -f ${res.assistantContainer}`);
+    console.error(`\n❌ Containers failed to become ready within the timeout.`);
+
+    if (previousImageRefs) {
+      console.log(`\n🔄 Rolling back to previous images...`);
+      await stopContainers(res);
+
+      await startContainers(
+        {
+          extraAssistantEnv,
+          gatewayPort,
+          imageTags: previousImageRefs,
+          instanceName,
+          res,
+        },
+        (msg) => console.log(msg),
+      );
+
+      const rollbackReady = await waitForReady(entry.runtimeUrl);
+      if (rollbackReady) {
+        console.log(
+          `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
+        );
+      } else {
+        console.error(
+          `\n❌ Rollback also failed. Manual intervention required.`,
+        );
+        console.log(
+          `   Check logs with: docker logs -f ${res.assistantContainer}`,
+        );
+      }
+    } else {
+      console.log(`   No previous images available for rollback.`);
+      console.log(
+        `   Check logs with: docker logs -f ${res.assistantContainer}`,
+      );
+    }
+
+    process.exit(1);
   }
 }
 

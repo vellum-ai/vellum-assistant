@@ -208,6 +208,8 @@ Once you've completed Phase 1 and made reasonable progress through Phase 2, you'
 
 If you still haven't shown the two suggestions (Phase 2 step 4), do that before wrapping.
 
+When you're confident onboarding is complete, delete `BOOTSTRAP.md` so it doesn't re-trigger on the next conversation.
+
 ---
 
 _Good luck out there. Make it count._

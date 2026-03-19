@@ -549,7 +549,11 @@ describe("attachment reuse across conversation lifecycles", () => {
   test("attachment uploaded in conversation A is retrievable by ID without any conversation reference", async () => {
     const convA = createConversation("Conversation A");
     const msgA = await addMessage(convA.id, "assistant", "Here is a file");
-    const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
+    const stored = uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERA==",
+    );
     linkAttachmentToMessage(msgA.id, stored.id, 0);
 
     // Create a completely separate conversation
@@ -557,11 +561,11 @@ describe("attachment reuse across conversation lifecycles", () => {
     await addMessage(convB.id, "user", "hello");
 
     // The attachment is retrievable by ID regardless of which conversation is active.
-    const fetched = getAttachmentById(stored.id);
+    const fetched = getAttachmentById(stored.id, { hydrateFileData: true });
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(stored.id);
     expect(fetched!.originalFilename).toBe("report.pdf");
-    expect(fetched!.dataBase64).toBe("JVBER");
+    expect(fetched!.dataBase64).toBe("JVBERA==");
   });
 
   test("attachment can be linked to messages in different conversations", async () => {

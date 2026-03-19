@@ -1,7 +1,8 @@
 import {
   AttachmentUploadError,
-  FILE_BACKED_THRESHOLD_BYTES,
+  getFilePathForAttachment,
   linkAttachmentToMessage,
+  MAX_UPLOAD_BYTES,
   setAttachmentThumbnail,
   uploadAttachment,
   uploadFileBackedAttachment,
@@ -107,12 +108,6 @@ export async function approveHostAttachmentRead(
   return isAllowDecision(response.decision);
 }
 
-export function formatAttachmentWarnings(warnings: string[]): string | null {
-  if (warnings.length === 0) return null;
-  const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
-  return `\n\n${lines.join("\n")}`;
-}
-
 export interface AttachmentResolutionResult {
   assistantAttachments: AssistantAttachmentDraft[];
   emittedAttachments: UserMessageAttachment[];
@@ -211,12 +206,13 @@ export async function resolveAssistantAttachments(
   if (assistantAttachments.length > 0 && lastAssistantMessageId) {
     for (let i = 0; i < assistantAttachments.length; i++) {
       const draft = assistantAttachments[i];
-      const isFileBacked = draft.sizeBytes > FILE_BACKED_THRESHOLD_BYTES;
       let stored;
-      let diskFilePath: string | undefined;
       try {
-        if (isFileBacked) {
-          diskFilePath = writeAttachmentToDisk(
+        // uploadAttachment always writes to disk now. For oversized files
+        // that exceed the upload limit, use the file-backed path which
+        // bypasses the size check.
+        if (draft.sizeBytes > MAX_UPLOAD_BYTES) {
+          const diskFilePath = writeAttachmentToDisk(
             draft.dataBase64,
             draft.filename,
           );
@@ -248,9 +244,10 @@ export async function resolveAssistantAttachments(
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
       const isVideo = draft.mimeType.startsWith("video/");
-      const omitData =
-        isFileBacked ||
-        (isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE);
+      // Only omit data for videos — they have an end-to-end lazy-load path
+      // via /v1/attachments/:id/content. Other types (images, PDFs) still need
+      // inline data for thumbnails, preview, and file-save in the client.
+      const omitData = isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
 
       // Generate and persist a thumbnail for video attachments.
       let thumbnailData: string | undefined;
@@ -259,6 +256,7 @@ export async function resolveAssistantAttachments(
         if (existing) {
           thumbnailData = existing;
         } else {
+          const diskFilePath = getFilePathForAttachment(stored.id);
           const generated = diskFilePath
             ? await generateVideoThumbnailFromPath(diskFilePath)
             : await generateVideoThumbnail(draft.dataBase64);
@@ -275,7 +273,7 @@ export async function resolveAssistantAttachments(
         mimeType: draft.mimeType,
         data: omitData ? "" : draft.dataBase64,
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
-        ...(isFileBacked ? { fileBacked: true } : {}),
+        fileBacked: true,
         ...(thumbnailData ? { thumbnailData } : {}),
       });
     }
