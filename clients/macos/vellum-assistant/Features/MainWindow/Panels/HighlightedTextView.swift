@@ -3,9 +3,11 @@ import VellumAssistantShared
 
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Read-only mode uses pure SwiftUI (Text with syntax highlighting). Editable mode
-/// uses a custom NSTextView wrapper (CodeTextView) for precise textContainerInset
-/// control, ensuring line numbers stay aligned with text content.
+/// Read-only mode wraps a non-editable `NSTextView` via `ReadOnlyCodeView`
+/// (`NSViewRepresentable`), giving native macOS text selection (click-drag,
+/// Cmd+A, Shift+arrows) and copy (Cmd+C, right-click menu) for free.
+/// Editable mode uses `CodeTextView` (also `NSViewRepresentable`) for precise
+/// textContainerInset control so the line-number gutter stays aligned.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -16,22 +18,9 @@ struct HighlightedTextView: View {
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
     @State private var isActivelyEditing = false
-    @State private var cachedHighlight: AttributedString?
     @State private var highlightVersion: UInt64 = 0
     @State private var contentReady = false
     @State private var cachedLineCount: Int = 1
-
-    /// Lightweight key for `.task(id:)` so the highlight task re-runs when
-    /// either the detected language or the text content changes.
-    private struct HighlightKey: Equatable {
-        let language: SyntaxLanguage
-        let version: UInt64
-    }
-
-    /// Files with fewer lines than this threshold use a single `Text` view
-    /// (full-document selection). Files at or above this threshold use lazy
-    /// per-line rendering for scroll performance.
-    private static let lazyRenderingThreshold = 1000
 
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
@@ -70,9 +59,6 @@ struct HighlightedTextView: View {
         }
         .onChange(of: isActivelyEditing) { _, editing in
             if !editing {
-                // readOnlyView's .onChange(of: text) doesn't fire while
-                // editableView is shown, so the cache may hold stale content.
-                cachedHighlight = nil
                 highlightVersion &+= 1
                 cachedLineCount = Self.countLines(in: text)
             }
@@ -146,124 +132,12 @@ struct HighlightedTextView: View {
 
     // MARK: - Read-Only Mode
 
-    /// Splits an `AttributedString` by newline characters, returning one
-    /// sub-string per line. The newline characters themselves are stripped.
-    private static func splitLines(_ attrStr: AttributedString) -> [AttributedString] {
-        var lines: [AttributedString] = []
-        var currentStart = attrStr.startIndex
-        let str = String(attrStr.characters)
-
-        for (offset, char) in str.enumerated() where char == "\n" {
-            let idx = attrStr.index(attrStr.startIndex, offsetByCharacters: offset)
-            lines.append(AttributedString(attrStr[currentStart..<idx]))
-            let nextOffset = offset + 1
-            if nextOffset < str.count {
-                currentStart = attrStr.index(attrStr.startIndex, offsetByCharacters: nextOffset)
-            } else {
-                currentStart = attrStr.endIndex
-            }
-        }
-        // Last line (or entire string if no newlines)
-        if currentStart < attrStr.endIndex {
-            lines.append(AttributedString(attrStr[currentStart..<attrStr.endIndex]))
-        } else if lines.isEmpty || str.last == "\n" {
-            lines.append(AttributedString())
-        }
-        return lines
-    }
-
-    /// Applies search match highlighting to an `AttributedString` representing
-    /// a single line. `lineStartOffset` is the character offset of this line
-    /// within the full text.
-    private func applySearchHighlighting(
-        to line: inout AttributedString,
-        lineText: Substring,
-        matchRanges: [Range<String.Index>]
-    ) {
-        let lineRange = lineText.startIndex..<lineText.endIndex
-        for (index, range) in matchRanges.enumerated() {
-            guard range.overlaps(lineRange) else { continue }
-            let clampedLower = max(range.lowerBound, lineText.startIndex)
-            let clampedUpper = min(range.upperBound, lineText.endIndex)
-            let localLower = lineText.distance(from: lineText.startIndex, to: clampedLower)
-            let localUpper = lineText.distance(from: lineText.startIndex, to: clampedUpper)
-            let charCount = String(line.characters).count
-            guard localLower <= charCount, localUpper <= charCount else { continue }
-            let attrLower = line.index(line.startIndex, offsetByCharacters: localLower)
-            let attrUpper = line.index(line.startIndex, offsetByCharacters: localUpper)
-            let attrRange = attrLower..<attrUpper
-            if index == currentMatchIndex {
-                line[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
-            } else {
-                line[attrRange].backgroundColor = VColor.systemMidWeak
-            }
-        }
-    }
-
-    // MARK: - Highlighted Text (single-Text path)
-
-    /// Full-document highlighted text with search match colouring.
-    /// Used for files under `lazyRenderingThreshold` where a single `Text`
-    /// view gives full-document selection support.
-    private var highlightedText: AttributedString {
-        var result: AttributedString
-        if let cached = cachedHighlight {
-            result = cached
-        } else {
-            // Lightweight fallback while async highlighting runs
-            result = AttributedString(text)
-            result.foregroundColor = VColor.contentDefault
-            result.font = VFont.mono
-        }
-
-        guard !searchQuery.isEmpty else { return result }
-
-        let matchRanges = findMatchRanges()
-        for (index, range) in matchRanges.enumerated() {
-            guard let lowerBound = AttributedString.Index(range.lowerBound, within: result),
-                  let upperBound = AttributedString.Index(range.upperBound, within: result) else {
-                continue
-            }
-
-            let attrRange = lowerBound..<upperBound
-            if index == currentMatchIndex {
-                result[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
-            } else {
-                result[attrRange].backgroundColor = VColor.systemMidWeak
-            }
-        }
-
-        return result
-    }
-
-    /// Read-only view with line numbers and horizontal scrolling.
-    ///
-    /// For small files (< `lazyRenderingThreshold` lines), renders the entire
-    /// file as a single `Text` view so full-document text selection works.
-    /// For large files, uses lazy per-line rendering so scrolling stays smooth.
+    /// Read-only view with line numbers and a native `NSTextView` for text
+    /// content. The `NSTextView` provides full-document text selection,
+    /// Cmd+C copy, and right-click context menu for free.
     private var readOnlyView: some View {
         let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
-        let useLazy = lineCount >= Self.lazyRenderingThreshold
-
-        // Pre-split highlighted text into per-line attributed strings
-        // (only needed for the lazy path).
-        let highlightedLines: [AttributedString]?
-        let plainLines: [Substring]
-        let matchRanges: [Range<String.Index>]
-        if useLazy {
-            if let cached = cachedHighlight {
-                highlightedLines = Self.splitLines(cached)
-            } else {
-                highlightedLines = nil
-            }
-            plainLines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            matchRanges = searchQuery.isEmpty ? [] : findMatchRanges()
-        } else {
-            highlightedLines = nil
-            plainLines = []
-            matchRanges = []
-        }
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -278,36 +152,13 @@ struct HighlightedTextView: View {
             GeometryReader { geometry in
                 ScrollView([.vertical]) {
                     HStack(alignment: .top, spacing: 0) {
-                        // Line number gutter — scrolls vertically, pinned horizontally
                         lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        // Text content
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            if useLazy {
-                                // Large file: lazy per-line rendering (per-line selection)
-                                lazyLineStack(
-                                    plainLines: plainLines,
-                                    highlightedLines: highlightedLines,
-                                    matchRanges: matchRanges
-                                )
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
-                            } else {
-                                // Small file: single Text view (full-document selection)
-                                Group {
-                                    if isEditable {
-                                        Text(highlightedText)
-                                            .textSelection(.disabled)
-                                    } else {
-                                        Text(highlightedText)
-                                            .textSelection(.enabled)
-                                    }
-                                }
-                                .fixedSize(horizontal: true, vertical: false)
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
-                            }
-                        }
+                        ReadOnlyCodeView(
+                            text: text,
+                            language: language,
+                            highlightVersion: highlightVersion
+                        )
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
                     .frame(minHeight: geometry.size.height, alignment: .topLeading)
@@ -326,7 +177,6 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
-            cachedHighlight = nil
             highlightVersion &+= 1
             cachedLineCount = Self.countLines(in: text)
             let count = searchMatchCount
@@ -336,98 +186,8 @@ struct HighlightedTextView: View {
                 currentMatchIndex = max(0, count - 1)
             }
         }
-        .task(id: HighlightKey(language: language, version: highlightVersion)) {
-            let capturedVersion = highlightVersion
-            let t = text
-            let l = language
-            let result = await Task.detached(priority: .userInitiated) {
-                SyntaxTheme.highlight(t, language: l)
-            }.value
-            if !Task.isCancelled, highlightVersion == capturedVersion {
-                cachedHighlight = result
-            }
-        }
         .onAppear {
             cachedLineCount = Self.countLines(in: text)
-        }
-    }
-
-    /// Builds the `Text` view for a single line, using the highlighted version
-    /// when available and falling back to plain monospaced text.
-    private func buildLineText(
-        index: Int,
-        plainLines: [Substring],
-        highlightedLines: [AttributedString]?,
-        matchRanges: [Range<String.Index>]
-    ) -> Text {
-        if let hLines = highlightedLines, index < hLines.count {
-            var attrLine = hLines[index]
-            if !matchRanges.isEmpty, index < plainLines.count {
-                applySearchHighlighting(
-                    to: &attrLine,
-                    lineText: plainLines[index],
-                    matchRanges: matchRanges
-                )
-            }
-            return Text(attrLine)
-        } else {
-            // Lightweight fallback — no AttributedString creation on the main thread
-            let str = index < plainLines.count ? String(plainLines[index]) : ""
-            return Text(str)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-        }
-    }
-
-    /// The shared `LazyVStack` of per-line `Text` views used by `readOnlyView`.
-    /// Extracted so that `readOnlyView` can branch on `isEditable` to apply
-    /// `.textSelection(.disabled)` or `.textSelection(.enabled)` without a
-    /// ternary (the two selectability types are not interchangeable).
-    private func lazyLineStack(
-        plainLines: [Substring],
-        highlightedLines: [AttributedString]?,
-        matchRanges: [Range<String.Index>]
-    ) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(0..<max(1, plainLines.count), id: \.self) { idx in
-                lineView(
-                    index: idx,
-                    plainLines: plainLines,
-                    highlightedLines: highlightedLines,
-                    matchRanges: matchRanges
-                )
-            }
-        }
-    }
-
-    /// Renders a single line of text with the correct frame and selection.
-    /// `.textSelection` is applied per-line because SwiftUI on macOS does
-    /// not propagate container-level `.textSelection(.enabled)` into lazy
-    /// child views.
-    @ViewBuilder
-    private func lineView(
-        index: Int,
-        plainLines: [Substring],
-        highlightedLines: [AttributedString]?,
-        matchRanges: [Range<String.Index>]
-    ) -> some View {
-        let lineText = buildLineText(
-            index: index,
-            plainLines: plainLines,
-            highlightedLines: highlightedLines,
-            matchRanges: matchRanges
-        )
-
-        if isEditable {
-            lineText
-                .textSelection(.disabled)
-                .frame(height: Self.lineHeight, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
-        } else {
-            lineText
-                .textSelection(.enabled)
-                .frame(height: Self.lineHeight, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -493,6 +253,152 @@ struct HighlightedTextView: View {
         var count = 1
         for byte in text.utf8 where byte == 0x0A { count += 1 }
         return count
+    }
+}
+
+// MARK: - Read-Only Code View (NSViewRepresentable)
+
+/// Wraps a non-editable `NSTextView` for the read-only source view.
+///
+/// Uses TextKit 1 (`NSLayoutManager`) so the line height matches the adjacent
+/// gutter. Syntax highlighting runs on a background thread via `Task.detached`
+/// and the `NSAttributedString` is applied to the text storage once ready.
+/// The `NSTextView` gives native macOS text selection (click-drag across lines,
+/// Cmd+A, Shift+arrows) and copy (Cmd+C, right-click menu) for free.
+private struct ReadOnlyCodeView: NSViewRepresentable {
+    let text: String
+    let language: SyntaxLanguage
+    let highlightVersion: UInt64
+
+    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = false
+        textContainer.heightTracksTextView = false
+        textContainer.lineFragmentPadding = VSpacing.md
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = true
+        textView.usesFontPanel = false
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.autoresizingMask = [.width]
+
+        textView.font = SyntaxTheme.nsFont
+        textView.textColor = NSColor(VColor.contentDefault)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+
+        // Match gutter's .padding(.top, VSpacing.sm)
+        textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
+
+        // Fixed line height so emoji/tall glyphs don't expand individual lines
+        let fixedLineHeight = layoutManager.defaultLineHeight(for: SyntaxTheme.nsFont)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = fixedLineHeight
+        paragraphStyle.maximumLineHeight = fixedLineHeight
+        textView.defaultParagraphStyle = paragraphStyle
+
+        context.coordinator.paragraphStyle = paragraphStyle
+        context.coordinator.applyText(text, language: language, to: textView)
+
+        let scrollView = HorizontalOnlyScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+
+        let needsUpdate = context.coordinator.lastText != text
+            || context.coordinator.lastLanguage != language
+            || context.coordinator.lastVersion != highlightVersion
+
+        if needsUpdate {
+            context.coordinator.applyText(text, language: language, to: textView)
+            context.coordinator.lastVersion = highlightVersion
+        }
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: HorizontalOnlyScrollView,
+        context: Context
+    ) -> CGSize? {
+        guard let textView = nsView.documentView as? NSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = usedRect.height + textView.textContainerInset.height * 2
+        return CGSize(width: proposal.width ?? 400, height: height)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var lastText: String = ""
+        var lastLanguage: SyntaxLanguage = .plain
+        var lastVersion: UInt64 = 0
+        var paragraphStyle: NSParagraphStyle?
+        private var highlightTask: Task<Void, Never>?
+
+        func applyText(_ text: String, language: SyntaxLanguage, to textView: NSTextView) {
+            lastText = text
+            lastLanguage = language
+
+            // Apply plain text immediately so the view is never empty
+            guard let textStorage = textView.textStorage else { return }
+            var baseAttrs: [NSAttributedString.Key: Any] = [
+                .font: SyntaxTheme.nsFont,
+                .foregroundColor: NSColor(VColor.contentDefault),
+            ]
+            if let ps = paragraphStyle {
+                baseAttrs[.paragraphStyle] = ps
+            }
+            let plain = NSAttributedString(string: text, attributes: baseAttrs)
+            textStorage.setAttributedString(plain)
+
+            // Run syntax highlighting on a background thread
+            highlightTask?.cancel()
+            let capturedText = text
+            let capturedLang = language
+            let capturedPS = paragraphStyle
+            highlightTask = Task.detached(priority: .userInitiated) {
+                let highlighted = SyntaxTheme.highlightNS(
+                    capturedText,
+                    language: capturedLang,
+                    paragraphStyle: capturedPS
+                )
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    guard let storage = textView.textStorage else { return }
+                    // Only apply if the text hasn't changed since we started
+                    guard (storage.string as String) == capturedText else { return }
+                    storage.beginEditing()
+                    storage.setAttributedString(highlighted)
+                    storage.endEditing()
+                }
+            }
+        }
     }
 }
 

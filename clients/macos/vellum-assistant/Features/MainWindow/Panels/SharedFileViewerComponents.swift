@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -59,6 +60,8 @@ struct FileContentView: View {
                 icon: fileIcon(for: mimeType),
                 fileName: fileName
             ) {
+                CopyAllButton(content: content)
+
                 if modes.count > 1 {
                     VSegmentedControl(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
@@ -96,6 +99,42 @@ struct FileContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+    }
+}
+
+// MARK: - Copy All Button
+
+/// A button that copies the full file content to the pasteboard.
+/// Shows a checkmark for 1.5 seconds after copying.
+private struct CopyAllButton: View {
+    let content: String
+    @State private var copied = false
+    @State private var isHovered = false
+    @State private var resetTimer: DispatchWorkItem?
+
+    var body: some View {
+        VIconView(copied ? .check : .copy, size: 10)
+            .foregroundColor(
+                copied
+                    ? VColor.systemPositiveStrong
+                    : (isHovered ? VColor.contentDefault : VColor.contentSecondary)
+            )
+            .animation(VAnimation.fast, value: copied)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                resetTimer?.cancel()
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(content, forType: .string)
+                copied = true
+                let timer = DispatchWorkItem { copied = false }
+                resetTimer = timer
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .help(copied ? "Copied!" : "Copy all")
+            .pointerCursor()
     }
 }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -19,6 +20,56 @@ private enum JSONNode: Identifiable {
              .bool(let id, _), .null(let id):
             return id
         }
+    }
+
+    /// Returns a JSON-formatted string representation of this node,
+    /// suitable for copying to the pasteboard.
+    var serializedValue: String {
+        switch self {
+        case .object(_, let entries):
+            let obj = entries.reduce(into: [String: Any]()) { dict, entry in
+                dict[entry.key] = entry.value.toFoundation()
+            }
+            return Self.prettyPrint(obj)
+        case .array(_, let elements):
+            return Self.prettyPrint(elements.map { $0.toFoundation() })
+        case .string(_, let value):
+            return value
+        case .number(_, let value):
+            return "\(value)"
+        case .bool(_, let value):
+            return value ? "true" : "false"
+        case .null:
+            return "null"
+        }
+    }
+
+    /// Converts this node back into a Foundation object for serialization.
+    private func toFoundation() -> Any {
+        switch self {
+        case .object(_, let entries):
+            return entries.reduce(into: [String: Any]()) { dict, entry in
+                dict[entry.key] = entry.value.toFoundation()
+            }
+        case .array(_, let elements):
+            return elements.map { $0.toFoundation() }
+        case .string(_, let value):
+            return value
+        case .number(_, let value):
+            return value
+        case .bool(_, let value):
+            return value
+        case .null:
+            return NSNull()
+        }
+    }
+
+    private static func prettyPrint(_ obj: Any) -> String {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: obj,
+            options: [.prettyPrinted, .withoutEscapingSlashes]
+        ) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 
@@ -258,14 +309,12 @@ private struct JSONNodeRow: View {
                 Text("\"\(value)\"")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxString)
-                    .textSelection(.enabled)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
-                    .textSelection(.enabled)
             }
         case .bool(_, let value):
             primitiveRow {
@@ -273,7 +322,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
                     .bold()
-                    .textSelection(.enabled)
             }
         case .null:
             primitiveRow {
@@ -281,7 +329,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentTertiary)
                     .italic()
-                    .textSelection(.enabled)
             }
         }
     }
@@ -293,32 +340,33 @@ private struct JSONNodeRow: View {
         children: [(String, JSONNode)]
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(VAnimation.fast) {
-                    if isExpanded {
-                        expandedPaths.remove(node.id)
-                    } else {
-                        expandedPaths.insert(node.id)
+            NodeCopyWrapper(node: node) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        if isExpanded {
+                            expandedPaths.remove(node.id)
+                        } else {
+                            expandedPaths.insert(node.id)
+                        }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Spacer().frame(width: CGFloat(depth) * 20)
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                            .foregroundColor(VColor.contentSecondary)
+                            .animation(VAnimation.fast, value: isExpanded)
+                        keyLabel
+                        Text(summary)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text("(\(countLabel))")
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Spacer().frame(width: CGFloat(depth) * 20)
-                    VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                        .foregroundColor(VColor.contentSecondary)
-                        .animation(VAnimation.fast, value: isExpanded)
-                    keyLabel
-                    Text(summary)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text("(\(countLabel))")
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .padding(.vertical, 2)
 
             if isExpanded {
                 ForEach(children, id: \.1.id) { childKey, childNode in
@@ -335,13 +383,14 @@ private struct JSONNodeRow: View {
 
     @ViewBuilder
     private func primitiveRow<V: View>(@ViewBuilder value: () -> V) -> some View {
-        HStack(spacing: 4) {
-            Spacer().frame(width: CGFloat(depth) * 20)
-            Spacer().frame(width: 12)
-            keyLabel
-            value()
+        NodeCopyWrapper(node: node) {
+            HStack(spacing: 4) {
+                Spacer().frame(width: CGFloat(depth) * 20)
+                Spacer().frame(width: 12)
+                keyLabel
+                value()
+            }
         }
-        .padding(.vertical, 2)
     }
 
     @ViewBuilder
@@ -350,10 +399,67 @@ private struct JSONNodeRow: View {
             Text(key)
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentDefault)
-                .textSelection(.enabled)
             Text(": ")
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentTertiary)
         }
+    }
+}
+
+// MARK: - Node Copy Wrapper
+
+/// Wraps a JSON node row with a hover-to-copy button and right-click context menu.
+/// The copy button appears on the trailing edge when the user hovers over the row.
+private struct NodeCopyWrapper<Content: View>: View {
+    let node: JSONNode
+    let content: Content
+    @State private var isHovered = false
+    @State private var copied = false
+    @State private var resetTimer: DispatchWorkItem?
+
+    init(node: JSONNode, @ViewBuilder content: () -> Content) {
+        self.node = node
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            content
+
+            if isHovered || copied {
+                VIconView(copied ? .check : .copy, size: 9)
+                    .foregroundColor(
+                        copied ? VColor.systemPositiveStrong : VColor.contentTertiary
+                    )
+                    .animation(VAnimation.fast, value: copied)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        copyValue()
+                    }
+                    .pointerCursor()
+                    .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 2)
+        .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                isHovered = hovering
+            }
+        }
+        .contextMenu {
+            Button("Copy Value") {
+                copyValue()
+            }
+        }
+    }
+
+    private func copyValue() {
+        resetTimer?.cancel()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(node.serializedValue, forType: .string)
+        copied = true
+        let timer = DispatchWorkItem { copied = false }
+        resetTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
     }
 }
