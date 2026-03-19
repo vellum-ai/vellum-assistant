@@ -227,10 +227,11 @@ struct AssistantBackupsSection: View {
                 filename = "export-\(formatter.string(from: Date())).vbundle"
             }
 
-            // Show save panel
+            // Show save panel — don't set allowedContentTypes since the filename
+            // already includes .vbundle; setting it causes NSSavePanel to append
+            // a duplicate extension (.vbundle.vbundle).
             let panel = NSSavePanel()
             panel.nameFieldStringValue = filename
-            panel.allowedContentTypes = [.init(filenameExtension: "vbundle") ?? .data]
             panel.canCreateDirectories = true
 
             let panelResult = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first!)
@@ -406,6 +407,8 @@ extension AssistantBackupsSection {
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."
                 }
+            } else if httpResponse.statusCode == 413 {
+                errorMessage = "Backup file is too large. Please upgrade the assistant to restore this backup."
             } else {
                 errorMessage = "Import failed (HTTP \(httpResponse.statusCode))"
             }
