@@ -99,23 +99,3 @@ public struct VToggle: View {
         return VColor.auxWhite
     }
 }
-
-#if DEBUG
-
-private struct VTogglePreviewWrapper: View {
-    @State private var isOnA = true
-    @State private var isOnB = false
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 16) {
-                VToggle(isOn: $isOnA, label: "Enabled toggle")
-                VToggle(isOn: $isOnB, label: "Disabled toggle")
-                VToggle(isOn: $isOnA)
-            }
-            .padding()
-        }
-    }
-}
-#endif

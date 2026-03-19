@@ -314,9 +314,9 @@ struct AssistantChannelsDetailView: View {
                                 }
                             ),
                             options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
-                            emptyValue: ""
+                            emptyValue: "",
+                            maxWidth: 280
                         )
-                        .frame(maxWidth: 280)
                     }
                 } else if !isConnected && voiceSetupExpanded {
                     voiceCredentialEntry
@@ -426,7 +426,7 @@ struct AssistantChannelsDetailView: View {
 
                     // Inline disconnect X button
                     if let channelKey {
-                        VButton(label: "Disconnect", iconOnly: VIcon.x.rawValue, style: .danger, isDisabled: isDisconnectDisabled, tooltip: "Disconnect") {
+                        VButton(label: "Disconnect", style: .danger, isDisabled: isDisconnectDisabled) {
                             onDisconnect?(channelKey)
                         }
                     }
@@ -775,9 +775,9 @@ struct AssistantChannelsDetailView: View {
                             }
                         ),
                         options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
-                        emptyValue: ""
+                        emptyValue: "",
+                        maxWidth: 360
                     )
-                    .frame(maxWidth: 360)
                 }
 
                 VButton(label: "Disconnect", style: .dangerGhost, isDisabled: store.twilioSaveInProgress) {

@@ -113,9 +113,9 @@ struct MemoriesPanel: View {
             VDropdown(
                 placeholder: "Status",
                 selection: $statusFilter,
-                options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
+                options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) },
+                maxWidth: 130
             )
-            .frame(width: 130)
             .onChange(of: statusFilter) {
                 store.statusFilter = statusFilter.apiValue
                 Task { await store.loadItems() }
@@ -124,9 +124,9 @@ struct MemoriesPanel: View {
             VDropdown(
                 placeholder: "Sort",
                 selection: $sortOption,
-                options: MemorySortOption.allCases.map { ($0.rawValue, $0) }
+                options: MemorySortOption.allCases.map { ($0.rawValue, $0) },
+                maxWidth: 130
             )
-            .frame(width: 130)
             .onChange(of: sortOption) {
                 store.sortField = sortOption.sortField
                 store.sortOrder = sortOption.sortOrder

@@ -1107,10 +1107,21 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments.
+                    // Include filePath, sizeBytes, and thumbnailData so file-backed
+                    // attachments survive the secret-ingress redirect.
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
-                        secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                        secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
+                            guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                            return UserMessageAttachment(
+                                filename: att.filename,
+                                mimeType: att.mimeType,
+                                data: att.data,
+                                extractedText: nil,
+                                sizeBytes: att.sizeBytes,
+                                thumbnailData: att.thumbnailData?.base64EncodedString(),
+                                filePath: att.filePath
+                            )
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
@@ -1526,6 +1537,7 @@ extension ChatViewModel {
             }
             if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
                 messages[msgIndex].toolCalls[tcIndex].result = msg.result
+                messages[msgIndex].toolCalls[tcIndex].resultLength = msg.result.count
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
@@ -1794,13 +1806,15 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
-                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
-                messages.append(errorMsg)
-                // Mark the error as displayed inline so the toast overlay
-                // suppresses its duplicate display, while keeping the typed
-                // error state available for downstream consumers (credits-
-                // exhausted recovery, sidebar state, iOS banner).
-                errorManager.isConversationErrorDisplayedInline = true
+                if shouldCreateInlineErrorMessage?(typedError) ?? true {
+                    let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
+                    messages.append(errorMsg)
+                    // Mark the error as displayed inline so the toast overlay
+                    // suppresses its duplicate display, while keeping the typed
+                    // error state available for downstream consumers (credits-
+                    // exhausted recovery, sidebar state, iOS banner).
+                    errorManager.isConversationErrorDisplayedInline = true
+                }
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -1964,6 +1978,12 @@ extension ChatViewModel {
             selectedModel = msg.model
             if let providers = msg.configuredProviders {
                 configuredProviders = Set(providers)
+            }
+            if let allProviders = msg.allProviders, !allProviders.isEmpty {
+                providerCatalog = allProviders
+            }
+            if let maskedKeys = msg.maskedKeys {
+                providerMaskedKeys = maskedKeys
             }
 
         case .memoryStatus(let status):

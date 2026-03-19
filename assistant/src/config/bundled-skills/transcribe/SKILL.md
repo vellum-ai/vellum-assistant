@@ -22,7 +22,7 @@ If the user says "local", "offline", "private", or "on-device" → use `local`.
 
 ## Usage Notes
 
-- The tool accepts either a `file_path` (absolute path to a local file) or an `attachment_id` (for uploaded attachments). Prefer `file_path` when the user references a file on disk.
+- The tool accepts a `file_path` (absolute path to a local audio or video file) to transcribe.
 - Supported formats: any video (mp4, mov, etc.) or audio (mp3, wav, m4a, etc.) file.
 - For video files, audio is automatically extracted via ffmpeg before transcription.
 - The API mode has a 25MB per-request limit - large files are automatically split into chunks.

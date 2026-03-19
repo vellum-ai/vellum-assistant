@@ -4,25 +4,28 @@ import SwiftUI
 ///
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
 /// (automatic checkmarks, accessibility). The visual label is fully custom.
-/// Expands to fill available width by default; callers can constrain with
-/// `.frame(width:)` as needed.
+/// Defaults to 400pt max width; callers can pass a custom `maxWidth` to override.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
     public let options: [(label: String, value: T)]
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
+    /// The maximum width of the dropdown. Defaults to 400.
+    public var maxWidth: CGFloat = 400
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
-        emptyValue: T? = nil
+        emptyValue: T? = nil,
+        maxWidth: CGFloat = 400
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
+        self.maxWidth = maxWidth
     }
 
     private var selectedLabel: String? {
@@ -69,42 +72,6 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: maxWidth)
     }
 }
-
-#if DEBUG
-
-private struct VDropdownPreviewWrapper: View {
-    @State private var selection = ""
-
-    private let options = [
-        (label: "Option A", value: "a"),
-        (label: "Option B", value: "b"),
-        (label: "Option C", value: "c")
-    ]
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(spacing: VSpacing.md) {
-                VDropdown(
-                    placeholder: "Select an option\u{2026}",
-                    selection: $selection,
-                    options: options,
-                    emptyValue: ""
-                )
-
-                TextField("Leave empty for assistant default", text: .constant(""))
-                    .vInputStyle()
-                    .font(VFont.body)
-
-                Text("Selected: \"\(selection)\"")
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding()
-        }
-    }
-}
-#endif

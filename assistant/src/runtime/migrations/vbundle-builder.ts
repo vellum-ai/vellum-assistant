@@ -447,7 +447,11 @@ export function buildExportVBundle(
 
   // Walk the entire workspace directory, including binary files (DB,
   // attachments) but skipping large/regenerable subdirectories.
-  if (workspaceDir && existsSync(workspaceDir) && lstatSync(workspaceDir).isDirectory()) {
+  if (
+    workspaceDir &&
+    existsSync(workspaceDir) &&
+    lstatSync(workspaceDir).isDirectory()
+  ) {
     files.push(
       ...walkDirectory(workspaceDir, "workspace", {
         includeBinary: true,

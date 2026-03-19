@@ -7,6 +7,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
@@ -15,16 +16,22 @@ import type {
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
   AttachmentUploadError,
+  attachmentExists,
   linkAttachmentToMessage,
   uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import {
   addMessage,
+  getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import {
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../memory/conversation-disk-view.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -276,17 +283,20 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
-  const userMessage = createUserMessage(
-    content,
-    attachments.map((attachment) => ({
-      id: attachment.id,
-      filename: attachment.filename,
-      mimeType: attachment.mimeType,
-      data: attachment.data,
-      extractedText: attachment.extractedText,
-    })),
+  const attachmentInputs = attachments.map((attachment) => ({
+    id: attachment.id,
+    filename: attachment.filename,
+    mimeType: attachment.mimeType,
+    data: attachment.data,
+    extractedText: attachment.extractedText,
+    filePath: attachment.filePath,
+  }));
+  const cleanMessage = createUserMessage(content, attachmentInputs);
+  const llmMessage = enrichMessageWithSourcePaths(
+    cleanMessage,
+    attachmentInputs,
   );
-  ctx.messages.push(userMessage);
+  ctx.messages.push(llmMessage);
 
   try {
     const turnCtx =
@@ -294,6 +304,14 @@ export async function persistUserMessage(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const imageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
+
     const mergedMetadata = {
       ...(metadata ?? {}),
       ...provenance,
@@ -309,6 +327,7 @@ export async function persistUserMessage(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
+      ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
 
     // When displayContent is provided (e.g. original text before recording
@@ -317,18 +336,9 @@ export async function persistUserMessage(
     // the stripped content.
     const contentToPersist = displayContent
       ? JSON.stringify(
-          createUserMessage(
-            displayContent,
-            attachments.map((a) => ({
-              id: a.id,
-              filename: a.filename,
-              mimeType: a.mimeType,
-              data: a.data,
-              extractedText: a.extractedText,
-            })),
-          ).content,
+          createUserMessage(displayContent, attachmentInputs).content,
         )
-      : JSON.stringify(userMessage.content);
+      : JSON.stringify(cleanMessage.content);
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
@@ -349,15 +359,33 @@ export async function persistUserMessage(
       );
     }
 
+    // Rewrite meta.json so the on-disk metadata reflects the origin channel
+    if (turnCtx || turnIfCtx) {
+      const convForMeta = getConversation(ctx.conversationId);
+      if (convForMeta) {
+        updateMetaFile(convForMeta);
+      }
+    }
+
     if (!persistedUserMessage.id) {
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table so asset_search can find them.
+    // Index user attachments in the attachments table for later retrieval.
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
-      if (!a.data) continue;
       try {
+        // If the attachment already exists in the store (e.g. file-backed
+        // attachments uploaded separately), link it directly without
+        // re-uploading. This handles the case where data is empty because
+        // the attachment content lives on disk.
+        if (a.id && attachmentExists(a.id)) {
+          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          continue;
+        }
+
+        if (!a.data) continue;
+
         const validation = validateAttachmentUpload(a.filename, a.mimeType);
         if (!validation.ok) {
           log.warn(
@@ -381,6 +409,16 @@ export async function persistUserMessage(
           );
         }
       }
+    }
+
+    // Sync the persisted user message (with attachments) to the disk view
+    const conv = getConversation(ctx.conversationId);
+    if (conv) {
+      syncMessageToDisk(
+        ctx.conversationId,
+        persistedUserMessage.id,
+        conv.createdAt,
+      );
     }
 
     return persistedUserMessage.id;

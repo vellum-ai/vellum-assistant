@@ -307,6 +307,7 @@ mock.module("../agent/message-types.js", () => ({
 
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
+  backfillMessageIdOnLogs: () => {},
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────

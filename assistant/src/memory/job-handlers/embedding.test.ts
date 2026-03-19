@@ -142,10 +142,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(
-      makeJob({ assetId: "asset-registered" }),
-      TEST_CONFIG,
-    );
+    await embedMediaJob(makeJob({ assetId: "asset-registered" }), TEST_CONFIG);
     expect(embedAndUpsertCalls).toHaveLength(0);
   });
 

@@ -48,86 +48,86 @@ struct PairingQRCodeSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: VSpacing.lg) {
-            HStack {
-                Text("Pair iOS Device")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                Button("Done") { dismiss() }
-            }
+        VModal(title: "Pair iOS Device") {
+            VStack(spacing: VSpacing.lg) {
+                if daemonClient == nil {
+                    errorContent("Cannot generate QR code \u{2014} assistant not connected. Please wait for the assistant to start and try again.")
+                } else {
+                    switch registrationState {
+                    case .idle, .registering:
+                        VStack(spacing: VSpacing.sm) {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text("Registering pairing request...")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                        .frame(width: 220, height: 220)
 
-            if daemonClient == nil {
-                errorContent("Cannot generate QR code \u{2014} assistant not connected. Please wait for the assistant to start and try again.")
-            } else {
-                switch registrationState {
-                case .idle, .registering:
-                    VStack(spacing: VSpacing.sm) {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text("Registering pairing request...")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                    .frame(width: 220, height: 220)
+                    case .registered:
+                        if let qrImage = generateQRImage() {
+                            Image(nsImage: qrImage)
+                                .resizable()
+                                .interpolation(.none)
+                                .scaledToFit()
+                                .frame(width: 220, height: 220)
+                                .padding(VSpacing.md)
+                                .background(VColor.auxWhite)
+                                .cornerRadius(VRadius.md)
+                        } else {
+                            errorContent("Failed to generate QR code.")
+                        }
 
-                case .registered:
-                    if let qrImage = generateQRImage() {
-                        Image(nsImage: qrImage)
-                            .resizable()
-                            .interpolation(.none)
-                            .scaledToFit()
-                            .frame(width: 220, height: 220)
-                            .padding(VSpacing.md)
-                            .background(VColor.auxWhite)
-                            .cornerRadius(VRadius.md)
-                    } else {
-                        errorContent("Failed to generate QR code.")
+                    case .failed:
+                        errorContent(registrationError ?? "Could not register pairing request. Ensure the assistant is running.")
                     }
 
-                case .failed:
-                    errorContent(registrationError ?? "Could not register pairing request. Ensure the assistant is running.")
-                }
+                    // State indicator
+                    if canGenerateQR {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.circleCheck, size: 14)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                            Text("Ready to pair with iOS")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
 
-                // State indicator
-                if canGenerateQR {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.circleCheck, size: 14)
-                            .foregroundColor(VColor.systemPositiveStrong)
-                        Text("Ready to pair with iOS")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.systemPositiveStrong)
-                    }
-
-                    if localLanUrl != nil {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.wifi, size: 12)
-                                .foregroundColor(VColor.contentTertiary)
-                            Text("LAN pairing available")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
+                        if localLanUrl != nil {
+                            HStack(spacing: VSpacing.xs) {
+                                VIconView(.wifi, size: 12)
+                                    .foregroundColor(VColor.contentTertiary)
+                                Text("LAN pairing available")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                            }
                         }
                     }
                 }
-            }
 
-            Text("Scan this QR code with the Vellum iOS app. You will be asked to approve the pairing on this Mac.")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-                .multilineTextAlignment(.center)
+                Text("Scan this QR code with the Vellum iOS app. You will be asked to approve the pairing on this Mac.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
 
-            if registrationState == .failed && daemonClient != nil {
-                Button("Retry") {
-                    consecutiveRefreshFailures = 0
-                    pairingRequestId = UUID().uuidString
-                    pairingSecret = Self.generatePairingSecret()
-                    registerWithDaemon()
-                    startRefreshTimer()
+                if registrationState == .failed && daemonClient != nil {
+                    Button("Retry") {
+                        consecutiveRefreshFailures = 0
+                        pairingRequestId = UUID().uuidString
+                        pairingSecret = Self.generatePairingSecret()
+                        registerWithDaemon()
+                        startRefreshTimer()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                VButton(label: "Done", style: .outlined) {
+                    dismiss()
+                }
             }
         }
-        .padding(VSpacing.xl)
         .frame(width: 380)
         .onAppear {
             hostId = Self.computeHostId()

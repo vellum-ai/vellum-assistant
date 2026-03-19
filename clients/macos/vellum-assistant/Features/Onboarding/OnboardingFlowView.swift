@@ -56,7 +56,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     // Fixed top inset — positions the icon consistently
                     // across all steps regardless of bottom content weight.
-                    Color.clear.frame(height: geometry.size.height * 0.08)
+                    Color.clear.frame(height: VSpacing.xxxl)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
@@ -134,13 +134,13 @@ struct OnboardingFlowView: View {
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
 
                     // Bottom padding so content isn't flush with window edge.
-                    // Skip for step 0 (WakeUpStepView) where the characters
+                    // Skip for steps with characters footer (0, 2) where the
                     // graphic is designed to sit flush at the window bottom.
-                    if state.currentStep != 0 || isBootstrappingManaged {
+                    if (state.currentStep != 0 && state.currentStep != 2) || isBootstrappingManaged {
                         Color.clear.frame(height: VSpacing.xxl)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -249,7 +249,7 @@ struct OnboardingFlowView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
-                        .font(VFont.monoMedium)
+                        .font(VFont.buttonLarge)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {
@@ -381,15 +381,4 @@ struct OnboardingFlowView: View {
         }
         state.hatchFailed = true
     }
-}
-
-#Preview {
-    OnboardingFlowView(
-        state: OnboardingState(),
-        daemonClient: DaemonClient(),
-        authManager: AuthManager(),
-        managedBootstrapEnabled: true,
-        onComplete: {},
-        onOpenSettings: {}
-    )
 }

@@ -80,7 +80,7 @@ public enum VFont {
 
     // MARK: - Specialized
 
-    public static let cardTitle   = Font.custom("Inter-Medium", size: 17)
+    public static let cardTitle   = Font.custom("Inter-SemiBold", size: 16)
     public static let buttonLarge = Font.custom("Inter-Medium", size: 16)
     public static let cardEmoji  = Font.system(size: 32)
     public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
@@ -97,6 +97,9 @@ public enum VFont {
 
     /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     public static let display    = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
+
+    /// Modal title font (used by VModal for sheet/dialog titles).
+    public static let modalTitle = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
     public static let panelTitle   = Font.custom("Inter-Medium", size: adaptiveSize(24))
     public static let sectionTitle   = Font.custom("Inter-Medium", size: adaptiveSize(17))
     public static let sectionDescription = Font.custom("Inter", size: 13)

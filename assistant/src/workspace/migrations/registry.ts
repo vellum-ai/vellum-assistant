@@ -6,6 +6,7 @@ import { addSendDiagnosticsMigration } from "./005-add-send-diagnostics.js";
 import { servicesConfigMigration } from "./006-services-config.js";
 import { webSearchProviderRenameMigration } from "./007-web-search-provider-rename.js";
 import { voiceTimeoutAndMaxStepsMigration } from "./008-voice-timeout-and-max-steps.js";
+import { backfillConversationDiskViewMigration } from "./009-backfill-conversation-disk-view.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -21,4 +22,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   servicesConfigMigration,
   webSearchProviderRenameMigration,
   voiceTimeoutAndMaxStepsMigration,
+  backfillConversationDiskViewMigration,
 ];

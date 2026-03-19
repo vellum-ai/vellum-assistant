@@ -254,6 +254,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
 
+    /// Whether the connected daemon's major.minor version differs from this client's version.
+    /// Set automatically when `daemon_status` is received. Does not block the connection.
+    @Published public internal(set) var versionMismatch: Bool = false
+
+    /// Whether a planned service group update is in progress.
+    /// Set when a `service_group_update_starting` event is received,
+    /// cleared when reconnected and `daemon_status` confirms the new version.
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+
+    /// The version being upgraded to, if an update is in progress.
+    @Published public internal(set) var updateTargetVersion: String?
+
+    /// Deadline after which `isUpdateInProgress` is considered stale.
+    /// Computed from `expectedDowntimeSeconds` (with a 2x safety buffer)
+    /// when a `service_group_update_starting` event arrives. If the update
+    /// hasn't completed by this time, auto-wake suppression expires so the
+    /// client can recover from a crashed update.
+    var updateExpiresAt: Date?
+
     /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
     /// Used to detect instance switches — if this changes, the stored actor token is stale.
     @Published public internal(set) var keyFingerprint: String?
@@ -339,6 +358,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update is starting.
+    public var onServiceGroupUpdateStarting: ((ServiceGroupUpdateStartingMessage) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update has completed.
+    public var onServiceGroupUpdateComplete: ((ServiceGroupUpdateCompleteMessage) -> Void)?
 
     /// Called when the server-assigned conversation ID differs from the
     /// client-local ID. Parameters: (localId, serverId).
@@ -542,12 +567,43 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         isAuthenticated = false
         httpPort = nil
         daemonVersion = nil
+        versionMismatch = false
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
+    }
+
+    /// Extract (major, minor) from a semver string like "1.2.3" or "v1.2.3".
+    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
+        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
+        let components = cleaned.split(separator: ".").compactMap { Int($0) }
+        guard components.count >= 2 else { return nil }
+        return (components[0], components[1])
+    }
+
+    /// Compare client and daemon major.minor versions. Logs a warning and sets
+    /// `versionMismatch` if they differ. Patch version differences are tolerated.
+    func checkVersionCompatibility(daemonVersion: String) {
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
+            return
+        }
+        guard let (daemonMajor, daemonMinor) = parseMajorMinor(daemonVersion),
+              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
+            return
+        }
+        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        if mismatch != versionMismatch {
+            versionMismatch = mismatch
+        }
+        if mismatch {
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public) — major.minor differs, features may not work correctly")
+        }
     }
 
     deinit {
@@ -830,6 +886,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return request
     }
 
+
     // MARK: - Interface Files
 
     /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
@@ -861,141 +918,5 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-
-    // MARK: - Contacts Management
-
-    /// A channel to attach when creating a new contact.
-    public struct NewContactChannel: Codable {
-        public let type: String
-        public let address: String
-        public let isPrimary: Bool
-
-        public init(type: String, address: String, isPrimary: Bool = false) {
-            self.type = type
-            self.address = address
-            self.isPrimary = isPrimary
-        }
-    }
-
-    // MARK: - Actor Token Bootstrap
-
-    /// Response from `POST /v1/guardian/init`.
-    /// Accepts both `accessToken` (new) and `actorToken` (legacy) field names.
-    public struct GuardianBootstrapResponse: Decodable {
-        public let guardianPrincipalId: String
-        /// The JWT access token — accepts either `accessToken` or legacy `actorToken`.
-        public let accessToken: String
-        public let accessTokenExpiresAt: Int?
-        public let refreshToken: String?
-        public let refreshTokenExpiresAt: Int?
-        public let refreshAfter: Int?
-        public let isNew: Bool
-
-        private enum CodingKeys: String, CodingKey {
-            case guardianPrincipalId
-            case accessToken
-            case actorToken
-            case accessTokenExpiresAt
-            case actorTokenExpiresAt
-            case refreshToken
-            case refreshTokenExpiresAt
-            case refreshAfter
-            case isNew
-        }
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            guardianPrincipalId = try container.decode(String.self, forKey: .guardianPrincipalId)
-            // Accept "accessToken" first, fall back to legacy "actorToken"
-            if let token = try container.decodeIfPresent(String.self, forKey: .accessToken) {
-                accessToken = token
-            } else {
-                accessToken = try container.decode(String.self, forKey: .actorToken)
-            }
-            // Accept "accessTokenExpiresAt" first, fall back to legacy "actorTokenExpiresAt"
-            if let expiresAt = try container.decodeIfPresent(Int.self, forKey: .accessTokenExpiresAt) {
-                accessTokenExpiresAt = expiresAt
-            } else {
-                accessTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .actorTokenExpiresAt)
-            }
-            refreshToken = try container.decodeIfPresent(String.self, forKey: .refreshToken)
-            refreshTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .refreshTokenExpiresAt)
-            refreshAfter = try container.decodeIfPresent(Int.self, forKey: .refreshAfter)
-            isNew = try container.decode(Bool.self, forKey: .isNew)
-        }
-    }
-
-    /// Calls the runtime's guardian bootstrap endpoint to obtain a JWT access token.
-    /// The token is bound to (assistantId, platform, deviceId) and persisted
-    /// in Keychain via `ActorTokenManager`.
-    ///
-    /// Returns `true` on success, `false` on failure.
-    public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
-        var request: URLRequest
-
-        if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/v1/guardian/init") else {
-                log.error("Invalid bootstrap URL")
-                return false
-            }
-            var r = URLRequest(url: url)
-            r.httpMethod = "POST"
-            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            r.timeoutInterval = 15
-            if let token = httpTransport.bearerToken, !token.isEmpty {
-                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            request = r
-        } else if var r = buildLocalRequest(target: .daemon, path: "v1/guardian/init", method: "POST", timeout: 15) {
-            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request = r
-        } else {
-            log.error("Cannot bootstrap access token — no HTTP endpoint available")
-            return false
-        }
-
-        let body: [String: Any] = [
-            "platform": platform,
-            "deviceId": deviceId
-        ]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                log.error("Access token bootstrap failed (HTTP \(statusCode))")
-                return false
-            }
-
-            let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
-            if let refreshToken = decoded.refreshToken,
-               let accessTokenExpiresAt = decoded.accessTokenExpiresAt,
-               let refreshTokenExpiresAt = decoded.refreshTokenExpiresAt,
-               let refreshAfter = decoded.refreshAfter {
-                ActorTokenManager.storeCredentials(
-                    actorToken: decoded.accessToken,
-                    actorTokenExpiresAt: accessTokenExpiresAt,
-                    refreshToken: refreshToken,
-                    refreshTokenExpiresAt: refreshTokenExpiresAt,
-                    refreshAfter: refreshAfter,
-                    guardianPrincipalId: decoded.guardianPrincipalId
-                )
-            } else {
-                // Legacy fallback for older runtimes that don't return refresh tokens.
-                // Clear any stale refresh metadata from prior pairings so proactive
-                // refresh / 401 recovery don't send an expired token.
-                ActorTokenManager.setToken(decoded.accessToken)
-                ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
-                ActorTokenManager.clearRefreshMetadata()
-            }
-            log.info("Access token bootstrap succeeded (isNew=\(decoded.isNew))")
-            return true
-        } catch {
-            log.error("Access token bootstrap error: \(error.localizedDescription)")
-            return false
-        }
-    }
 
 }

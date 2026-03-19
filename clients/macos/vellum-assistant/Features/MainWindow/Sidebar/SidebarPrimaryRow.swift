@@ -69,6 +69,3 @@ struct SidebarPrimaryRow: View {
 typealias SidebarNavRow = SidebarPrimaryRow
 
 // MARK: - Gallery Preview
-
-#if DEBUG
-#endif

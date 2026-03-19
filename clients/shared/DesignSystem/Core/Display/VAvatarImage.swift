@@ -88,7 +88,4 @@ public struct VAvatarImage: View {
         return false
     }
 }
-
-#if DEBUG
-#endif
 #endif

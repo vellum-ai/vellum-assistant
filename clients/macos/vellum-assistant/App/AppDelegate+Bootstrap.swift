@@ -215,7 +215,7 @@ extension AppDelegate {
         }
     }
 
-    /// Performs the initial actor token bootstrap with exponential backoff.
+    /// Performs the initial actor token bootstrap with fixed-interval polling.
     /// Called only when no actor token exists (first launch or after credential wipe).
     ///
     /// Before hitting the network, checks whether the CLI already persisted a
@@ -236,10 +236,9 @@ extension AppDelegate {
         }
 
         let deviceId = PairingQRCodeSheet.computeHostId()
-        var delay: UInt64 = 2_000_000_000
-        let maxDelay: UInt64 = 60_000_000_000
-        var connectionDelay: UInt64 = 2_000_000_000
-        let connectionMaxDelay: UInt64 = 300_000_000_000
+        let delay: UInt64 = 500_000_000
+        var connectionDelay: UInt64 = 500_000_000
+        let connectionMaxDelay: UInt64 = 10_000_000_000
 
         while !Task.isCancelled {
             guard daemonClient.isConnected else {
@@ -248,7 +247,7 @@ extension AppDelegate {
                 continue
             }
 
-            let success = await daemonClient.bootstrapActorToken(
+            let success = await GuardianClient().bootstrapActorToken(
                 platform: "macos",
                 deviceId: deviceId
             )
@@ -265,7 +264,6 @@ extension AppDelegate {
 
             let jitter = UInt64.random(in: 0...(delay / 4))
             try? await Task.sleep(nanoseconds: delay + jitter)
-            delay = min(delay * 2, maxDelay)
         }
     }
 }

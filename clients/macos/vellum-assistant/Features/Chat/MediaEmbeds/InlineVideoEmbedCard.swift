@@ -157,6 +157,3 @@ struct InlineVideoEmbedCard: View {
         }
     }
 }
-
-#if DEBUG
-#endif

@@ -1,8 +1,8 @@
 /**
  * Assistant-owned attachment storage.
  *
- * Stores attachments in the local SQLite database with base64-encoded
- * data. Provides upload, delete, and message-linkage operations.
+ * All attachments are stored on disk; the database row references the
+ * on-disk file path. Provides upload, delete, and message-linkage operations.
  */
 
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -11,6 +11,7 @@ import { basename, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
@@ -50,9 +51,6 @@ function formatBytes(bytes: number): string {
 
 /** Hard ceiling on a single uploaded attachment (100 MB, matching assistant limits). */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
-
-/** Attachments larger than this are stored on disk instead of inline in SQLite. */
-export const FILE_BACKED_THRESHOLD_BYTES = 5 * 1024 * 1024;
 
 /**
  * Write decoded base64 data to disk under the workspace attachments directory.
@@ -117,6 +115,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "video/mpeg",
   // Documents
   "application/pdf",
+  "text/rtf",
+  "application/rtf",
   "text/plain",
   "text/csv",
   "text/markdown",
@@ -229,8 +229,7 @@ function computeContentHash(dataBase64: string): string {
  * normal 100 MB upload limit.
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
- * records the on-disk path in a `file_path` column (added via DB migration
- * in 102-alter-table-columns.ts since the Drizzle schema doesn't know about it).
+ * records the on-disk path in the `file_path` column.
  */
 export function uploadFileBackedAttachment(
   filename: string,
@@ -241,19 +240,20 @@ export function uploadFileBackedAttachment(
   const now = Date.now();
   const kind = classifyKind(mimeType);
   const id = uuid();
+  const db = getDb();
 
-  // Use raw SQL since the Drizzle schema doesn't know about the file_path column
-  rawRun(
-    `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
-     VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
-    id,
-    filename,
-    mimeType,
-    sizeBytes,
-    kind,
-    filePath,
-    now,
-  );
+  db.insert(attachments)
+    .values({
+      id,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes,
+      kind,
+      dataBase64: "",
+      filePath,
+      createdAt: now,
+    })
+    .run();
 
   return {
     id,
@@ -268,72 +268,102 @@ export function uploadFileBackedAttachment(
 }
 
 /**
- * Returns the file_path for a file-backed attachment, or null if not file-backed.
- * Uses raw SQL since file_path is added via DB migration and is not in the Drizzle schema.
+ * Returns the file_path for an attachment, or null if not set.
+ * Now uses Drizzle since filePath is in the schema.
  */
 export function getFilePathForAttachment(attachmentId: string): string | null {
-  const row = rawGet<{ file_path: string | null }>(
-    "SELECT file_path FROM attachments WHERE id = ?",
+  const db = getDb();
+  const row = db
+    .select({ filePath: attachments.filePath })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  return row?.filePath ?? null;
+}
+
+/**
+ * Returns the source_path (original file path on disk) for an attachment, or null if not set.
+ * Uses raw SQL since source_path is added via DB migration and is not in the Drizzle schema.
+ */
+export function getSourcePathForAttachment(
+  attachmentId: string,
+): string | null {
+  const row = rawGet<{ source_path: string | null }>(
+    "SELECT source_path FROM attachments WHERE id = ?",
     attachmentId,
+  );
+  return row?.source_path ?? null;
+}
+
+/**
+ * Batch-fetch source_path values for multiple attachment IDs in a single query.
+ * Returns a Map of attachment ID → source_path for attachments that have a non-null source_path.
+ * Uses raw SQL since source_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getSourcePathsForAttachments(
+  attachmentIds: string[],
+): Map<string, string> {
+  if (attachmentIds.length === 0) return new Map();
+  const placeholders = attachmentIds.map(() => "?").join(", ");
+  const rows = rawAll<{ id: string; source_path: string }>(
+    `SELECT id, source_path FROM attachments WHERE id IN (${placeholders}) AND source_path IS NOT NULL`,
+    ...attachmentIds,
+  );
+  return new Map(rows.map((r) => [r.id, r.source_path]));
+}
+
+/**
+ * Look up the stored file_path for an attachment by its original source_path.
+ * Returns the workspace-internal file path if found, or null otherwise.
+ * Useful as a fallback when the original source_path is outside the sandbox.
+ */
+export function getFilePathBySourcePath(
+  sourcePath: string,
+  conversationId: string,
+): string | null {
+  const row = rawGet<{ file_path: string | null }>(
+    `SELECT a.file_path FROM attachments a
+     JOIN message_attachments ma ON ma.attachment_id = a.id
+     JOIN messages m ON m.id = ma.message_id
+     WHERE a.source_path = ? AND m.conversation_id = ?
+     ORDER BY a.created_at DESC LIMIT 1`,
+    sourcePath,
+    conversationId,
   );
   return row?.file_path ?? null;
 }
 
 /**
- * Batch-fetch file_path values for multiple attachment IDs in a single query.
- * Returns a Set of attachment IDs that are file-backed (have a non-null file_path).
- * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
- */
-export function getFileBackedAttachmentIds(
-  attachmentIds: string[],
-): Set<string> {
-  if (attachmentIds.length === 0) return new Set();
-  const placeholders = attachmentIds.map(() => "?").join(", ");
-  const rows = rawAll<{ id: string }>(
-    `SELECT id FROM attachments WHERE id IN (${placeholders}) AND file_path IS NOT NULL`,
-    ...attachmentIds,
-  );
-  return new Set(rows.map((r) => r.id));
-}
-
-/**
- * Return the raw binary content for an attachment, abstracting over inline
- * (base64-in-DB) vs file-backed (on-disk) storage.
+ * Return the raw binary content for an attachment by reading from its
+ * on-disk file path.
  *
- * For file-backed attachments the bytes are read from the on-disk path;
- * for inline attachments the base64 payload is decoded from the DB row.
- *
- * Returns null if the attachment does not exist.
+ * Returns null if the attachment does not exist or the file is missing.
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
-  const filePath = getFilePathForAttachment(attachmentId);
-  if (filePath) {
-    try {
-      return readFileSync(filePath);
-    } catch (err: unknown) {
-      if (err instanceof Error && "code" in err && err.code === "ENOENT") {
-        return null;
-      }
-      throw err;
-    }
-  }
-
-  // Fall back to inline base64 stored in the DB
   const db = getDb();
   const row = db
-    .select({ dataBase64: attachments.dataBase64 })
+    .select({ filePath: attachments.filePath })
     .from(attachments)
     .where(eq(attachments.id, attachmentId))
     .get();
 
-  if (!row) return null;
-  return Buffer.from(row.dataBase64, "base64");
+  if (!row?.filePath) return null;
+
+  try {
+    return readFileSync(row.filePath);
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export function uploadAttachment(
   filename: string,
   mimeType: string,
   dataBase64: string,
+  sourcePath?: string,
 ): StoredAttachment {
   if (!isValidBase64(dataBase64)) {
     throw new AttachmentUploadError("Invalid base64 encoding");
@@ -377,11 +407,21 @@ export function uploadAttachment(
     .get();
 
   if (existing) {
+    if (sourcePath) {
+      rawRun(
+        `UPDATE attachments SET source_path = ? WHERE id = ?`,
+        sourcePath,
+        existing.id,
+      );
+    }
     return existing;
   }
 
   const now = Date.now();
   const kind = classifyKind(mimeType);
+
+  // Always write to disk
+  const filePath = writeAttachmentToDisk(dataBase64, filename);
 
   const record = {
     id: uuid(),
@@ -389,12 +429,21 @@ export function uploadAttachment(
     mimeType,
     sizeBytes,
     kind,
-    dataBase64,
+    dataBase64: "",
+    filePath,
     contentHash,
     createdAt: now,
   };
 
   db.insert(attachments).values(record).run();
+
+  if (sourcePath) {
+    rawRun(
+      `UPDATE attachments SET source_path = ? WHERE id = ?`,
+      sourcePath,
+      record.id,
+    );
+  }
 
   return {
     id: record.id,
@@ -429,7 +478,7 @@ export type DeleteAttachmentResult =
 export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
   const db = getDb();
   const existing = db
-    .select({ id: attachments.id })
+    .select({ id: attachments.id, filePath: attachments.filePath })
     .from(attachments)
     .where(eq(attachments.id, attachmentId))
     .get();
@@ -448,7 +497,7 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
   if (refCount > 0) return "still_referenced";
 
   // Collect file path BEFORE deleting the DB row (the row contains the path reference)
-  const filePath = getFilePathForAttachment(attachmentId);
+  const { filePath } = existing;
 
   db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
 
@@ -466,9 +515,11 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
 
 export function getAttachmentsByIds(
   ids: string[],
+  options?: { hydrateFileData?: boolean },
 ): Array<StoredAttachment & { dataBase64: string }> {
   if (ids.length === 0) return [];
   const db = getDb();
+  const hydrateFileData = options?.hydrateFileData ?? false;
   const results: Array<StoredAttachment & { dataBase64: string }> = [];
   for (const id of ids) {
     const row = db
@@ -477,6 +528,21 @@ export function getAttachmentsByIds(
       .where(eq(attachments.id, id))
       .get();
     if (row) {
+      // File-backed attachments store data on disk with dataBase64 = "".
+      // Only hydrate base64 from disk when callers explicitly opt in,
+      // to avoid eagerly reading large files for validation-only paths.
+      let dataBase64 = row.dataBase64;
+      if (hydrateFileData && !dataBase64 && row.filePath) {
+        try {
+          dataBase64 = readFileSync(row.filePath).toString("base64");
+        } catch (err: unknown) {
+          const log = getLogger("attachments-store");
+          log.warn(
+            `Failed to read file-backed attachment ${id} from ${row.filePath}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          dataBase64 = "";
+        }
+      }
       results.push({
         id: row.id,
         originalFilename: row.originalFilename,
@@ -484,7 +550,7 @@ export function getAttachmentsByIds(
         sizeBytes: row.sizeBytes,
         kind: row.kind,
         thumbnailBase64: row.thumbnailBase64,
-        dataBase64: row.dataBase64,
+        dataBase64,
         createdAt: row.createdAt,
       });
     }
@@ -531,7 +597,7 @@ export function getAttachmentsForMessage(
   const ids = links
     .map((l) => l.attachmentId)
     .filter((id): id is string => id != null);
-  return getAttachmentsByIds(ids);
+  return getAttachmentsByIds(ids, { hydrateFileData: true });
 }
 
 /**
@@ -575,12 +641,27 @@ export function getAttachmentMetadataForMessage(
 }
 
 /**
+ * Lightweight existence check — queries only the attachment ID column
+ * without reading file contents from disk.
+ */
+export function attachmentExists(attachmentId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  return !!row;
+}
+
+/**
  * Retrieve a single attachment by ID.
  */
 export function getAttachmentById(
   attachmentId: string,
+  options?: { hydrateFileData?: boolean },
 ): (StoredAttachment & { dataBase64: string }) | null {
-  const results = getAttachmentsByIds([attachmentId]);
+  const results = getAttachmentsByIds([attachmentId], options);
   return results[0] ?? null;
 }
 
@@ -595,6 +676,8 @@ export function getAttachmentById(
 export function deleteOrphanAttachments(candidateIds: string[]): number {
   if (candidateIds.length === 0) return 0;
 
+  const db = getDb();
+
   // Identify truly orphaned attachment IDs first (not referenced by any message)
   const placeholders = candidateIds.map(() => "?").join(", ");
   const orphanIds = rawAll<{ id: string }>(
@@ -604,11 +687,15 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
   if (orphanIds.length === 0) return 0;
 
-  // Collect file paths BEFORE deleting the DB rows (the rows contain the path reference)
+  // Collect file paths BEFORE deleting the DB rows via Drizzle
   const orphanFilePaths: string[] = [];
   for (const id of orphanIds) {
-    const filePath = getFilePathForAttachment(id);
-    if (filePath) orphanFilePaths.push(filePath);
+    const row = db
+      .select({ filePath: attachments.filePath })
+      .from(attachments)
+      .where(eq(attachments.id, id))
+      .get();
+    if (row?.filePath) orphanFilePaths.push(row.filePath);
   }
 
   // Delete the orphaned DB rows first — if this fails, the on-disk files

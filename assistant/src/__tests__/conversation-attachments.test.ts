@@ -59,10 +59,7 @@ mock.module("../permissions/types.js", () => ({
 }));
 
 import type { AssistantAttachmentDraft } from "../daemon/assistant-attachments.js";
-import {
-  FILE_BACKED_THRESHOLD_BYTES,
-  getFilePathForAttachment,
-} from "../memory/attachments-store.js";
+import { getFilePathForAttachment } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 
@@ -94,13 +91,13 @@ function makeBase64(bytes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// resolveAssistantAttachments — inline vs file-backed storage
+// resolveAssistantAttachments — all attachments are now file-backed
 // ---------------------------------------------------------------------------
 
 describe("resolveAssistantAttachments", () => {
   beforeEach(resetTables);
 
-  test("attachments under 5 MB are stored inline via uploadAttachment", async () => {
+  test("small attachments are stored on disk via uploadAttachment", async () => {
     const conv = createConversation("test-conv");
     const msg = await addMessage(conv.id, "assistant", "hello");
 
@@ -150,15 +147,17 @@ describe("resolveAssistantAttachments", () => {
     expect(result.emittedAttachments.length).toBe(1);
     const emitted = result.emittedAttachments[0];
     expect(emitted.id).toBeDefined();
-    expect(emitted.data).toBe(dataBase64); // inline — data is present
-    expect(emitted.sizeBytes).toBeUndefined(); // no sizeBytes hint for inline
 
-    // Verify the attachment is in the DB and not file-backed
+    // All attachments are file-backed and have a file on disk
     const filePath = getFilePathForAttachment(emitted.id!);
-    expect(filePath).toBeNull();
+    expect(filePath).not.toBeNull();
+    expect(existsSync(filePath!)).toBe(true);
+
+    // fileBacked flag is always true now
+    expect(emitted.fileBacked).toBe(true);
   });
 
-  test("attachments over 5 MB are stored via uploadFileBackedAttachment with file on disk", async () => {
+  test("large attachments are stored on disk with file path", async () => {
     const conv = createConversation("test-conv-large");
     const msg = await addMessage(conv.id, "assistant", "hello");
 
@@ -207,9 +206,6 @@ describe("resolveAssistantAttachments", () => {
     expect(result.emittedAttachments.length).toBe(1);
     const emitted = result.emittedAttachments[0];
     expect(emitted.id).toBeDefined();
-    // File-backed: data should be empty, sizeBytes should be set
-    expect(emitted.data).toBe("");
-    expect(emitted.sizeBytes).toBe(largeSize);
 
     // Verify the file exists on disk at the expected path
     const filePath = getFilePathForAttachment(emitted.id!);
@@ -217,11 +213,8 @@ describe("resolveAssistantAttachments", () => {
     expect(filePath!).toContain("attachments");
     expect(filePath!).toContain("big-video.mov");
     expect(existsSync(filePath!)).toBe(true);
-  });
-});
 
-describe("FILE_BACKED_THRESHOLD_BYTES", () => {
-  test("is 5 MB", () => {
-    expect(FILE_BACKED_THRESHOLD_BYTES).toBe(5 * 1024 * 1024);
+    // fileBacked flag is always true now
+    expect(emitted.fileBacked).toBe(true);
   });
 });

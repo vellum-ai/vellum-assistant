@@ -6,6 +6,7 @@
  * used by conversation-history.ts.
  */
 
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -25,8 +26,6 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
-import { PROVIDER_MODEL_CATALOG } from "../providers/model-catalog.js";
-import { getConfiguredProviders } from "../providers/provider-availability.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
@@ -39,6 +38,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import type { ModelSetContext } from "./handlers/config-model.js";
+import { getModelInfo } from "./handlers/config-model.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -51,15 +51,7 @@ const log = getLogger("conversation-process");
 
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
-  const config = getConfig();
-  const provider = config.services.inference.provider;
-  return {
-    type: "model_info",
-    model: config.services.inference.model,
-    provider,
-    configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[provider],
-  };
+  return { type: "model_info", ...(await getModelInfo()) };
 }
 
 /** True when the trimmed content is a /model or /models slash command. */
@@ -315,6 +307,13 @@ export async function drainQueue(
       const drainProvenance = provenanceFromTrustContext(
         conversation.trustContext,
       );
+      const drainImageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < next.attachments.length; i++) {
+        const a = next.attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          drainImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const drainChannelMeta = {
         ...drainProvenance,
         ...(queuedTurnCtx
@@ -331,8 +330,15 @@ export async function drainQueue(
             }
           : {}),
         ...(next.metadata?.automated ? { automated: true } : {}),
+        ...(Object.keys(drainImageSourcePaths).length > 0
+          ? { imageSourcePaths: drainImageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const llmUserMsg = enrichMessageWithSourcePaths(
+        cleanUserMsg,
+        next.attachments,
+      );
       // When displayContent is provided (e.g. original text before recording
       // intent stripping), persist that to DB so users see the full message.
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
@@ -340,14 +346,14 @@ export async function drainQueue(
         ? JSON.stringify(
             createUserMessage(next.displayContent, next.attachments).content,
           )
-        : JSON.stringify(userMsg.content);
+        : JSON.stringify(cleanUserMsg.content);
       await addMessage(
         conversation.conversationId,
         "user",
         contentToPersist,
         drainChannelMeta,
       );
-      conversation.messages.push(userMsg);
+      conversation.messages.push(llmUserMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
@@ -609,6 +615,13 @@ export async function processMessage(
 
     if (routerResult.consumed) {
       const guardianIfCtx = conversation.getTurnInterfaceContext();
+      const guardianImageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const routerChannelMeta = {
         userMessageChannel: "vellum" as const,
         assistantMessageChannel: "vellum" as const,
@@ -616,16 +629,23 @@ export async function processMessage(
         assistantMessageInterface:
           guardianIfCtx?.assistantMessageInterface ?? "vellum",
         provenanceTrustClass: "guardian" as const,
+        ...(Object.keys(guardianImageSourcePaths).length > 0
+          ? { imageSourcePaths: guardianImageSourcePaths }
+          : {}),
       };
 
-      const userMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = createUserMessage(content, attachments);
+      const llmUserMsg = enrichMessageWithSourcePaths(
+        cleanUserMsg,
+        attachments,
+      );
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanUserMsg.content),
         routerChannelMeta,
       );
-      conversation.messages.push(userMsg);
+      conversation.messages.push(llmUserMsg);
 
       const replyText =
         routerResult.replyText ??
@@ -673,6 +693,13 @@ export async function processMessage(
     const pmTurnCtx = conversation.getTurnChannelContext();
     const pmInterfaceCtx = conversation.getTurnInterfaceContext();
     const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+    const pmImageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        pmImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx
@@ -687,21 +714,25 @@ export async function processMessage(
             assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
           }
         : {}),
+      ...(Object.keys(pmImageSourcePaths).length > 0
+        ? { imageSourcePaths: pmImageSourcePaths }
+        : {}),
     };
-    const userMsg = createUserMessage(content, attachments);
+    const cleanUserMsg = createUserMessage(content, attachments);
+    const llmUserMsg = enrichMessageWithSourcePaths(cleanUserMsg, attachments);
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message.
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
     const contentToPersist = displayContent
       ? JSON.stringify(createUserMessage(displayContent, attachments).content)
-      : JSON.stringify(userMsg.content);
+      : JSON.stringify(cleanUserMsg.content);
     const persisted = await addMessage(
       conversation.conversationId,
       "user",
       contentToPersist,
       pmChannelMeta,
     );
-    conversation.messages.push(userMsg);
+    conversation.messages.push(llmUserMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
     await addMessage(

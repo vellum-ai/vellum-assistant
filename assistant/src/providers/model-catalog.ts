@@ -10,8 +10,9 @@ export const PROVIDER_MODEL_CATALOG: Record<string, CatalogModel[]> = {
     { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
   ],
   openai: [
-    { id: "gpt-5.2", displayName: "GPT-5.2" },
     { id: "gpt-5.4", displayName: "GPT-5.4" },
+    { id: "gpt-5.2", displayName: "GPT-5.2" },
+    { id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
     { id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
   ],
   gemini: [
@@ -40,6 +41,23 @@ export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
 };
+
+export interface ProviderCatalogEntry {
+  id: string;
+  displayName: string;
+  models: CatalogModel[];
+  defaultModel: string;
+}
+
+/** Build the full provider catalog with metadata for each inference provider. */
+export function getFullProviderCatalog(): ProviderCatalogEntry[] {
+  return Object.entries(PROVIDER_MODEL_CATALOG).map(([id, models]) => ({
+    id,
+    displayName: INFERENCE_PROVIDER_DISPLAY_NAMES[id] ?? id,
+    models,
+    defaultModel: models[0]?.id ?? "",
+  }));
+}
 
 /** Check if a model ID is in the catalog for a given provider */
 export function isModelInCatalog(provider: string, modelId: string): boolean {

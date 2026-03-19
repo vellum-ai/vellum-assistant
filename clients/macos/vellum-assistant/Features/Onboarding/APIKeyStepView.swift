@@ -23,7 +23,7 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Where do you want your assistant to run?")
-            .font(.system(size: 16))
+            .font(VFont.buttonLarge)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)

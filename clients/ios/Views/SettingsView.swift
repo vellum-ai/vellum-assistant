@@ -213,10 +213,4 @@ extension Bundle {
         infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 }
-
-#Preview {
-    let client = DaemonClient(config: .fromUserDefaults())
-    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), conversationStore: IOSConversationStore(daemonClient: client))
-        .environmentObject(ClientProvider(client: client))
-}
 #endif

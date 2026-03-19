@@ -46,7 +46,7 @@ struct InferenceServiceCard: View {
     }
 
     private var providerDisplayName: String {
-        SettingsStore.inferenceProviderDisplayNames[effectiveProvider] ?? effectiveProvider
+        store.dynamicProviderDisplayName(effectiveProvider)
     }
 
     // MARK: - Computed State
@@ -144,12 +144,21 @@ struct InferenceServiceCard: View {
         }
         .onChange(of: draftProvider) { _, newProvider in
             if isCustomProviderEnabled {
-                let defaultModel = SettingsStore.inferenceProviderDefaultModel[newProvider]
-                    ?? SettingsStore.inferenceProviderModels[newProvider]?.first?.id
-                    ?? ""
-                store.selectedModel = defaultModel
+                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
+                let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
+                store.selectedModel = defaultModel.isEmpty ? fallback : defaultModel
             }
             apiKeyText = ""
+        }
+        .onChange(of: draftMode) { _, newMode in
+            if newMode == "managed" && isCustomProviderEnabled {
+                let anthropicModels = store.dynamicProviderModels("anthropic")
+                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == store.selectedModel }
+                if !isCurrentModelAnthropic {
+                    let defaultModel = store.dynamicProviderDefaultModel("anthropic")
+                    store.selectedModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
+                }
+            }
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
@@ -195,11 +204,10 @@ struct InferenceServiceCard: View {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $draftProvider,
-                options: SettingsStore.inferenceProviders.map { provider in
-                    (label: SettingsStore.inferenceProviderDisplayNames[provider] ?? provider, value: provider)
+                options: store.dynamicProviderIds.map { provider in
+                    (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
-            .frame(width: 400)
         }
     }
 
@@ -210,7 +218,15 @@ struct InferenceServiceCard: View {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            SecureField("Enter your API key", text: $apiKeyText)
+            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
+                Text(masked)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            SecureField(
+                isConnected ? "Enter a new key to replace the existing one" : "Enter your API key",
+                text: $apiKeyText
+            )
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
@@ -239,7 +255,7 @@ struct InferenceServiceCard: View {
         }
     }
 
-    /// Hardcoded Anthropic-only model dropdown (flag off, backward compat).
+    /// Anthropic-only model dropdown (flag off, backward compat).
     private var defaultModelPicker: some View {
         VDropdown(
             placeholder: "Select a model\u{2026}",
@@ -247,26 +263,25 @@ struct InferenceServiceCard: View {
                 get: { store.selectedModel },
                 set: { store.selectedModel = $0 }
             ),
-            options: SettingsStore.availableModels.map { model in
-                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+            options: store.dynamicProviderModels("anthropic").map { model in
+                (label: model.displayName, value: model.id)
             }
         )
-        .frame(width: 400)
     }
 
     /// Per-provider catalog model dropdown (flag on).
     private var providerModelPicker: some View {
-        VDropdown(
+        let provider = draftMode == "managed" ? "anthropic" : draftProvider
+        return VDropdown(
             placeholder: "Select a model\u{2026}",
             selection: Binding(
                 get: { store.selectedModel },
                 set: { store.selectedModel = $0 }
             ),
-            options: (SettingsStore.inferenceProviderModels[draftProvider] ?? []).map { model in
+            options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
             }
         )
-        .frame(width: 400)
     }
 
     // MARK: - Save
@@ -288,9 +303,10 @@ struct InferenceServiceCard: View {
         }
 
         // Persist provider if changed and flag is on
-        if isCustomProviderEnabled && draftProvider != initialProvider {
-            store.setInferenceProvider(draftProvider)
-            initialProvider = draftProvider
+        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        if isCustomProviderEnabled && persistProvider != initialProvider {
+            store.setInferenceProvider(persistProvider)
+            initialProvider = persistProvider
         }
 
         // Persist API key if entered and in your-own mode.
@@ -299,20 +315,24 @@ struct InferenceServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
+            let displayName = providerDisplayName
             if isCustomProviderEnabled {
                 store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast?("\(displayName) API key saved", .success)
                 })
             } else {
                 store.saveAPIKey(trimmedKey, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast?("API key saved", .success)
                 })
             }
         }
 
         // Persist model selection
         if isCustomProviderEnabled {
-            store.setModel(store.selectedModel, provider: draftProvider)
+            let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
+            store.setModel(store.selectedModel, provider: saveProvider)
         } else {
             store.setModel(store.selectedModel)
         }

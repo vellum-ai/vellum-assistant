@@ -684,6 +684,3 @@ public struct ToolConfirmationBubble: View {
     }
 
 }
-
-#if DEBUG
-#endif

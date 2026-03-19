@@ -189,7 +189,6 @@ struct WebSearchServiceCard: View {
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
                 }
             )
-            .frame(width: 400)
         }
     }
 

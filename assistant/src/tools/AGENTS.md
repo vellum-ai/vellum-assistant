@@ -1,18 +1,14 @@
 # Tools - Agent Instructions
 
-## No New Tools Policy
+## New Non-Skill Tools Are Strongly Discouraged
 
-**New tool registrations require approval from Team Jarvis.**
+**Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from Team Jarvis.
 
-The tool registration system (`class ... implements Tool` + `registerTool()`) is being phased out in favor of skill-based approaches. Before adding a new tool, contact Team Jarvis for approval.
+Skills are the preferred approach for adding new capabilities — they are progressively disclosed into context, more portable, and can be iterated on independently. New non-skill tool registrations (`class ... implements Tool` + `registerTool()`) carry additional costs:
 
-## Why This Policy Exists
+1. **Context overhead** — Each registered tool adds to the system prompt and increases token usage for every conversation.
 
-1. **Skills are preferred** - The project direction is to teach the assistant CLI tools via skills rather than hardcoding tool implementations. Skills are progressively disclosed into context, are more portable, and are often self-contained.
-
-2. **Context overhead** - Each registered tool adds to the system prompt and increases token usage for every conversation.
-
-3. **Maintenance burden** - Tools require ongoing maintenance, testing, and security review. Skills can be iterated on independently.
+2. **Maintenance burden** — Tools require ongoing maintenance, testing, and security review.
 
 ## What To Do Instead
 
@@ -26,7 +22,7 @@ Instead of creating a new tool, consider:
 
 ## Approved Exception: Credential Execution Service (CES) Tools
 
-The following three CES tools are the only approved exception to the no-new-tools policy:
+The following three CES tools are approved exceptions that justify tool registrations over skills:
 
 | Tool                         | Purpose                                                                                                                                                    |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |

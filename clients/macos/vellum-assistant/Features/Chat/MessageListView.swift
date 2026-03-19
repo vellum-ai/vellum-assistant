@@ -67,6 +67,12 @@ extension EnvironmentValues {
     /// When true, the AnchorMinYKey preference handler re-pins to bottom
     /// on every frame — used during content expansion while bottom-pinned.
     var isPinningDuringExpansion: Bool = false
+    /// Wall-clock time when `isPinningDuringExpansion` was set.  The preference
+    /// handler checks this inline to auto-clear the flag after 250ms.
+    /// This avoids relying on a `Task { @MainActor }` which can't execute
+    /// while the main thread is busy servicing layout — causing an infinite
+    /// scrollTo ↔ layout loop that freezes the app.
+    var expansionPinStartTime: CFAbsoluteTime = 0
 }
 
 struct MessageListView: View {
@@ -79,7 +85,9 @@ struct MessageListView: View {
     let assistantActivityReason: String?
     let assistantStatusText: String?
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
+    let providerCatalog: [ProviderCatalogEntry]
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
     let onConfirmationAllow: (String) -> Void
@@ -92,6 +100,8 @@ struct MessageListView: View {
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -716,6 +726,8 @@ struct MessageListView: View {
                             onSurfaceAction: onSurfaceAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            showInspectButton: showInspectButton,
+                            onInspectMessage: onInspectMessage,
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
@@ -725,7 +737,9 @@ struct MessageListView: View {
                             onModelPickerSelect: onModelPickerSelect,
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
-                            configuredProviders: configuredProviders
+                            catalogModels: catalogModels,
+                            configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog
                         )
                         .equatable()
                     }
@@ -814,17 +828,19 @@ struct MessageListView: View {
             .environment(\.suppressAutoScroll, { [self] in
                 expandSuppressionTask?.cancel()
                 if isNearBottom {
+                    // Clear any stale suppression left by a canceled off-bottom expansion,
+                    // but only when the resize guard isn't actively suppressing scroll.
+                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                    if !resizeActive {
+                        isSuppressingBottomScroll = false
+                    }
                     // When pinned to bottom, continuously re-pin on every frame
                     // of the expansion animation via the AnchorMinYKey handler.
+                    // The handler auto-expires the flag after 250ms via an inline
+                    // wall-clock check — no Task needed (avoids the deadlock where
+                    // a @MainActor task can't run while layout is looping).
                     scrollTracking.isPinningDuringExpansion = true
-                    expandSuppressionTask = Task { @MainActor in
-                        // Clear after the animation settles (VAnimation.fast ≈ 0.15s + buffer).
-                        try? await Task.sleep(nanoseconds: 250_000_000)
-                        guard !Task.isCancelled else { return }
-                        scrollTracking.isPinningDuringExpansion = false
-                        // Refresh avatar position now that layout has settled.
-                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
-                    }
+                    scrollTracking.expansionPinStartTime = CFAbsoluteTimeGetCurrent()
                 } else {
                     // When scrolled away from bottom, suppress auto-scroll so the
                     // expansion doesn't yank the viewport to the bottom.
@@ -881,8 +897,21 @@ struct MessageListView: View {
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 // During content expansion while bottom-pinned, re-anchor to bottom
                 // on every frame so the viewport follows the growing content.
-                if scrollTracking.isPinningDuringExpansion {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                // Gate on isNearBottom so that if the user scrolls away during
+                // the pinning window, we stop fighting their scroll.
+                //
+                // The flag auto-expires after 250ms via inline wall-clock check.
+                // A Task { @MainActor } can't clear it because the main thread
+                // is occupied servicing layout — without the inline timeout this
+                // becomes an infinite scrollTo ↔ layout loop.
+                if scrollTracking.isPinningDuringExpansion && isNearBottom {
+                    let elapsed = CFAbsoluteTimeGetCurrent() - scrollTracking.expansionPinStartTime
+                    if elapsed > 0.25 {
+                        scrollTracking.isPinningDuringExpansion = false
+                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
+                    } else {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
@@ -992,6 +1021,7 @@ struct MessageListView: View {
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
+                highlightedMessageId = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -1293,6 +1323,11 @@ private struct MessageCellView: View, Equatable {
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
+            && lhs.catalogModels.count == rhs.catalogModels.count
+            && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
+            && lhs.configuredProviders == rhs.configuredProviders
+            && lhs.providerCatalog.count == rhs.providerCatalog.count
+            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.models.count == $1.models.count })
     }
 
     let message: ChatMessage
@@ -1320,6 +1355,8 @@ private struct MessageCellView: View, Equatable {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
@@ -1332,15 +1369,15 @@ private struct MessageCellView: View, Equatable {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
+    let providerCatalog: [ProviderCatalogEntry]
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
+            models: catalogModels,
             selectedModelId: selectedModel,
             onSelect: { modelId in
                 onModelPickerSelect?(msg.id, modelId)
@@ -1349,7 +1386,7 @@ private struct MessageCellView: View, Equatable {
     }
 
     private func modelListView(for msg: ChatMessage) -> some View {
-        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders, providerCatalog: providerCatalog)
     }
 
     @ViewBuilder
@@ -1468,6 +1505,8 @@ private struct MessageCellView: View, Equatable {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                showInspectButton: showInspectButton,
+                onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
@@ -1478,7 +1517,7 @@ private struct MessageCellView: View, Equatable {
                 onTemporaryAllow: onTemporaryAllow,
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
-                onRetryConversationError: message.isError && index == displayMessages.count - 1 ? onRetryConversationError : nil,
+                onRetryConversationError: message.isError ? onRetryConversationError : nil,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,

@@ -158,6 +158,3 @@ public struct GuardianDecisionBubble: View {
         }
     }
 }
-
-#if DEBUG
-#endif

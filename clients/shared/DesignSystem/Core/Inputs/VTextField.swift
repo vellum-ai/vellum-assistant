@@ -99,23 +99,3 @@ public struct VTextField: View {
         .vInputChrome(isFocused: isFocused)
     }
 }
-
-#if DEBUG
-
-private struct VTextFieldPreviewWrapper: View {
-    @State private var text = ""
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(spacing: 16) {
-                VTextField(placeholder: "Plain text field", text: $text)
-                VTextField(placeholder: "With leading icon", text: $text, leadingIcon: VIcon.search.rawValue)
-                VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: VIcon.mail.rawValue)
-                VTextField(placeholder: "Both icons", text: $text, leadingIcon: VIcon.search.rawValue, trailingIcon: VIcon.circleX.rawValue)
-            }
-            .padding()
-        }
-    }
-}
-#endif

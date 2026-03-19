@@ -257,6 +257,7 @@ public enum VIcon: String, CaseIterable, Sendable {
             return Image(systemName: "questionmark.square")
         }
         ns.isTemplate = true
+        ns.size = NSSize(width: size, height: size)
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
         guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size, cacheKey: "\(rawValue)-\(size)") else {

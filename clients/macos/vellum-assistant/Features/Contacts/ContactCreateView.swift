@@ -141,22 +141,3 @@ struct ContactCreateView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-
-private struct ContactCreateViewPreviewWrapper: View {
-    @State private var isPresented = true
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            ContactCreateView(
-                daemonClient: nil,
-                isPresented: $isPresented
-            )
-        }
-    }
-}
-#endif

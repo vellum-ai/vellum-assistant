@@ -103,7 +103,7 @@ Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimi
 
 ## Tooling Direction
 
-Do not add new tool registrations. See `assistant/src/tools/AGENTS.md` for the full no-new-tools policy, approved CES exceptions, and what to do instead.
+New non-skill tool registrations are strongly discouraged — prefer skills instead. See `assistant/src/tools/AGENTS.md` for rationale, approved CES exceptions, and alternatives.
 
 ## System Prompt Minimalism
 

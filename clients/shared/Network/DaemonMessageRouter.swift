@@ -13,6 +13,19 @@ extension DaemonClient {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
             if let version = status.version {
                 daemonVersion = version
+                checkVersionCompatibility(daemonVersion: version)
+                // If we were awaiting a planned update, check the outcome
+                if self.isUpdateInProgress {
+                    if version == self.updateTargetVersion {
+                        log.info("Planned update completed — now running \(version, privacy: .public)")
+                    } else {
+                        log.warning("Planned update may have rolled back — expected \(self.updateTargetVersion ?? "?", privacy: .public) but running \(version, privacy: .public)")
+                    }
+                    self.isUpdateInProgress = false
+                    self.updateTargetVersion = nil
+                    self.updateExpiresAt = nil
+                    self.httpTransport?.isUpdateInProgress = false
+                }
             }
             if let newFingerprint = status.keyFingerprint {
                 let oldFingerprint = keyFingerprint
@@ -92,6 +105,22 @@ extension DaemonClient {
             onNotificationIntent?(msg)
         case .notificationConversationCreated(let msg):
             onNotificationConversationCreated?(msg)
+        case .serviceGroupUpdateStarting(let msg):
+            self.isUpdateInProgress = true
+            self.updateTargetVersion = msg.targetVersion
+            // Allow 2x the expected downtime before expiring the suppression,
+            // so auto-wake can recover if the update process crashes.
+            self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
+            self.httpTransport?.isUpdateInProgress = true
+            log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
+            onServiceGroupUpdateStarting?(msg)
+        case .serviceGroupUpdateComplete(let msg):
+            self.isUpdateInProgress = false
+            self.updateTargetVersion = nil
+            self.updateExpiresAt = nil
+            self.httpTransport?.isUpdateInProgress = false
+            log.info("Service group update complete — version: \(msg.installedVersion, privacy: .public), success: \(msg.success)")
+            onServiceGroupUpdateComplete?(msg)
         case .trustRulesListResponse:
             break // Handled by TrustRuleClient via GatewayHTTPClient.
         case .toolPermissionSimulateResponse:

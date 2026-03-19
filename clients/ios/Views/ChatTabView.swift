@@ -100,11 +100,4 @@ struct ChatTabView: View {
         )
     }
 }
-
-#Preview {
-    let daemonClient: any DaemonClientProtocol = DaemonClient(config: .default)
-    return NavigationStack {
-        ChatTabView(daemonClient: daemonClient)
-    }
-}
 #endif

@@ -78,5 +78,9 @@ public final class ChatMessageManager: ObservableObject {
     @Published public var selectedModel: String = "claude-opus-4-6"
     /// Set of provider keys with configured API keys, updated via `model_info` messages.
     @Published public var configuredProviders: Set<String> = ["anthropic"]
+    /// Full provider catalog from daemon, updated via `model_info` messages.
+    @Published public var providerCatalog: [ProviderCatalogEntry] = []
+    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x"), updated via `model_info` messages.
+    @Published public var providerMaskedKeys: [String: String] = [:]
 
 }

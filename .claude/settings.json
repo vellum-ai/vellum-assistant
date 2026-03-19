@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/linear-ticket-reminder.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -257,36 +257,25 @@ struct AgentPanelContent: View {
                 Spacer()
             }
             .frame(height: 60)
-        } else if filteredUserSkills.isEmpty {
-            if hasActiveSearch {
-                VStack(spacing: VSpacing.md) {
-                    VEmptyState(
-                        title: "No matches",
-                        subtitle: "No installed skills matched \"\(globalSkillSearchQuery)\"",
-                        icon: VIcon.search.rawValue
-                    )
-                }
-                .frame(minHeight: 100)
-            } else {
-                VStack(spacing: VSpacing.md) {
-                    Text("No skills installed")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button(action: { skillsManager.fetchSkills() }) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.refreshCw, size: 11)
-                            Text("Refresh")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.primaryBase)
-                    }
-                    .buttonStyle(.plain)
+        } else if userSkills.isEmpty {
+            VStack(spacing: VSpacing.md) {
+                Text("No skills installed")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: { skillsManager.fetchSkills() }) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.refreshCw, size: 11)
+                        Text("Refresh")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.primaryBase)
                 }
-                .padding(.vertical, VSpacing.sm)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.vertical, VSpacing.sm)
         } else {
             VStack(spacing: VSpacing.md) {
                 HStack(spacing: VSpacing.sm) {

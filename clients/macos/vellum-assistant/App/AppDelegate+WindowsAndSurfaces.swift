@@ -210,10 +210,7 @@ extension AppDelegate {
             self?.secretPromptManager.showPrompt(msg)
         }
         secretPromptManager.onResponse = { requestId, value, delivery in
-            Task {
-                await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
-            }
-            return true
+            await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
         }
     }
 }

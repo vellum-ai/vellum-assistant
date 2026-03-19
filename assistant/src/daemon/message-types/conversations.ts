@@ -242,6 +242,13 @@ export interface ModelInfo {
   provider: string;
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
+  allProviders?: Array<{
+    id: string;
+    displayName: string;
+    models: Array<{ id: string; displayName: string }>;
+    defaultModel: string;
+  }>;
+  maskedKeys?: Record<string, string>;
 }
 
 export interface HistoryResponseToolCall {

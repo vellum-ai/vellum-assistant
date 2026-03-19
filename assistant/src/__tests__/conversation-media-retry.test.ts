@@ -65,9 +65,15 @@ describe("stripMediaPayloadsForRetry", () => {
     // Media retry should keep images in the latest user message and strip older ones.
     const messages: Message[] = [
       createContextSummaryMessage("Summary"),
-      makeUserMessage({ type: "text", text: "older kept turn" }, makeImageBlock("AAAA")),
+      makeUserMessage(
+        { type: "text", text: "older kept turn" },
+        makeImageBlock("AAAA"),
+      ),
       makeAssistantMessage({ type: "text", text: "response" }),
-      makeUserMessage({ type: "text", text: "latest kept turn" }, makeImageBlock("BBBB")),
+      makeUserMessage(
+        { type: "text", text: "latest kept turn" },
+        makeImageBlock("BBBB"),
+      ),
     ];
 
     const result = stripMediaPayloadsForRetry(messages);

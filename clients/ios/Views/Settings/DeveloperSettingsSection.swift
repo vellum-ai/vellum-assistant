@@ -100,11 +100,4 @@ private struct DeveloperSettingsSectionContent: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        DeveloperSettingsSection()
-            .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
-    }
-}
 #endif
