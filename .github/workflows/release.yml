@@ -2191,8 +2191,21 @@ jobs:
           }' > /tmp/slack-payload.json
 
       - name: Notify Slack
+        id: slack
+        continue-on-error: true
         uses: slackapi/slack-github-action@v2.1.0
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload-file-path: /tmp/slack-payload.json
+          errors: true
+
+      - name: Log Slack notification result
+        if: always()
+        run: |
+          echo "Slack step outcome: ${{ steps.slack.outcome }}"
+          echo "Slack response ok: ${{ steps.slack.outputs.ok }}"
+          echo "Slack response time: ${{ steps.slack.outputs.time }}"
+          if [ "${{ steps.slack.outcome }}" != "success" ]; then
+            echo "::warning::Slack notification failed to send. Check webhook URL and channel configuration."
+          fi
