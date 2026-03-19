@@ -13,7 +13,7 @@ public struct ChatErrorBanner: View {
     public var body: some View {
         HStack(spacing: 8) {
             VIconView(.triangleAlert, size: 14)
-                .foregroundStyle(VColor.systemNegativeHover)
+                .foregroundStyle(VColor.systemMidStrong)
             Text(message)
                 .font(.footnote)
                 .foregroundStyle(VColor.contentDefault)

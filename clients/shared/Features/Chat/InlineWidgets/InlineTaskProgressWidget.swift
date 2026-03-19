@@ -152,10 +152,10 @@ public struct InlineTaskProgressWidget: View {
         case "in_progress":
             ProgressView()
                 .controlSize(.small)
-                .tint(VColor.systemNegativeHover)
+                .tint(VColor.systemMidStrong)
         case "waiting":
             VIconView(.clock, size: 14)
-                .foregroundColor(VColor.systemNegativeHover)
+                .foregroundColor(VColor.systemMidStrong)
         case "failed":
             VIconView(.circleX, size: 14)
                 .foregroundColor(VColor.systemNegativeStrong)
@@ -170,9 +170,9 @@ public struct InlineTaskProgressWidget: View {
         case "completed":
             return ("Completed", .circleCheck, VColor.systemPositiveStrong)
         case "in_progress":
-            return ("In Progress", .refreshCw, VColor.systemNegativeHover)
+            return ("In Progress", .refreshCw, VColor.systemMidStrong)
         case "waiting":
-            return ("Waiting", .clock, VColor.systemNegativeHover)
+            return ("Waiting", .clock, VColor.systemMidStrong)
         case "failed":
             return ("Failed", .circleX, VColor.systemNegativeStrong)
         default:
