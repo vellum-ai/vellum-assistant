@@ -383,9 +383,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `channel_verification_session_response` message.
-    public var onChannelVerificationSessionResponse: ((ChannelVerificationSessionResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
@@ -710,29 +707,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get, set, or delete the Vercel API token configuration.
     public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
-    }
-
-    /// Channel verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
-    public func sendChannelVerificationSession(
-        action: String,
-        channel: String? = nil,
-        conversationId: String? = nil,
-        rebind: Bool? = nil,
-        destination: String? = nil,
-        originConversationId: String? = nil,
-        purpose: String? = nil,
-        contactChannelId: String? = nil
-    ) throws {
-        try send(ChannelVerificationSessionRequestMessage(
-            action: action,
-            channel: channel,
-            conversationId: conversationId,
-            rebind: rebind,
-            destination: destination,
-            originConversationId: originConversationId,
-            purpose: purpose,
-            contactChannelId: contactChannelId
-        ))
     }
 
 }
