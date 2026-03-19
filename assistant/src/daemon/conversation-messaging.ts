@@ -21,10 +21,12 @@ import {
 } from "../memory/attachments-store.js";
 import {
   addMessage,
+  getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -381,6 +383,16 @@ export async function persistUserMessage(
           );
         }
       }
+    }
+
+    // Sync the persisted user message (with attachments) to the disk view
+    const conv = getConversation(ctx.conversationId);
+    if (conv) {
+      syncMessageToDisk(
+        ctx.conversationId,
+        persistedUserMessage.id,
+        conv.createdAt,
+      );
     }
 
     return persistedUserMessage.id;

@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync } from "node:fs";
+
 import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
@@ -8,9 +10,15 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
+import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import { deleteOrphanAttachments } from "./attachments-store.js";
 import { projectAssistantMessage } from "./conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  updateMetaFile,
+} from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { getDb, rawAll, rawExec, rawGet, rawRun } from "./db.js";
 import { indexMessageNow } from "./indexer.js";
@@ -232,6 +240,8 @@ export function createConversation(
     }
   }
 
+  initConversationDir({ ...conversation, originChannel: null });
+
   return conversation;
 }
 
@@ -266,6 +276,11 @@ export function getConversationMemoryScopeId(conversationId: string): string {
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+
+  // Capture createdAt before the transaction deletes the row — needed to
+  // resolve the conversation's disk-view directory path after deletion.
+  const convBeforeDelete = getConversation(id);
+  const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -356,6 +371,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Remove the conversation's disk-view directory after the DB transaction
+  if (createdAtForDiskCleanup != null) {
+    removeConversationDir(id, createdAtForDiskCleanup);
+  }
 
   return result;
 }
@@ -759,6 +779,12 @@ export function updateConversationTitle(
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
   if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();
+
+  // Update disk view meta.json with the new title
+  const conv = getConversation(id);
+  if (conv) {
+    updateMetaFile(conv);
+  }
 }
 
 export function updateConversationUsage(
@@ -862,6 +888,14 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec(
       `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
     );
+  }
+
+  // Clear the disk-view conversations directory and recreate it empty
+  try {
+    rmSync(getConversationsDir(), { recursive: true, force: true });
+    mkdirSync(getConversationsDir(), { recursive: true });
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to reset conversations directory");
   }
 
   return { conversations: convCount, messages: msgCount };
