@@ -53,41 +53,11 @@ function mockStore(
   return {
     getApp: (id: string) => (id === app.id ? app : null),
     listApps: () => [app],
-    queryAppRecords: () => [],
-    listAppFiles: () => Object.keys(files).sort(),
-    readAppFile: (_appId: string, path: string) => {
-      if (!(path in files)) throw new Error(`File not found: ${path}`);
-      return files[path];
-    },
     createApp: () => app,
     updateApp: () => app,
     deleteApp: () => {},
     writeAppFile: (_appId: string, path: string, content: string) => {
       files[path] = content;
-    },
-    editAppFile: (
-      _appId: string,
-      path: string,
-      oldStr: string,
-      newStr: string,
-      _replaceAll?: boolean,
-    ) => {
-      if (!(path in files)) throw new Error(`File not found: ${path}`);
-      const content = files[path];
-      if (!content.includes(oldStr)) {
-        return { ok: false as const, reason: "not_found" as const };
-      }
-      const updated = content.replace(oldStr, newStr);
-      files[path] = updated;
-      return {
-        ok: true as const,
-        updatedContent: updated,
-        matchCount: 1,
-        matchMethod: "exact" as const,
-        similarity: 1,
-        actualOld: oldStr,
-        actualNew: newStr,
-      };
     },
   };
 }

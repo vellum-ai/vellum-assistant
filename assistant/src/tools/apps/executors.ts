@@ -10,10 +10,7 @@
 
 import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
-import type {
-  AppDefinition,
-  EditEngineResult,
-} from "../../memory/app-store.js";
+import type { AppDefinition } from "../../memory/app-store.js";
 import { getAppDirPath } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
@@ -35,9 +32,6 @@ export interface ExecutorResult {
 export interface AppStoreReader {
   getApp(id: string): AppDefinition | null;
   listApps(): AppDefinition[];
-  queryAppRecords(appId: string): unknown[];
-  listAppFiles(appId: string): string[];
-  readAppFile(appId: string, path: string): string;
 }
 
 export interface AppStoreWriter {
@@ -61,13 +55,6 @@ export interface AppStoreWriter {
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
-  editAppFile(
-    appId: string,
-    path: string,
-    oldString: string,
-    newString: string,
-    replaceAll?: boolean,
-  ): EditEngineResult;
 }
 
 export type AppStore = AppStoreReader & AppStoreWriter;
