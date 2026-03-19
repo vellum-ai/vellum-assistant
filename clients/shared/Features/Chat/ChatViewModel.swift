@@ -580,6 +580,9 @@ public final class ChatViewModel: ObservableObject {
     /// Called every time a user message is sent. Used by ConversationManager to
     /// bump the conversation's lastInteractedAt so it rises to the top of the list.
     public var onUserMessageSent: (() -> Void)?
+    /// Called when the exact `/fork` composer command should be handled locally
+    /// by the client instead of being sent to the assistant.
+    public var onFork: (() -> Void)?
 
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
@@ -1128,6 +1131,21 @@ public final class ChatViewModel: ObservableObject {
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
+
+        // Intercept the exact `/fork` command only when the platform has
+        // registered a local fork handler and there is no extra payload.
+        if text == "/fork",
+           !hasAttachments,
+           !hasSkillInvocation,
+           let onFork
+        {
+            inputText = ""
+            suggestion = nil
+            pendingSuggestionRequestId = nil
+            flushCoalescedPublish()
+            onFork()
+            return
+        }
 
         // Intercept /btw side-chain messages before the normal send path.
         if text.hasPrefix("/btw ") {
