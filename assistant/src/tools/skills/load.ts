@@ -383,8 +383,72 @@ export class SkillLoadTool implements Tool {
         // Load the included skill's body content
         const childLoaded = loadSkillBySelector(childId);
         if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+          let childBody = childLoaded.skill.body;
+
+          // ── Inline command expansion for included child skill ─────────
+          const childHasInlineCommands =
+            childLoaded.skill.inlineCommandExpansions &&
+            childLoaded.skill.inlineCommandExpansions.length > 0;
+
+          if (childHasInlineCommands) {
+            const childInlineFlagEnabled = isAssistantFeatureFlagEnabled(
+              INLINE_COMMANDS_FLAG_KEY,
+              config,
+            );
+
+            // Fail closed: if the flag is off, reject the entire skill_load
+            // just like we do for root skills. Leaving raw !`...` tokens in
+            // the prompt would violate the documented fail-closed contract.
+            if (!childInlineFlagEnabled) {
+              return {
+                content: `Error: included skill "${childId}" contains inline command expansions but the inline-skill-commands feature flag is disabled. Enable the flag to use skill "${skill.id}".`,
+                isError: true,
+              };
+            }
+
+            if (childLoaded.skill.source === "extra") {
+              return {
+                content: `Error: included skill "${childId}" contains inline command expansions but inline commands are not supported for third-party (extra) skill sources.`,
+                isError: true,
+              };
+            }
+
+            if (
+              !INLINE_COMMAND_ELIGIBLE_SOURCES.has(childLoaded.skill.source)
+            ) {
+              return {
+                content: `Error: included skill "${childId}" contains inline command expansions but source "${childLoaded.skill.source}" is not eligible for inline command expansion.`,
+                isError: true,
+              };
+            }
+
+            try {
+              const childRenderResult = await renderInlineCommands(
+                childBody,
+                childLoaded.skill.inlineCommandExpansions!,
+                context.workingDir,
+              );
+              childBody = childRenderResult.renderedBody;
+
+              log.info(
+                {
+                  skillId: childId,
+                  parentSkillId: skill.id,
+                  expandedCount: childRenderResult.expandedCount,
+                  failedCount: childRenderResult.failedCount,
+                },
+                "Rendered inline command expansions for included skill",
+              );
+            } catch (err) {
+              log.warn(
+                { err, skillId: childId, parentSkillId: skill.id },
+                "Failed to render inline commands for included skill, using raw body",
+              );
+            }
+          }
+
           includedBodies.push(
-            `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
+            `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childBody}`,
           );
 
           // List reference files for the included skill

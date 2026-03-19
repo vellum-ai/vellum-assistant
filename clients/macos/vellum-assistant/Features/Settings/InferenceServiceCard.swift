@@ -105,22 +105,15 @@ struct InferenceServiceCard: View {
             title: "Inference",
             subtitle: "Configure which LLM provider and model to use to power your assistant",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: store.apiKeySaving,
-            onSave: { save() },
-            onReset: {
-                if isCustomProviderEnabled {
-                    store.clearAPIKeyForProvider(effectiveProvider)
-                } else {
-                    store.clearAPIKey()
-                }
-                apiKeyText = ""
-            },
-            showReset: isConnected,
-            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 if isLoggedIn {
-                    modelPicker
+                    PickerWithInlineSave(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() }
+                    ) {
+                        modelPicker
+                    }
                 } else {
                     managedLoginPrompt
                 }
@@ -136,6 +129,23 @@ struct InferenceServiceCard: View {
 
                     // API Key field
                     apiKeyField
+
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() },
+                        savingLabel: "Validating...",
+                        onReset: {
+                            if isCustomProviderEnabled {
+                                store.clearAPIKeyForProvider(effectiveProvider)
+                            } else {
+                                store.clearAPIKey()
+                            }
+                            apiKeyText = ""
+                        },
+                        showReset: isConnected
+                    )
                 }
             }
         )

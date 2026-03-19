@@ -177,7 +177,7 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
-        let sorted = buckets.sorted { $0.date > $1.date }
+        let sorted = buckets.sorted { $0.date < $1.date }
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
 
         ScrollView(.horizontal, showsIndicators: false) {

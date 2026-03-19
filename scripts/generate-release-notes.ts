@@ -111,32 +111,25 @@ async function main(): Promise<void> {
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 2048,
+    max_tokens: 64000,
     messages: [
       {
         role: "user",
-        content: `You are generating release notes for version ${version} of a software product called "Vellum" (an AI coding assistant). Below are the commit messages included in this release since the last version (${prevTag}).
+        content: `You are generating release notes for version ${version} of a software product called "Vellum" (an AI coding assistant). Below are the commit messages included in this release since the last version (${prevTag}). There are ${commits.length} commits total.
 
-Analyze these commits and produce structured release notes in the following exact markdown format. You MUST follow this structure precisely:
+Analyze ALL of these commits holistically and produce release notes in the following exact markdown format:
 
 ## Highlights
-- (3 to 5 bullet points summarizing the most important user-facing changes in this release. Each bullet should be a clear, concise description that a user would understand. Do not use commit-style prefixes like "feat:" or "fix:". Write in plain english.)
-
-## Features
-- (list ALL feature-related commits. Clean up the language but keep it concise. Include PR number references if present in the original commit, formatted as markdown links like [#123](https://github.com/${repo}/pull/123))
-
-## Fixes
-- (list ALL fix-related commits, same formatting as above)
-
-## Infrastructure
-- (list ALL infrastructure/chore/refactor/CI/docs commits, same formatting as above)
+- (exactly 3 to 5 bullet points summarizing the most important user-facing changes in this release)
 
 Rules:
-- Every commit must appear in exactly one of Features, Fixes, or Infrastructure
-- Highlights should be the top 3-5 most important items drawn from any category
-- Highlights should be written for end users — clear, non-technical where possible
-- If a section would be empty, omit it entirely (but Highlights is always required)
-- Do not add any text outside of these sections
+- Synthesize the commits into 3-5 high-level highlights that capture the most significant themes and changes
+- Each highlight should be a clear, concise description that a user would understand
+- Write in plain english — do not use commit-style prefixes like "feat:" or "fix:"
+- Do NOT reference individual PRs or link to specific PR numbers
+- Focus on what changed from the user's perspective, grouping related commits into single highlights
+- The output should ONLY be the Highlights section — no other sections
+- Do not add any text outside of the Highlights section
 - Do not wrap the output in a code fence
 
 Here are the commits:

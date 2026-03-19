@@ -44,6 +44,40 @@ struct NumericSanitizer: Sendable {
     }
 }
 
+// MARK: - Safe Payload Builders
+
+extension ChatDiagnosticEvent {
+    /// Builds a scroll-wheel diagnostic event from raw geometry values,
+    /// sanitizing non-finite `contentHeight` and `viewportHeight` through
+    /// `NumericSanitizer` so the resulting event is always JSON-encodable.
+    ///
+    /// Callers pass raw `CGFloat` geometry straight from AppKit
+    /// (`NSScrollView.documentView.frame.height`, `contentView.bounds.height`)
+    /// without worrying about NaN or infinity — the sanitizer replaces
+    /// non-finite values with `nil` and records which fields were dropped
+    /// in `nonFiniteFields`.
+    static func scrollWheelEvent(
+        kind: ChatDiagnosticEventKind,
+        conversationId: String?,
+        reason: String?,
+        contentHeight: CGFloat?,
+        viewportHeight: CGFloat?
+    ) -> ChatDiagnosticEvent {
+        var sanitizer = NumericSanitizer()
+        let safeContentHeight = sanitizer.sanitize(contentHeight, field: "contentHeight")
+        let safeViewportHeight = sanitizer.sanitize(viewportHeight, field: "viewportHeight")
+
+        return ChatDiagnosticEvent(
+            kind: kind,
+            conversationId: conversationId,
+            reason: reason,
+            contentHeight: safeContentHeight,
+            viewportHeight: safeViewportHeight,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        )
+    }
+}
+
 // MARK: - Event Payloads
 
 /// Kind of diagnostic event. Later PRs add new cases; the raw value is the
@@ -263,6 +297,26 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.lastScrollToReason = lastScrollToReason
         self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
         self.nonFiniteFields = nonFiniteFields
+    }
+}
+
+/// Background-readable cache for the latest sanitized diagnostics snapshot.
+///
+/// Kept outside `ChatDiagnosticsStore` so background readers do not need to
+/// access the store's `@MainActor` singleton just to read the fallback copy.
+final class LastKnownDiagnosticsCache: @unchecked Sendable {
+    static let shared = LastKnownDiagnosticsCache()
+
+    private let snapshotLock = OSAllocatedUnfairLock<LastKnownDiagnosticsSnapshot?>(initialState: nil)
+
+    private init() {}
+
+    func update(_ snapshot: LastKnownDiagnosticsSnapshot?) {
+        snapshotLock.withLock { $0 = snapshot }
+    }
+
+    func snapshot() -> LastKnownDiagnosticsSnapshot? {
+        snapshotLock.withLock { $0 }
     }
 }
 
@@ -501,29 +555,18 @@ final class ChatDiagnosticsStore {
     /// the main actor. This is the fallback data source when the main thread
     /// is wedged and `enrichWithDiagnosticsAsync()` never completes.
     ///
-    /// **Thread safety**: Written only from `@MainActor`; read atomically
-    /// via `nonisolated` accessor through the `NSLock`-guarded getter.
+    /// **Thread safety**: Written only from `@MainActor`; mirrored into
+    /// `LastKnownDiagnosticsCache` for lock-protected background reads.
     private(set) var lastKnownDiagnostics: LastKnownDiagnosticsSnapshot? {
         didSet {
-            _lastKnownLock.lock()
-            _lastKnownBackgroundCopy = lastKnownDiagnostics
-            _lastKnownLock.unlock()
+            LastKnownDiagnosticsCache.shared.update(lastKnownDiagnostics)
         }
     }
-
-    /// Lock protecting the background-readable copy.
-    private let _lastKnownLock = NSLock()
-
-    /// Background-readable copy of `lastKnownDiagnostics`, guarded by `_lastKnownLock`.
-    /// `nonisolated(unsafe)` is safe here because all access is serialized through `_lastKnownLock`.
-    private nonisolated(unsafe) var _lastKnownBackgroundCopy: LastKnownDiagnosticsSnapshot?
 
     /// Returns the last-known diagnostics snapshot from any thread.
     /// This is safe to call from the stall detector's background queue.
     nonisolated func lastKnownDiagnosticsFromBackground() -> LastKnownDiagnosticsSnapshot? {
-        _lastKnownLock.lock()
-        defer { _lastKnownLock.unlock() }
-        return _lastKnownBackgroundCopy
+        LastKnownDiagnosticsCache.shared.snapshot()
     }
 
     /// Rebuilds the last-known diagnostics snapshot from current state.

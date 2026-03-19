@@ -580,4 +580,147 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(session.elapsedMs, 0,
                                     "elapsedMs should be non-negative for a freshly created session")
     }
+
+    // MARK: - Geometry Unavailable Regression
+
+    /// Regression: transient missing geometry must not trigger endless retry churn.
+    ///
+    /// Before the fix, `geometryUnavailable` was collapsed into `needsRepin = true`,
+    /// so the coordinator's `onPinRequested` callback would always return `false`
+    /// when geometry was missing, causing the session to exhaust its retry budget
+    /// and then potentially trigger new sessions from other call sites that also
+    /// treated missing geometry as "needs repin". With the fix, call sites only
+    /// request new pins for `.needsRepin` (genuine drift), and the coordinator
+    /// callback returns `outcome == .anchored` (only true for finite, in-bounds
+    /// geometry). This test verifies the session terminates within its retry budget
+    /// when geometry is persistently unavailable, and that follow state is preserved.
+    func testTransientMissingGeometryDoesNotCauseEndlessRetries() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        // Simulate geometry unavailable: onPinRequested always returns false
+        // (the verify() call would return .geometryUnavailable, so
+        // outcome == .anchored is false).
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return false // geometry unavailable — not anchored
+        }
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+
+        // Wait long enough for the session to exhaust or timeout.
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        // The session must have terminated on its own (bounded retries or timeout).
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should terminate after bounded retries, not run indefinitely")
+
+        // Total attempts must not exceed the session budget.
+        XCTAssertLessThanOrEqual(callCount, BottomPinSession.maxRetries,
+                                  "Retry count should be bounded by maxRetries")
+
+        // The coordinator should still be logically following bottom —
+        // transient geometry issues must not detach the follow state.
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Transient geometry unavailability should not detach follow state")
+
+        // Issuing the same pin reason again must NOT coalesce with the
+        // now-terminated session — it starts a fresh one, proving the old
+        // session was fully cleaned up.
+        let countBefore = callCount
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+        XCTAssertGreaterThan(callCount, countBefore,
+                             "A new pin request after session cleanup should fire immediately")
+    }
+
+    /// Regression: when geometry transitions from unavailable to available
+    /// mid-session, the session should complete successfully without churning
+    /// through all retries.
+    func testGeometryBecomingAvailableMidSessionCompletesPin() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        // First few attempts simulate geometry unavailable (returns false),
+        // then geometry becomes available (returns true).
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return callCount >= 3 // anchored after attempt 3
+        }
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        // Wait for retries to process.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // Session should have completed successfully once geometry appeared.
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should complete once geometry becomes available")
+        XCTAssertGreaterThanOrEqual(callCount, 3,
+                                    "Should have retried until geometry was available")
+        XCTAssertLessThanOrEqual(callCount, BottomPinSession.maxRetries,
+                                  "Should not have retried beyond the success point")
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Should still be following bottom after successful pin")
+    }
+
+    // MARK: - VerificationOutcome Policy
+
+    /// Verifies that the anchor policy correctly distinguishes between
+    /// genuinely off-screen anchors and unavailable geometry.
+    func testVerificationOutcomeDistinguishesGeometryStates() {
+        // Finite, in-bounds anchor
+        let anchored = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 500, viewportHeight: 600
+        )
+        XCTAssertEqual(anchored, .anchored)
+
+        // Finite, genuinely off-screen
+        let offScreen = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 700, viewportHeight: 600
+        )
+        XCTAssertEqual(offScreen, .needsRepin)
+
+        // Non-finite anchor (geometry not yet measured)
+        let infiniteAnchor = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .infinity, viewportHeight: 600
+        )
+        XCTAssertEqual(infiniteAnchor, .geometryUnavailable)
+
+        // Non-finite viewport (geometry not yet measured)
+        let infiniteViewport = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 500, viewportHeight: .infinity
+        )
+        XCTAssertEqual(infiniteViewport, .geometryUnavailable)
+
+        // Both non-finite
+        let bothInfinite = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .infinity, viewportHeight: .infinity
+        )
+        XCTAssertEqual(bothInfinite, .geometryUnavailable)
+
+        // NaN anchor
+        let nanAnchor = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .nan, viewportHeight: 600
+        )
+        XCTAssertEqual(nanAnchor, .geometryUnavailable)
+    }
+
+    /// Verifies that the legacy `needsRepin` helper still collapses
+    /// `geometryUnavailable` into `true` for backwards compatibility.
+    func testLegacyNeedsRepinCollapsesGeometryUnavailable() {
+        // geometryUnavailable -> true (backwards-compatible behavior)
+        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: .infinity, viewportHeight: 600
+        ))
+
+        // anchored -> false
+        XCTAssertFalse(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: 500, viewportHeight: 600
+        ))
+
+        // needsRepin -> true
+        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: 700, viewportHeight: 600
+        ))
+    }
 }

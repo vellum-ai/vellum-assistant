@@ -198,7 +198,7 @@ struct MessageListView: View {
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
     /// Last container width that triggered a resize scroll handler, used to
-    /// detect meaningful width changes (>20pt) and avoid sub-pixel jitter.
+    /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
@@ -598,12 +598,17 @@ struct MessageListView: View {
             // Stage 2: ~9 frames — catches slower layout/materialization.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
+            // Only retry when the anchor genuinely drifted off-screen.
+            // `geometryUnavailable` means layout hasn't measured yet —
+            // the coordinator will pick up the next finite preference update
+            // instead of spinning retries on missing geometry.
+            let restoreOutcome = MessageListBottomAnchorPolicy.verify(
+                anchorMinY: anchorTracker.lastMinY,
+                viewportHeight: scrollViewportHeight
+            )
             if anchorMessageId == nil
                 && !hasReceivedScrollEvent
-                && MessageListBottomAnchorPolicy.needsRepin(
-                    anchorMinY: anchorTracker.lastMinY,
-                    viewportHeight: scrollViewportHeight
-                )
+                && restoreOutcome == .needsRepin
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
                 requestBottomPin(reason: .initialRestore, proxy: proxy)
@@ -811,10 +816,14 @@ struct MessageListView: View {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             // Check if the pin succeeded (anchor within viewport).
-            return !MessageListBottomAnchorPolicy.needsRepin(
+            // Use `verify()` so that `geometryUnavailable` returns false
+            // (wait for the next finite preference update) instead of being
+            // treated as an immediate failed pin that triggers retry churn.
+            let outcome = MessageListBottomAnchorPolicy.verify(
                 anchorMinY: anchorTracker.lastMinY,
                 viewportHeight: scrollViewportHeight
             )
+            return outcome == .anchored
         }
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom = isFollowing
@@ -1033,6 +1042,7 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
+            .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .environment(\.suppressAutoScroll, { [self] in
@@ -1103,9 +1113,18 @@ struct MessageListView: View {
                 ConversationScrollbarVisibilityController(shouldShow: shouldShowConversationScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                // Filter non-finite viewport heights (nan/inf during attachment
+                // insertion or image loading). Every finite change matters here,
+                // so dead-zone is 0.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: height,
+                    previous: scrollViewportHeight,
+                    deadZone: 0
+                )
+                guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightPreferenceChange")
                 let viewportChanged = anchorTracker.updateViewport(
-                    height: height,
+                    height: accepted,
                     storedViewportHeight: &scrollViewportHeight
                 )
                 if viewportChanged, scrollTracking.lastTailAnchorY.isFinite {
@@ -1117,12 +1136,16 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
-                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
-                // reducing layout invalidation cascades during rapid scroll.
-                guard abs(minY - anchorTracker.lastMinY) > 2 else { return }
+                // Filter non-finite anchor values and apply 2pt dead-zone to
+                // reduce layout invalidation cascades during rapid scroll.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: minY,
+                    previous: anchorTracker.lastMinY
+                )
+                guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                 recordScrollLoopEvent(.anchorPreferenceChange)
-                anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 scheduleTranscriptSnapshot()
                 // Geometry tracking only — no per-frame scrollTo calls here.
@@ -1132,14 +1155,27 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
-                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
-                // reducing layout invalidation cascades during rapid scroll.
-                guard abs(anchorY - scrollTracking.lastTailAnchorY) > 2 else { return }
-                scrollTracking.lastTailAnchorY = anchorY
-                updateAvatarFollower(anchorY: anchorY)
+                // Filter non-finite tail anchor values and apply 2pt dead-zone
+                // to reduce layout invalidation cascades during rapid scroll.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: anchorY,
+                    previous: scrollTracking.lastTailAnchorY
+                )
+                guard case .accept(let accepted) = decision else { return }
+                scrollTracking.lastTailAnchorY = accepted
+                updateAvatarFollower(anchorY: accepted)
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
+                // Filter non-finite sentinel values to prevent transient layout
+                // data from corrupting pagination trigger state. No dead-zone —
+                // every finite position change matters for edge-transition detection.
+                guard PreferenceGeometryFilter.evaluate(
+                    newValue: sentinelMinY,
+                    previous: .infinity,
+                    deadZone: 0
+                ) != .rejectNonFinite else { return }
+
                 let isInRange = MessageListPaginationTriggerPolicy.isInTriggerBand(
                     sentinelMinY: sentinelMinY,
                     viewportHeight: scrollViewportHeight
@@ -1348,10 +1384,14 @@ struct MessageListView: View {
                             // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
                             guard !Task.isCancelled else { return }
                             if isNearBottom && !isSuppressingBottomScroll {
-                                if MessageListBottomAnchorPolicy.needsRepin(
+                                // Only fire trailing-edge repin for genuinely off-screen
+                                // anchors. Transient missing geometry (geometryUnavailable)
+                                // waits for the next finite preference update.
+                                let trailingOutcome = MessageListBottomAnchorPolicy.verify(
                                     anchorMinY: anchorTracker.lastMinY,
                                     viewportHeight: scrollViewportHeight
-                                ) {
+                                )
+                                if trailingOutcome == .needsRepin {
                                     requestBottomPin(
                                         reason: .streaming,
                                         proxy: proxy,
@@ -1413,8 +1453,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: containerWidth) {
-                // Ignore sub-pixel jitter and initial zero value
-                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 20 else { return }
+                // Ignore sub-pixel jitter and initial zero value.
+                // Use a tight 2pt threshold so scroll suppression activates on
+                // any meaningful width change during divider drag — the previous
+                // 20pt dead-zone let intermediate reflows through without suppression,
+                // causing scroll position desync and disappearing messages.
+                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 2 else { return }
                 lastHandledContainerWidth = containerWidth
 
                 // Cancel competing scroll tasks to prevent jitter during resize
@@ -1442,10 +1486,13 @@ struct MessageListView: View {
                         // Pin to bottom without animation to avoid visual bounce.
                         // Skip when an anchor is pending (deep-link / notification)
                         // to avoid yanking the viewport away from the target message.
-                        if MessageListBottomAnchorPolicy.needsRepin(
+                        // Only repin for genuinely off-screen anchors — transient
+                        // missing geometry waits for the next finite preference update.
+                        let resizeOutcome = MessageListBottomAnchorPolicy.verify(
                             anchorMinY: anchorTracker.lastMinY,
                             viewportHeight: scrollViewportHeight
-                        ) {
+                        )
+                        if resizeOutcome == .needsRepin {
                             requestBottomPin(reason: .resize, proxy: proxy)
                         }
                     }
@@ -2019,15 +2066,50 @@ private struct PaginationSentinelMinYKey: PreferenceKey {
 /// paths so expansion/streaming guards stop once the tail anchor re-enters
 /// the viewport.
 enum MessageListBottomAnchorPolicy {
+    /// Distinguishes why a bottom-anchor check passed or failed, so callers
+    /// can handle missing geometry differently from a genuine scroll drift.
+    enum VerificationOutcome: Equatable {
+        /// The anchor is within tolerance of the viewport bottom — no action needed.
+        case anchored
+        /// The anchor has drifted below the viewport and should be re-pinned.
+        case needsRepin
+        /// One or both geometry inputs are non-finite (e.g. `.infinity`, `.nan`),
+        /// meaning the layout has not been measured yet or is in a transient state.
+        case geometryUnavailable
+    }
+
     static let repinTolerance: CGFloat = 2
 
+    /// Evaluates the bottom-anchor position against the viewport and returns
+    /// a structured outcome describing the result.
+    static func verify(
+        anchorMinY: CGFloat,
+        viewportHeight: CGFloat,
+        tolerance: CGFloat = repinTolerance
+    ) -> VerificationOutcome {
+        guard anchorMinY.isFinite, viewportHeight.isFinite else {
+            return .geometryUnavailable
+        }
+        if anchorMinY > viewportHeight + tolerance {
+            return .needsRepin
+        }
+        return .anchored
+    }
+
+    /// Returns `true` when the anchor needs re-pinning OR geometry is unavailable.
+    /// Existing call sites rely on this collapsing `geometryUnavailable` into `true`,
+    /// preserving current behavior until callers adopt `verify(...)` directly.
     static func needsRepin(
         anchorMinY: CGFloat,
         viewportHeight: CGFloat,
         tolerance: CGFloat = repinTolerance
     ) -> Bool {
-        guard anchorMinY.isFinite, viewportHeight.isFinite else { return true }
-        return anchorMinY > viewportHeight + tolerance
+        switch verify(anchorMinY: anchorMinY, viewportHeight: viewportHeight, tolerance: tolerance) {
+        case .anchored:
+            return false
+        case .needsRepin, .geometryUnavailable:
+            return true
+        }
     }
 }
 

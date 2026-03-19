@@ -791,16 +791,12 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
-        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        addDeletionTombstone(type: "api_key", name: "elevenlabs")
-        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -2169,6 +2165,14 @@ public final class SettingsStore: ObservableObject {
         if let googleOAuth = services["google-oauth"] as? [String: Any],
            let mode = googleOAuth["mode"] as? String {
             self.managedOAuthMode["integration:google"] = mode
+        } else if let legacy = services["integration:google"] as? [String: Any],
+                  let mode = legacy["mode"] as? String {
+            // Migrate from the legacy key that was written due to a bug where
+            // setManagedOAuthMode fell back to the raw providerKey when metadata
+            // hadn't loaded yet. Read the value and re-save under the correct key
+            // so subsequent launches use the canonical path.
+            self.managedOAuthMode["integration:google"] = mode
+            setManagedOAuthMode(mode, providerKey: "integration:google")
         }
     }
 
@@ -2224,9 +2228,12 @@ public final class SettingsStore: ObservableObject {
     func setManagedOAuthMode(_ mode: String, providerKey: String) {
         managedOAuthMode[providerKey] = mode
         guard !isCurrentAssistantRemote else { return }
-        // Derive config key from provider metadata or fall back to the provider slug
-        let configKey = yourOwnProviderMeta(for: providerKey)?.platformOAuthSlug ?? providerKey
-        let serviceKey = configKey.contains(":") ? configKey : "\(configKey)-oauth"
+        // Derive the config service key deterministically from providerKey so it
+        // matches the key that loadServiceModes() reads on startup. Previously
+        // this depended on provider metadata being loaded, which caused a race:
+        // if metadata hadn't arrived yet the fallback wrote under the wrong key.
+        let slug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
+        let serviceKey = "\(slug)-oauth"
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var services = existingConfig["services"] as? [String: Any] ?? [:]
         var svc = services[serviceKey] as? [String: Any] ?? [:]

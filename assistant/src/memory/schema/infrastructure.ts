@@ -24,6 +24,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
   routingHintsJson: text("routing_hints_json").notNull().default("{}"),
   status: text("status").notNull().default("active"), // 'active' | 'firing' | 'fired' | 'cancelled'
+  quiet: integer("quiet", { mode: "boolean" }).notNull().default(false), // suppress completion notifications
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

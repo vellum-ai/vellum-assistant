@@ -42,7 +42,7 @@ struct APIKeyStepView: View {
                 }
 
                 OnboardingButton(title: "Need help deciding?", style: .ghostPrimary) {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/environments")!)
+                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/hosting-options")!)
                 }
 
                 if !isAuthenticated {
@@ -71,8 +71,11 @@ struct APIKeyStepView: View {
     private var availableHostingModes: [OnboardingState.HostingMode] {
         var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
         // In dev mode, local already uses Docker under the hood, so hide the
-        // separate Docker card to reduce confusion.
-        if !DevModeManager.shared.isDevMode {
+        // separate Docker card to reduce confusion. Show "Old Local" instead
+        // for legacy non-Docker local development.
+        if DevModeManager.shared.isDevMode {
+            modes.append(.oldLocal)
+        } else {
             modes.insert(.docker, at: 1)
         }
         if userHostedEnabled {
@@ -114,6 +117,7 @@ struct APIKeyStepView: View {
         case .vellumCloud: return .cloud
         case .local: return .laptop
         case .docker: return .package
+        case .oldLocal: return .laptop
         case .gcp, .aws: return .globe
         case .customHardware: return .hardDrive
         }
@@ -212,8 +216,11 @@ struct APIKeyStepView: View {
     private func handleContinue() {
         guard canContinue else { return }
 
-        // In dev mode, "Local" uses Docker under the hood for sandboxed execution.
-        if DevModeManager.shared.isDevMode && state.selectedHostingMode == .local {
+        if state.selectedHostingMode == .oldLocal {
+            // "Old Local" bypasses Docker — use the legacy local hatch path.
+            state.cloudProvider = OnboardingState.HostingMode.local.rawValue
+        } else if DevModeManager.shared.isDevMode && state.selectedHostingMode == .local {
+            // In dev mode, "Local" uses Docker under the hood for sandboxed execution.
             state.cloudProvider = OnboardingState.HostingMode.docker.rawValue
         } else {
             state.cloudProvider = state.selectedHostingMode.rawValue

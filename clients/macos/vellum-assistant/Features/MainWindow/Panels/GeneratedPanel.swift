@@ -393,7 +393,7 @@ struct GeneratedPanel: View {
             case "signed":
                 return (.badgeCheck, VColor.contentSecondary)
             case "unsigned":
-                return (.triangleAlert, VColor.systemNegativeHover)
+                return (.triangleAlert, VColor.systemMidStrong)
             case "tampered":
                 return (.badgeX, VColor.systemNegativeStrong)
             default:

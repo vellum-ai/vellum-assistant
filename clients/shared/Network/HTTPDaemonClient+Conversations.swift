@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// types into HTTP API calls. Handles:
 ///   conversation_switch, conversation_rename, conversations_clear, cancel, undo,
 ///   model_get, model_set, image_gen_model_set,
-///   conversation_search, message_content_request, delete_queued_message
+///   conversation_search, message_content_request
 extension HTTPTransport {
 
     func registerConversationRoutes() {
@@ -49,8 +49,8 @@ extension HTTPTransport {
             } else if message is MessageContentRequest {
                 // Handled by ConversationClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? DeleteQueuedMessageMessage {
-                Task { await self.deleteQueuedMessage(conversationId: msg.conversationId, requestId: msg.requestId) }
+            } else if message is DeleteQueuedMessageMessage {
+                // Handled by ConversationQueueClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ReorderConversationsRequest {
                 Task { await self.reorderConversations(updates: msg.updates) }

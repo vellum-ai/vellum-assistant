@@ -363,6 +363,7 @@ public final class ChatViewModel: ObservableObject {
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
+    let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -2103,10 +2104,38 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        do {
-            try daemonClient.send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: entry.key))
-        } catch {
-            log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
+        Task {
+            let success = await conversationQueueClient.deleteQueuedMessage(
+                conversationId: conversationId,
+                requestId: entry.key
+            )
+            if success {
+                applyQueuedMessageDeletion(requestId: entry.key)
+            } else {
+                log.error("Failed to delete queued message")
+            }
+        }
+    }
+
+    /// Update local state after the server confirms a queued message deletion.
+    /// Mirrors the bookkeeping that `.messageQueuedDeleted` performs so that
+    /// the UI stays consistent when the delete originates from a direct HTTP call.
+    func applyQueuedMessageDeletion(requestId: String) {
+        pendingQueuedCount = max(0, pendingQueuedCount - 1)
+        let messageId = requestIdToMessageId.removeValue(forKey: requestId)
+            ?? activeRequestIdToMessageId.removeValue(forKey: requestId)
+        if let messageId {
+            messages.removeAll { $0.id == messageId }
+        }
+        var queuePosition = 0
+        for i in messages.indices {
+            if case .queued = messages[i].status {
+                messages[i].status = .queued(position: queuePosition)
+                queuePosition += 1
+            }
+        }
+        if pendingQueuedCount == 0 && !isThinking {
+            isSending = false
         }
     }
 

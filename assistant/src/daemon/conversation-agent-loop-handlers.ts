@@ -279,7 +279,12 @@ export function handleToolUse(
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
-  const statusText = `Running ${friendlyToolName(event.name)}`;
+  const statusText =
+    event.name === "skill_execute" &&
+    typeof event.input.activity === "string" &&
+    event.input.activity.length > 0
+      ? event.input.activity
+      : `Running ${friendlyToolName(event.name)}`;
   deps.ctx.emitActivityState(
     "tool_running",
     "tool_use_start",

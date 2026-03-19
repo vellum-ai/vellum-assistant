@@ -65,32 +65,6 @@ struct ModifiersGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
-            // MARK: - .vHover()
-            GallerySectionHeader(
-                title: ".vHover()",
-                description: "Adds a subtle background highlight on mouse hover."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Hover over the items below:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-
-                    ForEach(["First item", "Second item", "Third item"], id: \.self) { item in
-                        Text(item)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(VSpacing.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .vHover()
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
             // MARK: - .pointerCursor()
             GallerySectionHeader(
                 title: ".pointerCursor()",
@@ -162,6 +136,40 @@ struct ModifiersGallerySection: View {
                             .background(VColor.surfaceBase)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .nativeTooltip("Private conversation")
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .vTooltip()
+            GallerySectionHeader(
+                title: ".vTooltip(_:delay:)",
+                description: "Fast floating tooltip (200ms default). Uses an NSPanel so it escapes clipping, never steals clicks, and works on any view — buttons, icons, text, containers. Falls back to .help() on non-macOS."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Hover over the items below (200ms delay):")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        VButton(label: "Mic", iconOnly: VIcon.mic.rawValue, style: .ghost) {}
+                            .vTooltip("Click to dictate or hold Fn")
+
+                        VButton(label: "Voice", iconOnly: VIcon.audioWaveform.rawValue, style: .ghost) {}
+                            .vTooltip("Live voice conversation")
+
+                        VButton(label: "Send", iconOnly: VIcon.arrowUp.rawValue, style: .primary, isDisabled: true) {}
+                            .vTooltip("Send message")
+
+                        VIconView(.info, size: 16)
+                            .foregroundColor(VColor.contentTertiary)
+                            .frame(width: 32, height: 32)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .vTooltip("Works on any view, not just buttons")
                     }
                 }
             }
@@ -247,6 +255,59 @@ struct ModifiersGallerySection: View {
                         .if(false) { view in
                             view.bold()
                         }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .vShimmer()
+            GallerySectionHeader(
+                title: ".vShimmer()",
+                description: "Sweeps a translucent highlight across the view for skeleton loading. Respects reduced motion."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.md) {
+                            VSkeletonBone(width: 40, height: 40, radius: VRadius.pill)
+                            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 120, height: 14)
+                                VSkeletonBone(width: 80, height: 12)
+                            }
+                        }
+                        VSkeletonBone(height: 14)
+                        VSkeletonBone(width: 240, height: 14)
+                        VSkeletonBone(width: 180, height: 14)
+                    }
+                    .vShimmer()
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .inlineWidgetCard()
+            GallerySectionHeader(
+                title: ".inlineWidgetCard()",
+                description: "Standard card chrome for inline chat widgets. Applies padding, background, border, and optional hover highlight."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VStack(spacing: VSpacing.md) {
+                        Text("Non-interactive (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        Text("Widget content")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .inlineWidgetCard()
+                    }
+                    VStack(spacing: VSpacing.md) {
+                        Text("Interactive (hover highlight)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        Text("Clickable widget")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .inlineWidgetCard(interactive: true)
+                    }
                 }
             }
         }

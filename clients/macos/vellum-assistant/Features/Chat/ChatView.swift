@@ -740,13 +740,17 @@ struct ScrollWheelDetector: NSViewRepresentable {
                                 "deltaY=%.1f isScrollable=%d clipH=%.0f docH=%.0f lookup=%{public}@",
                                 event.scrollingDeltaY, isScrollable ? 1 : 0, clipHeight, docHeight, lookupPath as NSString)
                     if coordinator.shouldRecordDiagnostic(kind: .scrollWheelUntether) {
-                        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                        let diagEvent = ChatDiagnosticEvent.scrollWheelEvent(
                             kind: .scrollWheelUntether,
                             conversationId: coordinator.conversationId?.uuidString,
                             reason: "deltaY=\(String(format: "%.1f", event.scrollingDeltaY)) isScrollable=\(isScrollable) lookup=\(lookupPath)",
                             contentHeight: docHeight,
                             viewportHeight: clipHeight
-                        ))
+                        )
+                        ChatDiagnosticsStore.shared.record(diagEvent)
+                        if let dropped = diagEvent.nonFiniteFields {
+                            log.warning("ScrollWheelDetector: non-finite geometry dropped in untether diagnostic: \(dropped)")
+                        }
                     }
                     if isScrollable {
                         coordinator.onScrollUp?()
@@ -780,13 +784,17 @@ struct ScrollWheelDetector: NSViewRepresentable {
                                         "distFromBottom=%.1f isScrollable=%d lookup=%{public}@",
                                         distanceFromBottom, isScrollable ? 1 : 0, lookupPath as NSString)
                             if coordinator.shouldRecordDiagnostic(kind: .scrollWheelRetether) {
-                                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                                let diagEvent = ChatDiagnosticEvent.scrollWheelEvent(
                                     kind: .scrollWheelRetether,
                                     conversationId: coordinator.conversationId?.uuidString,
                                     reason: "distFromBottom=\(String(format: "%.1f", distanceFromBottom)) isScrollable=\(isScrollable) lookup=\(lookupPath)",
                                     contentHeight: docHeight,
                                     viewportHeight: clipBounds.height
-                                ))
+                                )
+                                ChatDiagnosticsStore.shared.record(diagEvent)
+                                if let dropped = diagEvent.nonFiniteFields {
+                                    log.warning("ScrollWheelDetector: non-finite geometry dropped in retether diagnostic: \(dropped)")
+                                }
                             }
                             coordinator.onScrollToBottom?()
                         }

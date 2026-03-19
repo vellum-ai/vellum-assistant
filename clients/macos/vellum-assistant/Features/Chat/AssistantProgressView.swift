@@ -43,6 +43,7 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
+    @State private var hideInlineChips: Bool = false
 
     // MARK: - Derived State
 
@@ -136,6 +137,20 @@ struct AssistantProgressView: View {
         }
     }
 
+    /// Derive a friendly skill label from the most recent completed skill_load call.
+    /// Returns e.g. "Using my frontend design skill" or "Using a skill" when unavailable.
+    private var skillExecuteLabel: String {
+        if let skillLoad = toolCalls.last(where: { $0.toolName == "skill_load" && $0.isComplete }),
+           let skillId = skillLoad.inputRawDict?["skill"]?.value as? String,
+           !skillId.isEmpty {
+            let display = skillId
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+            return "Using my \(display) skill"
+        }
+        return "Using a skill"
+    }
+
     private var headlineText: String {
         switch phase {
         case .thinking:
@@ -144,6 +159,9 @@ struct AssistantProgressView: View {
             if let current = currentCall {
                 if let reason = current.reasonDescription, !reason.isEmpty {
                     return reason
+                }
+                if current.toolName == "skill_execute" {
+                    return skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     current.toolName,
@@ -160,6 +178,9 @@ struct AssistantProgressView: View {
             if let lastTool = toolCalls.last {
                 if let reason = lastTool.reasonDescription, !reason.isEmpty {
                     return reason
+                }
+                if lastTool.toolName == "skill_execute" {
+                    return skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     lastTool.toolName,
@@ -332,8 +353,8 @@ struct AssistantProgressView: View {
                 // Headline text with cross-fade
                 headlineLabel
 
-                // Inline permission chips (collapsed only, max 2 + overflow)
-                if !isExpanded {
+                // Inline permission chips (collapsed only, hidden at narrow widths)
+                if !isExpanded && !hideInlineChips {
                     inlinePermissionChips
                 }
 
@@ -357,6 +378,14 @@ struct AssistantProgressView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { hideInlineChips = geo.size.width < 350 }
+                .onChange(of: geo.size.width) { _, width in
+                    hideInlineChips = width < 350
+                }
+        })
     }
 
     // MARK: - Status Icon
@@ -475,7 +504,12 @@ struct AssistantProgressView: View {
                     ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
                         .padding(.horizontal, VSpacing.lg)
                 } else {
-                    StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
+                    StepDetailRow(
+                        toolCall: toolCall,
+                        phase: phase,
+                        skillLabel: toolCall.toolName == "skill_execute" ? skillExecuteLabel : nil,
+                        onRehydrate: onRehydrate
+                    )
                 }
 
                 // Inline confirmation bubble for tool calls awaiting approval
@@ -554,6 +588,8 @@ struct AssistantProgressView: View {
 private struct StepDetailRow: View {
     let toolCall: ToolCallData
     let phase: ProgressPhase
+    /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
+    var skillLabel: String?
     var onRehydrate: (() -> Void)?
 
     @State private var isDetailExpanded = false
@@ -604,12 +640,15 @@ private struct StepDetailRow: View {
                             .frame(width: 16)
                     }
 
-                    // Title (reason-first, falling back to action/running label)
+                    // Title (reason-first, then skillLabel for skill_execute, then fallback)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         if toolCall.isComplete {
                             Text({
                                 if let reason = toolCall.reasonDescription, !reason.isEmpty {
                                     return reason
+                                }
+                                if let label = skillLabel {
+                                    return label
                                 }
                                 return toolCall.actionDescription
                             }())
@@ -621,6 +660,9 @@ private struct StepDetailRow: View {
                             Text({
                                 if let reason = toolCall.reasonDescription, !reason.isEmpty {
                                     return "Blocked — " + reason
+                                }
+                                if let label = skillLabel {
+                                    return "Blocked — " + label
                                 }
                                 return "Blocked — " + ChatBubble.friendlyRunningLabel(
                                     toolCall.toolName,
@@ -636,6 +678,9 @@ private struct StepDetailRow: View {
                             Text({
                                 if let reason = toolCall.reasonDescription, !reason.isEmpty {
                                     return reason
+                                }
+                                if let label = skillLabel {
+                                    return label
                                 }
                                 return ChatBubble.friendlyRunningLabel(
                                     toolCall.toolName,

@@ -134,6 +134,7 @@ export function getOrCreateConversation(
   opts?: { conversationType?: "standard" | "private" },
 ): {
   conversationId: string;
+  conversationType: string;
   created: boolean;
 } {
   const db = getDb();
@@ -147,7 +148,16 @@ export function getOrCreateConversation(
       .get();
 
     if (existing) {
-      return { conversationId: existing.conversationId, created: false as const };
+      const conv = tx
+        .select({ conversationType: conversations.conversationType })
+        .from(conversations)
+        .where(eq(conversations.id, existing.conversationId))
+        .get();
+      return {
+        conversationId: existing.conversationId,
+        conversationType: conv?.conversationType ?? "standard",
+        created: false as const,
+      };
     }
 
     // Check if the conversationKey itself is an existing conversation ID.
@@ -168,7 +178,16 @@ export function getOrCreateConversation(
           createdAt: Date.now(),
         })
         .run();
-      return { conversationId: existingConversation.id, created: false as const };
+      const conv = tx
+        .select({ conversationType: conversations.conversationType })
+        .from(conversations)
+        .where(eq(conversations.id, existingConversation.id))
+        .get();
+      return {
+        conversationId: existingConversation.id,
+        conversationType: conv?.conversationType ?? "standard",
+        created: false as const,
+      };
     }
 
     const now = Date.now();
@@ -205,8 +224,14 @@ export function getOrCreateConversation(
 
     return {
       conversationId,
+      conversationType,
       created: true as const,
-      conversation: { id: conversationId, title, createdAt: now, conversationType },
+      conversation: {
+        id: conversationId,
+        title,
+        createdAt: now,
+        conversationType,
+      },
     };
   });
 
@@ -214,5 +239,9 @@ export function getOrCreateConversation(
     initConversationDir({ ...result.conversation, originChannel: null });
   }
 
-  return { conversationId: result.conversationId, created: result.created };
+  return {
+    conversationId: result.conversationId,
+    conversationType: result.conversationType,
+    created: result.created,
+  };
 }

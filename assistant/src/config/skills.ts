@@ -1035,6 +1035,21 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   );
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
+
+  // Re-parse inline command expansions after placeholder substitution.
+  // The initial parse (during SKILL.md parsing) produces byte offsets against
+  // the pre-substitution body. Since {baseDir} and {workspaceDir} replacements
+  // change the body length, those offsets become stale. Re-parsing ensures the
+  // offsets match the final body that renderInlineCommands will operate on.
+  if (
+    loaded.inlineCommandExpansions &&
+    loaded.inlineCommandExpansions.length > 0
+  ) {
+    const reparse = parseInlineCommandExpansions(loaded.body);
+    loaded.inlineCommandExpansions =
+      reparse.expansions.length > 0 ? reparse.expansions : undefined;
+  }
+
   return { skill: loaded };
 }
 

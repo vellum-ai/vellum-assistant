@@ -206,7 +206,9 @@ async function runScheduleOnce(
           if (isOneShot) failOneShot(job.id);
         } else {
           completeScheduleRun(runId, { status: "ok" });
-          notifySchedule({ id: job.id, name: job.name });
+          if (!job.quiet) {
+            notifySchedule({ id: job.id, name: job.name });
+          }
           if (isOneShot) completeOneShot(job.id);
         }
         processed += 1;
@@ -278,7 +280,9 @@ async function runScheduleOnce(
         trustClass: "guardian",
       });
       completeScheduleRun(runId, { status: "ok" });
-      notifySchedule({ id: job.id, name: job.name });
+      if (!job.quiet) {
+        notifySchedule({ id: job.id, name: job.name });
+      }
       if (isOneShot) completeOneShot(job.id);
       processed += 1;
     } catch (err) {

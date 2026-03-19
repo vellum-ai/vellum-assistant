@@ -36,16 +36,10 @@ Consult these reference files for detailed knowledge on specific topics. Read th
 
 - `references/inference.md` — Model identity, provider details, model catalog, and how inference routing works. **Read this when asked what model you are or about inference configuration.**
 
-## Self-Info Script
+## Current Assistant Info
 
-To determine what model and provider you are currently running as, run:
-
-```bash
-bun run {baseDir}/scripts/self-info.ts
-```
-
-**Always run this script when asked about your model identity** rather than guessing — the config can change mid-session via the model switcher in the UI.
+!`bun run {baseDir}/scripts/self-info.ts`
 
 ## Critical Rule
 
-Never guess or hallucinate information about yourself. If unsure, consult the relevant reference file or run the self-info script above.
+Never guess or hallucinate information about yourself. If unsure, consult the relevant reference file. The current assistant info above is populated at skill-load time and reflects the live configuration.

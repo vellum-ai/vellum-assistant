@@ -21,6 +21,14 @@ export function migrateRenameThreadStartersTable(database: DrizzleDb): void {
         .get();
       if (!oldTableExists) return;
 
+      // If the new table already exists (crash recovery), skip the rename
+      const newTableExists = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_starters'`,
+        )
+        .get();
+      if (newTableExists) return;
+
       // Rename the physical table
       raw.exec(
         /*sql*/ `ALTER TABLE thread_starters RENAME TO conversation_starters`,

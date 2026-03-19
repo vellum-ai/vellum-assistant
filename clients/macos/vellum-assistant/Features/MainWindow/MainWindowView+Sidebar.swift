@@ -28,16 +28,6 @@ extension MainWindowView {
         }
     }
 
-    /// Maps a conversation's interaction state to a dot color for VConversationIcon.
-    func interactionDotColor(for conversation: ConversationModel) -> Color? {
-        switch conversationManager.interactionState(for: conversation.id) {
-        case .processing: return VColor.primaryBase
-        case .waitingForInput: return VColor.systemNegativeHover
-        case .error: return VColor.systemNegativeStrong
-        case .idle: return nil
-        }
-    }
-
     var regularConversations: [ConversationModel] {
         conversationManager.visibleConversations.filter { !$0.isScheduleConversation }
     }

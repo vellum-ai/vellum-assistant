@@ -83,7 +83,7 @@ describe("MemorySimplifiedConfigSchema", () => {
   test("parses empty object with all defaults", () => {
     const result = MemorySimplifiedConfigSchema.parse({});
     expect(result).toEqual({
-      enabled: false,
+      enabled: true,
       brief: { maxTokens: 4000 },
       reducer: { idleDelayMs: 30_000, switchWaitMs: 5_000 },
       archiveRecall: { maxSnippets: 10 },
@@ -175,7 +175,7 @@ describe("AssistantConfigSchema memory.simplified", () => {
   test("empty config exposes memory.simplified with defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.simplified).toEqual({
-      enabled: false,
+      enabled: true,
       brief: { maxTokens: 4000 },
       reducer: { idleDelayMs: 30_000, switchWaitMs: 5_000 },
       archiveRecall: { maxSnippets: 10 },
@@ -248,7 +248,7 @@ describe("loadConfig with memory.simplified", () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.memory.simplified).toEqual({
-      enabled: false,
+      enabled: true,
       brief: { maxTokens: 4000 },
       reducer: { idleDelayMs: 30_000, switchWaitMs: 5_000 },
       archiveRecall: { maxSnippets: 10 },
@@ -258,7 +258,7 @@ describe("loadConfig with memory.simplified", () => {
   test("no config file loads cleanly with simplified defaults", () => {
     const config = loadConfig();
     expect(config.memory.simplified).toEqual({
-      enabled: false,
+      enabled: true,
       brief: { maxTokens: 4000 },
       reducer: { idleDelayMs: 30_000, switchWaitMs: 5_000 },
       archiveRecall: { maxSnippets: 10 },
