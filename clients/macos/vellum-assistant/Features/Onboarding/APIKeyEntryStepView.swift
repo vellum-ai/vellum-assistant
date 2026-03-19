@@ -77,8 +77,8 @@ struct APIKeyEntryStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text(isCustomProviderEnabled
-            ? "Since you skipped creating an account,\nyou\u{2019}ll need to bring your own API key\nfor a model provider."
-            : "Since you skipped creating an account,\nwe\u{2019}ll need your Anthropic API key.")
+            ? "Enter an API key to connect your model provider."
+            : "Enter your Anthropic API key to get started.")
             .font(VFont.buttonLarge)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
@@ -176,15 +176,14 @@ struct APIKeyEntryStepView: View {
             Text("Provider")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            Picker("", selection: $state.selectedProvider) {
-                ForEach(providerCatalog, id: \.id) { entry in
-                    Text(entry.displayName).tag(entry.id)
+            VDropdown(
+                placeholder: "Select a provider\u{2026}",
+                selection: $state.selectedProvider,
+                options: providerCatalog.map { entry in
+                    (label: entry.displayName, value: entry.id)
                 }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Model Picker
@@ -194,15 +193,14 @@ struct APIKeyEntryStepView: View {
             Text("Model")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            Picker("", selection: $selectedModel) {
-                ForEach(currentProviderEntry?.models ?? [], id: \.id) { model in
-                    Text(model.displayName).tag(model.id)
+            VDropdown(
+                placeholder: "Select a model\u{2026}",
+                selection: $selectedModel,
+                options: (currentProviderEntry?.models ?? []).map { model in
+                    (label: model.displayName, value: model.id)
                 }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - API Key Field
@@ -228,9 +226,7 @@ struct APIKeyEntryStepView: View {
                     }
             } else {
                 SecureField(
-                    isCustomProviderEnabled
-                        ? (state.selectedProvider == "anthropic" ? "sk-ant-\u{2026}" : "Enter your \(providerDisplayName) API key")
-                        : "sk-ant-\u{2026}",
+                    currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
                     text: $apiKey
                 )
                     .textFieldStyle(.plain)
