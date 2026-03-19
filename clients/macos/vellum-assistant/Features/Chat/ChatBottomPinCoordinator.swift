@@ -64,10 +64,11 @@ struct BottomPinSession: Sendable {
     func canCoalesce(reason: BottomPinRequestReason, conversationId: UUID) -> Bool {
         guard self.conversationId == conversationId else { return false }
         guard !isExhausted else { return false }
-        // Expansion and streaming requests coalesce freely within the same conversation.
+        // Requests coalesce freely when they share the same reason within the same conversation.
         // Different reasons (e.g. resize vs expansion) start a fresh session.
         switch (self.reason, reason) {
-        case (.expansion, .expansion),
+        case (.initialRestore, .initialRestore),
+             (.expansion, .expansion),
              (.streaming, .streaming),
              (.messageCount, .messageCount),
              (.resize, .resize):
