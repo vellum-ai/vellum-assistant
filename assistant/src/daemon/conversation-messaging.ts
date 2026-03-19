@@ -7,6 +7,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
@@ -276,17 +277,20 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
-  const userMessage = createUserMessage(
-    content,
-    attachments.map((attachment) => ({
-      id: attachment.id,
-      filename: attachment.filename,
-      mimeType: attachment.mimeType,
-      data: attachment.data,
-      extractedText: attachment.extractedText,
-    })),
+  const attachmentInputs = attachments.map((attachment) => ({
+    id: attachment.id,
+    filename: attachment.filename,
+    mimeType: attachment.mimeType,
+    data: attachment.data,
+    extractedText: attachment.extractedText,
+    filePath: attachment.filePath,
+  }));
+  const cleanMessage = createUserMessage(content, attachmentInputs);
+  const llmMessage = enrichMessageWithSourcePaths(
+    cleanMessage,
+    attachmentInputs,
   );
-  ctx.messages.push(userMessage);
+  ctx.messages.push(llmMessage);
 
   try {
     const turnCtx =
@@ -294,6 +298,14 @@ export async function persistUserMessage(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const imageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
+
     const mergedMetadata = {
       ...(metadata ?? {}),
       ...provenance,
@@ -309,6 +321,7 @@ export async function persistUserMessage(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
+      ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
 
     // When displayContent is provided (e.g. original text before recording
@@ -317,18 +330,9 @@ export async function persistUserMessage(
     // the stripped content.
     const contentToPersist = displayContent
       ? JSON.stringify(
-          createUserMessage(
-            displayContent,
-            attachments.map((a) => ({
-              id: a.id,
-              filename: a.filename,
-              mimeType: a.mimeType,
-              data: a.data,
-              extractedText: a.extractedText,
-            })),
-          ).content,
+          createUserMessage(displayContent, attachmentInputs).content,
         )
-      : JSON.stringify(userMessage.content);
+      : JSON.stringify(cleanMessage.content);
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",

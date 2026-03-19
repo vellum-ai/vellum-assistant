@@ -6,6 +6,7 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -879,6 +880,7 @@ export class DaemonServer {
       filename: string;
       mimeType: string;
       data: string;
+      filePath?: string;
     }[];
   }> {
     const ingressCheck = checkIngressForSecrets(content);
@@ -961,12 +963,20 @@ export class DaemonServer {
     });
 
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
+      ? (() => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            data: a.dataBase64,
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        })()
       : [];
 
     return { conversation, attachments };
@@ -1066,6 +1076,13 @@ export class DaemonServer {
       const serverProvenance = provenanceFromTrustContext(
         conversation.trustContext,
       );
+      const imageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
@@ -1081,15 +1098,19 @@ export class DaemonServer {
                 serverInterfaceCtx.assistantMessageInterface,
             }
           : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(content, attachments);
+      const cleanMsg = createUserMessage(content, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         serverChannelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       if (serverTurnCtx) {
         try {

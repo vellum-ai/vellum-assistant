@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -149,6 +150,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
   conversation: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
@@ -229,19 +231,33 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
+    const guardianImageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
     const channelMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
       provenanceTrustClass: "guardian" as const,
+      ...(Object.keys(guardianImageSourcePaths).length > 0
+        ? { imageSourcePaths: guardianImageSourcePaths }
+        : {}),
     };
 
-    const userMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = createUserMessage(content, attachments);
+    const llmUserMessage = enrichMessageWithSourcePaths(
+      cleanUserMessage,
+      attachments,
+    );
     const persistedUser = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(userMessage.content),
+      JSON.stringify(cleanUserMessage.content),
       channelMeta,
     );
     messageId = persistedUser.id;
@@ -261,7 +277,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!conversation.isProcessing()) {
-      conversation.getMessages().push(userMessage, assistantMessage);
+      conversation.getMessages().push(llmUserMessage, assistantMessage);
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
@@ -1063,6 +1079,13 @@ export async function handleSendMessage(
     let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const imageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const channelMeta = {
         ...provenance,
         userMessageChannel: sourceChannel,
@@ -1070,15 +1093,19 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(rawContent, attachments);
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(

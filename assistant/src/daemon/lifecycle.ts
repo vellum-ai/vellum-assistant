@@ -550,13 +550,20 @@ export async function runDaemon(): Promise<void> {
         getOrCreateConversation: (conversationId) =>
           server.getConversationForMessages(conversationId),
         assistantEventHub,
-        resolveAttachments: (attachmentIds) =>
-          attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+        resolveAttachments: (attachmentIds) => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
             data: a.dataBase64,
-          })),
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        },
       },
       findConversation: (conversationId) =>
         server.findConversation(conversationId),
@@ -641,13 +648,18 @@ export async function runDaemon(): Promise<void> {
     setVoiceBridgeDeps({
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
-      resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+      resolveAttachments: (attachmentIds) => {
+        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+        const sourcePaths =
+          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+        return resolved.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
           data: a.dataBase64,
-        })),
+          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+        }));
+      },
       deriveDefaultStrictSideEffects: (conversationId) => {
         const conversationType = getConversationType(conversationId);
         return conversationType === "private";
