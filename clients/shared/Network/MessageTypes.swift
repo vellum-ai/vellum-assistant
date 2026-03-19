@@ -1916,35 +1916,6 @@ public struct TwilioNumberInfo: Codable, Sendable {
 
 // MARK: - Channel Verification Session Messages
 
-/// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
-/// Backed by generated `ChannelVerificationSessionRequest`.
-public typealias ChannelVerificationSessionRequestMessage = ChannelVerificationSessionRequest
-
-extension ChannelVerificationSessionRequest {
-    public init(
-        action: String,
-        channel: String? = nil,
-        conversationId: String? = nil,
-        rebind: Bool? = nil,
-        destination: String? = nil,
-        originConversationId: String? = nil,
-        purpose: String? = nil,
-        contactChannelId: String? = nil
-    ) {
-        self.init(
-            type: "channel_verification_session",
-            action: action,
-            channel: channel,
-            conversationId: conversationId,
-            rebind: rebind,
-            destination: destination,
-            originConversationId: originConversationId,
-            purpose: purpose,
-            contactChannelId: contactChannelId
-        )
-    }
-}
-
 /// Channel verification session response.
 /// Backed by generated `ChannelVerificationSessionResponse`.
 public typealias ChannelVerificationSessionResponseMessage = ChannelVerificationSessionResponse

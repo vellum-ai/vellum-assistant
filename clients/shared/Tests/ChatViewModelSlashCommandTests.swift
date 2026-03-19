@@ -34,6 +34,17 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool { false }
 
         func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage? { nil }
+
+        func sendChannelVerificationSession(
+            action: String,
+            channel: String?,
+            conversationId: String?,
+            rebind: Bool?,
+            destination: String?,
+            originConversationId: String?,
+            purpose: String?,
+            contactChannelId: String?
+        ) async -> ChannelVerificationSessionResponseMessage? { nil }
     }
 
     private var daemonClient: MockDaemonClient!
