@@ -225,6 +225,13 @@ export function conversationQueryRouteDefinitions(
             400,
           );
         }
+        if (body.model !== undefined && typeof body.model !== "string") {
+          return httpError(
+            "BAD_REQUEST",
+            "Field 'model' must be a string",
+            400,
+          );
+        }
         try {
           const info = await setEmbeddingConfig(
             body.provider,
