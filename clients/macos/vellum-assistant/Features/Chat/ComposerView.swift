@@ -542,7 +542,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
-                    .vTooltip("Send")
+                    .vTooltip("Done")
                 }
             }
         }
