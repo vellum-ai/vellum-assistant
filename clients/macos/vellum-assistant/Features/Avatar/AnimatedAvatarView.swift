@@ -90,6 +90,11 @@ class AvatarLayerView: NSView {
     private var configEntryAnimationEnabled: Bool = false
     private var hasPlayedEntry: Bool = false
 
+    /// Whether the post-entry animations (breathing, blink, twitch) have been started
+    /// after the entry animation delay. Used by `resumeAnimations()` to decide whether
+    /// to start breathing fresh vs resume an existing animation.
+    private var postEntryAnimationsStarted: Bool = false
+
     /// Whether configure() has set up entry animation state (closed eyes, drop transform)
     /// that needs to be cleaned up if the entry animation never fires.
     private var entrySetupPending: Bool = false
@@ -466,6 +471,17 @@ class AvatarLayerView: NSView {
         animationsActive = true
         if configBlinkEnabled { startBlinkTimer() }
         startTwitchTimer()
+
+        // If the entry animation played but the post-entry delay was cancelled
+        // before breathing/blink/twitch could start (e.g. window lost focus during
+        // the 1.1s post-entry delay), start them fresh now instead of trying to
+        // resume a non-existent breathing animation.
+        if hasPlayedEntry && !postEntryAnimationsStarted {
+            postEntryAnimationsStarted = true
+            if configBreathingEnabled { startBreathing() }
+            return
+        }
+
         if configBreathingEnabled {
             let pausedTime = bodyLayer.timeOffset
             bodyLayer.speed = 1
@@ -571,6 +587,7 @@ class AvatarLayerView: NSView {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.animationsActive else { return }
+                self.postEntryAnimationsStarted = true
                 if self.configBlinkEnabled { self.startBlinkTimer() }
                 if self.configBreathingEnabled { self.startBreathing() }
                 self.startTwitchTimer()
