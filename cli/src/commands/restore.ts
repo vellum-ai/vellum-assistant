@@ -18,14 +18,10 @@ function printUsage(): void {
   console.log(
     "  --from <path>       Path to the .vbundle file to restore (required)",
   );
-  console.log(
-    "  --dry-run           Show what would change without applying",
-  );
+  console.log("  --dry-run           Show what would change without applying");
   console.log("");
   console.log("Examples:");
-  console.log(
-    "  vellum restore my-assistant --from ~/Desktop/backup.vbundle",
-  );
+  console.log("  vellum restore my-assistant --from ~/Desktop/backup.vbundle");
   console.log(
     "  vellum restore my-assistant --from ~/Desktop/backup.vbundle --dry-run",
   );
@@ -68,10 +64,7 @@ async function getAccessToken(
 ): Promise<string> {
   const tokenData = loadGuardianToken(assistantId);
 
-  if (
-    tokenData &&
-    new Date(tokenData.accessTokenExpiresAt) > new Date()
-  ) {
+  if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
     return tokenData.accessToken;
   }
 
@@ -131,9 +124,7 @@ export async function restore(): Promise<void> {
   }
 
   if (!name || !fromPath) {
-    console.error(
-      "Error: Both <name> and --from <path> are required.",
-    );
+    console.error("Error: Both <name> and --from <path> are required.");
     console.error("");
     printUsage();
     process.exit(1);
@@ -159,7 +150,11 @@ export async function restore(): Promise<void> {
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
 
   // Obtain auth token
-  const accessToken = await getAccessToken(entry.runtimeUrl, entry.assistantId, name);
+  const accessToken = await getAccessToken(
+    entry.runtimeUrl,
+    entry.assistantId,
+    name,
+  );
 
   if (dryRun) {
     // Preflight check
@@ -246,18 +241,15 @@ export async function restore(): Promise<void> {
 
     let response: Response;
     try {
-      response = await fetch(
-        `${entry.runtimeUrl}/v1/migrations/import`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: bundleData,
-          signal: AbortSignal.timeout(120_000),
+      response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/octet-stream",
         },
-      );
+        body: bundleData,
+        signal: AbortSignal.timeout(120_000),
+      });
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
@@ -276,16 +268,16 @@ export async function restore(): Promise<void> {
 
     if (!response.ok) {
       const body = await response.text();
-      console.error(
-        `Error: Import failed (${response.status}): ${body}`,
-      );
+      console.error(`Error: Import failed (${response.status}): ${body}`);
       process.exit(1);
     }
 
     const result = (await response.json()) as ImportResponse;
 
     if (!result.success) {
-      console.error(`Error: Import failed — ${result.reason ?? "unknown reason"}`);
+      console.error(
+        `Error: Import failed — ${result.reason ?? "unknown reason"}`,
+      );
       for (const err of result.errors ?? []) {
         console.error(`  - ${err}`);
       }

@@ -23,7 +23,10 @@ import type {
 } from "./trust-store-interface.js";
 import type { PolicyContext, TrustRule } from "./types.js";
 
-export type { AcceptStarterBundleResult, StarterBundleRule } from "./trust-store-interface.js";
+export type {
+  AcceptStarterBundleResult,
+  StarterBundleRule,
+} from "./trust-store-interface.js";
 export type { TrustStoreBackend } from "./trust-store-interface.js";
 
 const log = getLogger("trust-store");
@@ -784,12 +787,8 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       this.rebuildPatternCache();
       // Infer starterBundleAccepted from the fetched rules — if any starter
       // rule IDs are present, the bundle was accepted.
-      const starterIds = new Set(
-        getStarterBundleRules().map((r) => r.id),
-      );
-      this.starterBundleAccepted = this.rules.some((r) =>
-        starterIds.has(r.id),
-      );
+      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
     } catch (err) {
       log.error(
         { err },
@@ -807,7 +806,11 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       this.refreshCache();
     }, CACHE_TTL_MS);
     // Unref so the timer doesn't prevent the process from exiting.
-    if (this.refreshTimer && typeof this.refreshTimer === "object" && "unref" in this.refreshTimer) {
+    if (
+      this.refreshTimer &&
+      typeof this.refreshTimer === "object" &&
+      "unref" in this.refreshTimer
+    ) {
       (this.refreshTimer as NodeJS.Timeout).unref();
     }
   }
@@ -820,12 +823,8 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       this.rules = fresh;
       this.rebuildPatternCache();
       // Detect starter bundle acceptance
-      const starterIds = new Set(
-        getStarterBundleRules().map((r) => r.id),
-      );
-      this.starterBundleAccepted = this.rules.some((r) =>
-        starterIds.has(r.id),
-      );
+      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
       if (JSON.stringify(fresh) !== oldJson) {
         this.notifyListeners();
       }
@@ -928,11 +927,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     return null;
   }
 
-  findDenyRule(
-    tool: string,
-    command: string,
-    scope: string,
-  ): TrustRule | null {
+  findDenyRule(tool: string, command: string, scope: string): TrustRule | null {
     this.ensureInitialized();
     for (const rule of this.rules) {
       if (rule.tool !== tool) continue;
