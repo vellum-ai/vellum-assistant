@@ -198,7 +198,7 @@ struct MessageListView: View {
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
     /// Last container width that triggered a resize scroll handler, used to
-    /// detect meaningful width changes (>20pt) and avoid sub-pixel jitter.
+    /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
