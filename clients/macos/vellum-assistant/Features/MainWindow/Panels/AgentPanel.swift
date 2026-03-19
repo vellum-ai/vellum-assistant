@@ -457,7 +457,16 @@ struct AgentPanelContent: View {
                     }
                 }
 
-                skillIcon(skill.emoji)
+                // Small inline icon
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 16))
+                        .frame(width: 20, height: 20)
+                } else {
+                    VIconView(.zap, size: 12)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 20, height: 20)
+                }
 
                 Text(skill.name)
                     .font(VFont.cardTitle)
@@ -559,7 +568,7 @@ struct AgentPanelContent: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceOverlay)
+                        .fill(VColor.surfaceLift)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
