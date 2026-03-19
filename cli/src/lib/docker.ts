@@ -622,6 +622,62 @@ export async function migrateGatewaySecurityFiles(
   }
 }
 
+/**
+ * Migrate keys.enc and store.key from the data volume
+ * (old location: /data/.vellum/protected/) to the CES security volume
+ * (new location: /ces-security/).
+ *
+ * Uses a temporary busybox container that mounts both volumes. The migration
+ * is idempotent: it only copies a file when the source exists on the data
+ * volume and the destination does not yet exist on the CES security volume.
+ * Migrated files are chowned to 1001:1001 (the CES service user).
+ */
+export async function migrateCesSecurityFiles(
+  res: ReturnType<typeof dockerResourceNames>,
+  log: (msg: string) => void,
+): Promise<void> {
+  const migrationContainer = `${res.cesContainer}-migration`;
+  const filesToMigrate = ["keys.enc", "store.key"];
+
+  // Remove any leftover migration container from a previous interrupted run.
+  try {
+    await exec("docker", ["rm", "-f", migrationContainer]);
+  } catch {
+    // container may not exist
+  }
+
+  for (const fileName of filesToMigrate) {
+    const src = `/data/.vellum/protected/${fileName}`;
+    const dst = `/ces-security/${fileName}`;
+
+    try {
+      // Run a busybox container that checks source exists and destination
+      // does not, then copies and sets ownership. The shell exits 0 whether
+      // or not a copy happens, so the migration is always safe to re-run.
+      await exec("docker", [
+        "run",
+        "--rm",
+        "--name",
+        migrationContainer,
+        "-v",
+        `${res.dataVolume}:/data:ro`,
+        "-v",
+        `${res.cesSecurityVolume}:/ces-security`,
+        "busybox",
+        "sh",
+        "-c",
+        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && chown 1001:1001 "${dst}" && echo "migrated"; else echo "skipped"; fi`,
+      ]);
+      log(`   ${fileName}: checked`);
+    } catch (err) {
+      // Non-fatal — log and continue. The CES will start without
+      // credentials if they don't exist.
+      const message = err instanceof Error ? err.message : String(err);
+      log(`   ${fileName}: migration failed (${message}), continuing...`);
+    }
+  }
+}
+
 /** The order in which services must be started. */
 export const SERVICE_START_ORDER: ServiceName[] = [
   "assistant",
@@ -970,6 +1026,9 @@ export async function hatchDocker(
 
     log("🔄 Migrating security files to gateway volume...");
     await migrateGatewaySecurityFiles(res, log);
+
+    log("🔄 Migrating credential files to CES security volume...");
+    await migrateCesSecurityFiles(res, log);
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
