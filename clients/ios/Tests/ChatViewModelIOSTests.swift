@@ -115,6 +115,16 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testClearingInputRestoresExistingSuggestion() {
+        viewModel.suggestion = "Summarize the last response"
+
+        viewModel.inputText = "Something else"
+        XCTAssertEqual(viewModel.suggestion, "Summarize the last response")
+
+        viewModel.inputText = ""
+        XCTAssertEqual(viewModel.suggestion, "Summarize the last response")
+    }
+
     func testSendMessageRecordsInMockClient() throws {
         viewModel.conversationId = "sess-abc"
         viewModel.inputText = "Test"

@@ -375,6 +375,9 @@ extension AppDelegate {
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
+                    // Clear any stale startup error from a previous hatch attempt
+                    // so a successful hatch doesn't leave a non-nil error in app state.
+                    self.daemonStartupError = nil
                     do {
                         try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch let error as AssistantCli.CLIError {
