@@ -190,12 +190,13 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
     }
 }
 
+/// Pre-compiled regex for matching inline markdown images `![alt](url)`.
+/// Hoisted to a file-level constant so the pattern is compiled once at app launch.
+private let imageRegex = try! NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#)
+
 /// Splits text around `![alt](url)` matches, returning mixed `.text` / `.image` segments.
 func extractImageSegments(from text: String) -> [MarkdownSegment] {
-    let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
-        return [.text(text)]
-    }
+    let regex = imageRegex
 
     let nsText = text as NSString
     let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
