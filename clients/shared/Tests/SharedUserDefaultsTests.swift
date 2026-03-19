@@ -5,6 +5,8 @@ import XCTest
 final class SharedUserDefaultsTests: XCTestCase {
     private let key = "shared-defaults-regression-test"
     private let legacySuiteName = "com.vellum.vellum-assistant.swiftpackage"
+    private var legacySuiteSnapshot: [String: Any]?
+    private var standardValueSnapshot: Any?
 
     private var legacyDefaults: UserDefaults {
         guard let defaults = UserDefaults(suiteName: legacySuiteName) else {
@@ -15,14 +17,25 @@ final class SharedUserDefaultsTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        legacySuiteSnapshot = legacyDefaults.persistentDomain(forName: legacySuiteName)
+        standardValueSnapshot = UserDefaults.standard.object(forKey: key)
         SharedUserDefaults.resetLegacyMigrationStateForTests()
         UserDefaults.standard.removeObject(forKey: key)
         legacyDefaults.removeObject(forKey: key)
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: key)
-        legacyDefaults.removeObject(forKey: key)
+        if let legacySuiteSnapshot {
+            legacyDefaults.setPersistentDomain(legacySuiteSnapshot, forName: legacySuiteName)
+        } else {
+            legacyDefaults.removePersistentDomain(forName: legacySuiteName)
+        }
+
+        if let standardValueSnapshot {
+            UserDefaults.standard.set(standardValueSnapshot, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
         SharedUserDefaults.resetLegacyMigrationStateForTests()
         super.tearDown()
     }
