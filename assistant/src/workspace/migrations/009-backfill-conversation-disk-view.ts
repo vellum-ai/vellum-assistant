@@ -22,11 +22,22 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
   run(_workspaceDir: string): void {
     const db = getDb();
 
-    const allConversations = db
-      .select()
-      .from(conversations)
-      .orderBy(asc(conversations.createdAt))
-      .all();
+    // On a fresh install the conversations table may not exist yet (DB schema
+    // migrations run after workspace migrations). Nothing to backfill in that
+    // case, so bail out gracefully.
+    let allConversations: (typeof conversations.$inferSelect)[];
+    try {
+      allConversations = db
+        .select()
+        .from(conversations)
+        .orderBy(asc(conversations.createdAt))
+        .all();
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes("no such table")) {
+        return;
+      }
+      throw e;
+    }
 
     const total = allConversations.length;
     let processed = 0;
@@ -43,7 +54,9 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
           if (existing.updatedAt === expectedUpdatedAt) {
             processed++;
             if (processed % 50 === 0) {
-              log.info(`Backfilled ${processed}/${total} conversations to disk`);
+              log.info(
+                `Backfilled ${processed}/${total} conversations to disk`,
+              );
             }
             continue;
           }
