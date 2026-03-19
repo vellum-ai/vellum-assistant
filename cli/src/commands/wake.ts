@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { resolveTargetAssistant } from "../lib/assistant-config.js";
+import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   isAssistantWatchModeAvailable,
@@ -38,9 +39,17 @@ export async function wake(): Promise<void> {
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
 
+  if (entry.cloud === "docker") {
+    const res = dockerResourceNames(entry.assistantId);
+    await wakeContainers(res);
+    console.log("Docker containers started.");
+    console.log("Wake complete.");
+    return;
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      `Error: 'vellum wake' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+      `Error: 'vellum wake' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }

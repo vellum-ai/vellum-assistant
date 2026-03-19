@@ -354,8 +354,11 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
         coordinator.requestPin(reason: .initialRestore, conversationId: convId)
 
-        // Allow the retry loop to run.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Poll until the session completes (robust against slow CI scheduling).
+        let deadline = CFAbsoluteTimeGetCurrent() + 1.0
+        while coordinator.activeSession != nil, CFAbsoluteTimeGetCurrent() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
 
         // Should have stopped after success (3 attempts), not continued to maxRetries.
         XCTAssertGreaterThanOrEqual(callCount, 3)

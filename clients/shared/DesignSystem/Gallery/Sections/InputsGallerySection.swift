@@ -2,6 +2,8 @@
 import SwiftUI
 
 struct InputsGallerySection: View {
+    var filter: String?
+
     @State private var textFieldValue = ""
     @State private var filledFieldValue = "Filled text"
     @State private var secureFieldValue = ""
@@ -24,378 +26,413 @@ struct InputsGallerySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            // MARK: - VTextField
-            GallerySectionHeader(
-                title: "VTextField",
-                description: "Single-line text input with optional label, icons, secure mode, and error display."
-            )
+            if filter == nil || filter == "vTextField" {
+                // MARK: - VTextField
+                GallerySectionHeader(
+                    title: "VTextField",
+                    description: "Single-line text input with optional label, icons, secure mode, and error display."
+                )
 
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    Text("Live value: \"\(textFieldValue)\"")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        Text("Live value: \"\(textFieldValue)\"")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.borderBase)
+                        Divider().background(VColor.borderBase)
 
-                    // --- States ---
-                    Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        // --- States ---
+                        Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
 
-                    HStack(alignment: .top, spacing: VSpacing.xl) {
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VTextField(
-                                "Default (empty)",
-                                placeholder: "Type something...",
-                                text: $textFieldValue
-                            )
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VTextField(
+                                    "Default (empty)",
+                                    placeholder: "Type something...",
+                                    text: $textFieldValue
+                                )
 
-                            VTextField(
-                                "Filled",
-                                placeholder: "Type something...",
-                                text: $filledFieldValue
-                            )
+                                VTextField(
+                                    "Filled",
+                                    placeholder: "Type something...",
+                                    text: $filledFieldValue
+                                )
 
-                            VTextField(
-                                "Secure",
-                                placeholder: "Enter API key...",
-                                text: $secureFieldValue,
-                                isSecure: true
-                            )
+                                VTextField(
+                                    "Secure",
+                                    placeholder: "Enter API key...",
+                                    text: $secureFieldValue,
+                                    isSecure: true
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VTextField(
+                                    "Disabled (empty)",
+                                    placeholder: "Cannot edit",
+                                    text: .constant("")
+                                )
+                                .disabled(true)
+
+                                VTextField(
+                                    "Disabled (filled)",
+                                    placeholder: "Cannot edit",
+                                    text: $disabledFilledValue
+                                )
+                                .disabled(true)
+
+                                VTextField(
+                                    "Error (empty)",
+                                    placeholder: "Required field",
+                                    text: .constant(""),
+                                    errorMessage: "This field is required"
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VTextField(
+                                    "Error (filled)",
+                                    placeholder: "Enter value",
+                                    text: $errorFilledValue,
+                                    errorMessage: "Invalid input"
+                                )
+                            }
                         }
 
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VTextField(
-                                "Disabled (empty)",
-                                placeholder: "Cannot edit",
-                                text: .constant("")
-                            )
-                            .disabled(true)
+                        Divider().background(VColor.borderBase)
 
-                            VTextField(
-                                "Disabled (filled)",
-                                placeholder: "Cannot edit",
-                                text: $disabledFilledValue
-                            )
-                            .disabled(true)
+                        // --- Icons ---
+                        Text("Icons").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
 
-                            VTextField(
-                                "Error (empty)",
-                                placeholder: "Required field",
-                                text: .constant(""),
-                                errorMessage: "This field is required"
-                            )
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Leading icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Search...",
+                                    text: $textFieldValue,
+                                    leadingIcon: VIcon.search.rawValue
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Trailing icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Enter email...",
+                                    text: $textFieldValue,
+                                    trailingIcon: VIcon.mail.rawValue
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Both icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Search files...",
+                                    text: $textFieldValue,
+                                    leadingIcon: VIcon.search.rawValue,
+                                    trailingIcon: VIcon.circleX.rawValue
+                                )
+                            }
                         }
 
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VTextField(
-                                "Error (filled)",
-                                placeholder: "Enter value",
-                                text: $errorFilledValue,
-                                errorMessage: "Invalid input"
-                            )
-                        }
+                        Divider().background(VColor.borderBase)
+
+                        // --- Label + Icon ---
+                        Text("Label with icon").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        VTextField(
+                            "Tool Name",
+                            placeholder: "Select a Tool",
+                            text: $textFieldValue,
+                            leadingIcon: VIcon.search.rawValue
+                        )
                     }
+                }
+            }
 
-                    Divider().background(VColor.borderBase)
+            if filter == nil || filter == "vSlider" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VSlider
+                GallerySectionHeader(
+                    title: "VSlider",
+                    description: "Custom slider with rounded capsule track, grip-line thumb, and optional tick marks."
+                )
 
-                    // --- Icons ---
-                    Text("Icons").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        Text("Live value: \(Int(sliderValue))")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
 
-                    HStack(alignment: .top, spacing: VSpacing.xl) {
+                        Divider().background(VColor.borderBase)
+
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Leading icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VTextField(
-                                placeholder: "Search...",
-                                text: $textFieldValue,
-                                leadingIcon: VIcon.search.rawValue
-                            )
+                            Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSlider(value: $sliderValue)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Trailing icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VTextField(
-                                placeholder: "Enter email...",
-                                text: $textFieldValue,
-                                trailingIcon: VIcon.mail.rawValue
-                            )
+                            Text("With tick marks (0–100, step 5): \(Int(sliderSteppedValue))")
+                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSlider(value: $sliderSteppedValue, range: 0...100, step: 5, showTickMarks: true)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Both icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VTextField(
-                                placeholder: "Search files...",
-                                text: $textFieldValue,
-                                leadingIcon: VIcon.search.rawValue,
-                                trailingIcon: VIcon.circleX.rawValue
-                            )
-                        }
-                    }
-
-                    Divider().background(VColor.borderBase)
-
-                    // --- Label + Icon ---
-                    Text("Label with icon").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
-
-                    VTextField(
-                        "Tool Name",
-                        placeholder: "Select a Tool",
-                        text: $textFieldValue,
-                        leadingIcon: VIcon.search.rawValue
-                    )
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
-            // MARK: - VSlider
-            GallerySectionHeader(
-                title: "VSlider",
-                description: "Custom slider with rounded capsule track, grip-line thumb, and optional tick marks."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    Text("Live value: \(Int(sliderValue))")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    Divider().background(VColor.borderBase)
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VSlider(value: $sliderValue)
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("With tick marks (0–100, step 5): \(Int(sliderSteppedValue))")
-                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VSlider(value: $sliderSteppedValue, range: 0...100, step: 5, showTickMarks: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Small range (1–10, step 1): \(Int(sliderSmallValue))")
-                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VSlider(value: $sliderSmallValue, range: 1...10, step: 1, showTickMarks: true)
-                    }
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
-            // MARK: - VTextEditor
-            GallerySectionHeader(
-                title: "VTextEditor",
-                description: "Multi-line text editor with placeholder and height controls."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    HStack(spacing: VSpacing.xl) {
-                        VStack(alignment: .leading) {
-                            Text("Min Height: \(Int(minHeight))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentSecondary)
-                            Slider(value: $minHeight, in: 40...200, step: 10)
-                                .frame(maxWidth: 200)
-                        }
-                        VStack(alignment: .leading) {
-                            Text("Max Height: \(Int(maxHeight))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentSecondary)
-                            Slider(value: $maxHeight, in: 100...400, step: 20)
-                                .frame(maxWidth: 200)
-                        }
-                    }
-
-                    Divider().background(VColor.borderBase)
-
-                    VTextEditor(
-                        placeholder: "Write your thoughts...",
-                        text: $textEditorValue,
-                        minHeight: minHeight,
-                        maxHeight: maxHeight
-                    )
-
-                    Text("Characters: \(textEditorValue.count)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
-            // MARK: - VToggle
-            GallerySectionHeader(
-                title: "VToggle",
-                description: "Custom toggle switch with animated knob and color transition."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    Divider().background(VColor.borderBase)
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("With label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VToggle(isOn: $toggleA, label: "Enable feature")
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Without label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VToggle(isOn: $toggleB)
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Non-interactive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VToggle(isOn: .constant(true), label: "Read-only toggle", interactive: false)
-                    }
-                }
-            }
-
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
-            // MARK: - VDropdown
-            GallerySectionHeader(
-                title: "VDropdown",
-                description: "Generic dropdown picker with optional label, error display, and icon support."
-            )
-
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    Text("Live value: \"\(dropdownValue)\"")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    Divider().background(VColor.borderBase)
-
-                    // --- States ---
-                    Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
-
-                    HStack(alignment: .top, spacing: VSpacing.xl) {
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VDropdown(
-                                "Default (empty)",
-                                placeholder: "Select an option...",
-                                selection: .constant(""),
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b"),
-                                    (label: "Option C", value: "c")
-                                ],
-                                emptyValue: ""
-                            )
-
-                            VDropdown(
-                                "Filled",
-                                placeholder: "Select an option...",
-                                selection: $dropdownFilledValue,
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b"),
-                                    (label: "Option C", value: "c")
-                                ],
-                                emptyValue: ""
-                            )
-
-                            VDropdown(
-                                "Interactive",
-                                placeholder: "Select an option...",
-                                selection: $dropdownValue,
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b"),
-                                    (label: "Option C", value: "c")
-                                ],
-                                emptyValue: ""
-                            )
-                        }
-
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VDropdown(
-                                "Disabled (empty)",
-                                placeholder: "Cannot select",
-                                selection: .constant(""),
-                                options: [
-                                    (label: "Option A", value: "a")
-                                ],
-                                emptyValue: ""
-                            )
-                            .disabled(true)
-
-                            VDropdown(
-                                "Disabled (filled)",
-                                placeholder: "Select an option...",
-                                selection: $dropdownDisabledValue,
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b")
-                                ],
-                                emptyValue: ""
-                            )
-                            .disabled(true)
-
-                            VDropdown(
-                                "Error (empty)",
-                                placeholder: "Select an option...",
-                                selection: .constant(""),
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b")
-                                ],
-                                emptyValue: "",
-                                errorMessage: "Selection is required"
-                            )
-                        }
-
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            VDropdown(
-                                "Error (filled)",
-                                placeholder: "Select an option...",
-                                selection: $dropdownErrorValue,
-                                options: [
-                                    (label: "Option A", value: "a"),
-                                    (label: "Option B", value: "b")
-                                ],
-                                emptyValue: "",
-                                errorMessage: "Invalid selection"
-                            )
+                            Text("Small range (1–10, step 1): \(Int(sliderSmallValue))")
+                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSlider(value: $sliderSmallValue, range: 1...10, step: 1, showTickMarks: true)
                         }
                     }
                 }
             }
 
-            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+            if filter == nil || filter == "vTextEditor" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VTextEditor
+                GallerySectionHeader(
+                    title: "VTextEditor",
+                    description: "Multi-line text editor with placeholder and height controls."
+                )
 
-            // MARK: - Combined Form Example
-            GallerySectionHeader(
-                title: "Combined Form",
-                description: "VTextField and VDropdown used together in a form layout."
-            )
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        HStack(spacing: VSpacing.xl) {
+                            VStack(alignment: .leading) {
+                                Text("Min Height: \(Int(minHeight))")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentSecondary)
+                                Slider(value: $minHeight, in: 40...200, step: 10)
+                                    .frame(maxWidth: 200)
+                            }
+                            VStack(alignment: .leading) {
+                                Text("Max Height: \(Int(maxHeight))")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentSecondary)
+                                Slider(value: $maxHeight, in: 100...400, step: 20)
+                                    .frame(maxWidth: 200)
+                            }
+                        }
 
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    VTextField(
-                        "Name",
-                        placeholder: "Enter a name...",
-                        text: $formName
-                    )
+                        Divider().background(VColor.borderBase)
 
-                    VDropdown(
-                        "Category",
-                        placeholder: "Select a category...",
-                        selection: $formDropdown,
-                        options: [
-                            (label: "General", value: "general"),
-                            (label: "Technical", value: "technical"),
-                            (label: "Design", value: "design")
-                        ],
-                        emptyValue: ""
-                    )
+                        VTextEditor(
+                            placeholder: "Write your thoughts...",
+                            text: $textEditorValue,
+                            minHeight: minHeight,
+                            maxHeight: maxHeight
+                        )
+
+                        Text("Characters: \(textEditorValue.count)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
                 }
             }
+
+            if filter == nil || filter == "vToggle" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VToggle
+                GallerySectionHeader(
+                    title: "VToggle",
+                    description: "Custom toggle switch with animated knob and color transition."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
+
+                        Divider().background(VColor.borderBase)
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("With label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VToggle(isOn: $toggleA, label: "Enable feature")
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Without label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VToggle(isOn: $toggleB)
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Non-interactive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VToggle(isOn: .constant(true), label: "Read-only toggle", interactive: false)
+                        }
+                    }
+                }
+            }
+
+            if filter == nil || filter == "vDropdown" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VDropdown
+                GallerySectionHeader(
+                    title: "VDropdown",
+                    description: "Generic dropdown picker with optional label, error display, and icon support."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        Text("Live value: \"\(dropdownValue)\"")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
+
+                        Divider().background(VColor.borderBase)
+
+                        // --- States ---
+                        Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VDropdown(
+                                    "Default (empty)",
+                                    placeholder: "Select an option...",
+                                    selection: .constant(""),
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b"),
+                                        (label: "Option C", value: "c")
+                                    ],
+                                    emptyValue: ""
+                                )
+
+                                VDropdown(
+                                    "Filled",
+                                    placeholder: "Select an option...",
+                                    selection: $dropdownFilledValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b"),
+                                        (label: "Option C", value: "c")
+                                    ],
+                                    emptyValue: ""
+                                )
+
+                                VDropdown(
+                                    "Interactive",
+                                    placeholder: "Select an option...",
+                                    selection: $dropdownValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b"),
+                                        (label: "Option C", value: "c")
+                                    ],
+                                    emptyValue: ""
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VDropdown(
+                                    "Disabled (empty)",
+                                    placeholder: "Cannot select",
+                                    selection: .constant(""),
+                                    options: [
+                                        (label: "Option A", value: "a")
+                                    ],
+                                    emptyValue: ""
+                                )
+                                .disabled(true)
+
+                                VDropdown(
+                                    "Disabled (filled)",
+                                    placeholder: "Select an option...",
+                                    selection: $dropdownDisabledValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b")
+                                    ],
+                                    emptyValue: ""
+                                )
+                                .disabled(true)
+
+                                VDropdown(
+                                    "Error (empty)",
+                                    placeholder: "Select an option...",
+                                    selection: .constant(""),
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b")
+                                    ],
+                                    emptyValue: "",
+                                    errorMessage: "Selection is required"
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                VDropdown(
+                                    "Error (filled)",
+                                    placeholder: "Select an option...",
+                                    selection: $dropdownErrorValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b")
+                                    ],
+                                    emptyValue: "",
+                                    errorMessage: "Invalid selection"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if filter == nil || filter == "combinedForm" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - Combined Form Example
+                GallerySectionHeader(
+                    title: "Combined Form",
+                    description: "VTextField and VDropdown used together in a form layout."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        VTextField(
+                            "Name",
+                            placeholder: "Enter a name...",
+                            text: $formName
+                        )
+
+                        VDropdown(
+                            "Category",
+                            placeholder: "Select a category...",
+                            selection: $formDropdown,
+                            options: [
+                                (label: "General", value: "general"),
+                                (label: "Technical", value: "technical"),
+                                (label: "Design", value: "design")
+                            ],
+                            emptyValue: ""
+                        )
+                    }
+                }
+            }
+
+        }
+    }
+}
+
+// MARK: - Component Page Router
+
+extension InputsGallerySection {
+    @ViewBuilder
+    static func componentPage(_ id: String) -> some View {
+        switch id {
+        case "vTextField": InputsGallerySection(filter: "vTextField")
+        case "vSlider": InputsGallerySection(filter: "vSlider")
+        case "vTextEditor": InputsGallerySection(filter: "vTextEditor")
+        case "vToggle": InputsGallerySection(filter: "vToggle")
+        case "vDropdown": InputsGallerySection(filter: "vDropdown")
+        case "combinedForm": InputsGallerySection(filter: "combinedForm")
+        default: EmptyView()
         }
     }
 }

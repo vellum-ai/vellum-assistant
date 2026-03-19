@@ -1294,6 +1294,7 @@ public final class HTTPTransport {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
+        request.setValue("clear-all-conversations", forHTTPHeaderField: "X-Confirm-Destructive")
         applyAuth(&request)
 
         do {

@@ -1315,6 +1315,15 @@ export function clearAll(): { conversations: number; messages: number } {
   rawExec("DELETE FROM messages");
   rawExec("DELETE FROM conversations");
 
+  // Record audit event — lifecycle_events is NOT deleted by clearAll(),
+  // so this survives the wipe and provides a permanent trail.
+  rawRun(
+    `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
+    uuid(),
+    "conversations_clear_all",
+    Date.now(),
+  );
+
   // Rebuild corrupted FTS tables and restore triggers after all base-table
   // DELETEs have completed. Dropping the virtual table clears the corruption,
   // and recreating it + triggers means subsequent writes maintain FTS

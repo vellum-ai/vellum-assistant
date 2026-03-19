@@ -15,7 +15,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// The canonical product name shown in menus and the About panel.
     /// Use this instead of hardcoding "Vellum" so the name is defined
     /// in one place.
-    nonisolated(unsafe) public static let appName = "Vellum"
+    public static let appName = "Vellum"
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
@@ -200,6 +200,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             appMenuPatchDelegate?.patchTitles(menu: appMenu)
         }
 
+        // Capture outside @Sendable closures to avoid main-actor isolation warning.
+        let appName = AppDelegate.appName
+
         // Patch the menu bar title right when the user clicks the menu bar.
         if appMenuTrackingObserver == nil {
             appMenuTrackingObserver = NotificationCenter.default.addObserver(
@@ -207,8 +210,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: NSApp.mainMenu,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }
@@ -221,8 +224,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: nil,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }
