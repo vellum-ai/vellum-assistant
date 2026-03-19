@@ -233,7 +233,7 @@ public enum GatewayHTTPClient {
         isRetry: Bool
     ) async throws {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: "btw", params: nil, method: "POST", timeout: 120, connection: connection)
+        var request = try buildRequest(path: "assistants/{assistantId}/btw", params: nil, method: "POST", timeout: 120, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
         let body: [String: String] = [
