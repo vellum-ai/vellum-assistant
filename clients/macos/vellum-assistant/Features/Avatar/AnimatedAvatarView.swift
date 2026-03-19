@@ -478,7 +478,12 @@ class AvatarLayerView: NSView {
         // resume a non-existent breathing animation.
         if hasPlayedEntry && !postEntryAnimationsStarted {
             postEntryAnimationsStarted = true
-            if configBreathingEnabled { startBreathing() }
+            if configBreathingEnabled {
+                bodyLayer.speed = 1
+                bodyLayer.timeOffset = 0
+                bodyLayer.beginTime = 0
+                startBreathing()
+            }
             return
         }
 
