@@ -83,6 +83,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateMemoryArchiveTables,
+  migrateMemoryBriefState,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -485,7 +486,10 @@ export function initializeDb(): void {
   // 84. Add nullable conversation fork lineage columns and parent lookup index
   migrateConversationForkLineage(database);
 
-  // 85. Memory archive tables (observations, chunks, episodes) for simplified memory v1
+  // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
+  migrateMemoryBriefState(database);
+
+  // 86. Memory archive tables (observations, chunks, episodes) for simplified memory v1
   migrateMemoryArchiveTables(database);
 
   validateMigrationState(database);

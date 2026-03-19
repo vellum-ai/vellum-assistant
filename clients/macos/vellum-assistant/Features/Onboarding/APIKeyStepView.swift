@@ -95,10 +95,13 @@ struct APIKeyStepView: View {
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
             ForEach(availableHostingModes, id: \.rawValue) { mode in
+                let subtitle = (DevModeManager.shared.isDevMode && mode == .local)
+                    ? OnboardingState.HostingMode.docker.subtitle
+                    : mode.subtitle
                 hostingCard(
                     icon: iconForMode(mode),
                     title: mode.displayName,
-                    subtitle: mode.subtitle,
+                    subtitle: subtitle,
                     mode: mode,
                     chipLabel: chipLabel(for: mode)
                 )

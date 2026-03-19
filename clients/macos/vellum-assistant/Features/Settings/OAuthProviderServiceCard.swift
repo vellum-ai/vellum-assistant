@@ -198,16 +198,27 @@ struct OAuthProviderServiceCard: View {
     }
 
     private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(entry.account_label ?? "\(displayName) Account")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentDefault)
                 if let scopes = entry.scopes_granted, !scopes.isEmpty {
-                    Text(scopes.joined(separator: ", "))
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(1)
+                    FlowLayout(spacing: 4) {
+                        ForEach(scopes.sorted(), id: \.self) { scope in
+                            Text(friendlyScopeName(scope))
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentSecondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(VColor.surfaceBase)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(VColor.borderBase, lineWidth: 1)
+                                )
+                        }
+                    }
                 }
             }
             Spacer()
@@ -218,6 +229,31 @@ struct OAuthProviderServiceCard: View {
                 store.disconnectManagedOAuthConnection(entry.id, providerKey: providerKey, userId: currentUserId)
             }
         }
+    }
+
+    /// Maps OAuth scope URLs to short, human-readable labels.
+    private func friendlyScopeName(_ scope: String) -> String {
+        // Google scopes
+        if scope.hasPrefix("https://www.googleapis.com/auth/") {
+            let suffix = scope.replacingOccurrences(of: "https://www.googleapis.com/auth/", with: "")
+            switch suffix {
+            case "gmail.readonly": return "Gmail (read)"
+            case "gmail.modify": return "Gmail (modify)"
+            case "gmail.send": return "Gmail (send)"
+            case "calendar.readonly": return "Calendar (read)"
+            case "calendar.events": return "Calendar (events)"
+            case "userinfo.email": return "Email"
+            case "userinfo.profile": return "Profile"
+            case "contacts.readonly": return "Contacts (read)"
+            case "drive.readonly": return "Drive (read)"
+            case "drive.file": return "Drive (files)"
+            default: return suffix
+            }
+        }
+        // OpenID
+        if scope == "openid" { return "OpenID" }
+        // Fallback: return the scope as-is (works for short scopes like Slack, GitHub, etc.)
+        return scope
     }
 
     // MARK: - Your Own Content

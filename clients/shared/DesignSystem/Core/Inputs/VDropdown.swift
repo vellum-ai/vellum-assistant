@@ -13,19 +13,27 @@ public struct VDropdown<T: Hashable>: View {
     public var emptyValue: T? = nil
     /// The maximum width of the dropdown. Defaults to 400.
     public var maxWidth: CGFloat = 400
+    /// Optional leading icon displayed before the label text.
+    public var icon: VIcon? = nil
+    /// Optional closure that returns an icon for each option value, shown in the menu.
+    public var optionIcon: ((T) -> VIcon?)? = nil
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
-        maxWidth: CGFloat = 400
+        maxWidth: CGFloat = 400,
+        icon: VIcon? = nil,
+        optionIcon: ((T) -> VIcon?)? = nil
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
         self.maxWidth = maxWidth
+        self.icon = icon
+        self.optionIcon = optionIcon
     }
 
     private var selectedLabel: String? {
@@ -39,23 +47,39 @@ public struct VDropdown<T: Hashable>: View {
         Menu {
             Picker("", selection: $selection) {
                 ForEach(options, id: \.value) { option in
-                    Text(option.label).tag(option.value)
+                    if let optionIcon, let icon = optionIcon(option.value) {
+                        Label {
+                            Text(option.label)
+                        } icon: {
+                            icon.image(size: 14)
+                        }
+                        .tag(option.value)
+                    } else {
+                        Text(option.label).tag(option.value)
+                    }
                 }
             }
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
             HStack(spacing: VSpacing.md) {
-                Group {
-                    if let label = selectedLabel {
-                        Text(label)
-                            .foregroundColor(VColor.contentDefault)
-                    } else {
-                        Text(placeholder)
+                HStack(spacing: VSpacing.sm) {
+                    if let resolvedIcon = icon ?? optionIcon?(selection) {
+                        VIconView(resolvedIcon, size: 13)
                             .foregroundColor(VColor.contentTertiary)
                     }
+
+                    Group {
+                        if let label = selectedLabel {
+                            Text(label)
+                                .foregroundColor(VColor.contentDefault)
+                        } else {
+                            Text(placeholder)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                    }
+                    .font(VFont.body)
                 }
-                .font(VFont.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
