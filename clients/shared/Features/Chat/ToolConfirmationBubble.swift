@@ -199,31 +199,30 @@ public struct ToolConfirmationBubble: View {
     private var pendingContent: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Title + action buttons inline
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                Text(confirmation.humanDescription)
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
+            // Description text (full width)
+            Text(confirmation.humanDescription)
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer(minLength: VSpacing.md)
+            // Action buttons (right-aligned)
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
 
-                HStack(spacing: VSpacing.sm) {
-                    allowSplitButton
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
-                        )
-
-                    VButton(label: "Deny", style: .danger, size: .compact) {
-                        markCommandExplanationSeen()
-                        onDeny()
-                    }
+                allowSplitButton
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                            .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
                     )
+
+                VButton(label: "Deny", style: .danger, size: .compact) {
+                    markCommandExplanationSeen()
+                    onDeny()
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                )
             }
 
             // First-time educational banner for command confirmations
