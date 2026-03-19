@@ -20,17 +20,21 @@ extension View {
         modifier(VInputStyleModifier())
     }
 
-    public func vInputChrome(isFocused: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
-        modifier(VInputChromeModifier(isFocused: isFocused, cornerRadius: cornerRadius))
+    public func vInputChrome(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
+        modifier(VInputChromeModifier(isFocused: isFocused, isError: isError, isDisabled: isDisabled, cornerRadius: cornerRadius))
     }
 }
 
 public struct VInputChromeModifier: ViewModifier {
     public let isFocused: Bool
+    public let isError: Bool
+    public let isDisabled: Bool
     public let cornerRadius: CGFloat
 
-    public init(isFocused: Bool = false, cornerRadius: CGFloat = VRadius.md) {
+    public init(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) {
         self.isFocused = isFocused
+        self.isError = isError
+        self.isDisabled = isDisabled
         self.cornerRadius = cornerRadius
     }
 
@@ -38,64 +42,118 @@ public struct VInputChromeModifier: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         content
-            .background(shape.fill(VColor.surfaceBase))
+            .background(shape.fill(isDisabled ? VColor.surfaceOverlay : VColor.surfaceBase))
             .overlay(
                 shape.strokeBorder(
-                    isFocused ? VColor.borderActive : VColor.borderBase.opacity(0.72),
-                    lineWidth: isFocused ? 1.5 : 1
+                    borderColor,
+                    lineWidth: (isFocused || isError) ? 1.5 : 1
                 )
             )
             .clipShape(shape)
             .shadow(
-                color: isFocused ? VColor.primaryBase.opacity(0.10) : .clear,
+                color: isFocused && !isError ? VColor.primaryBase.opacity(0.10) : .clear,
                 radius: 4
             )
+            .opacity(isDisabled ? 0.6 : 1.0)
+    }
+
+    private var borderColor: Color {
+        if isError {
+            return VColor.systemNegativeStrong
+        }
+        if isFocused {
+            return VColor.borderActive
+        }
+        return VColor.borderBase.opacity(0.72)
     }
 }
 
+/// Single-line text input with optional label, icons, secure mode, and error display.
 public struct VTextField: View {
     public let placeholder: String
     @Binding public var text: String
+    public var label: String? = nil
     public var leadingIcon: String? = nil
     public var trailingIcon: String? = nil
+    public var isSecure: Bool = false
+    public var errorMessage: String? = nil
     public var onSubmit: (() -> Void)? = nil
 
     @FocusState private var isFocused: Bool
+    @Environment(\.isEnabled) private var isEnabled
 
-    public init(placeholder: String, text: Binding<String>, leadingIcon: String? = nil, trailingIcon: String? = nil, onSubmit: (() -> Void)? = nil) {
+    public init(
+        _ label: String? = nil,
+        placeholder: String,
+        text: Binding<String>,
+        leadingIcon: String? = nil,
+        trailingIcon: String? = nil,
+        isSecure: Bool = false,
+        errorMessage: String? = nil,
+        onSubmit: (() -> Void)? = nil
+    ) {
+        self.label = label
         self.placeholder = placeholder
         self._text = text
         self.leadingIcon = leadingIcon
         self.trailingIcon = trailingIcon
+        self.isSecure = isSecure
+        self.errorMessage = errorMessage
         self.onSubmit = onSubmit
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.md) {
-            if let leadingIcon = leadingIcon {
-                VIconView(.resolve(leadingIcon), size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            if let label {
+                Text(label)
+                    .font(VFont.inputLabel)
+                    .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
             }
 
+            HStack(spacing: VSpacing.md) {
+                if let leadingIcon {
+                    VIconView(.resolve(leadingIcon), size: 13)
+                        .foregroundColor(VColor.contentTertiary)
+                        .accessibilityHidden(true)
+                }
+
+                inputField
+
+                if let trailingIcon {
+                    VIconView(.resolve(trailingIcon), size: 13)
+                        .foregroundColor(VColor.contentTertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 32)
+            .vInputChrome(isFocused: isFocused, isError: errorMessage != nil, isDisabled: !isEnabled)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inputField: some View {
+        if isSecure {
+            SecureField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .focused($isFocused)
+                .onSubmit { onSubmit?() }
+        } else {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isFocused)
-                .onSubmit {
-                    onSubmit?()
-                }
-
-            if let trailingIcon = trailingIcon {
-                VIconView(.resolve(trailingIcon), size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
+                .onSubmit { onSubmit?() }
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
-        .frame(height: 32)
-        .vInputChrome(isFocused: isFocused)
     }
 }
