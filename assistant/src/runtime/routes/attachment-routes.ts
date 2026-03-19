@@ -128,7 +128,9 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 function handleGetAttachment(attachmentId: string): Response {
-  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+    hydrateFileData: true,
+  });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
@@ -158,7 +160,9 @@ export function handleGetAttachmentContent(
   attachmentId: string,
   req: Request,
 ): Response {
-  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+    hydrateFileData: true,
+  });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }

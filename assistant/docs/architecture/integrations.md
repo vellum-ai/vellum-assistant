@@ -534,32 +534,36 @@ Each conversation is projected to a directory named `{id}_{isoDate}`:
 
 ### Write-Through Sync
 
-Disk writes happen as a write-through side effect of DB operations — whenever a conversation is created, updated, or receives a new message, the corresponding disk-view files are updated in lockstep. All disk writes are best-effort; failures are logged but never thrown, so the disk view cannot break DB operations.
+The disk view is updated at the daemon level, not automatically by the DB CRUD layer. Conversation creation, metadata updates, and deletion are synced from `conversation-crud.ts`, but message sync (`syncMessageToDisk`) is only called from daemon-level code paths (e.g. `conversation-messaging.ts`) — not from the CRUD `addMessage()` function. This means `messages.jsonl` reflects messages processed through the daemon's messaging pipeline, not every message write. All disk writes are best-effort; failures are logged but never thrown, so the disk view cannot break DB operations.
+
+> **Privacy note:** Conversation disk-view files live under `~/.vellum/workspace/conversations/` and are included in diagnostic log exports ("Send logs to Vellum"). The export applies a binary-file heuristic (skipping null-byte files) and a cumulative size cap, so large binary attachments are typically excluded, but text-based conversation metadata (`meta.json`) and message logs (`messages.jsonl`) will be included. Users should be aware that diagnostic exports may contain conversation content.
 
 ```mermaid
 sequenceDiagram
     participant CRUD as conversation-crud.ts
+    participant Daemon as conversation-messaging.ts
     participant DiskView as conversation-disk-view.ts
     participant FS as Filesystem
 
-    Note over CRUD,FS: Conversation creation
+    Note over CRUD,FS: Conversation creation (CRUD layer)
     CRUD->>CRUD: INSERT conversation row
     CRUD->>DiskView: initConversationDir(conv)
     DiskView->>FS: mkdir + write meta.json
 
-    Note over CRUD,FS: Message insertion
+    Note over Daemon,FS: Message insertion (daemon layer)
+    Daemon->>CRUD: addMessage(convId, role, content)
     CRUD->>CRUD: INSERT message row
-    CRUD->>DiskView: syncMessageToDisk(convId, msgId, createdAtMs)
+    Daemon->>DiskView: syncMessageToDisk(convId, msgId, createdAtMs)
     DiskView->>DiskView: flattenContentBlocks(content)
     DiskView->>FS: append JSONL record to messages.jsonl
     DiskView->>FS: write attachment files to attachments/
 
-    Note over CRUD,FS: Conversation update (title change, etc.)
+    Note over CRUD,FS: Conversation update (CRUD layer)
     CRUD->>CRUD: UPDATE conversation row
     CRUD->>DiskView: updateMetaFile(conv)
     DiskView->>FS: rewrite meta.json
 
-    Note over CRUD,FS: Conversation deletion
+    Note over CRUD,FS: Conversation deletion (CRUD layer)
     CRUD->>CRUD: DELETE conversation row
     CRUD->>DiskView: removeConversationDir(id, createdAtMs)
     DiskView->>FS: rm -rf conversation directory
@@ -584,10 +588,11 @@ Existing conversations created before the disk view was introduced are backfille
 
 ### Key Source Files
 
-| File                                                                  | Role                                                                    |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `assistant/src/memory/conversation-disk-view.ts`                     | Disk view module — init, update, sync, remove, content flattening       |
-| `assistant/src/memory/conversation-crud.ts`                          | DB CRUD layer — calls disk-view functions as write-through side effects |
-| `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                       |
+| File                                                                        | Role                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `assistant/src/memory/conversation-disk-view.ts`                            | Disk view module — init, update, sync, remove, content flattening                     |
+| `assistant/src/memory/conversation-crud.ts`                                 | DB CRUD layer — calls init, update, and remove disk-view functions (not message sync) |
+| `assistant/src/daemon/conversation-messaging.ts`                            | Daemon messaging pipeline — calls `syncMessageToDisk` after message insertion         |
+| `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                                     |
 
 ---

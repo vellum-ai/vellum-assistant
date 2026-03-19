@@ -11,6 +11,7 @@ import { basename, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
@@ -325,21 +326,6 @@ export function getFilePathBySourcePath(sourcePath: string): string | null {
 }
 
 /**
- * Returns the subset of `attachmentIds` that are file-backed.
- *
- * Since all attachments are now stored on disk, this simply returns a
- * Set containing every input ID — no database query is needed.
- *
- * @deprecated All attachments are file-backed. Callers should assume
- * `fileBacked: true` unconditionally and avoid calling this function.
- */
-export function getFileBackedAttachmentIds(
-  attachmentIds: string[],
-): Set<string> {
-  return new Set(attachmentIds);
-}
-
-/**
  * Return the raw binary content for an attachment by reading from its
  * on-disk file path.
  *
@@ -521,9 +507,11 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
 
 export function getAttachmentsByIds(
   ids: string[],
+  options?: { hydrateFileData?: boolean },
 ): Array<StoredAttachment & { dataBase64: string }> {
   if (ids.length === 0) return [];
   const db = getDb();
+  const hydrateFileData = options?.hydrateFileData ?? false;
   const results: Array<StoredAttachment & { dataBase64: string }> = [];
   for (const id of ids) {
     const row = db
@@ -533,12 +521,17 @@ export function getAttachmentsByIds(
       .get();
     if (row) {
       // File-backed attachments store data on disk with dataBase64 = "".
-      // Hydrate base64 from disk so callers get actual content.
+      // Only hydrate base64 from disk when callers explicitly opt in,
+      // to avoid eagerly reading large files for validation-only paths.
       let dataBase64 = row.dataBase64;
-      if (!dataBase64 && row.filePath) {
+      if (hydrateFileData && !dataBase64 && row.filePath) {
         try {
           dataBase64 = readFileSync(row.filePath).toString("base64");
-        } catch {
+        } catch (err: unknown) {
+          const log = getLogger();
+          log.warn(
+            `Failed to read file-backed attachment ${id} from ${row.filePath}: ${err instanceof Error ? err.message : String(err)}`,
+          );
           dataBase64 = "";
         }
       }
@@ -596,7 +589,7 @@ export function getAttachmentsForMessage(
   const ids = links
     .map((l) => l.attachmentId)
     .filter((id): id is string => id != null);
-  return getAttachmentsByIds(ids);
+  return getAttachmentsByIds(ids, { hydrateFileData: true });
 }
 
 /**
@@ -644,8 +637,9 @@ export function getAttachmentMetadataForMessage(
  */
 export function getAttachmentById(
   attachmentId: string,
+  options?: { hydrateFileData?: boolean },
 ): (StoredAttachment & { dataBase64: string }) | null {
-  const results = getAttachmentsByIds([attachmentId]);
+  const results = getAttachmentsByIds([attachmentId], options);
   return results[0] ?? null;
 }
 
