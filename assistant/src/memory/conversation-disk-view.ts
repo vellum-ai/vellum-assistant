@@ -77,7 +77,10 @@ function getLegacyConversationDirPath(
   );
 }
 
-function resolveConversationDirPath(id: string, createdAtMs: number): string {
+export function getResolvedConversationDirPath(
+  id: string,
+  createdAtMs: number,
+): string {
   const dirPath = getConversationDirPath(id, createdAtMs);
   if (existsSync(dirPath)) return dirPath;
 
@@ -91,7 +94,7 @@ function ensureConversationDirPath(
   id: string,
   createdAtMs: number,
 ): string {
-  const dirPath = resolveConversationDirPath(id, createdAtMs);
+  const dirPath = getResolvedConversationDirPath(id, createdAtMs);
   mkdirSync(dirPath, { recursive: true });
   return dirPath;
 }

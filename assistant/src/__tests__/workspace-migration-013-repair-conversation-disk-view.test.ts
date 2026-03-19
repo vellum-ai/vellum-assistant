@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +55,7 @@ mock.module("../config/loader.js", () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
+import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   attachments,
@@ -211,5 +213,61 @@ describe("013-repair-conversation-disk-view migration", () => {
     expect(readFileSync(join(attachmentsDir, "transcript.txt"), "utf-8")).toBe(
       "hello world",
     );
+  });
+
+  test("rebuilds when meta.json matches updatedAt but messages and attachments are missing", () => {
+    const { conversationId, conversationCreatedAt, conversationUpdatedAt } =
+      seedConversationRows();
+    const conversationDir = getConversationDirPath(
+      conversationId,
+      conversationCreatedAt,
+    );
+    const metaPath = join(conversationDir, "meta.json");
+    const messagesPath = join(conversationDir, "messages.jsonl");
+    const attachmentsDir = join(conversationDir, "attachments");
+
+    mkdirSync(conversationDir, { recursive: true });
+    writeFileSync(
+      metaPath,
+      JSON.stringify(
+        {
+          id: conversationId,
+          title: "Repair Test",
+          type: "standard",
+          channel: "desktop",
+          createdAt: new Date(conversationCreatedAt).toISOString(),
+          updatedAt: new Date(conversationUpdatedAt).toISOString(),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    expect(existsSync(metaPath)).toBe(true);
+    expect(existsSync(messagesPath)).toBe(false);
+    expect(existsSync(attachmentsDir)).toBe(false);
+
+    repairConversationDiskViewMigration.run(workspaceDir);
+
+    expect(existsSync(messagesPath)).toBe(true);
+    expect(existsSync(attachmentsDir)).toBe(true);
+    expect(readFileSync(messagesPath, "utf-8").trim().split("\n")).toHaveLength(
+      1,
+    );
+    expect(JSON.parse(readFileSync(messagesPath, "utf-8").trim())).toEqual({
+      role: "user",
+      ts: "2026-03-18T16:01:00.000Z",
+      content: "Repair missing disk view",
+      attachments: ["transcript.txt"],
+    });
+    expect(readdirSync(attachmentsDir).sort()).toEqual(["transcript.txt"]);
+    expect(readFileSync(join(attachmentsDir, "transcript.txt"), "utf-8")).toBe(
+      "hello world",
+    );
+
+    const firstRunMessages = readFileSync(messagesPath, "utf-8");
+    repairConversationDiskViewMigration.run(workspaceDir);
+    expect(readFileSync(messagesPath, "utf-8")).toBe(firstRunMessages);
+    expect(readdirSync(attachmentsDir).sort()).toEqual(["transcript.txt"]);
   });
 });

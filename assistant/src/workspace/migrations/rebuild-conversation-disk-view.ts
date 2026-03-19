@@ -1,10 +1,10 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
 import {
-  getConversationDirPath,
+  getResolvedConversationDirPath,
   initConversationDir,
   syncMessageToDisk,
   updateMetaFile,
@@ -34,15 +34,19 @@ export function rebuildConversationDiskViewFromDb(): void {
   let processed = 0;
 
   for (const conv of allConversations) {
-    // Check if already migrated (idempotent)
-    const dirPath = getConversationDirPath(conv.id, conv.createdAt);
+    const dirPath = getResolvedConversationDirPath(conv.id, conv.createdAt);
     const metaPath = join(dirPath, "meta.json");
+    const messagesPath = join(dirPath, "messages.jsonl");
+    const attachDir = join(dirPath, "attachments");
 
+    // Check if already migrated (idempotent)
     if (existsSync(metaPath)) {
       try {
         const existing = JSON.parse(readFileSync(metaPath, "utf-8"));
         const expectedUpdatedAt = new Date(conv.updatedAt).toISOString();
-        if (existing.updatedAt === expectedUpdatedAt) {
+        const hasRequiredArtifacts =
+          existsSync(messagesPath) && existsSync(attachDir);
+        if (existing.updatedAt === expectedUpdatedAt && hasRequiredArtifacts) {
           processed++;
           if (processed % 50 === 0) {
             log.info(`Backfilled ${processed}/${total} conversations to disk`);
@@ -57,16 +61,16 @@ export function rebuildConversationDiskViewFromDb(): void {
     // Create dir + meta.json (initConversationDir sets updatedAt = createdAt)
     initConversationDir(conv);
 
-    // Clear stale data from any previous interrupted run so the append-only
+    // Clear stale data from any previous interrupted run so append-only
     // syncMessageToDisk calls below don't produce duplicates.
-    const messagesPath = join(dirPath, "messages.jsonl");
     if (existsSync(messagesPath)) {
       rmSync(messagesPath, { force: true });
     }
-    const attachDir = join(dirPath, "attachments");
     if (existsSync(attachDir)) {
       rmSync(attachDir, { recursive: true, force: true });
     }
+    writeFileSync(messagesPath, "");
+    mkdirSync(attachDir, { recursive: true });
 
     // Query all messages for this conversation and sync each to disk
     const convMessages = db
