@@ -34,6 +34,8 @@ enum BottomPinUserAction: Sendable {
 /// Represents a single bounded scroll-to-bottom retry session.
 /// Sessions coalesce duplicate requests and cap total retry attempts.
 struct BottomPinSession: Sendable {
+    /// Stable identifier for tracing this session across log entries.
+    let sessionId: UUID
     /// The conversation this session targets.
     let conversationId: UUID
     /// The reason that initiated this session.
@@ -56,6 +58,11 @@ struct BottomPinSession: Sendable {
         guard !isExhausted else { return false }
         attemptCount += 1
         return true
+    }
+
+    /// Elapsed milliseconds since the session was created.
+    var elapsedMs: Int {
+        Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
     }
 
     /// Whether this session can coalesce a new request with the given reason
@@ -153,7 +160,7 @@ final class ChatBottomPinCoordinator {
         cancelActiveSession(reason: trigger)
 
         if wasFollowing {
-            log.debug("Detached from bottom (trigger: \(trigger.rawValue))")
+            log.debug("[BottomPin] detach trigger=\(trigger.rawValue) isFollowingBottom=false")
             onFollowStateChanged?(false)
         }
     }
@@ -164,7 +171,7 @@ final class ChatBottomPinCoordinator {
         isFollowingBottom = true
 
         if wasDetached {
-            log.debug("Re-attached to bottom")
+            log.debug("[BottomPin] reattach isFollowingBottom=true")
             onFollowStateChanged?(true)
         }
     }
@@ -201,13 +208,13 @@ final class ChatBottomPinCoordinator {
     ) {
         // Decision-complete suppression: detached users are not yanked to bottom.
         guard isFollowingBottom else {
-            log.debug("Pin request suppressed (detached) — reason: \(reason.rawValue)")
+            log.debug("[BottomPin] suppressed reason=\(reason.rawValue) isFollowingBottom=false")
             return
         }
 
         // Coalesce into active session if possible.
         if let session = activeSession, session.canCoalesce(reason: reason, conversationId: conversationId) {
-            log.debug("Coalescing \(reason.rawValue) into active session (attempt \(session.attemptCount)/\(BottomPinSession.maxRetries))")
+            log.debug("[BottomPin] coalesce sid=\(session.sessionId) reason=\(reason.rawValue) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
             // The existing session task continues; no new task needed.
             // Just record that a new request arrived (the retry loop will
             // pick it up on its next iteration).
@@ -219,18 +226,20 @@ final class ChatBottomPinCoordinator {
 
         // Start a new bounded session.
         let session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: conversationId,
             reason: reason,
             startTime: CFAbsoluteTimeGetCurrent()
         )
         activeSession = session
+        log.debug("[BottomPin] start sid=\(session.sessionId) reason=\(reason.rawValue) animated=\(animated) isFollowingBottom=\(self.isFollowingBottom)")
         startSessionTask(animated: animated)
     }
 
     /// Cancels the active pin session and its associated task.
     func cancelActiveSession(reason: BottomPinCancellationTrigger) {
-        guard activeSession != nil else { return }
-        log.debug("Cancelling active pin session (reason: \(reason.rawValue))")
+        guard let session = activeSession else { return }
+        log.debug("[BottomPin] cancel sid=\(session.sessionId) trigger=\(reason.rawValue) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
         sessionTask?.cancel()
         sessionTask = nil
         activeSession = nil
@@ -255,9 +264,11 @@ final class ChatBottomPinCoordinator {
         guard var session = activeSession else { return }
         session.recordAttempt()
         activeSession = session
+        log.debug("[BottomPin] immediateAttempt sid=\(session.sessionId) reason=\(session.reason.rawValue) animated=\(animated) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
         let pinned = onPinRequested?(session.reason, animated) ?? false
 
         if pinned {
+            log.debug("[BottomPin] success sid=\(session.sessionId) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs)")
             completeSession(generation: generation)
             return
         }
@@ -266,17 +277,23 @@ final class ChatBottomPinCoordinator {
         sessionTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
-                guard self.sessionGeneration == generation else { break }
+                guard self.sessionGeneration == generation else {
+                    if let s = self.activeSession {
+                        log.debug("[BottomPin] generationMismatch sid=\(s.sessionId) staleGen=\(generation) currentGen=\(self.sessionGeneration)")
+                    }
+                    break
+                }
                 guard var currentSession = self.activeSession else { break }
                 guard !currentSession.isExhausted else {
-                    log.debug("Pin session exhausted after \(currentSession.attemptCount) attempts")
+                    log.debug("[BottomPin] exhausted sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
                     break
                 }
 
                 // Check session timeout.
                 let elapsed = CFAbsoluteTimeGetCurrent() - currentSession.startTime
                 if elapsed > Self.sessionTimeout {
-                    log.debug("Pin session timed out after \(String(format: "%.0f", elapsed * 1000))ms")
+                    let elapsedMs = Int(elapsed * 1000)
+                    log.debug("[BottomPin] timeout sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
                     break
                 }
 
@@ -289,21 +306,26 @@ final class ChatBottomPinCoordinator {
 
                 // Re-check follow state after sleep — user may have scrolled up.
                 guard self.isFollowingBottom else {
-                    log.debug("Pin retry aborted — user detached during sleep")
+                    log.debug("[BottomPin] retryAborted sid=\(currentSession.sessionId) reason=detachedDuringSleep attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=false")
                     break
                 }
 
                 currentSession.recordAttempt()
                 self.activeSession = currentSession
+                log.debug("[BottomPin] retryAttempt sid=\(currentSession.sessionId) reason=\(currentSession.reason.rawValue) animated=\(animated) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
                 let succeeded = self.onPinRequested?(currentSession.reason, animated) ?? false
 
                 if succeeded {
+                    log.debug("[BottomPin] success sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs)")
                     self.completeSession(generation: generation)
                     return
                 }
             }
 
             // Clean up if we fell through without completing.
+            if let self, let s = self.activeSession, self.sessionGeneration == generation {
+                log.debug("[BottomPin] sessionEnd sid=\(s.sessionId) attempt=\(s.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(s.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+            }
             self?.completeSession(generation: generation)
         }
     }
