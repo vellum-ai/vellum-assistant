@@ -24,7 +24,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-assistant]
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -228,7 +228,7 @@ jobs:
           echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-gateway-image:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-gateway]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -306,7 +306,7 @@ jobs:
           retention-days: 1
 
   push-credential-executor-image:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -834,7 +834,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -882,7 +882,8 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          BRANCH="${GITHUB_REF_NAME}"
+          DISPLAY_VERSION="${BRANCH#release/v}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1169,7 +1170,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1218,7 +1219,8 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          BRANCH="${GITHUB_REF_NAME}"
+          DISPLAY_VERSION="${BRANCH#release/v}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1793,7 +1795,7 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -1884,7 +1886,8 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          BRANCH="${GITHUB_REF_NAME}"
+          DISPLAY_VERSION="${BRANCH#release/v}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
