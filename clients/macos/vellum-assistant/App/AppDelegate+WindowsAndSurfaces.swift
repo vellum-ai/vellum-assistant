@@ -216,6 +216,10 @@ extension AppDelegate {
     func setupSecretPromptManager() {
         daemonClient.onSecretRequest = { [weak self] msg in
             self?.secretPromptManager.showPrompt(msg)
+            // Secret/credential prompts require user input — play the needs-input sound.
+            Task { @MainActor in
+                SoundManager.shared.play(.needsInput)
+            }
         }
         secretPromptManager.onResponse = { requestId, value, delivery in
             await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
