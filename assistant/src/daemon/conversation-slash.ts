@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
+import { getFullProviderCatalog } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -43,59 +44,31 @@ export interface SlashContext {
 
 // ── /models command ──────────────────────────────────────────────────
 
-const PROVIDER_MODEL_SHORTCUTS: Record<
-  string,
-  { provider: string; model: string; displayName: string }
-> = {
-  // Anthropic
-  opus: {
-    provider: "anthropic",
-    model: "claude-opus-4-6",
-    displayName: "Claude Opus 4.6",
-  },
-  sonnet: {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
-    displayName: "Claude Sonnet 4.6",
-  },
-  haiku: {
-    provider: "anthropic",
-    model: "claude-haiku-4-5-20251001",
-    displayName: "Claude Haiku 4.5",
-  },
-  "grok-beta": {
-    provider: "openrouter",
-    model: "x-ai/grok-4.20-beta",
-    displayName: "Grok 4.20 Beta (OpenRouter)",
-  },
-  "grok-multi": {
-    provider: "openrouter",
-    model: "x-ai/grok-4.20-beta",
-    displayName: "Grok 4.20 Beta (OpenRouter)",
-  },
-};
-
 async function resolveModelList(): Promise<SlashResolution> {
   const config = getConfig();
-
-  // Build a set of providers that are usable (secure key, env var, or managed proxy).
   const configuredProviders = new Set<string>(await getConfiguredProviders());
 
   const lines = ["Available models:\n"];
 
-  for (const [cmd, { provider, model, displayName }] of Object.entries(
-    PROVIDER_MODEL_SHORTCUTS,
-  )) {
+  for (const {
+    id: provider,
+    displayName: providerName,
+    models,
+  } of getFullProviderCatalog()) {
     const hasKey = configuredProviders.has(provider);
-    const isCurrent =
-      config.services.inference.provider === provider &&
-      config.services.inference.model === model;
     const status = hasKey ? "✓" : "✗";
-    const current = isCurrent ? " **[current]**" : "";
-    lines.push(`- **${displayName}** (/${cmd}) ${status}${current}`);
+    lines.push(`**${providerName}** ${status}`);
+    for (const { id, displayName } of models) {
+      const isCurrent =
+        config.services.inference.provider === provider &&
+        config.services.inference.model === id;
+      const current = isCurrent ? " **[current]**" : "";
+      lines.push(`  - ${displayName} (\`${id}\`)${current}`);
+    }
+    lines.push("");
   }
 
-  lines.push("\n✓ = API key configured, ✗ = not configured");
+  lines.push("✓ = API key configured, ✗ = not configured");
   lines.push("\nTip: Configure a provider with `keys set <provider> <key>`");
 
   return {
