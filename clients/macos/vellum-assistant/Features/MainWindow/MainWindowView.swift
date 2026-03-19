@@ -427,7 +427,8 @@ struct MainWindowView: View {
                     .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
                 }
             }
-            Spacer()
+            WindowDragArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
@@ -468,7 +469,8 @@ struct MainWindowView: View {
                     }
                 })
             }
-            Spacer()
+            WindowDragArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if updateManager.isUpdateAvailable {
                 VButton(
                     label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
@@ -485,10 +487,6 @@ struct MainWindowView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
-            }
-            PTTKeyIndicator {
-                settingsStore.pendingSettingsTab = .voice
-                windowState.selection = .panel(.settings)
             }
             if windowState.isConversationVisible {
                 // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),

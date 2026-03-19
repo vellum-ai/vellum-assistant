@@ -3,6 +3,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { backfillSimplifiedMemoryJob } from "./job-handlers/backfill-simplified-memory.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -322,6 +323,9 @@ async function processJob(
       return;
     case "reduce_conversation_memory":
       await reduceConversationMemoryJob(job);
+      return;
+    case "backfill_simplified_memory":
+      await backfillSimplifiedMemoryJob(job);
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);

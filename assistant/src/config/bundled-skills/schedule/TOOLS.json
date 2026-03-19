@@ -52,6 +52,10 @@
             "type": "object",
             "description": "Additional routing metadata (e.g. preferred channel identifiers)"
           },
+          "quiet": {
+            "type": "boolean",
+            "description": "When true, suppress completion notifications for this schedule. The job still runs and produces output, but no notification or conversation message is sent on completion. Useful for high-frequency recurring jobs that report findings separately. Defaults to false."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -138,6 +142,10 @@
           "routing_hints": {
             "type": "object",
             "description": "Additional routing metadata (e.g. preferred channel identifiers)"
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "When true, suppress completion notifications for this schedule. Useful for high-frequency jobs that report findings separately."
           },
           "activity": {
             "type": "string",

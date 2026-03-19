@@ -300,6 +300,26 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     }
 }
 
+/// Background-readable cache for the latest sanitized diagnostics snapshot.
+///
+/// Kept outside `ChatDiagnosticsStore` so background readers do not need to
+/// access the store's `@MainActor` singleton just to read the fallback copy.
+final class LastKnownDiagnosticsCache: @unchecked Sendable {
+    static let shared = LastKnownDiagnosticsCache()
+
+    private let snapshotLock = OSAllocatedUnfairLock<LastKnownDiagnosticsSnapshot?>(initialState: nil)
+
+    private init() {}
+
+    func update(_ snapshot: LastKnownDiagnosticsSnapshot?) {
+        snapshotLock.withLock { $0 = snapshot }
+    }
+
+    func snapshot() -> LastKnownDiagnosticsSnapshot? {
+        snapshotLock.withLock { $0 }
+    }
+}
+
 // MARK: - ChatDiagnosticsStore
 
 /// Shared diagnostics store for the chat transcript.
@@ -535,29 +555,18 @@ final class ChatDiagnosticsStore {
     /// the main actor. This is the fallback data source when the main thread
     /// is wedged and `enrichWithDiagnosticsAsync()` never completes.
     ///
-    /// **Thread safety**: Written only from `@MainActor`; read atomically
-    /// via `nonisolated` accessor through the `NSLock`-guarded getter.
+    /// **Thread safety**: Written only from `@MainActor`; mirrored into
+    /// `LastKnownDiagnosticsCache` for lock-protected background reads.
     private(set) var lastKnownDiagnostics: LastKnownDiagnosticsSnapshot? {
         didSet {
-            _lastKnownLock.lock()
-            _lastKnownBackgroundCopy = lastKnownDiagnostics
-            _lastKnownLock.unlock()
+            LastKnownDiagnosticsCache.shared.update(lastKnownDiagnostics)
         }
     }
-
-    /// Lock protecting the background-readable copy.
-    private let _lastKnownLock = NSLock()
-
-    /// Background-readable copy of `lastKnownDiagnostics`, guarded by `_lastKnownLock`.
-    /// `nonisolated(unsafe)` is safe here because all access is serialized through `_lastKnownLock`.
-    private nonisolated(unsafe) var _lastKnownBackgroundCopy: LastKnownDiagnosticsSnapshot?
 
     /// Returns the last-known diagnostics snapshot from any thread.
     /// This is safe to call from the stall detector's background queue.
     nonisolated func lastKnownDiagnosticsFromBackground() -> LastKnownDiagnosticsSnapshot? {
-        _lastKnownLock.lock()
-        defer { _lastKnownLock.unlock() }
-        return _lastKnownBackgroundCopy
+        LastKnownDiagnosticsCache.shared.snapshot()
     }
 
     /// Rebuilds the last-known diagnostics snapshot from current state.

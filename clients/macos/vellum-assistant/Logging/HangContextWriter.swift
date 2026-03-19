@@ -15,6 +15,12 @@ private let log = Logger(
 /// continues. A separate `enrichWithDiagnostics` path attempts a best-effort
 /// main-actor read; if the main thread is wedged it simply won't complete.
 final class HangContextWriter: @unchecked Sendable {
+    private struct WriteState: Sendable {
+        var generation: Int = 0
+        var latestStallStartTime: Date?
+        var latestStallDurationSeconds: Double = 0
+        var latestSamplingSkipped: Bool = false
+    }
 
     /// Protocol for providing diagnostic events from a background queue.
     /// The concrete implementation reads from `ChatDiagnosticsStore` on the main actor.
@@ -44,11 +50,7 @@ final class HangContextWriter: @unchecked Sendable {
 
     // MARK: - Private
 
-    private let lock = NSLock()
-    private var writeGeneration: Int = 0
-    private var latestStallStartTime: Date?
-    private var latestStallDurationSeconds: Double = 0
-    private var latestSamplingSkipped: Bool = false
+    private let writeStateLock = OSAllocatedUnfairLock<WriteState>(initialState: WriteState())
 
     private let encoder: JSONEncoder
 
@@ -91,12 +93,12 @@ final class HangContextWriter: @unchecked Sendable {
         transcriptSnapshots: [ChatTranscriptSnapshot] = [],
         samplingSkipped: Bool = false
     ) {
-        lock.lock()
-        writeGeneration += 1
-        latestStallStartTime = stallStartTime
-        latestStallDurationSeconds = stallDurationSeconds
-        latestSamplingSkipped = samplingSkipped
-        lock.unlock()
+        writeStateLock.withLock { state in
+            state.generation += 1
+            state.latestStallStartTime = stallStartTime
+            state.latestStallDurationSeconds = stallDurationSeconds
+            state.latestSamplingSkipped = samplingSkipped
+        }
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let pid = ProcessInfo.processInfo.processIdentifier
@@ -150,9 +152,7 @@ final class HangContextWriter: @unchecked Sendable {
         stallDurationSeconds: Double
     ) {
         guard let provider = diagnosticsProvider else { return }
-        lock.lock()
-        let capturedGeneration = writeGeneration
-        lock.unlock()
+        let capturedGeneration = writeStateLock.withLock { $0.generation }
 
         Task.detached(priority: .utility) { [self] in
             let events = await provider.recentEvents()
@@ -161,12 +161,11 @@ final class HangContextWriter: @unchecked Sendable {
 
             // If a newer write occurred (e.g. Stage 2) while we were awaiting
             // diagnostics, use its values so we don't overwrite with stale data.
-            self.lock.lock()
-            let useLatest = self.writeGeneration > capturedGeneration
-            let actualStartTime = useLatest ? (self.latestStallStartTime ?? stallStartTime) : stallStartTime
-            let actualDuration = useLatest ? self.latestStallDurationSeconds : stallDurationSeconds
-            let actualSamplingSkipped = self.latestSamplingSkipped
-            self.lock.unlock()
+            let latestState = self.writeStateLock.withLock { $0 }
+            let useLatest = latestState.generation > capturedGeneration
+            let actualStartTime = useLatest ? (latestState.latestStallStartTime ?? stallStartTime) : stallStartTime
+            let actualDuration = useLatest ? latestState.latestStallDurationSeconds : stallDurationSeconds
+            let actualSamplingSkipped = latestState.latestSamplingSkipped
 
             self.writeHangContextSync(
                 stallStartTime: actualStartTime,
@@ -236,10 +235,10 @@ struct MainActorDiagnosticsProvider: HangContextWriter.DiagnosticsProvider {
     }
 }
 
-/// Production last-known diagnostics provider that reads the lock-guarded
-/// background copy from `ChatDiagnosticsStore`. Safe to call from any thread.
+/// Production last-known diagnostics provider that reads the background-safe
+/// cache mirrored by `ChatDiagnosticsStore`. Safe to call from any thread.
 struct BackgroundDiagnosticsProvider: HangContextWriter.LastKnownDiagnosticsProvider {
     func lastKnownDiagnostics() -> LastKnownDiagnosticsSnapshot? {
-        ChatDiagnosticsStore.shared.lastKnownDiagnosticsFromBackground()
+        LastKnownDiagnosticsCache.shared.snapshot()
     }
 }

@@ -5,7 +5,7 @@
  *   1. ReducerPromptInput — structured input for the provider call
  *   2. runReducer — send the transcript span to the LLM and return a typed result
  *   3. parseReducerOutput — raw string -> validated ReducerResult
- *   4. Fallback to EMPTY_REDUCER_RESULT on any invalid output
+ *   4. Fallback to EMPTY_REDUCER_RESULT on unparseable output (parse failures only)
  *
  * The reducer is intentionally side-effect-free: it never writes to the
  * database. Callers are responsible for applying the returned ReducerResult.
@@ -373,13 +373,19 @@ function validateArchiveEpisode(raw: unknown): ArchiveEpisodeCandidate | null {
 /**
  * Parse raw model output into a validated ReducerResult.
  *
- * On any structural error (non-JSON, missing top-level keys, wrong types)
- * the function returns EMPTY_REDUCER_RESULT rather than throwing. Individual
- * invalid operations within an otherwise valid structure are silently dropped
- * to preserve the rest of the result.
+ * On any structural error (non-JSON, not a JSON object) the function returns
+ * {@link EMPTY_REDUCER_RESULT} rather than throwing — callers use identity
+ * comparison (`=== EMPTY_REDUCER_RESULT`) to detect true parse failures and
+ * skip checkpoint advancement.
  *
- * However, if **all four** top-level arrays are absent or not arrays, the
- * entire output is treated as invalid and returns the empty result.
+ * A valid JSON object with no recognized top-level arrays (e.g. `{}`) is
+ * treated as a **valid-but-empty** response — the model simply had nothing
+ * to extract. In this case a normal `ReducerResult` with all empty arrays
+ * is returned so that callers advance the checkpoint and clear the dirty
+ * tail, avoiding an infinite retry loop.
+ *
+ * Individual invalid operations within an otherwise valid structure are
+ * silently dropped to preserve the rest of the result.
  */
 export function parseReducerOutput(raw: string): ReducerResult {
   let parsed: unknown;
@@ -399,22 +405,30 @@ export function parseReducerOutput(raw: string): ReducerResult {
 
   const obj = parsed as Record<string, unknown>;
 
-  // Check that at least one top-level array key exists
+  // Check which top-level array keys are present
   const hasTimeContexts = Array.isArray(obj.timeContexts);
   const hasOpenLoops = Array.isArray(obj.openLoops);
   const hasArchiveObservations = Array.isArray(obj.archiveObservations);
   const hasArchiveEpisodes = Array.isArray(obj.archiveEpisodes);
 
+  // A valid JSON object with no recognized arrays (e.g. `{}`) means the
+  // model had nothing to extract — return a normal (non-sentinel) empty
+  // result so the checkpoint advances.
   if (
     !hasTimeContexts &&
     !hasOpenLoops &&
     !hasArchiveObservations &&
     !hasArchiveEpisodes
   ) {
-    log.warn(
-      "reducer output has no recognized top-level arrays — falling back to empty result",
+    log.debug(
+      "reducer output is valid JSON with no extractions — advancing with empty result",
     );
-    return EMPTY_REDUCER_RESULT;
+    return {
+      timeContexts: [],
+      openLoops: [],
+      archiveObservations: [],
+      archiveEpisodes: [],
+    };
   }
 
   const timeContexts: TimeContextOp[] = [];

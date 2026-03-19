@@ -71,7 +71,7 @@ export const MemorySimplifiedConfigSchema = z
       .boolean({
         error: "memory.simplified.enabled must be a boolean",
       })
-      .default(false)
+      .default(true)
       .describe("Whether the simplified memory system is enabled"),
     brief: MemorySimplifiedBriefConfigSchema.default(
       MemorySimplifiedBriefConfigSchema.parse({}),

@@ -540,13 +540,23 @@ describe("Memory regressions", () => {
 
   test("memory_save sets verificationState to user_confirmed", async () => {
     const { handleMemorySave } = await import("../tools/memory/handlers.js");
+    const legacyConfig = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        simplified: {
+          ...DEFAULT_CONFIG.memory.simplified,
+          enabled: false,
+        },
+      },
+    };
 
     const result = await handleMemorySave(
       {
         statement: "User explicitly saved this preference",
         kind: "preference",
       },
-      DEFAULT_CONFIG,
+      legacyConfig,
       "conv-verify-save",
       "msg-verify-save",
     );
@@ -563,13 +573,23 @@ describe("Memory regressions", () => {
 
   test("memory_save in different scopes creates separate items", async () => {
     const { handleMemorySave } = await import("../tools/memory/handlers.js");
+    const legacyConfig = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        simplified: {
+          ...DEFAULT_CONFIG.memory.simplified,
+          enabled: false,
+        },
+      },
+    };
 
     const sharedArgs = { statement: "I prefer dark mode", kind: "preference" };
 
     // Save in the default scope
     const r1 = await handleMemorySave(
       sharedArgs,
-      DEFAULT_CONFIG,
+      legacyConfig,
       "conv-scope-1",
       "msg-scope-1",
       "default",
@@ -580,7 +600,7 @@ describe("Memory regressions", () => {
     // Save the identical statement in a private scope
     const r2 = await handleMemorySave(
       sharedArgs,
-      DEFAULT_CONFIG,
+      legacyConfig,
       "conv-scope-2",
       "msg-scope-2",
       "private-abc",
@@ -604,7 +624,7 @@ describe("Memory regressions", () => {
     // Saving the same statement again in default scope should dedup (not create a third)
     const r3 = await handleMemorySave(
       sharedArgs,
-      DEFAULT_CONFIG,
+      legacyConfig,
       "conv-scope-3",
       "msg-scope-3",
       "default",

@@ -84,9 +84,12 @@ describe("parseReducerOutput — invalid inputs", () => {
   });
 
   test("returns empty result for object with no recognized arrays", () => {
-    expect(parseReducerOutput(toRaw({ foo: "bar" }))).toBe(
-      EMPTY_REDUCER_RESULT,
-    );
+    expect(parseReducerOutput(toRaw({ foo: "bar" }))).toEqual({
+      timeContexts: [],
+      openLoops: [],
+      archiveObservations: [],
+      archiveEpisodes: [],
+    });
   });
 
   test("returns empty result when all recognized keys are not arrays", () => {
@@ -99,7 +102,12 @@ describe("parseReducerOutput — invalid inputs", () => {
           archiveEpisodes: true,
         }),
       ),
-    ).toBe(EMPTY_REDUCER_RESULT);
+    ).toEqual({
+      timeContexts: [],
+      openLoops: [],
+      archiveObservations: [],
+      archiveEpisodes: [],
+    });
   });
 });
 

@@ -309,6 +309,132 @@ struct FeedbackGallerySection: View {
                     onDismiss: {}
                 )
             }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VBusyIndicator
+            GallerySectionHeader(
+                title: "VBusyIndicator",
+                description: "Pulsing dot indicator for busy/processing state. Respects reduced motion."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Size variants
+                    HStack(spacing: VSpacing.xxl) {
+                        VStack(spacing: VSpacing.md) {
+                            Text("Small (6)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator(size: 6)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("Default (10)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator()
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("Large (16)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator(size: 16)
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Color variants
+                    HStack(spacing: VSpacing.xxl) {
+                        VStack(spacing: VSpacing.md) {
+                            Text("Accent").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator(color: VColor.primaryBase)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("Success").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator(color: VColor.systemPositiveStrong)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("Error").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBusyIndicator(color: VColor.systemNegativeStrong)
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSkeletonBone
+            GallerySectionHeader(
+                title: "VSkeletonBone",
+                description: "Skeleton placeholder for loading states. Pairs with .vShimmer() for animation."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Text line
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Text line").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkeletonBone(height: 14)
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Title
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Title").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkeletonBone(width: 200, height: 20)
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Avatar
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Avatar").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkeletonBone(width: 40, height: 40, radius: VRadius.pill)
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Paragraph
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Paragraph").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            VSkeletonBone(height: 14)
+                            VSkeletonBone(width: 280, height: 14)
+                            VSkeletonBone(width: 200, height: 14)
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSkillTypePill
+            GallerySectionHeader(
+                title: "VSkillTypePill",
+                description: "Pill badge indicating skill type or source."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VSkillTypePill(type: .core)
+                    VSkillTypePill(type: .installed)
+                    VSkillTypePill(type: .created)
+                    VSkillTypePill(type: .extra)
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VInfoTooltip
+            GallerySectionHeader(
+                title: "VInfoTooltip",
+                description: "Small info-circle icon with hover tooltip for supplementary information."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Some setting")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                    VInfoTooltip("Explanation of this setting.")
+                }
+            }
         }
     }
 }

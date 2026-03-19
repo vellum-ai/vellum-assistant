@@ -153,9 +153,9 @@ DesignSystem/
 │   └── Navigation/      (VTab)
 ├── Components/          (composed patterns — combine multiple Core elements)
 │   ├── Navigation/      (VTabBar, VSegmentedControl)
-│   ├── Layout/          (VAdaptiveStack, VSidePanel, VSplitView, VToolbar)
+│   ├── Layout/          (VAdaptiveStack, VSidePanel, VSplitView)
 │   └── Display/         (VCard, VEmptyState)
-├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())
+├── Modifiers/           (.vCard(), .vPanelBackground(), .vTooltip())
 └── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
 ```
 

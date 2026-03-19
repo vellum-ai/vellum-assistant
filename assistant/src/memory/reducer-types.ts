@@ -86,8 +86,15 @@ export interface ReducerResult {
 }
 
 /**
- * An empty result used as fallback when the reducer output is invalid or
- * unparseable. Guarantees no side-effects on the DB.
+ * Sentinel empty result returned when the reducer output is **unparseable**
+ * (not valid JSON, not a JSON object, provider failure, etc.).
+ *
+ * Callers use identity comparison (`=== EMPTY_REDUCER_RESULT`) to detect
+ * true parse failures and skip checkpoint advancement so the job can retry.
+ *
+ * A valid-but-empty model response (e.g. `{}`) returns a normal
+ * `ReducerResult` with all empty arrays — NOT this sentinel — so the
+ * checkpoint advances and the dirty tail is cleared.
  */
 export const EMPTY_REDUCER_RESULT: Readonly<ReducerResult> = Object.freeze({
   timeContexts: Object.freeze([]) as unknown as TimeContextOp[],

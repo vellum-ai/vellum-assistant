@@ -28,8 +28,13 @@ class FileWriteTool implements Tool {
             type: "string",
             description: "The content to write to the file",
           },
+          activity: {
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update.",
+          },
         },
-        required: ["path", "content"],
+        required: ["path", "content", "activity"],
       },
     };
   }

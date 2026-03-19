@@ -111,6 +111,7 @@ import {
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
+  migrateScheduleQuietFlag,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -495,6 +496,9 @@ export function initializeDb(): void {
 
   // 87. Add memory reducer checkpoint columns to conversations
   migrateMemoryReducerCheckpoints(database);
+
+  // 88. Add quiet flag to schedule jobs
+  migrateScheduleQuietFlag(database);
 
   validateMigrationState(database);
 

@@ -77,7 +77,6 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
-    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
 
@@ -371,14 +370,10 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between a ghost button and a filled (primary/contrast) button — uses the standard
-    /// small spacing token for consistent spacing across the composer action bar.
-    private let composerFilledGap: CGFloat = VSpacing.sm
-
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
     private var composerActionBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: VSpacing.xs) {
             // Left side
             if isSending && !hasPendingConfirmation {
                 Spacer()
@@ -391,6 +386,7 @@ struct ComposerView: View {
                     action: { onAttach() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Attach file")
 
                 Spacer()
             }
@@ -404,17 +400,19 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
-            } else if canSend {
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    onSend()
-                }
             } else if inputText.isEmpty && !hasPendingConfirmation {
+                // Live voice button
+                VButton(
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onVoiceModeToggle?() }
+                )
+                .disabled(!hasAPIKey)
+                .vTooltip("Live voice conversation")
+
+                // Dictate button
                 VButton(
                     label: "Dictate",
                     iconOnly: VIcon.mic.rawValue,
@@ -423,33 +421,74 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip(micTooltipText)
 
-                Spacer().frame(width: composerFilledGap)
+                // Send button (always visible, disabled when empty)
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
+                }
+                .vTooltip("Type a message to send")
+            } else if !hasPendingConfirmation {
+                // Mic button (visible with or without text)
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .disabled(!hasAPIKey)
+                .vTooltip(micTooltipText)
+
+                // Send button
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
+                }
+                .vTooltip(canSend ? "Send" : "Type a message to send")
+            } else {
+                // Pending confirmation — show same buttons as empty-input state
                 VButton(
                     label: "Voice mode",
                     iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .contrast,
+                    style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { onVoiceModeToggle?() }
                 )
                 .disabled(!hasAPIKey)
-                .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                    Text("Live voice conversation (not dictation)")
-                        .font(VFont.caption)
-                        .padding(VSpacing.sm)
-                }
-                .onHover { hovering in
-                    showVoiceModeHover = hovering
-                }
-            } else {
+
                 VButton(
-                    label: isRecording ? "Stop recording" : "Start voice input",
+                    label: isRecording ? "Stop recording" : "Dictate",
                     iconOnly: VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
-                    action: { onMicrophoneToggle() }
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
+                }
             }
         }
     }
@@ -584,6 +623,15 @@ VStreamingWaveform(
         }
     }
 
+    /// Tooltip text for the mic button. Includes the PTT hold hint only when PTT is enabled.
+    private var micTooltipText: String {
+        let activator = PTTActivator.fromStored()
+        if activator.kind == .none {
+            return "Click to dictate"
+        }
+        return "Click to dictate or hold \(activator.displayName)"
+    }
+
     var canSend: Bool {
         // Block send while an attachment is still loading: the user tapping Send
         // before the async load completes would drop the attachment from the message.
@@ -593,3 +641,4 @@ VStreamingWaveform(
     }
 
 }
+

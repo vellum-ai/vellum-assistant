@@ -47,13 +47,18 @@ import {
   conversations,
   conversationStarters,
   llmRequestLogs,
+  memoryChunks,
   memoryEmbeddings,
+  memoryEpisodes,
   memoryItems,
   memoryItemSources,
+  memoryObservations,
   memorySegments,
   memorySummaries,
   messageAttachments,
   messages,
+  openLoops,
+  timeContexts,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -550,6 +555,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     segmentIds: [],
     orphanedItemIds: [],
     deletedSummaryIds: [],
+    deletedObservationIds: [],
+    deletedChunkIds: [],
+    deletedEpisodeIds: [],
   };
 
   // Capture createdAt before the transaction deletes the row — needed to
@@ -703,6 +711,75 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(conversationStarters)
         .where(eq(conversationStarters.scopeId, memoryScopeId))
         .run();
+
+      // Sweep brief-state tables scoped to this private conversation.
+      tx.delete(timeContexts)
+        .where(eq(timeContexts.scopeId, memoryScopeId))
+        .run();
+      tx.delete(openLoops).where(eq(openLoops.scopeId, memoryScopeId)).run();
+    }
+
+    // Collect archive table IDs before the cascade delete removes them.
+    // Observations and episodes reference conversations with ON DELETE CASCADE,
+    // and chunks cascade from observations.
+    const observationRows = tx
+      .select({ id: memoryObservations.id })
+      .from(memoryObservations)
+      .where(eq(memoryObservations.conversationId, id))
+      .all();
+    const observationIds = observationRows.map((r) => r.id);
+
+    if (observationIds.length > 0) {
+      // Collect chunk IDs before observations cascade-delete them.
+      const chunkRows = tx
+        .select({ id: memoryChunks.id })
+        .from(memoryChunks)
+        .where(inArray(memoryChunks.observationId, observationIds))
+        .all();
+      const chunkIds = chunkRows.map((r) => r.id);
+
+      // Clean up embeddings for chunks.
+      if (chunkIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "chunk"),
+              inArray(memoryEmbeddings.targetId, chunkIds),
+            ),
+          )
+          .run();
+        result.deletedChunkIds.push(...chunkIds);
+      }
+
+      // Clean up embeddings for observations.
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "observation"),
+            inArray(memoryEmbeddings.targetId, observationIds),
+          ),
+        )
+        .run();
+      result.deletedObservationIds.push(...observationIds);
+    }
+
+    const episodeRows = tx
+      .select({ id: memoryEpisodes.id })
+      .from(memoryEpisodes)
+      .where(eq(memoryEpisodes.conversationId, id))
+      .all();
+    const episodeIds = episodeRows.map((r) => r.id);
+
+    if (episodeIds.length > 0) {
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "episode"),
+            inArray(memoryEmbeddings.targetId, episodeIds),
+          ),
+        )
+        .run();
+      result.deletedEpisodeIds.push(...episodeIds);
     }
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
@@ -928,6 +1005,9 @@ export function purgePrivateConversations(): {
         segmentIds: [],
         orphanedItemIds: [],
         deletedSummaryIds: [],
+        deletedObservationIds: [],
+        deletedChunkIds: [],
+        deletedEpisodeIds: [],
       },
     };
   }
@@ -935,12 +1015,18 @@ export function purgePrivateConversations(): {
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
   const allDeletedSummaryIds: string[] = [];
+  const allDeletedObservationIds: string[] = [];
+  const allDeletedChunkIds: string[] = [];
+  const allDeletedEpisodeIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
     allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
+    allDeletedObservationIds.push(...deleted.deletedObservationIds);
+    allDeletedChunkIds.push(...deleted.deletedChunkIds);
+    allDeletedEpisodeIds.push(...deleted.deletedEpisodeIds);
   }
 
   return {
@@ -949,6 +1035,9 @@ export function purgePrivateConversations(): {
       segmentIds: allSegmentIds,
       orphanedItemIds: allOrphanedItemIds,
       deletedSummaryIds: allDeletedSummaryIds,
+      deletedObservationIds: allDeletedObservationIds,
+      deletedChunkIds: allDeletedChunkIds,
+      deletedEpisodeIds: allDeletedEpisodeIds,
     },
   };
 }
@@ -1333,6 +1422,9 @@ export interface DeletedMemoryIds {
   segmentIds: string[];
   orphanedItemIds: string[];
   deletedSummaryIds: string[];
+  deletedObservationIds: string[];
+  deletedChunkIds: string[];
+  deletedEpisodeIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
@@ -1406,6 +1498,9 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     segmentIds: [],
     orphanedItemIds: [],
     deletedSummaryIds: [],
+    deletedObservationIds: [],
+    deletedChunkIds: [],
+    deletedEpisodeIds: [],
   };
 
   // Collect attachment IDs linked to this message before cascade-delete
