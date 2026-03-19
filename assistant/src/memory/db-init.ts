@@ -85,6 +85,7 @@ import {
   migrateMemoryArchiveTables,
   migrateMemoryBriefState,
   migrateMemoryItemSupersession,
+  migrateMemoryReducerCheckpoints,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
@@ -491,6 +492,9 @@ export function initializeDb(): void {
 
   // 86. Memory archive tables (observations, chunks, episodes) for simplified memory v1
   migrateMemoryArchiveTables(database);
+
+  // 87. Add memory reducer checkpoint columns to conversations
+  migrateMemoryReducerCheckpoints(database);
 
   validateMigrationState(database);
 

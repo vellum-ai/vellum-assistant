@@ -128,6 +128,7 @@ export { migrateConversationForkLineage } from "./183-add-conversation-fork-line
 export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
 export { migrateMemoryBriefState } from "./185-memory-brief-state.js";
 export { migrateMemoryArchiveTables } from "./186-memory-archive.js";
+export { migrateMemoryReducerCheckpoints } from "./187-memory-reducer-checkpoints.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

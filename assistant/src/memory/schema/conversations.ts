@@ -30,6 +30,9 @@ export const conversations = sqliteTable(
     forkParentMessageId: text("fork_parent_message_id"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
+    memoryReducedThroughMessageId: text("memory_reduced_through_message_id"),
+    memoryDirtyTailSinceMessageId: text("memory_dirty_tail_since_message_id"),
+    memoryLastReducedAt: integer("memory_last_reduced_at"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
