@@ -84,6 +84,7 @@ final class OnboardingState {
     var sshPrivateKey: String = ""
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
+    var selectedProvider: String = "anthropic"
     var isHatching: Bool = false
     var isManagedHatch: Bool = false
     var hasExistingManagedAssistant: Bool = false
@@ -161,6 +162,8 @@ final class OnboardingState {
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")
+
+        selectedProvider = "anthropic"
 
         // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"
