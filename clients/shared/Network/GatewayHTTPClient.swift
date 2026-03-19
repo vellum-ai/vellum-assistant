@@ -226,6 +226,52 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
+    /// Performs an authenticated streaming POST request with automatic 401 retry
+    /// for non-managed (bearer token) connections.
+    ///
+    /// On a 401 response, drains the response stream, attempts to refresh
+    /// credentials via `ActorCredentialRefresher`, and retries the request once
+    /// with fresh auth headers.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Pre-serialized request body data.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
+    /// - Throws: `ClientError` if the request cannot be constructed,
+    ///   `URLError(.userAuthenticationRequired)` if credential refresh fails,
+    ///   or network errors from `URLSession`.
+    public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = body
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 401,
+              !connection.isManaged else {
+            return (bytes, response)
+        }
+
+        // Drain the 401 response body before attempting credential refresh.
+        for try await _ in bytes {}
+
+        guard await refreshBearerCredentials(connection: connection) else {
+            throw URLError(.userAuthenticationRequired, userInfo: [
+                NSLocalizedDescriptionKey: "Authentication failed — please try again."
+            ])
+        }
+
+        // Rebuild with fresh credentials from the Keychain.
+        let freshConnection = try resolveConnection()
+        var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
+        retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        retryRequest.httpBody = body
+        return try await URLSession.shared.bytes(for: retryRequest)
+    }
+
     // MARK: - Internals
 
     #if os(macOS)

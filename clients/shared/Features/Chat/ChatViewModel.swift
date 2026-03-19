@@ -364,6 +364,7 @@ public final class ChatViewModel: ObservableObject {
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
+    private let btwClient: any BtwClientProtocol = BtwClient()
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     /// Tracks the action submitted for each guardian decision requestId so the
@@ -1350,7 +1351,7 @@ public final class ChatViewModel: ObservableObject {
         btwTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let stream = BtwClient().sendMessage(
+                let stream = self.btwClient.sendMessage(
                     content: question,
                     conversationKey: self.conversationId ?? ""
                 )
@@ -1392,7 +1393,7 @@ public final class ChatViewModel: ObservableObject {
             let key = "greeting"
             var result = ""
             do {
-                let stream = BtwClient().sendMessage(
+                let stream = self.btwClient.sendMessage(
                     content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
                     conversationKey: key
                 )

@@ -41,7 +41,7 @@ public struct BtwClient: BtwClientProtocol {
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, response) = try await GatewayHTTPClient.streamPost(
+        let (bytes, response) = try await GatewayHTTPClient.streamPostWithRetry(
             path: "assistants/{assistantId}/btw",
             body: bodyData,
             timeout: 120

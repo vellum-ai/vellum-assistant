@@ -5,6 +5,7 @@ struct IdentityPanel: View {
     let onClose: () -> Void
     let daemonClient: DaemonClient
     var identityClient: IdentityClientProtocol = IdentityClient()
+    private let btwClient: any BtwClientProtocol = BtwClient()
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
@@ -196,7 +197,7 @@ struct IdentityPanel: View {
             let prompt = "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
             var result = ""
             do {
-                let stream = BtwClient().sendMessage(
+                let stream = btwClient.sendMessage(
                     content: prompt,
                     conversationKey: key
                 )
