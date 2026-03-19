@@ -239,13 +239,13 @@ describe("tool preview lifecycle", () => {
       expect(activity.statusText).toMatch(/^Preparing/);
     });
 
-    test("handleInputJsonDelta includes toolUseId", () => {
+    test("handleInputJsonDelta includes toolUseId for app tools", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({ onEvent: collector.onEvent });
 
       handleInputJsonDelta(state, deps, {
         type: "input_json_delta",
-        toolName: "bash",
+        toolName: "app_create",
         toolUseId: "toolu_delta456",
         accumulatedJson: '{"command": "ls"}',
       });
@@ -254,7 +254,7 @@ describe("tool preview lifecycle", () => {
       const emitted = collector.events[0];
       expect(emitted.type).toBe("tool_input_delta");
       expect((emitted as any).toolUseId).toBe("toolu_delta456");
-      expect((emitted as any).toolName).toBe("bash");
+      expect((emitted as any).toolName).toBe("app_create");
       expect((emitted as any).content).toBe('{"command": "ls"}');
       expect((emitted as any).conversationId).toBe("test-session-id");
     });
@@ -306,7 +306,8 @@ describe("tool preview lifecycle", () => {
       });
 
       const toolUseId = "toolu_ordering_test";
-      const toolName = "file_read";
+      // Use an app tool so input_json_delta is forwarded to the client
+      const toolName = "app_create";
 
       // Step 1: tool_use_preview_start (emitted by provider on content_block_start)
       handleToolUsePreviewStart(state, deps, {
@@ -345,6 +346,30 @@ describe("tool preview lifecycle", () => {
       }
     });
 
+    test("non-app tool input_json_delta events are not forwarded to client", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({
+        onEvent: collector.onEvent,
+        ctx: {
+          ...createMockDeps().ctx,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+
+      const toolUseId = "toolu_non_app_delta";
+      const toolName = "file_read";
+
+      handleInputJsonDelta(state, deps, {
+        type: "input_json_delta",
+        toolName,
+        toolUseId,
+        accumulatedJson: '{"path": "/test"}',
+      });
+
+      // Non-app tools should not emit tool_input_delta to the client
+      expect(collector.events).toEqual([]);
+    });
+
     test("full lifecycle: preview_start → input_delta → tool_use → tool_result", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
@@ -356,7 +381,8 @@ describe("tool preview lifecycle", () => {
       });
 
       const toolUseId = "toolu_full_lifecycle";
-      const toolName = "bash";
+      // Use an app tool so input_json_delta is forwarded to the client
+      const toolName = "app_update";
 
       // 1. Preview start
       handleToolUsePreviewStart(state, deps, {

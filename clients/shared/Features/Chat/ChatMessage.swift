@@ -797,6 +797,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// rehydration (empty -> populated) without expensive full-string comparison.
     public var inputRawValueLength: Int = 0
     public var result: String?
+    /// Lightweight sentinel tracking `result?.count` so that `==` can detect
+    /// rehydration without expensive full-string comparison on multi-MB results.
+    public var resultLength: Int = 0
     public var isError: Bool
     public var isComplete: Bool
     /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
@@ -845,7 +848,7 @@ public struct ToolCallData: Identifiable, Equatable {
         lhs.id == rhs.id
             && lhs.toolName == rhs.toolName
             && lhs.inputSummary == rhs.inputSummary
-            && lhs.result == rhs.result
+            && lhs.resultLength == rhs.resultLength
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
@@ -877,6 +880,7 @@ public struct ToolCallData: Identifiable, Equatable {
         self.inputRawValue = rawValue
         self.inputRawValueLength = rawValue.count
         self.result = result
+        self.resultLength = result?.count ?? 0
         self.isError = isError
         self.isComplete = isComplete
         self.arrivedBeforeText = arrivedBeforeText
@@ -1728,6 +1732,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].cachedImage = nil
             toolCalls[i].imageData = nil
             toolCalls[i].result = nil
+            toolCalls[i].resultLength = 0
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil

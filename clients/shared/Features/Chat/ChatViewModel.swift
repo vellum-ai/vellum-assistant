@@ -799,6 +799,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let result = fullTC.result {
                     messages[idx].toolCalls[tcIdx].result = result
+                    messages[idx].toolCalls[tcIdx].resultLength = result.count
                 }
                 if let input = fullTC.input {
                     let formatted = ToolCallData.formatAllToolInput(input)

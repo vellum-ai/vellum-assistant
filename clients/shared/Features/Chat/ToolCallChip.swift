@@ -18,7 +18,7 @@ public struct ToolCallChip: View {
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
 
-/// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
+    /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
         // Match <command_exit code="N" /> where N is an integer
         guard let codeRange = result.range(of: #"<command_exit code="(\d+)" />"#, options: .regularExpression) else {
@@ -206,12 +206,14 @@ public struct ToolCallChip: View {
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
-                                Text(result)
-                                .font(VFont.monoSmall)
-                                .foregroundColor(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                                ScrollView {
+                                    Text(result)
+                                        .font(VFont.monoSmall)
+                                        .foregroundColor(VColor.contentSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                }
+                                .frame(maxHeight: 200)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
@@ -229,6 +231,8 @@ public struct ToolCallChip: View {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
                     }
+                    // Trigger on-demand rehydration when expanding truncated content.
+                    onRehydrate?()
                 }
             }
         }
