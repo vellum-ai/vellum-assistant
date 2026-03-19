@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -21,10 +22,13 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
-  isProviderShortcut,
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
+import {
+  getCannedFirstGreeting,
+  isWakeUpGreeting,
+} from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
@@ -34,6 +38,7 @@ import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  listCanonicalGuardianRequests,
   listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
@@ -106,17 +111,28 @@ function collectCanonicalGuardianRequestHintIds(
  * confirmation directly without syncing canonical status). This sweep
  * catches those stragglers so they don't get falsely matched by the
  * guardian reply router on subsequent messages.
+ *
+ * Only expires requests *sourced from* (not merely delivered to) this
+ * conversation. Delivered requests may still have live pending interactions
+ * in their source conversation. Additionally skips requests that still
+ * have a live in-memory pending interaction.
+ *
+ * Uses `listCanonicalGuardianRequests` (not `listPendingRequestsByConversationScope`)
+ * so that time-expired requests (past their `expiresAt`) are also caught
+ * instead of being silently filtered out.
  */
-function expireOrphanedCanonicalRequests(
-  conversationId: string,
-  sourceChannel: string,
-): void {
-  const orphaned = listPendingRequestsByConversationScope(
+function expireOrphanedCanonicalRequests(conversationId: string): void {
+  const sourceScoped = listCanonicalGuardianRequests({
     conversationId,
-    sourceChannel,
-  ).filter((r) => r.kind === "tool_approval");
+    status: "pending",
+    kind: "tool_approval",
+  });
 
-  for (const req of orphaned) {
+  for (const req of sourceScoped) {
+    // Skip requests that still have a live in-memory pending interaction —
+    // they are not orphaned.
+    if (pendingInteractions.get(req.id)) continue;
+
     resolveCanonicalGuardianRequest(req.id, "pending", {
       status: "expired",
     });
@@ -133,6 +149,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
   conversation: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
@@ -213,19 +230,33 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
+    const guardianImageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
     const channelMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
       provenanceTrustClass: "guardian" as const,
+      ...(Object.keys(guardianImageSourcePaths).length > 0
+        ? { imageSourcePaths: guardianImageSourcePaths }
+        : {}),
     };
 
-    const userMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = createUserMessage(content, attachments);
+    const llmUserMessage = enrichMessageWithSourcePaths(
+      cleanUserMessage,
+      attachments,
+    );
     const persistedUser = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(userMessage.content),
+      JSON.stringify(cleanUserMessage.content),
       channelMeta,
     );
     messageId = persistedUser.id;
@@ -245,7 +276,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!conversation.isProcessing()) {
-      conversation.getMessages().push(userMessage, assistantMessage);
+      conversation.getMessages().push(llmUserMessage, assistantMessage);
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
@@ -357,15 +388,11 @@ export function handleListMessages(
       // generate thumbnails for inline display on history restore.
       const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
       if (linked.length > 0) {
-        // Batch-fetch file-backed status for all attachments in one query
-        // instead of issuing a separate query per attachment.
-        const fileBackedIds = attachmentsStore.getFileBackedAttachmentIds(
-          linked.map((a) => a.id),
-        );
         msgAttachments = linked.map((a) => {
-          const isFileBacked = fileBackedIds.has(a.id);
           if (a.mimeType.startsWith("image/")) {
-            const full = attachmentsStore.getAttachmentById(a.id);
+            const full = attachmentsStore.getAttachmentById(a.id, {
+              hydrateFileData: true,
+            });
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -376,7 +403,7 @@ export function handleListMessages(
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
-              ...(isFileBacked ? { fileBacked: true } : {}),
+              fileBacked: true,
             };
           }
           return {
@@ -386,7 +413,7 @@ export function handleListMessages(
             sizeBytes: a.sizeBytes,
             kind: a.kind,
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-            ...(isFileBacked ? { fileBacked: true } : {}),
+            fileBacked: true,
           };
         });
       }
@@ -778,6 +805,92 @@ export async function handleSendMessage(
     skipProxySenderUpdate: preservingProxies,
   });
 
+  // ── Canned first-greeting fast path ──
+  // On a completely fresh workspace, skip LLM inference for the macOS
+  // wake-up greeting and return a pre-written response. This eliminates
+  // 10-30s of inference latency on first boot.
+  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+    const cannedGreeting = getCannedFirstGreeting();
+    if (cannedGreeting) {
+      conversation.processing = true;
+      let cleanupDeferred = false;
+      try {
+        const provenance = provenanceFromTrustContext(
+          conversation.trustContext,
+        );
+        const channelMeta = {
+          ...provenance,
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+        };
+
+        const rawContent = content ?? "";
+        const attachments = hasAttachments
+          ? smDeps.resolveAttachments(attachmentIds)
+          : [];
+        const userMsg = createUserMessage(rawContent, attachments);
+        const persisted = await addMessage(
+          mapping.conversationId,
+          "user",
+          JSON.stringify(userMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(userMsg);
+
+        setConversationOriginChannelIfUnset(
+          mapping.conversationId,
+          sourceChannel,
+        );
+        setConversationOriginInterfaceIfUnset(
+          mapping.conversationId,
+          sourceInterface,
+        );
+
+        const assistantMsg = createAssistantMessage(cannedGreeting);
+        await addMessage(
+          mapping.conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(assistantMsg);
+
+        const conversationId = mapping.conversationId;
+        const response = Response.json(
+          { accepted: true, messageId: persisted.id, conversationId },
+          { status: 202 },
+        );
+
+        // Defer event publishing to next tick (same pattern as unknown-slash
+        // fast path) so the HTTP response reaches the client before SSE
+        // events arrive.
+        setTimeout(() => {
+          onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+          onEvent({ type: "message_complete", conversationId });
+          conversation.processing = false;
+          silentlyWithLog(
+            conversation.drainQueue(),
+            "canned-greeting queue drain",
+          );
+        }, 0);
+
+        log.info(
+          { conversationId },
+          "Served canned first greeting — skipped LLM inference",
+        );
+        cleanupDeferred = true;
+        return response;
+      } finally {
+        if (!cleanupDeferred && conversation.processing) {
+          conversation.processing = false;
+          silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        }
+      }
+    }
+  }
+
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
     : [];
@@ -888,7 +1001,7 @@ export async function handleSendMessage(
 
     // Expire any orphaned canonical requests that survived without a
     // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+    expireOrphanedCanonicalRequests(mapping.conversationId);
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },
@@ -928,7 +1041,7 @@ export async function handleSendMessage(
 
   // Expire any orphaned canonical requests that survived without a
   // matching in-memory pending interaction (e.g. prompter timeouts).
-  expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+  expireOrphanedCanonicalRequests(mapping.conversationId);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({
@@ -953,6 +1066,7 @@ export async function handleSendMessage(
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
+    userMessageInterface: sourceInterface,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);
 
@@ -961,6 +1075,13 @@ export async function handleSendMessage(
     let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const imageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const channelMeta = {
         ...provenance,
         userMessageChannel: sourceChannel,
@@ -968,15 +1089,19 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(rawContent, attachments);
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
@@ -998,10 +1123,9 @@ export async function handleSendMessage(
 
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
-      const modelInfoEvent =
-        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
-          ? await buildModelInfoEvent()
-          : null;
+      const modelInfoEvent = isModelSlashCommand(rawContent)
+        ? await buildModelInfoEvent()
+        : null;
 
       const response = Response.json(
         {
@@ -1085,6 +1209,7 @@ async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
 ): Promise<string | null> {
+  const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
@@ -1093,18 +1218,41 @@ async function generateLlmSuggestion(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     undefined, // no system prompt
-    { config: { max_tokens: 30 } },
+    { config: { max_tokens: 40, modelIntent: "latency-optimized" } },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
+  const stripped = raw.replace(/^["']+|["']+$/g, "");
 
-  if (!raw) return null;
+  if (!stripped) {
+    log.debug("Suggestion rejected: empty LLM response");
+    return null;
+  }
 
   // Take first line only, then enforce the length cap
-  const firstLine = raw.split("\n")[0].trim();
-  if (!firstLine || firstLine.length > 50) return null;
-  return firstLine;
+  const firstLine = stripped.split("\n")[0].trim();
+  if (!firstLine) {
+    log.debug(
+      { rawLength: stripped.length },
+      "Suggestion rejected: empty after first-line extraction",
+    );
+    return null;
+  }
+  if (firstLine.length <= 50) return firstLine;
+  // Truncate at last word boundary within 50 chars
+  const wordTruncated = firstLine
+    .slice(0, 50)
+    .replace(/\s+\S*$/, "")
+    .trim();
+  if (wordTruncated.length < 15) {
+    log.debug(
+      { rawLength: firstLine.length, truncatedLength: wordTruncated.length },
+      "Suggestion rejected: too short after word-boundary truncation",
+    );
+    return null;
+  }
+  return wordTruncated;
 }
 
 export async function handleGetSuggestion(
@@ -1231,8 +1379,16 @@ export async function handleGetSuggestion(
         }
       } catch (err) {
         suggestionInFlight.delete(msg.id);
-        log.warn({ err }, "LLM suggestion failed");
+        log.warn(
+          { err, conversationKey, messageId: msg.id },
+          "LLM suggestion failed",
+        );
       }
+    } else {
+      log.debug(
+        { conversationKey, messageId: msg.id },
+        "Suggestion skipped: no provider available",
+      );
     }
 
     return Response.json({

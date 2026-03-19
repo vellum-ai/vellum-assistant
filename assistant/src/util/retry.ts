@@ -108,9 +108,7 @@ export function isRetryableNetworkError(error: unknown): boolean {
 
   // Fall back to message-based detection for errors without errno codes
   // (e.g. Bun's "The socket connection was closed unexpectedly")
-  if (
-    RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))
-  ) {
+  if (RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))) {
     return true;
   }
 

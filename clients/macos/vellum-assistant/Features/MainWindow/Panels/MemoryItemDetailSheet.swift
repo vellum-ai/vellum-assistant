@@ -32,38 +32,69 @@ struct MemoryItemDetailSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().background(VColor.borderBase)
+        VModal(title: displayItem.subject) {
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
+                if isEditing {
+                    editModeContent
+                } else {
+                    viewModeContent
+                }
+            }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    if isEditing {
-                        editModeContent
-                    } else {
-                        viewModeContent
+        } footer: {
+            VStack(spacing: VSpacing.sm) {
+                if let errorMessage {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.circleAlert, size: 11)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                        Text(errorMessage)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemNegativeStrong)
                     }
                 }
-                .padding(VSpacing.xl)
-            }
-
-            if let errorMessage {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleAlert, size: 11)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                    Text(errorMessage)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                HStack {
+                    if isEditing {
+                        Spacer()
+                        VButton(label: "Cancel", style: .outlined) {
+                            isEditing = false
+                            errorMessage = nil
+                            editSubject = item.subject
+                            editStatement = item.statement
+                            editKind = item.kind
+                            editStatus = item.status
+                            editImportance = item.importance ?? 0.5
+                        }
+                        VButton(
+                            label: isSaving ? "Saving..." : "Save",
+                            style: .primary,
+                            isDisabled: !isEditFormValid || isSaving
+                        ) {
+                            save()
+                        }
+                    } else {
+                        VButton(
+                            label: "Delete",
+                            leftIcon: VIcon.trash.rawValue,
+                            style: .dangerOutline
+                        ) {
+                            showDeleteConfirm = true
+                        }
+                        Spacer()
+                        VButton(label: "Close", style: .outlined) {
+                            onDismiss()
+                        }
+                        VButton(
+                            label: "Edit",
+                            leftIcon: VIcon.pencil.rawValue,
+                            style: .primary
+                        ) {
+                            isEditing = true
+                        }
+                    }
                 }
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.sm)
             }
-
-            footer
         }
         .frame(width: 480, height: 520)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .alert("Delete this memory?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {

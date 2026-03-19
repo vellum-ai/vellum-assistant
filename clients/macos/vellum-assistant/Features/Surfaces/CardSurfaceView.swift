@@ -47,18 +47,3 @@ struct CardSurfaceView: View {
         .textSelection(.enabled)
     }
 }
-
-#Preview {
-    CardSurfaceView(data: CardSurfaceData(
-        title: "Task Complete",
-        subtitle: "Finished in 3 steps",
-        body: "Successfully filled in the **name field** and submitted the form.",
-        metadata: [
-            (label: "Duration", value: "12s"),
-            (label: "Steps", value: "3"),
-        ],
-        template: nil,
-        templateData: nil
-    ))
-    .padding()
-}

@@ -209,6 +209,7 @@ final class ConversationRestorer {
                 delegate.conversations[existingIdx].isPinned = isPinned
                 delegate.conversations[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
                 delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                delegate.conversations[existingIdx].forkParent = session.forkParent
                 delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
@@ -244,7 +245,8 @@ final class ConversationRestorer {
                 },
                 lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
                     Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
+                },
+                forkParent: session.forkParent
             )
             if isPinned && session.displayOrder == nil { pinnedCount += 1 }
             // VM creation is lazy — only the active conversation will get a VM via

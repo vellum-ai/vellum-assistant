@@ -52,32 +52,3 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     }
 }
 
-
-#if DEBUG
-
-private struct VSidePanelPinnedPreviewWrapper: View {
-    @State private var tab = 1
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VSidePanel(title: "Control", onClose: {}, pinnedContent: {
-                VSegmentedControl(
-                    items: ["Profile", "Settings", "Channels", "Overview"],
-                    selection: $tab
-                )
-                Divider().background(VColor.borderBase)
-            }) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Tab content here")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                    Text("The tab bar above stays pinned while this scrolls.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-            }
-        }
-    }
-}
-#endif

@@ -12,6 +12,9 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    var onForkFromMessage: ((String) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
@@ -58,8 +61,14 @@ struct ChatBubble: View {
     private var hasCopyableText: Bool {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    private var canInspectMessage: Bool {
+        showInspectButton && !isUser && message.daemonMessageId != nil
+    }
+    var canForkFromMessage: Bool {
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+    }
     private var hasOverflowActions: Bool {
-        hasCopyableText || canReportMessage
+        hasCopyableText || canReportMessage || canInspectMessage || canForkFromMessage
     }
     private var showOverflowMenu: Bool {
         hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
@@ -147,7 +156,8 @@ struct ChatBubble: View {
 
     /// Whether the text/attachment bubble should be rendered.
     /// Tool calls for assistant messages render outside the bubble as separate chips,
-    /// so only show the bubble when there's actual text or attachment content.
+    /// so only show the bubble when there's actual text, attachment content, or
+    /// attachment warnings to show.
     ///
     /// NOTE: When inline surfaces are present, the bubble is intentionally hidden
     /// even if the message also contains text. This is by design — the assistant's
@@ -162,7 +172,7 @@ struct ChatBubble: View {
             let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
-        return hasText || !message.attachments.isEmpty
+        return hasText || !message.attachments.isEmpty || !message.attachmentWarnings.isEmpty
     }
 
     var body: some View {
@@ -198,6 +208,10 @@ struct ChatBubble: View {
                         if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
                             documentWidget(for: documentToolCall)
                         }
+                    }
+
+                    if !hasInterleavedContent {
+                        attachmentWarningBanners(message.attachmentWarnings)
                     }
 
                     // Media embeds rendered below the text, preserving source order
@@ -326,6 +340,37 @@ struct ChatBubble: View {
                 .pointerCursor()
                 .accessibilityLabel("Report message")
             }
+            if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
+                Button {
+                    onForkFromMessage(daemonMessageId)
+                } label: {
+                    Label {
+                        Text("Fork from here")
+                            .font(VFont.caption)
+                    } icon: {
+                        VIconView(.gitBranch, size: 11)
+                    }
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Fork from here")
+            }
+            if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
+                Button {
+                    onInspectMessage?(daemonMsgId)
+                } label: {
+                    VIconView(.fileCode, size: 11)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Inspect LLM context")
+            }
         }
     }
 
@@ -371,9 +416,9 @@ struct ChatBubble: View {
                         .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 
-                // Skip image attachments when they all come from tool calls shown inline
-                if !partitioned.images.isEmpty && partitioned.images.count != inlineToolCallImageCount {
-                    attachmentImageGrid(partitioned.images)
+                let visibleImages = visibleAttachmentImages(partitioned.images)
+                if !visibleImages.isEmpty {
+                    attachmentImageGrid(visibleImages)
                 }
 
                 if !partitioned.videos.isEmpty {
@@ -527,4 +572,3 @@ private struct ConditionalCompositingGroup: ViewModifier {
         }
     }
 }
-

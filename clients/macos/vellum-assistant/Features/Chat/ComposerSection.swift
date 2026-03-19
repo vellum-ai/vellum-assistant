@@ -29,6 +29,7 @@ struct ComposerSection: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,7 +66,8 @@ struct ComposerSection: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isSending ? "Working on it..." : "What would you like to do?",
-                conversationId: conversationId
+                conversationId: conversationId,
+                isInteractionEnabled: isInteractionEnabled
             )
         }
         .background(

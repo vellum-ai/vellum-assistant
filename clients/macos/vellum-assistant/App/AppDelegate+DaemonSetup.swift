@@ -225,22 +225,22 @@ extension AppDelegate {
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorShow(msg)
         }
         daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorUpdate(msg)
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentSaveResponse(msg)
         }
         daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentLoadResponse(msg)
         }
@@ -298,9 +298,18 @@ extension AppDelegate {
         // override properties; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
             if msg.key == "ttsVoiceId" {
-                OpenAIVoiceService.overrideVoiceId = msg.value
+                Task { @MainActor in
+                    OpenAIVoiceService.overrideVoiceId = msg.value
+                }
+                UserDefaults.standard.set(msg.value, forKey: msg.key)
             } else if msg.key == "voiceConversationTimeoutSeconds" {
-                VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
+                let parsed = Int(msg.value)
+                if let parsed {
+                    UserDefaults.standard.set(parsed, forKey: msg.key)
+                }
+                Task { @MainActor in
+                    VoiceModeManager.conversationTimeoutOverride = parsed
+                }
             } else {
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             }
@@ -365,13 +374,19 @@ extension AppDelegate {
                 if lockfileExists && gatewayHealthy {
                     log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
                 } else {
-                    // Start the gateway when the lockfile needs creating (first launch)
-                    // OR when the gateway is unhealthy (crashed/died since last hatch).
+                    // On first launch post-onboarding, use daemonOnly: false so the CLI
+                    // creates a lockfile entry AND starts the gateway. On subsequent
+                    // launches, daemonOnly: true prevents duplicates — gateway restart
+                    // is handled separately below to avoid tearing down the daemon on
+                    // transient gateway failures.
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry && gatewayHealthy
+                    let daemonOnly = !needsLockfileEntry
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
+                    // Clear any stale startup error from a previous hatch attempt
+                    // so a successful hatch doesn't leave a non-nil error in app state.
+                    self.daemonStartupError = nil
                     do {
                         try await vellumCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch let error as VellumCli.CLIError {
@@ -407,6 +422,26 @@ extension AppDelegate {
                     if needsLockfileEntry {
                         _ = self.loadAssistantFromLockfile()
                     }
+
+                    // Gateway died between app launches — attempt to restart it
+                    // separately from the daemon. If gateway startup fails, recover
+                    // the daemon so the user can still interact (just without gateway).
+                    if !needsLockfileEntry && !gatewayHealthy {
+                        log.info("Gateway unhealthy — attempting separate restart")
+                        do {
+                            try await assistantCli.hatch(name: assistantName, daemonOnly: false)
+                        } catch {
+                            log.warning("Gateway restart failed — recovering daemon: \(error)")
+                            // The full hatch may have torn down the daemon during
+                            // cleanup; re-hatch daemon-only so the user isn't left
+                            // with nothing.
+                            do {
+                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                            } catch {
+                                log.error("Daemon recovery after gateway failure also failed: \(error)")
+                            }
+                        }
+                    }
                 }
             }
             // Skip connect if the bootstrap retry coordinator already connected
@@ -440,30 +475,56 @@ extension AppDelegate {
 
     // MARK: - Privacy
 
-    /// Reads both privacy keys from UserDefaults (with legacy fallbacks),
-    /// applies Sentry state based on sendDiagnostics, syncs both keys to
-    /// the daemon, and cleans up legacy UserDefaults keys.
+    /// Synchronously migrates legacy privacy UserDefaults keys to their
+    /// canonical equivalents. Must be called **before** Sentry initialization
+    /// so that users who opted out via the old `collectUsageDataEnabled`
+    /// master switch are respected from the very first SDK decision.
+    ///
+    /// This is the local-only (UserDefaults) portion of the migration.
+    /// The daemon-sync portion still happens asynchronously in
+    /// `syncPrivacyConfig()` after the daemon connects.
+    static func migratePrivacyDefaults() {
+        let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+        let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
+
+        let legacySendDiagnostics = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+        let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+        let sendDiagnostics = canonicalSendDiagnostics ?? legacySendDiagnostics ?? collectUsageData
+
+        // Write canonical keys so downstream reads (Sentry init, MetricKitManager)
+        // see the migrated values without needing legacy fallback chains.
+        if let collectUsageData {
+            UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
+        }
+        if let sendDiagnostics {
+            UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
+        }
+
+        // Clean up legacy keys
+        UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
+        UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
+        UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+    }
+
+    /// Reads both privacy keys from UserDefaults, applies Sentry state based
+    /// on sendDiagnostics, and syncs both keys to the daemon.
+    ///
+    /// Legacy key migration has already been performed by
+    /// `migratePrivacyDefaults()` at launch, so this method only reads
+    /// canonical keys.
     ///
     /// Only syncs a key to the daemon when a value is explicitly present in
-    /// UserDefaults (including legacy keys). When no local value exists we
-    /// leave the daemon's persisted config untouched — defaulting to `true`
-    /// and pushing that upstream would silently re-enable telemetry for
-    /// users who previously opted out on a different machine or after a
-    /// UserDefaults reset.
+    /// UserDefaults. When no local value exists we leave the daemon's
+    /// persisted config untouched — defaulting to `true` and pushing that
+    /// upstream would silently re-enable telemetry for users who previously
+    /// opted out on a different machine or after a UserDefaults reset.
     func syncPrivacyConfig() {
         Task {
-            // Read with legacy fallbacks for first launch after upgrade.
-            // Keep track of whether a value was explicitly set vs defaulted,
-            // so we only sync explicitly-set values to the daemon.
-            let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
-            let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-            let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             let hasExplicitCollectUsageData = collectUsageData != nil
 
-            let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            // Fall back to legacy collectUsageData keys so users who opted
-            // out via the old master switch keep Sentry disabled.
-            let sendDiagnostics = canonicalSendDiagnostics ?? collectUsageData
+            let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             let hasExplicitSendDiagnostics = sendDiagnostics != nil
 
             // Apply Sentry state based on sendDiagnostics (default true when absent)
@@ -481,17 +542,6 @@ extension AppDelegate {
 
             let tosAccepted = UserDefaults.standard.bool(forKey: "tosAccepted")
             log.info("ToS accepted: \(tosAccepted, privacy: .public)")
-
-            // Clean up legacy keys and write canonical ones
-            UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
-            UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
-            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
-            if let collectUsageData {
-                UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
-            }
-            if let sendDiagnostics {
-                UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
-            }
         }
     }
 

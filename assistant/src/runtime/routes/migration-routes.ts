@@ -160,7 +160,10 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
           // Best-effort: if the DB can't be checkpointed (e.g. not a valid
           // SQLite file, missing WAL, etc.) we still proceed with the export
           // using whatever is on disk.
-          log.warn({ err }, "WAL checkpoint failed — exporting without checkpoint");
+          log.warn(
+            { err },
+            "WAL checkpoint failed — exporting without checkpoint",
+          );
         }
       },
     });

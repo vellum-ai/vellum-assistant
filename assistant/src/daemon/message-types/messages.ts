@@ -183,6 +183,7 @@ export interface MessageComplete {
   type: "message_complete";
   conversationId?: string;
   attachments?: UserMessageAttachment[];
+  attachmentWarnings?: string[];
   /** Database ID of the persisted assistant message, if any. */
   messageId?: string;
 }

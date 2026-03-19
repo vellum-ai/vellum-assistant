@@ -350,19 +350,4 @@ private struct SelectedFile: Identifiable {
     let data: Data
     let size: Int
 }
-
-#Preview {
-    FileUploadSurfaceView(
-        data: FileUploadSurfaceData(
-            prompt: "Please share the design file you'd like me to review.",
-            acceptedTypes: ["image/*", "application/pdf"],
-            maxFiles: 3,
-            maxSizeBytes: 100 * 1024 * 1024
-        ),
-        onSubmit: { _ in },
-        onCancel: {}
-    )
-    .padding()
-    .frame(width: 380)
-}
 #endif

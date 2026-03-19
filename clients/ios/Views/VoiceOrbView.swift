@@ -244,21 +244,4 @@ struct VoiceOrbView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#Preview {
-    VStack(spacing: 40) {
-        HStack(spacing: 32) {
-            VoiceOrbView(state: .idle)
-            VoiceOrbView(state: .listening, listeningAmplitude: 0.6)
-        }
-        HStack(spacing: 32) {
-            VoiceOrbView(state: .thinking)
-            VoiceOrbView(state: .speaking, speakingAmplitude: 0.5)
-        }
-    }
-    .padding(40)
-    .background(VColor.surfaceOverlay)
-}
 #endif

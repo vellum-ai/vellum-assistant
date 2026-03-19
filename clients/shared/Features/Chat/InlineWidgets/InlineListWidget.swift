@@ -76,6 +76,3 @@ public struct InlineListWidget: View {
         }
     }
 }
-
-#if DEBUG
-#endif

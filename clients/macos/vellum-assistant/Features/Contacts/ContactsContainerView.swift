@@ -34,7 +34,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
+        HStack(alignment: .top, spacing: 0) {
             // Left pane: contacts list (full height, internal scrolling)
             VStack(spacing: VSpacing.sm) {
                 ContactsListView(
@@ -49,7 +49,15 @@ struct ContactsContainerView: View {
             }
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
-            // Right pane: detail, loading, or placeholder
+
+            // Thin vertical separator with shadow
+            VColor.borderDisabled
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 1, y: 0)
+
+            // Right pane: detail, loading, or placeholder (max 700pt, left-aligned)
+            VStack(alignment: .leading, spacing: 0) {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
                 ScrollView {
@@ -74,7 +82,6 @@ struct ContactsContainerView: View {
                             VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                         // Channels card skeleton
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -97,7 +104,6 @@ struct ContactsContainerView: View {
                             }
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -147,6 +153,9 @@ struct ContactsContainerView: View {
                     .background(VColor.surfaceOverlay)
                 }
             }
+            }
+            .frame(maxWidth: 700, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .onReceive(viewModel.$contacts) { newContacts in
             // Default to assistant on first load (don't override existing selection)
@@ -225,8 +234,8 @@ struct ContactsContainerView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: contact,
@@ -236,9 +245,10 @@ struct ContactsContainerView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .id(contact.id)
         .onAppear {
             guardianEditedName = contact.displayName
@@ -291,18 +301,29 @@ struct ContactsContainerView: View {
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
 
-    /// Assistant detail — channels card only (top summary tile removed per design review).
+    /// Assistant detail — header + channels.
     @ViewBuilder
     private var assistantDetailView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Header matching contact/guardian detail pattern
+                HStack(spacing: VSpacing.sm) {
+                    Text("\(cachedAssistantName) (Your Assistant)")
+                        .font(VFont.display)
+                        .foregroundColor(VColor.contentDefault)
+                    ContactTypeBadge(role: "assistant")
+                }
+                .padding(.horizontal, VSpacing.lg)
+
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
-                        .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.bottom, VSpacing.lg)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .task {
             cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }

@@ -155,30 +155,3 @@ private struct ConditionalPanelBackground: ViewModifier {
         }
     }
 }
-
-#Preview {
-    SurfaceContainerView(
-        viewModel: SurfaceViewModel(
-            surface: Surface(
-                id: "preview",
-                conversationId: "session-1",
-                type: .card,
-                title: "Task Summary",
-                data: .card(CardSurfaceData(
-                    title: "Screenshot Captured",
-                    subtitle: "Step 2 of 5",
-                    body: "Captured the current screen state for analysis.",
-                    metadata: nil,
-                    template: nil,
-                    templateData: nil
-                )),
-                actions: [
-                    SurfaceActionButton(id: "dismiss", label: "Dismiss", style: .secondary),
-                    SurfaceActionButton(id: "continue", label: "Continue", style: .primary),
-                ]
-            ),
-            onAction: { _, _ in },
-            onDismiss: {}
-        )
-    )
-}

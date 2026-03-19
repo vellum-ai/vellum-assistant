@@ -50,6 +50,7 @@ import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
+import { leaseGuardianToken } from "../lib/guardian-token";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -715,6 +716,14 @@ async function hatchLocal(
       );
       await stopLocalProcesses(resources);
       throw error;
+    }
+
+    // Lease a guardian token so the desktop app can import it on first launch
+    // instead of hitting /v1/guardian/init itself.
+    try {
+      await leaseGuardianToken(runtimeUrl, instanceName);
+    } catch (err) {
+      console.error(`⚠️  Guardian token lease failed: ${err}`);
     }
 
     // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.

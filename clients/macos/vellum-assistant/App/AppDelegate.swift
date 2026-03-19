@@ -108,6 +108,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var conversationBadgeCancellable: AnyCancellable?
+    var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
@@ -130,7 +131,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Structured error from the most recent daemon startup failure.
     /// Populated by `setupDaemonClient()` when `hatch()` throws a
-    /// `CLIError.daemonStartupFailed`. Read by the UI (PR 3) to show a
+    /// `CLIError.daemonStartupFailed`. Read by the UI to show a
     /// contextual error view instead of a generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 
@@ -197,12 +198,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         Self.shared = self
+
+        // Initialize the chat diagnostics store early so launch session
+        // metadata and first events exist even if the app wedges during startup.
+        _ = ChatDiagnosticsStore.shared
+
+        MainThreadStallDetector.shared.start()
         metricKitManager = MetricKitManager()
 
         // Prevent macOS from automatically creating window tabs or restoring
         // SwiftUI-managed windows (the Settings scene renders EmptyView and
         // can appear as a blank window during activation policy transitions).
         NSWindow.allowsAutomaticWindowTabbing = false
+
+        // Migrate legacy privacy keys (collectUsageDataEnabled,
+        // sendPerformanceReports) to their canonical equivalents
+        // synchronously so the Sentry gate below sees the correct value.
+        Self.migratePrivacyDefaults()
 
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
@@ -246,6 +258,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
+
+        // Remove orphaned conversation zoom key. ConversationZoomManager was
+        // deleted (redundant with window-level ZoomManager); clean up any
+        // persisted value so it doesn't linger in UserDefaults.
+        UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
 
         // Migrate API keys from plaintext UserDefaults to credential storage
         // (Keychain in Release, file-based in DEBUG). Safe to call on every
@@ -448,6 +465,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             NSEvent.removeMonitor(monitor)
         }
         if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = avatarChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()

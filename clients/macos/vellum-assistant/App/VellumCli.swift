@@ -81,7 +81,10 @@ final class VellumCli {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
-        "ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+        // Inference provider API keys
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+        "FIREWORKS_API_KEY", "OPENROUTER_API_KEY",
+        "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
         // Cloud provider auth — needed by hatch and retire flows.
@@ -171,6 +174,14 @@ final class VellumCli {
         if status != 0 {
             log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.daemonStartupFailed(Self.parseDaemonStartupError(from: stderr))
+        }
+
+        // The CLI can exit 0 even when the daemon had a startup failure
+        // (e.g. it logged a warning and continued). Check stderr for the
+        // DAEMON_ERROR sentinel so these failures still surface.
+        if let startupError = Self.parseDaemonStartupErrorIfPresent(from: stderr) {
+            log.error("CLI hatch exited 0 but daemon reported startup error [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
+            throw CLIError.daemonStartupFailed(startupError)
         }
 
         log.info("CLI hatch completed successfully")
@@ -285,64 +296,14 @@ final class VellumCli {
         log.info("[audit] CLI done: retire exit=0 duration=\(retireMs)ms")
     }
 
-    /// Non-destructive stop: kills the daemon process via the CLI without
-    /// deleting ~/.vellum or deregistering the assistant.
+    /// Non-destructive stop: sends SIGTERM to the daemon and gateway processes
+    /// without waiting for them to exit. This is intentionally fire-and-forget
+    /// so that applicationWillTerminate returns instantly (no beach-ball).
+    /// Orphaned processes are cleaned up on next launch via `detectOrphanedProcesses`.
     func stop(name: String? = nil) {
-        guard let binaryURL = cliBinaryURL else {
-            log.info("No bundled CLI binary found — skipping stop (dev mode)")
-            // Still try to clean up via PID file in dev mode
-            killViaPIDFile()
-            killGatewayViaPIDFile()
-            return
-        }
-
-        log.info("Running stop via CLI at \(binaryURL.path, privacy: .public)")
-        log.info("[audit] CLI invoke: sleep args=\(name ?? "", privacy: .public)")
-        let stopStartTime = ContinuousClock.now
-
-        // stop must be synchronous (called from applicationWillTerminate)
-        let proc = Process()
-        proc.executableURL = binaryURL
-        var sleepArgs = ["sleep"]
-        if let name, !name.isEmpty {
-            sleepArgs.append(name)
-        }
-        proc.arguments = sleepArgs
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-
-        let fullEnv = ProcessInfo.processInfo.environment
-        proc.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "TMPDIR": fullEnv["TMPDIR"] ?? NSTemporaryDirectory(),
-        ]
-
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            let stopElapsed = ContinuousClock.now - stopStartTime
-            let stopMs = stopElapsed.components.seconds * 1000 + Int64(stopElapsed.components.attoseconds / 1_000_000_000_000_000)
-            log.info("CLI stop completed with exit code \(proc.terminationStatus)")
-            if proc.terminationStatus == 0 {
-                log.info("[audit] CLI done: sleep exit=0 duration=\(stopMs)ms")
-            } else {
-                log.warning("[audit] CLI done: sleep exit=\(proc.terminationStatus) duration=\(stopMs)ms")
-            }
-            if proc.terminationStatus != 0 {
-                log.warning("CLI stop exited non-zero (\(proc.terminationStatus)) — falling back to PID-based kill")
-                killViaPIDFile()
-                killGatewayViaPIDFile()
-            }
-        } catch {
-            let stopElapsed = ContinuousClock.now - stopStartTime
-            let stopMs = stopElapsed.components.seconds * 1000 + Int64(stopElapsed.components.attoseconds / 1_000_000_000_000_000)
-            log.error("CLI stop failed: \(error.localizedDescription)")
-            log.error("[audit] CLI error: sleep threw after \(stopMs)ms \u{2014} \(error.localizedDescription, privacy: .public)")
-            // Fallback: kill via PID file directly
-            killViaPIDFile()
-            killGatewayViaPIDFile()
-        }
+        log.info("[audit] CLI invoke: stop args=\(name ?? "", privacy: .public)")
+        signalViaPIDFile(pidFileURL, label: "daemon")
+        signalViaPIDFile(gatewayPidFileURL, label: "gateway")
     }
 
 
@@ -382,6 +343,16 @@ final class VellumCli {
 
     // MARK: - Remote Hatch (pass-through to CLI)
 
+    /// Maps inference provider IDs to the environment variable name
+    /// the daemon expects for that provider's API key.
+    nonisolated private static let providerEnvVars: [String: String] = [
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "fireworks": "FIREWORKS_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    ]
+
     struct RemoteHatchConfig {
         let remote: String
         var gcpProjectId: String = ""
@@ -391,7 +362,10 @@ final class VellumCli {
         var sshHost: String = ""
         var sshUser: String = ""
         var sshPrivateKey: String = ""
-        var anthropicApiKey: String = ""
+        /// The inference provider selected during onboarding (e.g. "anthropic", "openai").
+        var inferenceProvider: String = "anthropic"
+        /// The API key for the selected inference provider.
+        var inferenceApiKey: String = ""
     }
 
     func runRemoteHatch(
@@ -441,8 +415,9 @@ final class VellumCli {
             #endif
         }
 
-        if !config.anthropicApiKey.isEmpty {
-            env["ANTHROPIC_API_KEY"] = config.anthropicApiKey
+        if !config.inferenceApiKey.isEmpty {
+            let envVar = Self.providerEnvVars[config.inferenceProvider] ?? "ANTHROPIC_API_KEY"
+            env[envVar] = config.inferenceApiKey
         }
 
         if config.remote == "gcp" {
@@ -663,47 +638,33 @@ final class VellumCli {
         return DaemonStartupError(category: "UNKNOWN", message: fallbackMessage, detail: nil)
     }
 
-    /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
-    private func killGatewayViaPIDFile() {
-        guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else { return }
-        let pidData: Data
-        do {
-            pidData = try Data(contentsOf: gatewayPidFileURL)
-        } catch {
-            return
+    /// Parse a `DaemonStartupError` from stderr only if the `DAEMON_ERROR:`
+    /// sentinel is present. Returns `nil` when no marker is found — used for
+    /// the exit-0 path where we don't want to fabricate an UNKNOWN error.
+    private static func parseDaemonStartupErrorIfPresent(from stderr: String) -> DaemonStartupError? {
+        let lines = stderr.components(separatedBy: .newlines)
+        guard let markerLine = lines.last(where: { $0.hasPrefix("DAEMON_ERROR:") }) else {
+            return nil
         }
-        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString),
-              kill(pid, 0) == 0 else {
-            return
+        let jsonString = String(markerLine.dropFirst("DAEMON_ERROR:".count))
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
         }
-
-        log.info("Killing gateway via PID file (pid \(pid))")
-        kill(pid, SIGTERM)
-
-        let deadline = Date().addingTimeInterval(2.0)
-        while kill(pid, 0) == 0 && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        if kill(pid, 0) == 0 {
-            kill(pid, SIGKILL)
-        }
-
-        do {
-            try FileManager.default.removeItem(at: gatewayPidFileURL)
-        } catch {
-            log.error("Failed to remove gateway PID file: \(error)")
-        }
+        let category = json["error"] as? String ?? "UNKNOWN"
+        let message = json["message"] as? String ?? "Unknown startup error"
+        let detail = json["detail"] as? String
+        return DaemonStartupError(category: category, message: message, detail: detail)
     }
 
-    /// Kill the daemon directly via PID file — fallback when CLI binary is unavailable.
-    private func killViaPIDFile() {
+    /// Send SIGTERM to a process identified by a PID file. Does not wait for
+    /// the process to exit — the next launch will clean up any stragglers.
+    private func signalViaPIDFile(_ pidFileURL: URL, label: String) {
+        guard FileManager.default.fileExists(atPath: pidFileURL.path) else { return }
         let pidData: Data
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .public): \(error)")
             return
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -712,23 +673,8 @@ final class VellumCli {
             return
         }
 
-        log.info("Killing daemon via PID file (pid \(pid))")
+        log.info("Sending SIGTERM to \(label, privacy: .public) (pid \(pid))")
         kill(pid, SIGTERM)
-
-        let deadline = Date().addingTimeInterval(2.0)
-        while kill(pid, 0) == 0 && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        if kill(pid, 0) == 0 {
-            kill(pid, SIGKILL)
-        }
-
-        do {
-            try FileManager.default.removeItem(at: pidFileURL)
-        } catch {
-            log.error("Failed to remove PID file at \(self.pidFileURL.path): \(error)")
-        }
     }
 
     /// Run a CLI command, log the invocation and result, and return
@@ -765,13 +711,15 @@ final class VellumCli {
                    let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                     env["RUNTIME_HTTP_PORT"] = port
                 }
-                // Fall back to credential storage for the Anthropic API key
-                // when it's not in the process environment (e.g. app launched
-                // from Finder, not a terminal with ANTHROPIC_API_KEY set).
-                if env["ANTHROPIC_API_KEY"] == nil,
-                   let storedKey = APIKeyManager.getKey(for: "anthropic"),
-                   !storedKey.isEmpty {
-                    env["ANTHROPIC_API_KEY"] = storedKey
+                // Fall back to credential storage for provider API keys
+                // when they're not in the process environment (e.g. app launched
+                // from Finder, not a terminal with API key env vars set).
+                for (provider, envVar) in VellumCli.providerEnvVars {
+                    if env[envVar] == nil,
+                       let storedKey = APIKeyManager.getKey(for: provider),
+                       !storedKey.isEmpty {
+                        env[envVar] = storedKey
+                    }
                 }
                 proc.environment = env
 

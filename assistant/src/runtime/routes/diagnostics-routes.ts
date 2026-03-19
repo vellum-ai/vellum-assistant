@@ -410,6 +410,7 @@ async function handleDiagnosticsExport(body: {
         return JSON.stringify({
           id: r.id,
           conversationId: r.conversationId,
+          provider: r.provider,
           request: redactDeep(request),
           response: redactDeep(response),
           createdAt: r.createdAt,

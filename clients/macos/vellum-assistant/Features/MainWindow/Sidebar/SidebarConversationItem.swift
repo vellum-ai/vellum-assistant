@@ -249,6 +249,3 @@ struct SidebarConversationItem: View {
         }
     }
 }
-
-#if DEBUG
-#endif

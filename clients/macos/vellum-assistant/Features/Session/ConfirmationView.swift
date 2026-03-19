@@ -44,12 +44,3 @@ struct ConfirmationView: View {
         .frame(width: 400)
     }
 }
-
-#Preview {
-    ConfirmationView(
-        reason: "This action will press Cmd+Delete which may delete files.",
-        onAllow: {},
-        onBlock: {},
-        onStop: {}
-    )
-}

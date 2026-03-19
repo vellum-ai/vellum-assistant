@@ -214,6 +214,52 @@ struct FeedbackGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VCopyButton
+            GallerySectionHeader(
+                title: "VCopyButton",
+                description: "Copy-to-clipboard ghost button (wraps VButton) with checkmark feedback. Supports size variants."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Size variants
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Hello, world!")
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Compact").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Compact copy", size: .compact)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Inline (18×18)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Inline copy", size: .inline)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Custom frame (20pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Small frame", iconSize: 20)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Large frame (28pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Large frame", iconSize: 28)
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Custom hint
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Custom tooltip").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "api_key_123", accessibilityHint: "Copy API key")
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VToast with Copyable Detail
             GallerySectionHeader(
                 title: "VToast with Copyable Detail",

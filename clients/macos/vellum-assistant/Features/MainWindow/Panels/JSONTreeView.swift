@@ -20,6 +20,51 @@ private enum JSONNode: Identifiable {
             return id
         }
     }
+
+    /// Returns a JSON-formatted string representation of this node,
+    /// suitable for copying to the pasteboard.
+    var serializedValue: String {
+        switch self {
+        case .object, .array:
+            return Self.prettyPrint(toFoundation())
+        case .string(_, let value):
+            return value
+        case .number(_, let value):
+            return "\(value)"
+        case .bool(_, let value):
+            return value ? "true" : "false"
+        case .null:
+            return "null"
+        }
+    }
+
+    /// Converts this node back into a Foundation object for serialization.
+    private func toFoundation() -> Any {
+        switch self {
+        case .object(_, let entries):
+            return entries.reduce(into: [String: Any]()) { dict, entry in
+                dict[entry.key] = entry.value.toFoundation()
+            }
+        case .array(_, let elements):
+            return elements.map { $0.toFoundation() }
+        case .string(_, let value):
+            return value
+        case .number(_, let value):
+            return value
+        case .bool(_, let value):
+            return value
+        case .null:
+            return NSNull()
+        }
+    }
+
+    private static func prettyPrint(_ obj: Any) -> String {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: obj,
+            options: [.prettyPrinted, .withoutEscapingSlashes]
+        ) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
 }
 
 // MARK: - Parse Result
@@ -58,8 +103,8 @@ private func escapeKey(_ key: String) -> String {
 private func convert(_ value: Any, path: String) -> JSONNode {
     switch value {
     case let dict as NSDictionary:
-        let sortedKeys = (dict.allKeys as? [String] ?? []).sorted()
-        let entries: [(key: String, value: JSONNode)] = sortedKeys.map { key in
+        let keys = dict.allKeys as? [String] ?? []
+        let entries: [(key: String, value: JSONNode)] = keys.map { key in
             let childPath = "\(path).\(escapeKey(key))"
             return (key: key, value: convert(dict[key] as Any, path: childPath))
         }
@@ -114,8 +159,13 @@ private func collectContainerPaths(_ node: JSONNode) -> Set<String> {
 // MARK: - JSONTreeView
 
 /// Renders a JSON string as a collapsible tree with color-coded values.
+///
+/// Expand/collapse all can be triggered externally by incrementing
+/// `expandAllTrigger` or `collapseAllTrigger`.
 struct JSONTreeView: View {
     let content: String
+    var expandAllTrigger: Int = 0
+    var collapseAllTrigger: Int = 0
     @State private var root: JSONParseResult?
     @State private var expandedPaths: Set<String> = []
 
@@ -135,11 +185,25 @@ struct JSONTreeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: content) {
-            let result = parseJSON(content)
+            let result = content.isEmpty
+                ? .success(.object(id: "$", entries: []))
+                : parseJSON(content)
             root = result
             expandedPaths = []
             if case .success(let node) = result {
                 autoExpandInitial(node)
+            }
+        }
+        .onChange(of: expandAllTrigger) { _, _ in
+            if case .success(let node) = root {
+                withAnimation(VAnimation.fast) {
+                    expandedPaths = collectContainerPaths(node)
+                }
+            }
+        }
+        .onChange(of: collapseAllTrigger) { _, _ in
+            withAnimation(VAnimation.fast) {
+                expandedPaths.removeAll()
             }
         }
     }
@@ -164,7 +228,6 @@ struct JSONTreeView: View {
     @ViewBuilder
     private func treeContent(_ node: JSONNode) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            toolbar(node)
             GeometryReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -181,32 +244,6 @@ struct JSONTreeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private func toolbar(_ node: JSONNode) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Spacer()
-            Button("Expand All") {
-                withAnimation(VAnimation.fast) {
-                    expandedPaths = collectContainerPaths(node)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-
-            Button("Collapse All") {
-                withAnimation(VAnimation.fast) {
-                    expandedPaths.removeAll()
-                }
-            }
-            .buttonStyle(.plain)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
     }
 
     private func autoExpandInitial(_ node: JSONNode) {
@@ -230,6 +267,15 @@ struct JSONTreeView: View {
 
 /// Renders a single node in the JSON tree, handling both containers and primitives.
 private struct JSONNodeRow: View {
+    /// Points of horizontal indentation added per nesting depth level.
+    static let indentPerDepth: CGFloat = 20
+    /// Width reserved for the disclosure chevron so primitives align with container labels.
+    static let chevronPlaceholderWidth: CGFloat = 12
+    /// Size (points) of the disclosure chevron icon.
+    static let chevronIconSize: CGFloat = 9
+    /// Horizontal spacing between inline elements within a row.
+    static let inlineSpacing: CGFloat = 4
+
     let node: JSONNode
     let key: String?
     let depth: Int
@@ -258,14 +304,12 @@ private struct JSONNodeRow: View {
                 Text("\"\(value)\"")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxString)
-                    .textSelection(.enabled)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
-                    .textSelection(.enabled)
             }
         case .bool(_, let value):
             primitiveRow {
@@ -273,7 +317,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
                     .bold()
-                    .textSelection(.enabled)
             }
         case .null:
             primitiveRow {
@@ -281,7 +324,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentTertiary)
                     .italic()
-                    .textSelection(.enabled)
             }
         }
     }
@@ -293,32 +335,33 @@ private struct JSONNodeRow: View {
         children: [(String, JSONNode)]
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(VAnimation.fast) {
-                    if isExpanded {
-                        expandedPaths.remove(node.id)
-                    } else {
-                        expandedPaths.insert(node.id)
+            NodeCopyWrapper(node: node) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        if isExpanded {
+                            expandedPaths.remove(node.id)
+                        } else {
+                            expandedPaths.insert(node.id)
+                        }
                     }
+                } label: {
+                    HStack(spacing: Self.inlineSpacing) {
+                        Spacer().frame(width: CGFloat(depth) * Self.indentPerDepth)
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: Self.chevronIconSize)
+                            .foregroundColor(VColor.contentSecondary)
+                            .animation(VAnimation.fast, value: isExpanded)
+                        keyLabel
+                        Text(summary)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text("(\(countLabel))")
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Spacer().frame(width: CGFloat(depth) * 20)
-                    VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                        .foregroundColor(VColor.contentSecondary)
-                        .animation(VAnimation.fast, value: isExpanded)
-                    keyLabel
-                    Text(summary)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text("(\(countLabel))")
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .padding(.vertical, 2)
 
             if isExpanded {
                 ForEach(children, id: \.1.id) { childKey, childNode in
@@ -335,13 +378,14 @@ private struct JSONNodeRow: View {
 
     @ViewBuilder
     private func primitiveRow<V: View>(@ViewBuilder value: () -> V) -> some View {
-        HStack(spacing: 4) {
-            Spacer().frame(width: CGFloat(depth) * 20)
-            Spacer().frame(width: 12)
-            keyLabel
-            value()
+        NodeCopyWrapper(node: node) {
+            HStack(spacing: Self.inlineSpacing) {
+                Spacer().frame(width: CGFloat(depth) * Self.indentPerDepth)
+                Spacer().frame(width: Self.chevronPlaceholderWidth)
+                keyLabel
+                value()
+            }
         }
-        .padding(.vertical, 2)
     }
 
     @ViewBuilder
@@ -350,10 +394,45 @@ private struct JSONNodeRow: View {
             Text(key)
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentDefault)
-                .textSelection(.enabled)
             Text(": ")
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentTertiary)
+        }
+    }
+}
+
+// MARK: - Node Copy Wrapper
+
+/// Wraps a JSON node row with a hover-to-copy button and right-click context menu.
+/// The copy button appears on the trailing edge when the user hovers over the row.
+private struct NodeCopyWrapper<Content: View>: View {
+    let node: JSONNode
+    let content: Content
+    @State private var isHovered = false
+
+    init(node: JSONNode, @ViewBuilder content: () -> Content) {
+        self.node = node
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            content
+
+            VCopyButton(text: node.serializedValue, size: .inline, accessibilityHint: "Copy value")
+                .opacity(isHovered ? 1 : 0)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                isHovered = hovering
+            }
+        }
+        .contextMenu {
+            Button("Copy Value") {
+                VCopyButton.copyToPasteboard(node.serializedValue)
+            }
         }
     }
 }

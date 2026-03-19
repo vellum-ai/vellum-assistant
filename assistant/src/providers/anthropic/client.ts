@@ -16,6 +16,9 @@ import type {
 
 const log = getLogger("anthropic-client");
 
+/** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
+const VALIDATION_TIMEOUT_MS = 10_000;
+
 /**
  * Validate an Anthropic API key by making a lightweight GET /v1/models call.
  * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
@@ -24,7 +27,11 @@ export async function validateAnthropicApiKey(
   apiKey: string,
 ): Promise<{ valid: true } | { valid: false; reason: string }> {
   try {
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({
+      apiKey,
+      timeout: VALIDATION_TIMEOUT_MS,
+      maxRetries: 0,
+    });
     await client.models.list({ limit: 1 });
     return { valid: true };
   } catch (error) {

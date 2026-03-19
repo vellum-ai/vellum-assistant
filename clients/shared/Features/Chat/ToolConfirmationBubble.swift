@@ -371,7 +371,13 @@ public struct ToolConfirmationBubble: View {
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentTertiary)
 
-                    codePreviewBlock(diffBody, maxHeight: 260)
+                    VDiffView(diffBody, maxHeight: 260)
+                        .padding(VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(VColor.surfaceOverlay)
+                        )
                 }
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -684,6 +690,3 @@ public struct ToolConfirmationBubble: View {
     }
 
 }
-
-#if DEBUG
-#endif

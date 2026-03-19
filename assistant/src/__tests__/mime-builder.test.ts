@@ -98,7 +98,9 @@ describe("buildMultipartMime", () => {
       "base64",
     ).toString("utf-8");
 
-    expect(decoded).toContain("To: victim@example.com Bcc: attacker@example.com");
+    expect(decoded).toContain(
+      "To: victim@example.com Bcc: attacker@example.com",
+    );
     expect(decoded).toContain("Subject: Fwd: Hello Cc: attacker@example.com");
     expect(decoded).toContain("Cc: team@example.com X-Injected: yes");
     expect(decoded).toContain("Bcc: audit@example.com X-Another: value");
@@ -108,5 +110,4 @@ describe("buildMultipartMime", () => {
     expect(decoded).not.toContain("\r\nBcc: attacker@example.com");
     expect(decoded).not.toContain("\r\nCc: attacker@example.com");
   });
-
 });

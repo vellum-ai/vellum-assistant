@@ -200,8 +200,3 @@ private struct ReasonRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

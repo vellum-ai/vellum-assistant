@@ -13,6 +13,8 @@ public protocol SettingsClientProtocol {
     func fetchModelInfo() async -> ModelInfoMessage?
     func setModel(model: String, provider: String?) async -> ModelInfoMessage?
     func setImageGenModel(modelId: String) async -> ModelInfoMessage?
+    func fetchEmbeddingConfig() async -> EmbeddingConfigMessage?
+    func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
     func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool
@@ -90,6 +92,40 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
             log.error("setImageGenModel error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config/embeddings", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchEmbeddingConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(EmbeddingConfigMessage.self, from: response.data)
+        } catch {
+            log.error("fetchEmbeddingConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage? {
+        do {
+            var body: [String: Any] = ["provider": provider]
+            if let model { body["model"] = model }
+            let response = try await GatewayHTTPClient.put(
+                path: "config/embeddings", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setEmbeddingConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(EmbeddingConfigMessage.self, from: response.data)
+        } catch {
+            log.error("setEmbeddingConfig error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -195,4 +231,28 @@ public struct SettingsClient: SettingsClientProtocol {
         return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
+}
+
+// MARK: - Embedding Config Types
+
+public struct EmbeddingProviderOption: Codable {
+    public let id: String
+    public let displayName: String
+    public let defaultModel: String
+    public let requiresKey: Bool
+}
+
+public struct EmbeddingStatusInfo: Codable {
+    public let enabled: Bool
+    public let degraded: Bool
+    public let reason: String?
+}
+
+public struct EmbeddingConfigMessage: Codable {
+    public let provider: String
+    public let model: String?
+    public let activeProvider: String?
+    public let activeModel: String?
+    public let availableProviders: [EmbeddingProviderOption]?
+    public let status: EmbeddingStatusInfo?
 }

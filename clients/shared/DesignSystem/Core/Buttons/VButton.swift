@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, dangerGhost, outlined, ghost, contrast }
-    public enum Size: Hashable { case regular, compact, pill }
+    public enum Size: Hashable { case regular, compact, pill, inline }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -43,8 +43,8 @@ public struct VButton: View {
         Button(action: action) {
             if let iconOnly {
                 HStack(spacing: VSpacing.xs) {
-                    VIconView(.resolve(iconOnly), size: 13)
-                        .frame(width: 20, height: 20)
+                    VIconView(.resolve(iconOnly), size: size == .inline ? 10 : 13)
+                        .frame(width: size == .inline ? 12 : 20, height: size == .inline ? 12 : 20)
                 }
                 .foregroundColor(iconColor ?? iconOnlyForegroundColor)
             } else {
@@ -264,8 +264,14 @@ private struct ButtonLayoutModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if isIconOnly {
+            let defaultSize: CGFloat = size == .inline ? 18 : 32
             content
-                .frame(width: iconSize ?? 32, height: iconSize ?? 32)
+                .frame(width: iconSize ?? defaultSize, height: iconSize ?? defaultSize)
+        } else if size == .inline {
+            content
+                .padding(.horizontal, VSpacing.xs)
+                .frame(height: 18)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else if size == .pill || size == .compact {
             content
                 .padding(.horizontal, VSpacing.sm)

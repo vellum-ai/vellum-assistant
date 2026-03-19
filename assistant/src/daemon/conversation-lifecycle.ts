@@ -68,6 +68,39 @@ function filterMessagesForUntrustedActor(messages: MessageRow[]): MessageRow[] {
   });
 }
 
+/**
+ * Re-inject image source path annotations into message content blocks.
+ *
+ * When the desktop client attaches images from local files, the source paths
+ * are stored in `metadata.imageSourcePaths` (keyed by filename). The LLM-facing
+ * content omits these paths at persistence time, so we re-inject them when
+ * loading history from the DB. Only user messages are annotated.
+ */
+export function reinjectImageSourcePaths(
+  content: ContentBlock[],
+  role: string,
+  metadataJson: string | null,
+): ContentBlock[] {
+  if (role !== "user" || !metadataJson) return content;
+  try {
+    const meta = JSON.parse(metadataJson);
+    if (!meta.imageSourcePaths || typeof meta.imageSourcePaths !== "object") {
+      return content;
+    }
+    const paths = Object.values(meta.imageSourcePaths).filter(
+      (v): v is string => typeof v === "string",
+    );
+    if (paths.length === 0) return content;
+    const annotation = paths
+      .map((p) => `[Attached image source: ${p}]`)
+      .join("\n");
+    return [...content, { type: "text" as const, text: annotation }];
+  } catch {
+    // metadata parse failure — skip annotation, not critical
+    return content;
+  }
+}
+
 // ── Context Interfaces ───────────────────────────────────────────────
 
 export interface LoadFromDbContext {
@@ -78,7 +111,6 @@ export interface LoadFromDbContext {
   contextCompactedAt: number | null;
   trustContext?: { trustClass: TrustClass };
   loadedHistoryTrustClass?: TrustClass;
-  hasAttachments?: boolean;
 }
 
 export interface AbortContext {
@@ -93,6 +125,7 @@ export interface AbortContext {
     string,
     { surfaceType: SurfaceType; data: SurfaceData; title?: string }
   >;
+  accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   readonly queue: MessageQueue;
 }
 
@@ -151,6 +184,9 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         );
         content = [{ type: "text", text: m.content }];
       }
+
+      content = reinjectImageSourcePaths(content, role, m.metadata);
+
       return { role, content };
     });
 
@@ -182,20 +218,6 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
   ctx.loadedHistoryTrustClass = trustClass;
 
-  // Scan ALL db messages (including compacted ones) for attachments so that
-  // asset tools remain available after context compaction.
-  if (
-    ctx.contextCompactedMessageCount > 0 &&
-    dbMessages.some(
-      (m) =>
-        m.role === "user" &&
-        (m.content.includes('"type":"image"') ||
-          m.content.includes('"type":"file"')),
-    )
-  ) {
-    ctx.hasAttachments = true;
-  }
-
   log.info(
     { conversationId: ctx.conversationId, count: ctx.messages.length },
     "Loaded messages from DB",
@@ -216,6 +238,7 @@ export function abortConversation(ctx: AbortContext): void {
     ctx.pendingSurfaceActions.clear();
     ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
+    ctx.accumulatedSurfaceState.clear();
     unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
       queued.onEvent({
@@ -247,6 +270,7 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.pendingSurfaceActions.clear();
   ctx.surfaceActionRequestIds.clear();
   ctx.surfaceState.clear();
+  ctx.accumulatedSurfaceState.clear();
   ctx.lastSurfaceAction.clear();
   ctx.workspaceTopLevelContext = null;
 }

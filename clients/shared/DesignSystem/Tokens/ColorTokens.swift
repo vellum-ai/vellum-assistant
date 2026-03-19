@@ -340,7 +340,12 @@ public enum VColor {
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
-    // Syntax highlighting — adaptive tokens shared by SyntaxTheme and JSONTreeView.
+    // Diff view — adaptive background tints for unified-diff line highlighting.
+    public static let diffAddedBg  = adaptiveColor(light: Forest._100, dark: Emerald._950)
+    public static let diffRemovedBg = adaptiveColor(light: Danger._100, dark: Danger._950)
+    public static let diffHunkBg   = adaptiveColor(light: Color(hex: 0xDDE4EE), dark: Color(hex: 0x1E2A38))
+
+    // Syntax highlighting — adaptive tokens shared by SyntaxTheme and HighlightedTextView.
     // Light values are high-contrast for light surfaces; dark values are softer pastels.
     public static let syntaxString = adaptiveColor(
         light: Color(.sRGB, red: 0.72, green: 0.19, blue: 0.10),

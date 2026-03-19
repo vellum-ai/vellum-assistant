@@ -387,10 +387,4 @@ struct ReadyStep: View {
         .padding(VSpacing.xl)
     }
 }
-
-#Preview {
-    let client = DaemonClient(config: .default)
-    OnboardingView(isCompleted: .constant(false), authManager: AuthManager())
-        .environmentObject(ClientProvider(client: client))
-}
 #endif

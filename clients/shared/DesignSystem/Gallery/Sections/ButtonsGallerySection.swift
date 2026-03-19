@@ -215,6 +215,40 @@ struct ButtonsGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VButton (Icon Only — Inline)
+            GallerySectionHeader(
+                title: "VButton (Icon Only — Inline)",
+                description: "Smallest icon-only buttons (18×18 frame) for inline use within text lines, such as per-node copy buttons in tree views."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Copy").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VButton(label: "Copy", iconOnly: VIcon.copy.rawValue, style: .ghost, size: .inline) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Edit").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VButton(label: "Edit", iconOnly: VIcon.pencil.rawValue, style: .ghost, size: .inline) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Close").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, size: .inline) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Inline in text").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.xs) {
+                            Text("\"key\": \"value\"")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.contentDefault)
+                            VButton(label: "Copy", iconOnly: VIcon.copy.rawValue, style: .ghost, size: .inline) {}
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VSplitButton
             GallerySectionHeader(
                 title: "VSplitButton",

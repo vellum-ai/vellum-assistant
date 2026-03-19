@@ -1,6 +1,9 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ChatView")
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -22,9 +25,9 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
-    var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
+    var providerCatalog: [ProviderCatalogEntry] = []
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
@@ -39,6 +42,8 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -51,7 +56,8 @@ struct ChatView: View {
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
-    var onRetryConversationError: (() -> Void)?
+    /// Receives the error message's ID so the handler can validate the retry target.
+    var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -72,6 +78,7 @@ struct ChatView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var isInteractionEnabled: Bool = true
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -222,6 +229,7 @@ struct ChatView: View {
                             assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog,
                             activeSubagents: activeSubagents,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             onConfirmationAllow: onConfirmationAllow,
@@ -232,9 +240,10 @@ struct ChatView: View {
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            showInspectButton: showInspectButton,
+                            onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
-                            onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
@@ -256,11 +265,10 @@ struct ChatView: View {
                             containerWidth: containerWidth
                         )
 
-                        let composerMessages: [ChatMessage] = {
-                            let all = messages.filter { !$0.isSubagentNotification }
-                            guard displayedMessageCount < all.count else { return all }
-                            return Array(all.suffix(displayedMessageCount))
-                        }()
+                        let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
+                            from: messages,
+                            displayedMessageCount: displayedMessageCount
+                        )
 
                         ComposerSection(
                             inputText: $inputText,
@@ -293,7 +301,8 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId
+                            conversationId: conversationId,
+                            isInteractionEnabled: isInteractionEnabled
                         )
                     }
                 }
@@ -308,6 +317,7 @@ struct ChatView: View {
                 }
             )
             .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+            .disabled(!isInteractionEnabled)
             .overlay(alignment: .bottom) {
                 btwOverlay
             }
@@ -685,10 +695,16 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 if let scrollView = coordinator.findEnclosingScrollView() {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0
-                    if docHeight > clipHeight {
+                    let isScrollable = docHeight > clipHeight
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
+                                "deltaY=%.1f isScrollable=%d clipH=%.0f docH=%.0f",
+                                event.scrollingDeltaY, isScrollable ? 1 : 0, clipHeight, docHeight)
+                    if isScrollable {
                         coordinator.onScrollUp?()
                     }
                 } else {
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
+                                "deltaY=%.1f scrollViewNotFound=1", event.scrollingDeltaY)
                     coordinator.onScrollUp?()
                 }
             } else if event.scrollingDeltaY < -1 {
@@ -699,7 +715,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY < 20 {
+                        let distanceFromBottom = docHeight - clipBounds.maxY
+                        let isScrollable = docHeight > clipBounds.height
+                        if distanceFromBottom < 20 {
+                            os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelRetether",
+                                        "distFromBottom=%.1f isScrollable=%d",
+                                        distanceFromBottom, isScrollable ? 1 : 0)
                             coordinator.onScrollToBottom?()
                         }
                     }
@@ -840,66 +861,6 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-
-private struct ChatViewPreviewWrapper: View {
-    @State private var text = ""
-    @State private var anchorMessageId: UUID?
-    @State private var highlightedMessageId: UUID?
-
-    private let sampleMessages: [ChatMessage] = [
-        ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
-        ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
-        ChatMessage(
-            role: .assistant,
-            text: "SwiftUI is a declarative framework for building user interfaces across Apple platforms. It uses a reactive data-binding model and composable view hierarchy."
-        ),
-        ChatMessage(role: .user, text: "That sounds great, thanks!"),
-    ]
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            ChatView(
-                messages: sampleMessages,
-                inputText: $text,
-                hasAPIKey: true,
-                isThinking: true,
-                isCompacting: false,
-                isSending: false,
-                suggestion: "That sounds great, thanks!",
-                pendingAttachments: [],
-                isRecording: false,
-                onSend: {},
-                onStop: {},
-                onAcceptSuggestion: {},
-                onAttach: {},
-                onRemoveAttachment: { _ in },
-                onDropFiles: { _ in },
-                onDropImageData: { _, _ in },
-                onPaste: {},
-                onMicrophoneToggle: {},
-                assistantActivityPhase: "idle",
-                assistantActivityAnchor: "global",
-                assistantActivityReason: nil,
-                assistantStatusText: nil,
-                onConfirmationAllow: { _ in },
-                onConfirmationDeny: { _ in },
-                onAlwaysAllow: { _, _, _, _ in },
-                onSurfaceAction: { _, _, _ in },
-                watchSession: nil,
-                onStopWatch: {},
-                subagentDetailStore: SubagentDetailStore(),
-                anchorMessageId: $anchorMessageId,
-                highlightedMessageId: $highlightedMessageId
-            )
-        }
-    }
-}
-#endif
 
 /// Propagates the chat container's measured width up to ChatView so it can
 /// forward it to MessageListView for resize-aware scroll stabilization.

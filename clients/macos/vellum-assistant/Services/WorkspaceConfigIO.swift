@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 /// Utility for reading and writing the workspace configuration file at
 /// `~/.vellum/workspace/config.json`.
@@ -13,6 +14,28 @@ public enum WorkspaceConfigIO {
         return "\(home)/.vellum/workspace/config.json"
     }()
 
+    private static let connectedAssistantIdDefaultsKey = "connectedAssistantId"
+
+    /// Resolve the workspace config path for the currently connected assistant.
+    ///
+    /// Resolution order:
+    /// 1. Explicit `path` argument (tests/overrides)
+    /// 2. Connected assistant workspace from lockfile (`instanceDir`/`baseDataDir`)
+    /// 3. Legacy default `~/.vellum/workspace/config.json`
+    private static func resolvePath(_ path: String? = nil) -> String {
+        if let path, !path.isEmpty {
+            return path
+        }
+        guard let assistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey),
+              !assistantId.isEmpty,
+              let assistant = LockfileAssistant.loadByName(assistantId),
+              let workspaceDir = assistant.workspaceDir,
+              !workspaceDir.isEmpty else {
+            return defaultPath
+        }
+        return URL(fileURLWithPath: workspaceDir).appendingPathComponent("config.json").path
+    }
+
     /// Reads the workspace config and returns the top-level dictionary.
     ///
     /// Returns an empty dictionary when the file is missing, empty,
@@ -20,7 +43,7 @@ public enum WorkspaceConfigIO {
     ///
     /// - Parameter path: Override the file path (useful for testing).
     public static func read(from path: String? = nil) -> [String: Any] {
-        let filePath = path ?? defaultPath
+        let filePath = resolvePath(path)
 
         guard FileManager.default.fileExists(atPath: filePath) else {
             return [:]
@@ -54,7 +77,7 @@ public enum WorkspaceConfigIO {
     ///   - path: Override the file path (useful for testing).
     /// - Throws: If serialisation or filesystem operations fail.
     public static func merge(_ values: [String: Any], into path: String? = nil) throws {
-        let filePath = path ?? defaultPath
+        let filePath = resolvePath(path)
         let fileURL = URL(fileURLWithPath: filePath)
         let directory = fileURL.deletingLastPathComponent()
 
@@ -94,9 +117,12 @@ public enum WorkspaceConfigIO {
         }
     }
 
-    /// All known service keys. Add new services here to automatically include
-    /// them in `initializeServiceDefaults`.
-    static let serviceKeys = ["inference", "image-generation", "web-search", "google-oauth"]
+    /// Service keys whose mode can be force-overwritten during bootstrap.
+    static let forcibleServiceKeys = ["inference", "image-generation", "web-search"]
+
+    /// Service keys whose mode is only set when missing (never force-overwritten).
+    /// Google OAuth mode is user-selected and must survive app restarts.
+    static let initOnlyServiceKeys = ["google-oauth"]
 
     /// Sets the service mode for services that don't already have one configured.
     /// Called during onboarding (BYOK → "your-own") and managed-proxy bootstrap (→ "managed").
@@ -104,18 +130,28 @@ public enum WorkspaceConfigIO {
     ///
     /// - Parameters:
     ///   - mode: The service mode to set (e.g. "managed", "your-own").
-    ///   - force: When `true`, overwrites existing modes unconditionally. Use this
-    ///     for the managed bootstrap path where daemon-materialized schema defaults
-    ///     ("your-own") must be replaced with the correct managed mode.
+    ///   - force: When `true`, overwrites existing modes unconditionally for
+    ///     forcible services (inference, image-generation, web-search). Init-only
+    ///     services (google-oauth) are always set only when missing, regardless
+    ///     of this flag.
     ///   - path: Override the file path (useful for testing).
     public static func initializeServiceDefaults(defaultMode mode: String, force: Bool = false, into path: String? = nil) {
         let existingConfig = read(from: path)
         var services = existingConfig["services"] as? [String: Any] ?? [:]
         var changed = false
 
-        for key in serviceKeys {
+        for key in forcibleServiceKeys {
             var service = services[key] as? [String: Any] ?? [:]
             if force || service["mode"] == nil {
+                service["mode"] = mode
+                services[key] = service
+                changed = true
+            }
+        }
+
+        for key in initOnlyServiceKeys {
+            var service = services[key] as? [String: Any] ?? [:]
+            if service["mode"] == nil {
                 service["mode"] = mode
                 services[key] = service
                 changed = true

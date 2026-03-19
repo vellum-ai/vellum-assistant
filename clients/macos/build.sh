@@ -354,6 +354,7 @@ case "$CMD" in
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
         rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
         ;;

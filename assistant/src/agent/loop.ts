@@ -88,6 +88,7 @@ export type AgentEvent =
       cacheCreationInputTokens?: number;
       cacheReadInputTokens?: number;
       model: string;
+      actualProvider?: string;
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
@@ -100,6 +101,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
+const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const PROGRESS_CHECK_REMINDER =
   "You have been using tools for several turns. Check whether you are making meaningful progress toward the user's goal. If you are stuck in a loop or not making progress, summarize what you have tried and ask the user for guidance instead of continuing.";
 
@@ -200,6 +202,7 @@ export class AgentLoop {
     const history = [...messages];
     let toolUseTurns = 0;
     let nudgedForEmptyResponse = false;
+    let consecutiveErrorTurns = 0;
     let lastLlmCallTime = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -350,6 +353,7 @@ export class AgentLoop {
           cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
+          actualProvider: response.actualProvider ?? this.provider.name,
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
@@ -566,10 +570,34 @@ export class AgentLoop {
 
         // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
-        if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
+        const isProgressCheckTurn =
+          toolUseTurns % PROGRESS_CHECK_INTERVAL === 0;
+        if (isProgressCheckTurn) {
           resultBlocks.push({
             type: "text",
             text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,
+          });
+        }
+
+        // When any tool returned an error, nudge the LLM to retry with
+        // corrected parameters instead of ending its turn. Skip the nudge
+        // when the progress check fires (to avoid contradictory instructions)
+        // and after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
+        // (the error is likely unrecoverable at that point).
+        const hasToolError = toolResults.some(({ result }) => result.isError);
+        if (hasToolError) {
+          consecutiveErrorTurns++;
+        } else {
+          consecutiveErrorTurns = 0;
+        }
+        if (
+          hasToolError &&
+          !isProgressCheckTurn &&
+          consecutiveErrorTurns <= MAX_CONSECUTIVE_ERROR_NUDGES
+        ) {
+          resultBlocks.push({
+            type: "text",
+            text: "<system_notice>One or more tool calls returned an error. If the error looks recoverable (e.g. missing or invalid parameters), fix the parameters and retry. If the error is clearly unrecoverable (e.g. a service is down, a resource does not exist, or a permission is permanently denied), report it to the user.</system_notice>",
           });
         }
 

@@ -10,10 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import {
-  getAttachmentsByIds,
-  getFilePathForAttachment,
-} from "../../../../memory/attachments-store.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
@@ -123,84 +119,31 @@ async function splitAudio(
 
 async function resolveSource(
   input: Record<string, unknown>,
-): Promise<
-  | { inputPath: string; isVideo: boolean; tempFile: string | null }
-  | ToolExecutionResult
-> {
+): Promise<{ inputPath: string; isVideo: boolean } | ToolExecutionResult> {
   const filePath = input.file_path as string | undefined;
-  const attachmentId = input.attachment_id as string | undefined;
 
-  if (filePath) {
-    try {
-      await access(filePath);
-    } catch {
-      return { content: `File not found: ${filePath}`, isError: true };
-    }
-    const ext = extname(filePath).toLowerCase();
-    const isVideo = VIDEO_EXTENSIONS.has(ext);
-    const isAudio = AUDIO_EXTENSIONS.has(ext);
-    if (!isVideo && !isAudio) {
-      return {
-        content: `Unsupported file type: ${ext}. Only video and audio files can be transcribed.`,
-        isError: true,
-      };
-    }
-    return { inputPath: filePath, isVideo, tempFile: null };
-  }
-
-  if (attachmentId) {
-    const attachments = getAttachmentsByIds([attachmentId]);
-    if (attachments.length === 0) {
-      return {
-        content: `Attachment not found: ${attachmentId}`,
-        isError: true,
-      };
-    }
-    const attachment = attachments[0];
-    const mime = attachment.mimeType;
-    if (!mime.startsWith("video/") && !mime.startsWith("audio/")) {
-      return {
-        content: `Unsupported file type: ${mime}. Only video and audio files can be transcribed.`,
-        isError: true,
-      };
-    }
-    // Check if this is a file-backed attachment (large files stored on disk)
-    const onDiskPath = getFilePathForAttachment(attachment.id);
-    if (onDiskPath) {
-      // File-backed attachment - use the on-disk file directly
-      try {
-        await access(onDiskPath);
-      } catch {
-        return {
-          content: `Attachment file not found on disk: ${onDiskPath}`,
-          isError: true,
-        };
-      }
-      return {
-        inputPath: onDiskPath,
-        isVideo: mime.startsWith("video/"),
-        tempFile: null,
-      };
-    }
-
-    // Inline attachment - decode base64 to a temp file
-    const ext = mime.startsWith("video/") ? ".mp4" : ".m4a";
-    const tempPath = join(
-      tmpdir(),
-      `vellum-transcribe-in-${randomUUID()}${ext}`,
-    );
-    await writeFile(tempPath, Buffer.from(attachment.dataBase64, "base64"));
+  if (!filePath) {
     return {
-      inputPath: tempPath,
-      isVideo: mime.startsWith("video/"),
-      tempFile: tempPath,
+      content: "Provide a file_path to the audio or video file to transcribe.",
+      isError: true,
     };
   }
 
-  return {
-    content: "Provide either file_path or attachment_id.",
-    isError: true,
-  };
+  try {
+    await access(filePath);
+  } catch {
+    return { content: `File not found: ${filePath}`, isError: true };
+  }
+  const ext = extname(filePath).toLowerCase();
+  const isVideo = VIDEO_EXTENSIONS.has(ext);
+  const isAudio = AUDIO_EXTENSIONS.has(ext);
+  if (!isVideo && !isAudio) {
+    return {
+      content: `Unsupported file type: ${ext}. Only video and audio files can be transcribed.`,
+      isError: true,
+    };
+  }
+  return { inputPath: filePath, isVideo };
 }
 
 /** Convert source to 16kHz mono WAV for consistent processing. */
@@ -462,7 +405,7 @@ export async function run(
   const source = await resolveSource(input);
   if ("isError" in source) return source;
 
-  const { inputPath, isVideo, tempFile } = source;
+  const { inputPath, isVideo } = source;
   let wavPath: string | null = null;
 
   try {
@@ -487,13 +430,6 @@ export async function run(
       isError: true,
     };
   } finally {
-    if (tempFile) {
-      try {
-        await unlink(tempFile);
-      } catch {
-        /* ignore */
-      }
-    }
     if (wavPath) {
       try {
         await unlink(wavPath);

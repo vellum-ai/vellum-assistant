@@ -154,7 +154,6 @@ struct IdentityPanel: View {
                     )
                     .frame(width: 360)
                     .fixedSize(horizontal: false, vertical: true)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }

@@ -347,6 +347,40 @@ describe("Memory Item Routes", () => {
       expect(body.items[1].id).toBe("i1");
     });
 
+    test("supports sort by accessCount descending", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "s1",
+        statement: "st1",
+      });
+      insertItem({
+        id: "i2",
+        kind: "preference",
+        subject: "s2",
+        statement: "st2",
+      });
+
+      getDb()
+        .update(memoryItems)
+        .set({ accessCount: 2 })
+        .where(eq(memoryItems.id, "i1"))
+        .run();
+      getDb()
+        .update(memoryItems)
+        .set({ accessCount: 7 })
+        .where(eq(memoryItems.id, "i2"))
+        .run();
+
+      const ctx = makeCtx({ sort: "accessCount", order: "desc" });
+      const res = await handler(ctx);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+      };
+      expect(body.items[0].id).toBe("i2");
+      expect(body.items[1].id).toBe("i1");
+    });
+
     test("rejects invalid kind filter", async () => {
       const ctx = makeCtx({ kind: "bogus" });
       const res = await handler(ctx);

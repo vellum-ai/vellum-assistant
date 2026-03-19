@@ -163,6 +163,76 @@ export function projectAssistantMessage(params: {
     .run();
 }
 
+/**
+ * Seed a forked conversation's assistant-attention projection so copied
+ * assistant history is treated as already seen from the outset.
+ */
+export function seedForkedConversationAttention(params: {
+  conversationId: string;
+  latestAssistantMessageId: string | null;
+  latestAssistantMessageAt: number | null;
+}): void {
+  const {
+    conversationId,
+    latestAssistantMessageId,
+    latestAssistantMessageAt,
+  } = params;
+
+  if (!latestAssistantMessageId || latestAssistantMessageAt == null) {
+    return;
+  }
+
+  const db = getDb();
+  const now = Date.now();
+  const existing = db
+    .select()
+    .from(conversationAssistantAttentionState)
+    .where(
+      eq(conversationAssistantAttentionState.conversationId, conversationId),
+    )
+    .get();
+
+  if (!existing) {
+    db.insert(conversationAssistantAttentionState)
+      .values({
+        conversationId,
+        latestAssistantMessageId,
+        latestAssistantMessageAt,
+        lastSeenAssistantMessageId: latestAssistantMessageId,
+        lastSeenAssistantMessageAt: latestAssistantMessageAt,
+        lastSeenEventAt: null,
+        lastSeenConfidence: null,
+        lastSeenSignalType: null,
+        lastSeenSourceChannel: null,
+        lastSeenSource: null,
+        lastSeenEvidenceText: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return;
+  }
+
+  db.update(conversationAssistantAttentionState)
+    .set({
+      latestAssistantMessageId,
+      latestAssistantMessageAt,
+      lastSeenAssistantMessageId: latestAssistantMessageId,
+      lastSeenAssistantMessageAt: latestAssistantMessageAt,
+      lastSeenEventAt: null,
+      lastSeenConfidence: null,
+      lastSeenSignalType: null,
+      lastSeenSourceChannel: null,
+      lastSeenSource: null,
+      lastSeenEvidenceText: null,
+      updatedAt: now,
+    })
+    .where(
+      eq(conversationAssistantAttentionState.conversationId, conversationId),
+    )
+    .run();
+}
+
 // ── recordConversationSeenSignal ─────────────────────────────────────
 
 /**

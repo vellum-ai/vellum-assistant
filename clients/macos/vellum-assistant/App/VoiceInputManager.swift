@@ -69,7 +69,7 @@ final class VoiceInputManager {
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
 
-    /// Overlay for first-use permission prompts (microphone/speech recognition).
+    /// Overlay for denied permission prompts (microphone/speech recognition).
     private let permissionOverlay = PermissionPromptOverlay()
 
     /// True after a dictation request has been sent and we're awaiting a response.
@@ -553,11 +553,13 @@ final class VoiceInputManager {
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
-            // Skip custom overlay — go straight to the native system permission dialogs.
+            // Show a primer explaining why we need mic access, then request.
             currentDictationContext = nil
-            Task { @MainActor [weak self] in
-                await self?.requestPermissionsAndRecord()
-            }
+            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
+                Task { @MainActor in
+                    await self?.requestPermissionsAndRecord()
+                }
+            })
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
@@ -571,7 +573,7 @@ final class VoiceInputManager {
             } else {
                 deniedPermission = .speechRecognition
             }
-            showDeniedPermissionPrompt(deniedPermission: deniedPermission)
+            permissionOverlay.show(kind: .denied(deniedPermission), onDismiss: {}, onContinue: {})
             currentDictationContext = nil
             return
         }
@@ -691,24 +693,7 @@ final class VoiceInputManager {
 
     // MARK: - Permission Prompt
 
-    /// Display name for the currently configured activation key, for use in user-facing copy.
-    private var activationKeyDisplayName: String {
-        let current = activator
-        if current.kind == .none { return "the activation key" }
-        return current.displayName
-    }
 
-    /// Show the denied-permission overlay directing the user to System Settings.
-    private func showDeniedPermissionPrompt(deniedPermission: PermissionPromptOverlay.DeniedPermission) {
-        let keyName = activationKeyDisplayName
-        permissionOverlay.show(
-            kind: deniedPermission,
-            keyName: keyName,
-            onDismiss: { [weak self] in
-                self?.permissionOverlay.dismiss()
-            }
-        )
-    }
 
     /// Request both microphone and speech recognition permissions sequentially,
     /// then start recording if both are granted.
@@ -716,7 +701,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            showDeniedPermissionPrompt(deniedPermission: .microphone)
+            permissionOverlay.show(kind: .denied(.microphone), onDismiss: {}, onContinue: {})
             return
         }
 
@@ -727,7 +712,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            showDeniedPermissionPrompt(deniedPermission: .speechRecognition)
+            permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
             return
         }
 
@@ -738,11 +723,6 @@ final class VoiceInputManager {
         self.beginRecording()
     }
 
-    private func openPrivacySettings(for pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
-    }
 
     /// Routes a final transcription based on the current mode.
     func handleFinalTranscription(_ text: String) {

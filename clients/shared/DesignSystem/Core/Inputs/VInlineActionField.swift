@@ -108,23 +108,3 @@ public struct VInlineActionField: View {
         }
     }
 }
-
-#if DEBUG
-
-private struct VInlineActionFieldPreviewWrapper: View {
-    @State private var text = ""
-    @State private var secureText = ""
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(spacing: 16) {
-                VInlineActionField(text: $text, placeholder: "Enter a value") {}
-                VInlineActionField(text: $secureText, placeholder: "Your API key", isSecure: true) {}
-                VInlineActionField(text: $text, placeholder: "@username or chat ID", actionLabel: "Send") {}
-            }
-            .padding()
-        }
-    }
-}
-#endif

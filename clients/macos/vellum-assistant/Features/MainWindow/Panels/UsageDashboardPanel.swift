@@ -77,9 +77,9 @@ struct UsageDashboardPanel: View {
                         refreshTask = Task { await store.selectRange(newRange) }
                     }
                 ),
-                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) }
+                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) },
+                maxWidth: 160
             )
-            .frame(width: 160)
             Spacer()
         }
         .frame(maxWidth: 900)
@@ -105,7 +105,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Totals Section
 
     @ViewBuilder
-    private func totalsSection(store: UsageDashboardStore) -> some View {
+    func totalsSection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Totals") {
             switch store.totalsState {
             case .idle, .loading:
@@ -141,7 +141,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Daily Trend Section
 
     @ViewBuilder
-    private func dailySection(store: UsageDashboardStore) -> some View {
+    func dailySection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
@@ -241,7 +241,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Breakdown Section
 
     @ViewBuilder
-    private func breakdownSection(store: UsageDashboardStore) -> some View {
+    func breakdownSection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Breakdown") {
             groupByPicker(store: store)
 
@@ -296,9 +296,9 @@ struct UsageDashboardPanel: View {
                     breakdownTask = Task { await store.selectGroupBy(newDimension) }
                 }
             ),
-            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) }
+            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
+            maxWidth: 140
         )
-        .frame(width: 140)
     }
 
     private let breakdownTableWidth: CGFloat = 500
@@ -414,12 +414,4 @@ struct UsageDashboardPanel: View {
     private func formatCount(_ count: Int) -> String {
         UsageFormatting.formatCount(count)
     }
-}
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        UsageDashboardPanel(store: UsageDashboardStore(), onClose: {})
-    }
-    .frame(width: 400, height: 600)
 }

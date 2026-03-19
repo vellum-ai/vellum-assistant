@@ -369,9 +369,4 @@ struct IdentityView: View {
         return display.string(from: date)
     }
 }
-
-#Preview {
-    IdentityView()
-        .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
-}
 #endif

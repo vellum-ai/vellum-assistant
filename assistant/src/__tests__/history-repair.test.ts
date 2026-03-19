@@ -491,12 +491,17 @@ describe("repairHistory", () => {
     expect(assistantMsg.content[1]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
-      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "unavailable",
+      },
     });
 
     // User message has no web_search_tool_result
     const userMsg = repaired[2];
-    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
+    expect(
+      userMsg.content.every((b) => b.type !== "web_search_tool_result"),
+    ).toBe(true);
   });
 
   test("migrates legacy web_search_tool_result from user message to assistant message", () => {
@@ -527,7 +532,9 @@ describe("repairHistory", () => {
           {
             type: "web_search_tool_result",
             tool_use_id: "srvtoolu_abc",
-            content: [{ type: "web_search_result", url: "https://example.com" }],
+            content: [
+              { type: "web_search_result", url: "https://example.com" },
+            ],
           },
           { type: "tool_result", tool_use_id: "tu_1", content: "files" },
         ],
@@ -545,8 +552,12 @@ describe("repairHistory", () => {
 
     // The assistant message now has the server pair + client tool_use
     const assistantMsg = repaired[1];
-    const serverToolUse = assistantMsg.content.find((b) => b.type === "server_tool_use");
-    const webSearchResult = assistantMsg.content.find((b) => b.type === "web_search_tool_result");
+    const serverToolUse = assistantMsg.content.find(
+      (b) => b.type === "server_tool_use",
+    );
+    const webSearchResult = assistantMsg.content.find(
+      (b) => b.type === "web_search_tool_result",
+    );
     expect(serverToolUse).toBeDefined();
     expect(webSearchResult).toBeDefined();
 
@@ -554,7 +565,9 @@ describe("repairHistory", () => {
     const userMsg = repaired[2];
     expect(stats.orphanToolResultsDowngraded).toBe(1);
     expect(userMsg.content.some((b) => b.type === "tool_result")).toBe(true);
-    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
+    expect(
+      userMsg.content.every((b) => b.type !== "web_search_tool_result"),
+    ).toBe(true);
   });
 
   test("trailing server_tool_use gets synthetic result in same assistant message", () => {
@@ -584,7 +597,10 @@ describe("repairHistory", () => {
     expect(repaired[1].content[1]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
-      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "unavailable",
+      },
     });
   });
 
@@ -696,11 +712,15 @@ describe("repairHistory", () => {
 
     // Assistant message has the server pair
     const assistantMsg = repaired[1];
-    expect(assistantMsg.content.some((b) => b.type === "web_search_tool_result")).toBe(true);
+    expect(
+      assistantMsg.content.some((b) => b.type === "web_search_tool_result"),
+    ).toBe(true);
 
     // User message has no web_search_tool_result — the tool_result was downgraded to text
     const userMsg = repaired[2];
-    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
+    expect(
+      userMsg.content.every((b) => b.type !== "web_search_tool_result"),
+    ).toBe(true);
     expect(userMsg.content.every((b) => b.type !== "tool_result")).toBe(true);
   });
 
@@ -720,7 +740,9 @@ describe("repairHistory", () => {
           {
             type: "web_search_tool_result",
             tool_use_id: "tu_1",
-            content: [{ type: "web_search_result", url: "https://example.com" }],
+            content: [
+              { type: "web_search_result", url: "https://example.com" },
+            ],
           },
         ],
       },

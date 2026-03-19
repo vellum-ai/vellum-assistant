@@ -120,6 +120,12 @@ export { createLifecycleEventsTable } from "./175-create-lifecycle-events.js";
 export { migrateDropCapabilityCardState } from "./176-drop-capability-card-state.js";
 export { migrateCreateTraceEventsTable } from "./177-create-trace-events-table.js";
 export { migrateOAuthProvidersManagedServiceConfigKey } from "./178-oauth-providers-managed-service-config-key.js";
+export { migrateLlmRequestLogMessageId } from "./179-llm-request-log-message-id.js";
+export { migrateBackfillInlineAttachmentsToDisk } from "./180-backfill-inline-attachments-to-disk.js";
+export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-starters-checkpoints.js";
+export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-display-metadata.js";
+export { migrateConversationForkLineage } from "./183-add-conversation-fork-lineage.js";
+export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

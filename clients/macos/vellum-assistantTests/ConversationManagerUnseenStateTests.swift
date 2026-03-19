@@ -736,8 +736,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        // Simulate previously seen state
+        // Simulate previously seen state with stale recency
         conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
+        conversationManager.conversations[idx].lastInteractedAt = Date(timeIntervalSince1970: 1000)
 
         // Ensure the active conversation is a different one (the default from setUp)
         XCTAssertNotEqual(conversationManager.conversations[idx].id, conversationManager.activeConversationId)
@@ -751,6 +752,10 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(
             abs(conversationManager.conversations[idx].latestAssistantMessageAt!.timeIntervalSinceNow) < 1.0,
             "latestAssistantMessageAt should be recent (within last second)"
+        )
+        XCTAssertTrue(
+            abs(conversationManager.conversations[idx].lastInteractedAt.timeIntervalSinceNow) < 1.0,
+            "lastInteractedAt should be updated so the conversation sorts to the top of the sidebar"
         )
     }
 
@@ -775,11 +780,16 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         }
 
         conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
+        conversationManager.conversations[idx].lastInteractedAt = Date(timeIntervalSince1970: 1000)
 
         conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-active-1")
 
         XCTAssertFalse(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
                        "Active conversation should not be marked unseen — user is looking at it")
+        XCTAssertTrue(
+            abs(conversationManager.conversations[idx].lastInteractedAt.timeIntervalSinceNow) < 1.0,
+            "lastInteractedAt should still be updated for active conversations so sidebar order reflects the notification"
+        )
     }
 
     func testNotificationIntentNoopsForUnknownConversation() {
@@ -840,6 +850,83 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "handleNotificationIntentForExistingConversation should trigger a history request")
         XCTAssertEqual(historyRequests.first?.conversationId, "notif-history-1",
                        "History request should target the correct conversation")
+    }
+
+    func testNotificationIntentRemovesPendingSeenSignal() {
+        // Create a background conversation and mark it unseen
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-seen-race",
+            scheduleJobId: "sched-seen-race",
+            title: "Seen Race Target"
+        )
+
+        guard let idx = conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-seen-race" }) else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = true
+        conversationManager.conversations[idx].latestAssistantMessageAt = Date(timeIntervalSince1970: 1)
+
+        // Mark all seen — this defers the seen signal in pendingSeenConversationIds
+        conversationManager.markAllConversationsSeen()
+
+        // A notification intent arrives during the undo window
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-seen-race")
+
+        // Commit the pending seen signals — should NOT include the notification conversation
+        sentMessages.removeAll()
+        conversationManager.commitPendingSeenSignals()
+
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
+        XCTAssertFalse(seenSignals.contains(where: { $0.conversationId == "notif-seen-race" }),
+                       "Pending seen signal should be removed when a notification intent marks the conversation unseen")
+        XCTAssertTrue(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
+                      "Conversation should remain unseen after notification intent")
+    }
+
+    func testNotificationIntentQueuesCatchUpWhenVMBusy() {
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-busy-1",
+            scheduleJobId: "sched-busy-1",
+            title: "Busy Target"
+        )
+
+        guard let idx = conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-busy-1" }) else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        let localId = conversationManager.conversations[idx].id
+
+        guard let vm = conversationManager.chatViewModel(for: localId) else {
+            XCTFail("Expected ChatViewModel")
+            return
+        }
+
+        // Simulate a busy VM
+        vm.isSending = true
+        waitForPropagation()
+
+        sentMessages.removeAll()
+
+        // Notification arrives while VM is busy — should NOT trigger history request yet
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-busy-1")
+
+        let historyRequestsDuringBusy = sentMessages.compactMap { $0 as? HistoryRequestMessage }
+        XCTAssertTrue(historyRequestsDuringBusy.isEmpty,
+                      "History request should be deferred while VM is busy")
+
+        // VM finishes — should trigger the queued catch-up
+        sentMessages.removeAll()
+        vm.isSending = false
+        waitForPropagation()
+
+        let historyRequestsAfterIdle = sentMessages.compactMap { $0 as? HistoryRequestMessage }
+        XCTAssertFalse(historyRequestsAfterIdle.isEmpty,
+                       "Queued history request should fire when VM becomes idle")
+        XCTAssertEqual(historyRequestsAfterIdle.first?.conversationId, "notif-busy-1",
+                       "Deferred history request should target the correct conversation")
     }
 
     private func waitForPropagation() {

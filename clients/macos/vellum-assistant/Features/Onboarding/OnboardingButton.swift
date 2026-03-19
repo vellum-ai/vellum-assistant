@@ -116,16 +116,3 @@ struct OnboardingButton: View {
         fadeIn ? (visible ? 1 : 0) : (disabled ? 0.6 : 1)
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        VStack(spacing: VSpacing.xl) {
-            OnboardingButton(title: "Say hello", style: .primary) {}
-            OnboardingButton(title: "Skip", style: .ghost) {}
-            OnboardingButton(title: "Disabled", style: .primary, disabled: true) {}
-        }
-        .frame(width: 300)
-    }
-    .frame(width: 400, height: 200)
-}

@@ -80,7 +80,7 @@ export function handleBashSignal(filename: string): void {
         exitCode: null,
         timedOut: false,
         error:
-          "Bash signals are disabled. The running assistant process must have been started with VELLUM_DEBUG=1 (setting it on the CLI command alone is not enough). Restart the assistant with: VELLUM_DEBUG=1 assistant start",
+          "Bash signals are disabled. The running assistant process must have been started with VELLUM_DEBUG=1 (setting it on the CLI command alone is not enough). Restart the assistant with: vellum sleep && VELLUM_DEBUG=1 vellum wake",
       });
     }
     return;

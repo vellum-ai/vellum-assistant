@@ -26,12 +26,17 @@ export const conversations = sqliteTable(
     memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
     originInterface: text("origin_interface"),
+    forkParentConversationId: text("fork_parent_conversation_id"),
+    forkParentMessageId: text("fork_parent_message_id"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
     index("idx_conversations_conversation_type").on(table.conversationType),
+    index("idx_conversations_fork_parent_conversation_id").on(
+      table.forkParentConversationId,
+    ),
   ],
 );
 
@@ -88,6 +93,7 @@ export const attachments = sqliteTable("attachments", {
   dataBase64: text("data_base64").notNull(),
   contentHash: text("content_hash"),
   thumbnailBase64: text("thumbnail_base64"),
+  filePath: text("file_path"),
   createdAt: integer("created_at").notNull(),
 });
 

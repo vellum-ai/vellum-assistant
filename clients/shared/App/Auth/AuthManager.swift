@@ -170,13 +170,21 @@ public final class AuthManager {
         }
     }
 
-    public func logout() async {
+    /// Logs out by deleting the server session, clearing local tokens and
+    /// persisted identifiers, and transitioning to `.unauthenticated`.
+    ///
+    /// Returns the error description if the HTTP DELETE to the session endpoint
+    /// fails (e.g. server unreachable). The local cleanup always proceeds
+    /// regardless. Does **not** set `errorMessage` — callers that need to
+    /// surface the error (e.g. via a toast) should inspect the return value.
+    @discardableResult
+    public func logout() async -> String? {
+        var logoutError: String?
         do {
             _ = try await authService.logout()
-            errorMessage = nil
         } catch {
             log.error("Logout request failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            errorMessage = error.localizedDescription
+            logoutError = error.localizedDescription
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -184,6 +192,7 @@ public final class AuthManager {
         UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated
+        return logoutError
     }
 
     private func generateCodeVerifier() -> String {

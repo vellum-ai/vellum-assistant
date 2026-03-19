@@ -16,6 +16,9 @@ import type {
 
 const log = getLogger("gemini-client");
 
+/** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
+const VALIDATION_TIMEOUT_MS = 10_000;
+
 /**
  * Validate a Gemini API key by making a lightweight models.list() call.
  * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
@@ -25,7 +28,12 @@ export async function validateGeminiApiKey(
 ): Promise<{ valid: true } | { valid: false; reason: string }> {
   try {
     const client = new GoogleGenAI({ apiKey });
-    await client.models.list({ config: { pageSize: 1 } });
+    await client.models.list({
+      config: {
+        pageSize: 1,
+        httpOptions: { timeout: VALIDATION_TIMEOUT_MS },
+      },
+    });
     return { valid: true };
   } catch (error) {
     if (error instanceof ApiError) {

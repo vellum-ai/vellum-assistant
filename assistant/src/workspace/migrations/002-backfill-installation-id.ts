@@ -16,8 +16,8 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     "Backfill installationId into lockfile from SQLite checkpoint and clean up stale row",
   run(_workspaceDir: string): void {
     // a. Read existing installation ID from SQLite, or generate a new one.
-    //    On fresh installs the memory_checkpoints table may not exist yet
-    //    (workspace migrations run before initializeDb), so treat errors as null.
+    //    On fresh installs the memory_checkpoints table may not exist yet,
+    //    so treat errors as null.
     let existingId: string | null = null;
     try {
       existingId = getMemoryCheckpoint("telemetry:installation_id");
@@ -26,19 +26,30 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     }
     const installationId = existingId || randomUUID();
 
-    // b. Read the lockfile from the standard path
+    // b. Read the lockfile — check both the current and legacy lockfile paths
+    //    to support installs that haven't migrated the filename yet.
     const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-    const lockPath = join(base, ".vellum.lock.json");
-    if (!existsSync(lockPath)) return;
+    const lockCandidates = [
+      join(base, ".vellum.lock.json"),
+      join(base, ".vellum.lockfile.json"),
+    ];
 
-    let lockData: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      lockData = raw as Record<string, unknown>;
-    } catch {
-      return;
+    let lockPath: string | undefined;
+    let lockData: Record<string, unknown> | undefined;
+    for (const candidate of lockCandidates) {
+      if (!existsSync(candidate)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(candidate, "utf-8"));
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          lockPath = candidate;
+          lockData = raw as Record<string, unknown>;
+          break;
+        }
+      } catch {
+        // Malformed — try next candidate.
+      }
     }
+    if (!lockPath || !lockData) return;
 
     // c. Find the assistant entry that corresponds to this daemon instance
     const assistants = lockData.assistants as

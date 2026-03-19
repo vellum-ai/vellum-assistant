@@ -38,6 +38,7 @@ export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
+  VALID_CONVERSATION_TIMEOUTS,
 } from "./schemas/elevenlabs.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";

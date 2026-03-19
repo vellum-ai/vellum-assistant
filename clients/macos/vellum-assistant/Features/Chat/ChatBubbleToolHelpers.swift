@@ -85,7 +85,7 @@ extension ChatBubble {
     static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
         // For app file tools, prefer the descriptive building status from tool input
         if let status = buildingStatus {
-            if toolName == "app_file_edit" || toolName == "app_file_write" || toolName == "app_create" || toolName == "app_update" {
+            if toolName == "app_create" || toolName == "app_refresh" {
                 return status
             }
         }
@@ -102,9 +102,7 @@ extension ChatBubble {
         case "browser_click":                   return "Clicking on the page"
         case "browser_screenshot":              return "Taking a screenshot"
         case "app_create":                      return "Building your app"
-        case "app_update":                      return "Updating your app"
-        case "app_file_edit":                   return "Editing app files"
-        case "app_file_write":                  return "Writing app files"
+        case "app_refresh":                     return "Refreshing your app"
         case "skill_load":
             if let name = inputSummary, !name.isEmpty {
                 // App-builder skill gets a more contextual label
@@ -129,9 +127,7 @@ extension ChatBubble {
         if let status = buildingStatus { return status }
         switch toolName {
         case "app_create":                              return "Building your app"
-        case "app_update":                              return "Updating your app"
-        case "app_file_edit":                           return "Styling UI"
-        case "app_file_write":                          return "Writing interface code"
+        case "app_refresh":                             return "Refreshing your app"
         case "skill_load":                              return "Loading skill"
         case "web_search":                              return "Researching"
         case "web_fetch":                               return "Gathering information"
@@ -156,11 +152,11 @@ extension ChatBubble {
                 "Polishing the details",
                 "Almost there",
             ]
-        case "app_update":
+        case "app_refresh":
             return [
                 "Reviewing your app",
                 "Applying changes",
-                "Updating the interface",
+                "Refreshing the interface",
                 "Polishing the details",
             ]
         default:

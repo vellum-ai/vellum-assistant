@@ -265,10 +265,10 @@ extension ChatViewModel {
     }
 
     /// Extract a code preview from accumulated tool input JSON.
-    /// Shows the HTML code as it streams during app_create/app_update.
+    /// Shows the HTML code as it streams during app_create/app_refresh.
     static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
         guard !accumulatedJson.isEmpty else { return nil }
-        let isAppTool = toolName == "app_create" || toolName == "app_update"
+        let isAppTool = toolName == "app_create" || toolName == "app_refresh"
         guard isAppTool else { return nil }
 
         // Find the html JSON string value by locating the opening quote
@@ -359,7 +359,8 @@ extension ChatViewModel {
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath
+                filePath: attachment.filePath,
+                sourceType: attachment.sourceType
             )
         }
     }
@@ -375,6 +376,21 @@ extension ChatViewModel {
             messages[index].attachments.append(contentsOf: chatAttachments)
         } else {
             let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
+    /// Ingest attachment warnings from a completion/handoff event into the
+    /// current or new assistant message.
+    func ingestAssistantAttachmentWarnings(_ warnings: [String]?) {
+        guard let warnings, !warnings.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachmentWarnings.append(contentsOf: warnings)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachmentWarnings: warnings)
             currentAssistantMessageId = msg.id
             messages.append(msg)
         }
@@ -456,9 +472,7 @@ extension ChatViewModel {
         } else {
             // No existing assistant message — create a new one (first text delta)
             var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
-            if currentTurnUserText == "/model" {
-                msg.modelPicker = ModelPickerData()
-            } else if currentTurnUserText == "/models" {
+            if currentTurnUserText == "/models" {
                 msg.modelList = ModelListData()
             } else if currentTurnUserText == "/commands" {
                 msg.commandList = CommandListData()
@@ -1107,10 +1121,21 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments.
+                    // Include filePath, sizeBytes, and thumbnailData so file-backed
+                    // attachments survive the secret-ingress redirect.
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
-                        secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                        secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
+                            guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                            return UserMessageAttachment(
+                                filename: att.filename,
+                                mimeType: att.mimeType,
+                                data: att.data,
+                                extractedText: nil,
+                                sizeBytes: att.sizeBytes,
+                                thumbnailData: att.thumbnailData?.base64EncodedString(),
+                                filePath: att.filePath
+                            )
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
@@ -1284,18 +1309,13 @@ extension ChatViewModel {
             isThinking = false
             // Extract building status for app tools
             let buildingStatus: String? = {
-                let appTools: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
+                let appTools: Set<String> = ["app_create", "app_refresh"]
                 guard appTools.contains(msg.toolName) else { return nil }
                 if let status = msg.input["status"]?.value as? String, !status.isEmpty {
                     return status
                 }
-                // Fallback status for file tools only; app_create/app_update
-                // rely on friendlyRunningLabel + progressive label cycling
-                switch msg.toolName {
-                case "app_file_edit": return "Editing app files"
-                case "app_file_write": return "Writing app files"
-                default: return nil
-                }
+                // app_create/app_refresh rely on friendlyRunningLabel + progressive label cycling
+                return nil
             }()
             // Upsert by toolUseId: if a preview chip already exists for this tool, update it
             // instead of creating a duplicate.
@@ -1526,6 +1546,7 @@ extension ChatViewModel {
             }
             if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
                 messages[msgIndex].toolCalls[tcIndex].result = msg.result
+                messages[msgIndex].toolCalls[tcIndex].resultLength = msg.result.count
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
@@ -1794,13 +1815,15 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
-                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
-                messages.append(errorMsg)
-                // Mark the error as displayed inline so the toast overlay
-                // suppresses its duplicate display, while keeping the typed
-                // error state available for downstream consumers (credits-
-                // exhausted recovery, sidebar state, iOS banner).
-                errorManager.isConversationErrorDisplayedInline = true
+                if shouldCreateInlineErrorMessage?(typedError) ?? true {
+                    let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
+                    messages.append(errorMsg)
+                    // Mark the error as displayed inline so the toast overlay
+                    // suppresses its duplicate display, while keeping the typed
+                    // error state available for downstream consumers (credits-
+                    // exhausted recovery, sidebar state, iOS banner).
+                    errorManager.isConversationErrorDisplayedInline = true
+                }
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -1964,6 +1987,12 @@ extension ChatViewModel {
             selectedModel = msg.model
             if let providers = msg.configuredProviders {
                 configuredProviders = Set(providers)
+            }
+            if let allProviders = msg.allProviders, !allProviders.isEmpty {
+                providerCatalog = allProviders
+            }
+            if let maskedKeys = msg.maskedKeys {
+                providerMaskedKeys = maskedKeys
             }
 
         case .memoryStatus(let status):

@@ -8,11 +8,13 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     var fetchVercelConfigCallCount = 0
     var fetchModelInfoCallCount = 0
-    var setModelCalls: [String] = []
+    var setModelCalls: [(model: String, provider: String?)] = []
     var setImageGenModelCalls: [String] = []
     var fetchTelegramConfigCallCount = 0
     var setTelegramConfigCalls: [(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?)] = []
     var setSlackWebhookConfigCalls: [(action: String, webhookUrl: String?)] = []
+    var fetchEmbeddingConfigCallCount = 0
+    var setEmbeddingConfigCalls: [(provider: String, model: String?)] = []
     var fetchChannelVerificationStatusCalls: [String] = []
 
     // MARK: - Configurable Responses
@@ -21,6 +23,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     var modelInfoResponse: ModelInfoMessage?
     var setModelResponse: ModelInfoMessage?
     var setImageGenModelResponse: ModelInfoMessage?
+    var embeddingConfigResponse: EmbeddingConfigMessage?
+    var setEmbeddingConfigResponse: EmbeddingConfigMessage?
     var telegramConfigResponse: TelegramConfigResponseMessage?
     var setTelegramConfigResponse: TelegramConfigResponseMessage?
     var setSlackWebhookConfigResponse: Bool = true
@@ -39,13 +43,23 @@ final class MockSettingsClient: SettingsClientProtocol {
     }
 
     func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
-        setModelCalls.append(model)
+        setModelCalls.append((model: model, provider: provider))
         return setModelResponse
     }
 
     func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
         setImageGenModelCalls.append(modelId)
         return setImageGenModelResponse
+    }
+
+    func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? {
+        fetchEmbeddingConfigCallCount += 1
+        return embeddingConfigResponse
+    }
+
+    func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage? {
+        setEmbeddingConfigCalls.append((provider: provider, model: model))
+        return setEmbeddingConfigResponse
     }
 
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {

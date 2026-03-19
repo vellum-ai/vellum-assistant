@@ -21,8 +21,8 @@ export interface ShutdownDeps {
   hookManager: HookManager;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
-  memoryWorker: { stop(): void };
-  qdrantManager: QdrantManager;
+  getMemoryWorker: () => { stop(): void } | null;
+  getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
   telemetryReporter: { stop(): Promise<void> } | null;
   cleanupPidFile: () => void;
@@ -106,7 +106,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
     await browserManager.closeAllPages();
     deps.scheduler.stop();
-    deps.memoryWorker.stop();
+    deps.getMemoryWorker()?.stop();
 
     if (deps.mcpManager) {
       try {
@@ -116,7 +116,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       }
     }
 
-    await deps.qdrantManager.stop();
+    await deps.getQdrantManager()?.stop();
 
     // Checkpoint WAL and close SQLite so no writes are lost on exit.
     // Checkpoint and close are in separate try blocks so that close()
@@ -143,7 +143,10 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
   process.on("SIGHUP", shutdown);
 
   process.on("unhandledRejection", (reason) => {
-    log.error({ err: reason }, "Unhandled promise rejection — initiating shutdown");
+    log.error(
+      { err: reason },
+      "Unhandled promise rejection — initiating shutdown",
+    );
     Sentry.captureException(reason);
     exitCode = 1;
     void shutdown();

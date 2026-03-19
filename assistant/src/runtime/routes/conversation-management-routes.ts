@@ -2,6 +2,7 @@
  * Route handlers for conversation management operations.
  *
  * POST   /v1/conversations/switch         — switch to an existing conversation
+ * POST   /v1/conversations/fork           — fork an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -15,6 +16,7 @@
 import {
   batchSetDisplayOrders,
   deleteConversation,
+  PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import {
@@ -22,6 +24,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -33,6 +36,10 @@ const log = getLogger("conversation-management-routes");
 // ---------------------------------------------------------------------------
 
 export interface ConversationManagementDeps {
+  forkConversation?: (params: {
+    conversationId: string;
+    throughMessageId?: string;
+  }) => Promise<Record<string, unknown>> | Record<string, unknown>;
   switchConversation: (conversationId: string) => Promise<{
     conversationId: string;
     title: string;
@@ -59,6 +66,67 @@ export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
+    {
+      endpoint: "conversations/fork",
+      method: "POST",
+      policyKey: "conversations/fork",
+      handler: async ({ req }) => {
+        if (!deps.forkConversation) {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Conversation forking not available",
+            500,
+          );
+        }
+
+        const rawBody = (await req.json()) as unknown;
+        if (
+          rawBody == null ||
+          typeof rawBody !== "object" ||
+          Array.isArray(rawBody)
+        ) {
+          return httpError("BAD_REQUEST", "Invalid request body", 400);
+        }
+
+        const body = rawBody as {
+          conversationId?: string;
+          throughMessageId?: string;
+        };
+        const conversationId = body.conversationId;
+        if (!conversationId || typeof conversationId !== "string") {
+          return httpError("BAD_REQUEST", "Missing conversationId", 400);
+        }
+        if (
+          body.throughMessageId !== undefined &&
+          typeof body.throughMessageId !== "string"
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            "throughMessageId must be a string",
+            400,
+          );
+        }
+
+        const resolvedConversationId =
+          resolveConversationId(conversationId) ?? conversationId;
+
+        try {
+          const conversation = await deps.forkConversation({
+            conversationId: resolvedConversationId,
+            throughMessageId: body.throughMessageId,
+          });
+          return Response.json({ conversation });
+        } catch (err) {
+          if (err instanceof UserError) {
+            if (err.message === PRIVATE_CONVERSATION_FORK_ERROR) {
+              return httpError("FORBIDDEN", err.message, 403);
+            }
+            return httpError("NOT_FOUND", err.message, 404);
+          }
+          throw err;
+        }
+      },
+    },
     {
       endpoint: "conversations/switch",
       method: "POST",

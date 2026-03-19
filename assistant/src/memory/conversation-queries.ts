@@ -101,7 +101,11 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
       parsed.every(
         (block: Record<string, unknown>) =>
           block.type === "tool_result" ||
-          block.type === "web_search_tool_result",
+          block.type === "web_search_tool_result" ||
+          (block.type === "text" &&
+            typeof block.text === "string" &&
+            block.text.startsWith("<system_notice>") &&
+            block.text.endsWith("</system_notice>")),
       )
     ) {
       return true;

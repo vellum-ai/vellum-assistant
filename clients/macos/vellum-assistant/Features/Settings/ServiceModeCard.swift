@@ -17,6 +17,9 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
     /// Optional reset action -- shown only in Your Own mode when `showReset` is true.
     let onReset: (() -> Void)?
     let showReset: Bool
+    /// When true, the action buttons (Save / Reset) are hidden entirely.
+    /// Callers set this for states where no user action is possible (e.g. managed mode before login).
+    var hideButtons: Bool = false
     @ViewBuilder let managedContent: () -> ManagedContent
     @ViewBuilder let yourOwnContent: () -> YourOwnContent
 
@@ -36,8 +39,10 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 yourOwnContent()
             }
 
-            // Action buttons
-            actionButtons
+            // Action buttons (hidden when caller signals no action is possible)
+            if !hideButtons {
+                actionButtons
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
