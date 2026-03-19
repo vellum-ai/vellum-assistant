@@ -202,6 +202,27 @@ export function listSchedules(options?: {
   return rows.map(parseJobRow);
 }
 
+/**
+ * Return enabled schedules whose next run falls within a time window.
+ * Used by the memory brief compiler to surface due-soon schedule entries.
+ */
+export function getDueSoonSchedules(
+  now: number,
+  horizonMs: number,
+): ScheduleJob[] {
+  const db = getDb();
+  const cutoff = now + horizonMs;
+  const rows = db
+    .select()
+    .from(scheduleJobs)
+    .where(
+      and(eq(scheduleJobs.enabled, true), lte(scheduleJobs.nextRunAt, cutoff)),
+    )
+    .orderBy(asc(scheduleJobs.nextRunAt))
+    .all();
+  return rows.map(parseJobRow);
+}
+
 export function updateSchedule(
   id: string,
   updates: {
