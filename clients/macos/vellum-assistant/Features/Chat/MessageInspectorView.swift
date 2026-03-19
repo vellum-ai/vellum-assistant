@@ -3,15 +3,19 @@ import VellumAssistantShared
 
 /// Displays the raw LLM request/response payloads for a given message.
 ///
-/// Shows a loading spinner while fetching, an empty-state message when no logs
-/// are available, and collapsible sections for each LLM call with pretty-printed
-/// JSON and copy-to-clipboard buttons.
+/// Shows a skeleton placeholder while fetching, an empty-state message when no
+/// logs are available, and collapsible sections for each LLM call with
+/// pretty-printed JSON and copy-to-clipboard buttons.
 struct MessageInspectorView: View {
     let messageId: String
+
+    private let llmContextClient: any LLMContextClientProtocol = LLMContextClient()
 
     @State private var response: LLMContextResponse?
     @State private var isLoading = true
     @State private var expandedLogIds: Set<String> = []
+    /// Pre-formatted JSON strings keyed by "\(entryId)-request" / "\(entryId)-response".
+    @State private var formattedJSON: [String: String] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,12 +25,23 @@ struct MessageInspectorView: View {
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 400, idealHeight: 600)
         .background(VColor.surfaceBase)
-        .task {
-            let client = LLMContextClient()
-            let result = await client.fetchContext(messageId: messageId)
+        .task(id: messageId) {
+            isLoading = true
+            response = nil
+            formattedJSON = [:]
+            expandedLogIds = []
+
+            let result = await llmContextClient.fetchContext(messageId: messageId)
             response = result
-            // Auto-expand all entries on load
+            // Pre-format JSON strings outside the render path
             if let logs = result?.logs {
+                var formatted: [String: String] = [:]
+                for entry in logs {
+                    formatted["\(entry.id)-request"] = prettyPrintJSON(entry.requestPayload)
+                    formatted["\(entry.id)-response"] = prettyPrintJSON(entry.responsePayload)
+                }
+                formattedJSON = formatted
+                // Auto-expand all entries on load
                 expandedLogIds = Set(logs.map(\.id))
             }
             isLoading = false
@@ -63,17 +78,47 @@ struct MessageInspectorView: View {
         }
     }
 
+    /// Skeleton placeholder that mirrors the populated layout (collapsible log
+    /// entry cards) so the transition to real content feels seamless.
     private var loadingState: some View {
-        VStack {
-            Spacer()
-            VLoadingIndicator(size: 24)
-            Text("Loading LLM context...")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-                .padding(.top, VSpacing.sm)
-            Spacer()
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            ForEach(0..<3, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 0) {
+                    // Simulated header row
+                    HStack(spacing: VSpacing.sm) {
+                        VSkeletonBone(width: 10, height: 10, radius: 2)
+                        VSkeletonBone(width: 120, height: 14)
+                        Spacer()
+                        VSkeletonBone(width: 70, height: 12)
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                    // Simulated JSON content area
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VSkeletonBone(height: 12)
+                            .frame(maxWidth: .infinity)
+                        VSkeletonBone(height: 12)
+                            .frame(maxWidth: .infinity * 0.85)
+                        VSkeletonBone(width: 200, height: 12)
+                    }
+                    .padding(VSpacing.md)
+                    .background(VColor.surfaceOverlay.opacity(0.5))
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 0,
+                            bottomLeadingRadius: VRadius.md,
+                            bottomTrailingRadius: VRadius.md,
+                            topTrailingRadius: 0
+                        )
+                    )
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var emptyState: some View {
@@ -145,8 +190,14 @@ struct MessageInspectorView: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    jsonSection(title: "Request", payload: entry.requestPayload, entry: entry, isRequest: true)
-                    jsonSection(title: "Response", payload: entry.responsePayload, entry: entry, isRequest: false)
+                    jsonSection(
+                        title: "Request",
+                        formattedText: formattedJSON["\(entry.id)-request"] ?? ""
+                    )
+                    jsonSection(
+                        title: "Response",
+                        formattedText: formattedJSON["\(entry.id)-response"] ?? ""
+                    )
                 }
                 .padding(VSpacing.md)
                 .background(VColor.surfaceOverlay.opacity(0.5))
@@ -164,7 +215,7 @@ struct MessageInspectorView: View {
 
     // MARK: - JSON Section
 
-    private func jsonSection(title: String, payload: AnyCodable, entry: LLMRequestLogEntry, isRequest: Bool) -> some View {
+    private func jsonSection(title: String, formattedText: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack {
                 Text(title)
@@ -174,7 +225,7 @@ struct MessageInspectorView: View {
                 Spacer()
 
                 Button(action: {
-                    copyToClipboard(prettyPrintJSON(payload))
+                    copyToClipboard(formattedText)
                 }) {
                     HStack(spacing: VSpacing.xxs) {
                         VIconView(.copy, size: 10)
@@ -187,7 +238,7 @@ struct MessageInspectorView: View {
             }
 
             ScrollView([.horizontal, .vertical]) {
-                Text(prettyPrintJSON(payload))
+                Text(formattedText)
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
