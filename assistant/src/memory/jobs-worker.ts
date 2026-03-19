@@ -25,6 +25,7 @@ import {
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
+import { reduceConversationMemoryJob } from "./job-handlers/reduce-conversation-memory.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
@@ -318,6 +319,9 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
+      return;
+    case "reduce_conversation_memory":
+      await reduceConversationMemoryJob(job);
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
