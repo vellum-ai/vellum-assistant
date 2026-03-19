@@ -344,24 +344,54 @@ struct AgentPanelContent: View {
         }
 
         var body: some View {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                // Icon — centered vertically, large
-                skillIcon(skill.emoji)
+            Button(action: onSelect) {
+                HStack(alignment: .center, spacing: VSpacing.lg) {
+                    // Icon — centered vertically, large
+                    skillIcon(skill.emoji)
 
-                // Text content
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Header: name + tag on same line
-                    HStack {
-                        Text(skill.name)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                    // Text content
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        // Header: name + tag on same line
+                        HStack {
+                            Text(skill.name)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                        Spacer()
+                            Spacer()
 
-                        // Tag — transforms to Uninstall on pill hover
-                        if isRemovable && isPillHovered {
+                            // Placeholder for tag alignment (invisible, same size as pill)
+                            VSkillTypePill(source: skill.source)
+                                .opacity(isPillHovered && isRemovable ? 0 : 1)
+                        }
+
+                        // Description — fixed 2-line height for uniform cards
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isHovered ? VColor.surfaceActive : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(VColor.borderDisabled, lineWidth: 2)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .onHover { isHovered = $0 }
+            // Overlay the uninstall pill on top of the tag area
+            .overlay(alignment: .topTrailing) {
+                if isRemovable {
+                    Group {
+                        if isPillHovered {
                             Button {
                                 onDelete()
                             } label: {
@@ -379,35 +409,17 @@ struct AgentPanelContent: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .onHover { isPillHovered = $0 }
                         } else {
-                            VSkillTypePill(source: skill.source)
-                                .onHover { hovering in
-                                    if isRemovable { isPillHovered = hovering }
-                                }
+                            // Invisible hover target matching the pill position
+                            Color.clear
+                                .frame(width: 80, height: 24)
                         }
                     }
-
-                    // Description — fixed 2-line height for uniform cards
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
+                    .onHover { isPillHovered = $0 }
+                    .padding(.top, VSpacing.lg)
+                    .padding(.trailing, VSpacing.lg)
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovered ? VColor.surfaceActive : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.borderDisabled, lineWidth: 2)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .contentShape(Rectangle())
-            .onTapGesture { onSelect() }
-            .pointerCursor()
-            .onHover { isHovered = $0 }
             .contextMenu {
                 Button("Remove", role: .destructive, action: onDelete)
             }
