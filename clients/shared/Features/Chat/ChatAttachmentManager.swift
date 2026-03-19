@@ -171,6 +171,9 @@ public final class ChatAttachmentManager: ObservableObject {
     /// All blocking work runs off the main actor; callers receive a ready-to-use
     /// ChatAttachment (or an error message) and can update UI state directly.
     private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+        let attachmentId = UUID().uuidString
+        let filename = url.lastPathComponent
+        log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
         // Suspend (not block) until a concurrency slot is available.
         await loadSemaphore.wait()
         // Hop off the main actor for all blocking I/O and CPU work.
@@ -180,6 +183,7 @@ public final class ChatAttachmentManager: ObservableObject {
                let fileSize = attrs[.size] as? Int,
                fileSize > Self.memorySafetyLimit {
                 let sizeMB = fileSize / (1024 * 1024)
+                log.error("[Attachment] failed id=\(attachmentId) reason=fileTooLarge sizeMB=\(sizeMB)")
                 return Result<ChatAttachment, AttachmentError>.failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
@@ -187,7 +191,7 @@ public final class ChatAttachmentManager: ObservableObject {
             do {
                 data = try Data(contentsOf: url)
             } catch {
-                log.error("Failed to read attachment: \(error.localizedDescription)")
+                log.error("[Attachment] failed id=\(attachmentId) reason=readError error=\(error.localizedDescription)")
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
@@ -195,10 +199,10 @@ public final class ChatAttachmentManager: ObservableObject {
             // in case the pre-read attributesOfItem check was bypassed.
             if data.count > Self.memorySafetyLimit {
                 let sizeMB = data.count / (1024 * 1024)
+                log.error("[Attachment] failed id=\(attachmentId) reason=dataTooLarge sizeMB=\(sizeMB)")
                 return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
-            let filename = url.lastPathComponent
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
             // Compress images if needed
@@ -220,6 +224,8 @@ public final class ChatAttachmentManager: ObservableObject {
                     }
                 }
             }
+
+            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(mimeType) originalBytes=\(data.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
 
             let base64 = finalData.base64EncodedString()
 
@@ -243,7 +249,7 @@ public final class ChatAttachmentManager: ObservableObject {
             #endif
 
             let attachment = ChatAttachment(
-                id: UUID().uuidString,
+                id: attachmentId,
                 filename: filename,
                 mimeType: mimeType,
                 data: base64,
@@ -261,6 +267,8 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
     /// All blocking work runs off the main actor.
     private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+        let attachmentId = UUID().uuidString
+        log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
         // Suspend (not block) until a concurrency slot is available.
         await loadSemaphore.wait()
         let result = await Task.detached(priority: .userInitiated) {
@@ -277,11 +285,11 @@ public final class ChatAttachmentManager: ObservableObject {
                           let converted = bitmapRep.representation(using: .png, properties: [:]) {
                     pngData = converted
                 } else {
-                    log.error("Failed to convert dropped image to PNG")
+                    log.error("[Attachment] failed id=\(attachmentId) reason=pngConversionFailed")
                     return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
                 }
             } else {
-                log.error("Dropped data is not a valid image")
+                log.error("[Attachment] failed id=\(attachmentId) reason=invalidImageData")
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
             }
             #elseif os(iOS)
@@ -294,11 +302,11 @@ public final class ChatAttachmentManager: ObservableObject {
                 } else if let converted = image.pngData() {
                     pngData = converted
                 } else {
-                    log.error("Failed to convert dropped image to PNG")
+                    log.error("[Attachment] failed id=\(attachmentId) reason=pngConversionFailed")
                     return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
                 }
             } else {
-                log.error("Dropped data is not a valid image")
+                log.error("[Attachment] failed id=\(attachmentId) reason=invalidImageData")
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
             }
             #else
@@ -308,6 +316,7 @@ public final class ChatAttachmentManager: ObservableObject {
             // Memory safety guard for pasted/dropped images
             if pngData.count > Self.memorySafetyLimit {
                 let sizeMB = pngData.count / (1024 * 1024)
+                log.error("[Attachment] failed id=\(attachmentId) reason=imageTooLarge sizeMB=\(sizeMB)")
                 return .failure(.message("This image is \(sizeMB) MB which is too large to process safely. Please choose a smaller image."))
             }
 
@@ -320,9 +329,6 @@ public final class ChatAttachmentManager: ObservableObject {
                 log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
             }
 
-            let base64 = finalData.base64EncodedString()
-            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
-
             // Detect MIME type from compressed data
             var mimeType = "image/png"
             if wasCompressed {
@@ -331,6 +337,11 @@ public final class ChatAttachmentManager: ObservableObject {
                     mimeType = "image/jpeg"
                 }
             }
+
+            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(mimeType) originalBytes=\(pngData.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
+
+            let base64 = finalData.base64EncodedString()
+            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
 
             #if os(macOS)
             let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
@@ -341,7 +352,7 @@ public final class ChatAttachmentManager: ObservableObject {
             #endif
 
             let attachment = ChatAttachment(
-                id: UUID().uuidString,
+                id: attachmentId,
                 filename: filename,
                 mimeType: mimeType,
                 data: base64,

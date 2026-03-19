@@ -312,14 +312,22 @@ struct ComposerView: View {
     /// selection and pending-confirmation approval working regardless of how
     /// "send" is triggered.
     private func performSendAction() {
+        let sendPath: String
         if showSlashMenu {
+            sendPath = "slashSelection"
             handleSlashNavigation(.select)
         } else if canSend {
+            sendPath = "normalSend"
             onSend()
         } else if hasPendingConfirmation
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sendPath = "pendingConfirmationApproval"
             onAllowPendingConfirmation?()
+        } else {
+            sendPath = "noAction"
         }
+
+        composerLog.debug("[Send] path=\(sendPath) attachmentCount=\(pendingAttachments.count) isLoadingAttachment=\(isLoadingAttachment)")
     }
 
     private func handleComposerSubmit() {
