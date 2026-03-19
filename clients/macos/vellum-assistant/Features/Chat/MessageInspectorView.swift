@@ -1,23 +1,26 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays the raw LLM request/response payloads for a given message.
-///
-/// Shows a skeleton placeholder while fetching, an empty-state message when no
-/// logs are available, and collapsible sections for each LLM call with
-/// side-by-side request and response payloads.
 struct MessageInspectorView: View {
     let messageId: String
     let onBack: () -> Void
 
-    private let llmContextClient: any LLMContextClientProtocol = LLMContextClient()
+    private let llmContextClient: any LLMContextClientProtocol
+    private let callRailWidth: CGFloat = 260
     private let payloadViewportHeight: CGFloat = 560
-    private let payloadSectionChromeHeight: CGFloat = 44
 
-    @State private var response: LLMContextResponse?
-    @State private var isLoading = true
-    @State private var expandedLogIds: Set<String> = []
+    @State private var viewState = MessageInspectorViewState()
     @State private var payloadModels: [String: MessageInspectorPayloadModel] = [:]
+
+    init(
+        messageId: String,
+        onBack: @escaping () -> Void,
+        llmContextClient: any LLMContextClientProtocol = LLMContextClient()
+    ) {
+        self.messageId = messageId
+        self.onBack = onBack
+        self.llmContextClient = llmContextClient
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,33 +31,9 @@ struct MessageInspectorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
         .task(id: messageId) {
-            isLoading = true
-            response = nil
-            payloadModels = [:]
-            expandedLogIds = []
-
-            let result = await llmContextClient.fetchContext(messageId: messageId)
-            response = result
-            // Prepare payload view state outside the render path.
-            if let logs = result?.logs {
-                var nextPayloadModels: [String: MessageInspectorPayloadModel] = [:]
-                for entry in logs {
-                    nextPayloadModels["\(entry.id)-request"] = MessageInspectorPayloadModel(
-                        payload: entry.requestPayload
-                    )
-                    nextPayloadModels["\(entry.id)-response"] = MessageInspectorPayloadModel(
-                        payload: entry.responsePayload
-                    )
-                }
-                payloadModels = nextPayloadModels
-                // Auto-expand all entries on load
-                expandedLogIds = Set(logs.map(\.id))
-            }
-            isLoading = false
+            await reloadContext(resetSelection: true)
         }
     }
-
-    // MARK: - Header
 
     private var header: some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
@@ -78,7 +57,7 @@ struct MessageInspectorView: View {
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)
 
-                Text("Request on the left, response on the right.")
+                Text("Select a call to inspect overview details, prompt sections, response sections, or raw payloads.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
             }
@@ -86,10 +65,14 @@ struct MessageInspectorView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: VSpacing.xxs) {
-                if !isLoading, let logCount = response?.logs.count {
-                    Text(logCount == 1 ? "1 LLM call" : "\(logCount) LLM calls")
+                switch viewState.loadState {
+                case .loaded, .empty:
+                    let count = viewState.logs.count
+                    Text(count == 1 ? "1 LLM call" : "\(count) LLM calls")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
+                case .loading, .failed:
+                    EmptyView()
                 }
 
                 Text(messageId)
@@ -105,156 +88,281 @@ struct MessageInspectorView: View {
         .background(VColor.surfaceBase)
     }
 
-    // MARK: - Content
-
     @ViewBuilder
     private var content: some View {
-        if isLoading {
+        switch viewState.loadState {
+        case .loading:
             loadingState
-        } else if let logs = response?.logs, !logs.isEmpty {
-            populatedState(logs: logs)
-        } else {
+        case .empty:
             emptyState
+        case .failed:
+            failedState
+        case .loaded:
+            loadedState
         }
     }
 
-    /// Skeleton placeholder that mirrors the populated layout (collapsible log
-    /// entry cards) so the transition to real content feels seamless.
     private var loadingState: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            ForEach(0..<3, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: VSpacing.sm) {
-                        VSkeletonBone(width: 10, height: 10, radius: 2)
-                        VSkeletonBone(width: 120, height: 14)
-                        Spacer()
-                        VSkeletonBone(width: 70, height: 12)
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                    HStack(alignment: .top, spacing: VSpacing.lg) {
-                        skeletonColumn
-                        skeletonColumn
-                    }
-                    .padding(VSpacing.md)
-                    .background(VColor.surfaceOverlay.opacity(0.5))
-                    .clipShape(
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 0,
-                            bottomLeadingRadius: VRadius.md,
-                            bottomTrailingRadius: VRadius.md,
-                            topTrailingRadius: 0
-                        )
-                    )
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VSkeletonBone(width: 110, height: 12)
+                ForEach(0..<5, id: \.self) { _ in
+                    skeletonCallRow
                 }
+                Spacer()
             }
+            .padding(VSpacing.lg)
+            .frame(width: callRailWidth, maxHeight: .infinity, alignment: .topLeading)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VSkeletonBone(width: 180, height: 18)
+                    VSkeletonBone(width: 260, height: 12)
+                    VSkeletonBone(width: 160, height: 12)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        VSkeletonBone(width: 88, height: 32, radius: VRadius.md)
+                    }
+                    Spacer()
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: VSpacing.lg) {
+                        skeletonPayloadColumn
+                        skeletonPayloadColumn
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        skeletonPayloadColumn
+                        skeletonPayloadColumn
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var emptyState: some View {
-        VStack {
-            Spacer()
-            Text("No LLM context available for this message.")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VEmptyState(
+            title: "No LLM calls yet",
+            subtitle: "This message does not have any recorded LLM context to inspect.",
+            icon: VIcon.messagesSquare.rawValue
+        )
     }
 
-    private func populatedState(logs: [LLMRequestLogEntry]) -> some View {
+    private var failedState: some View {
+        VEmptyState(
+            title: "Couldn't load LLM context",
+            subtitle: "The inspector request failed before any call data could be shown.",
+            icon: VIcon.triangleAlert.rawValue,
+            actionLabel: "Retry",
+            actionIcon: VIcon.refreshCw.rawValue
+        ) {
+            Task {
+                await reloadContext(resetSelection: false)
+            }
+        }
+    }
+
+    private var loadedState: some View {
+        HStack(spacing: 0) {
+            callRail
+            Divider()
+            detailPane
+        }
+    }
+
+    private var callRail: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
-                ForEach(Array(logs.enumerated()), id: \.element.id) { index, entry in
-                    logEntrySection(entry: entry, index: index, total: logs.count)
+            LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(Array(viewState.logs.enumerated()), id: \.element.id) { index, entry in
+                    callRow(entry: entry, index: index)
                 }
             }
-            .padding(VSpacing.lg)
+            .padding(VSpacing.md)
         }
+        .frame(width: callRailWidth, maxHeight: .infinity, alignment: .topLeading)
+        .background(VColor.surfaceBase)
     }
 
-    // MARK: - Log Entry Section
+    private func callRow(entry: LLMRequestLogEntry, index: Int) -> some View {
+        let isSelected = viewState.selectedLogID == entry.id
 
-    private func logEntrySection(entry: LLMRequestLogEntry, index: Int, total: Int) -> some View {
-        let isExpanded = expandedLogIds.contains(entry.id)
-
-        return VStack(alignment: .leading, spacing: 0) {
-            // Collapsible header
-            Button(action: {
-                withAnimation(VAnimation.fast) {
-                    if isExpanded {
-                        expandedLogIds.remove(entry.id)
-                    } else {
-                        expandedLogIds.insert(entry.id)
-                    }
-                }
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(isExpanded ? .chevronUp : .chevronDown, size: 10)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    Text("LLM Call \(index + 1) of \(total)")
+        return Button {
+            viewState.selectLog(id: entry.id)
+        } label: {
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                    Text(callTitle(for: entry, index: index))
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
+
+                    Spacer(minLength: VSpacing.sm)
+
+                    if index == 0 {
+                        Text("Latest")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                }
+
+                Text(callSubtitle(for: entry))
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+                    .lineLimit(2)
+
+                HStack(spacing: VSpacing.xs) {
+                    if let provider = entry.summary?.provider {
+                        callMetadataChip(provider)
+                    }
+
+                    if let model = entry.summary?.model {
+                        callMetadataChip(model)
+                    }
 
                     Spacer()
 
                     Text(formattedTimestamp(entry.createdAt))
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.contentTertiary)
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .background(VColor.surfaceOverlay)
-            .clipShape(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: VRadius.md,
-                    bottomLeadingRadius: isExpanded ? 0 : VRadius.md,
-                    bottomTrailingRadius: isExpanded ? 0 : VRadius.md,
-                    topTrailingRadius: VRadius.md
-                )
+            .padding(VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? VColor.surfaceActive : VColor.surfaceOverlay.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isSelected ? VColor.borderActive : VColor.borderBase, lineWidth: 1)
             )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-            if isExpanded {
-                HStack(alignment: .top, spacing: VSpacing.lg) {
-                    payloadSection(
-                        title: "Request",
-                        key: "\(entry.id)-request"
-                    )
-
-                    payloadSection(
-                        title: "Response",
-                        key: "\(entry.id)-response"
-                    )
+    private var detailPane: some View {
+        Group {
+            if let selectedLog = viewState.selectedLog {
+                VStack(spacing: 0) {
+                    detailHeader(for: selectedLog)
+                    Divider()
+                    detailTabBar
+                    Divider()
+                    detailTabContent(for: selectedLog)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(
-                    minHeight: payloadViewportHeight + payloadSectionChromeHeight,
-                    alignment: .topLeading
+            } else {
+                VEmptyState(
+                    title: "Select an LLM call",
+                    subtitle: "Choose a call from the rail to inspect its context.",
+                    icon: VIcon.panelLeft.rawValue
                 )
-                .padding(VSpacing.md)
-                .background(VColor.surfaceOverlay.opacity(0.5))
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: VRadius.md,
-                        bottomTrailingRadius: VRadius.md,
-                        topTrailingRadius: 0
-                    )
-                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VColor.surfaceBase)
+    }
+
+    private func detailHeader(for entry: LLMRequestLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(callTitle(for: entry, index: selectedCallIndex(for: entry)))
+                .font(VFont.headline)
+                .foregroundColor(VColor.contentDefault)
+
+            Text(detailSubtitle(for: entry))
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentSecondary)
+
+            if let summary = entry.summary {
+                HStack(spacing: VSpacing.xs) {
+                    if let status = summary.status {
+                        detailMetadataChip(status)
+                    }
+                    if let provider = summary.provider {
+                        detailMetadataChip(provider)
+                    }
+                    if let model = summary.model {
+                        detailMetadataChip(model)
+                    }
+                    if let durationMs = summary.durationMs {
+                        detailMetadataChip("\(durationMs) ms")
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detailTabBar: some View {
+        VTabBar {
+            ForEach(MessageInspectorDetailTab.allCases, id: \.self) { tab in
+                VTab(
+                    label: tab.label,
+                    icon: tab.icon.rawValue,
+                    isSelected: viewState.selectedDetailTab == tab,
+                    isCloseable: false,
+                    style: .rectangular
+                ) {
+                    viewState.selectDetailTab(tab)
+                }
             }
         }
     }
 
-    // MARK: - Payload Section
+    @ViewBuilder
+    private func detailTabContent(for entry: LLMRequestLogEntry) -> some View {
+        switch viewState.selectedDetailTab {
+        case .overview:
+            MessageInspectorOverviewTab(entry: entry)
+        case .prompt:
+            MessageInspectorPromptTab(entry: entry)
+        case .response:
+            MessageInspectorResponseTab(entry: entry)
+        case .raw:
+            rawPayloadTab(for: entry)
+        }
+    }
+
+    private func rawPayloadTab(for entry: LLMRequestLogEntry) -> some View {
+        ScrollView {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: VSpacing.lg) {
+                    payloadSection(
+                        title: "Request",
+                        key: payloadKey(for: entry.id, kind: "request")
+                    )
+
+                    payloadSection(
+                        title: "Response",
+                        key: payloadKey(for: entry.id, kind: "response")
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    payloadSection(
+                        title: "Request",
+                        key: payloadKey(for: entry.id, kind: "request")
+                    )
+
+                    payloadSection(
+                        title: "Response",
+                        key: payloadKey(for: entry.id, kind: "response")
+                    )
+                }
+            }
+            .padding(VSpacing.lg)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VColor.surfaceBase)
+    }
 
     private func payloadSection(title: String, key: String) -> some View {
         MessageInspectorPayloadView(
@@ -264,8 +372,6 @@ struct MessageInspectorView: View {
         )
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
-
-    // MARK: - Helpers
 
     private func payloadBinding(for key: String) -> Binding<MessageInspectorPayloadModel> {
         Binding(
@@ -278,12 +384,109 @@ struct MessageInspectorView: View {
         )
     }
 
-    private var skeletonColumn: some View {
+    private func reloadContext(resetSelection: Bool) async {
+        viewState.beginLoading(resetSelection: resetSelection)
+        payloadModels = [:]
+
+        let result = await llmContextClient.fetchContext(messageId: messageId)
+
+        if let result {
+            payloadModels = payloadModelsByKey(for: result.logs)
+        }
+
+        viewState.finishLoading(with: result)
+    }
+
+    private func payloadModelsByKey(for logs: [LLMRequestLogEntry]) -> [String: MessageInspectorPayloadModel] {
+        MessageInspectorViewState.ordered(logs).reduce(into: [:]) { models, entry in
+            models[payloadKey(for: entry.id, kind: "request")] = MessageInspectorPayloadModel(
+                payload: entry.requestPayload
+            )
+            models[payloadKey(for: entry.id, kind: "response")] = MessageInspectorPayloadModel(
+                payload: entry.responsePayload
+            )
+        }
+    }
+
+    private func payloadKey(for entryID: String, kind: String) -> String {
+        "\(entryID)-\(kind)"
+    }
+
+    private func callTitle(for entry: LLMRequestLogEntry, index: Int) -> String {
+        if let title = entry.summary?.title, !title.isEmpty {
+            return title
+        }
+
+        return "LLM Call \(index + 1)"
+    }
+
+    private func callSubtitle(for entry: LLMRequestLogEntry) -> String {
+        if let subtitle = entry.summary?.subtitle, !subtitle.isEmpty {
+            return subtitle
+        }
+
+        if let summaryText = entry.summary?.summaryText, !summaryText.isEmpty {
+            return summaryText
+        }
+
+        return "Recorded at \(formattedTimestamp(entry.createdAt))"
+    }
+
+    private func detailSubtitle(for entry: LLMRequestLogEntry) -> String {
+        let timestamp = formattedDateTime(entry.createdAt)
+
+        if let subtitle = entry.summary?.subtitle, !subtitle.isEmpty {
+            return "\(subtitle) • \(timestamp)"
+        }
+
+        return timestamp
+    }
+
+    private func selectedCallIndex(for entry: LLMRequestLogEntry) -> Int {
+        viewState.logs.firstIndex(where: { $0.id == entry.id }) ?? 0
+    }
+
+    private func callMetadataChip(_ label: String) -> some View {
+        Text(label)
+            .font(VFont.small)
+            .foregroundColor(VColor.contentSecondary)
+            .padding(.horizontal, VSpacing.xs)
+            .padding(.vertical, 3)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    private func detailMetadataChip(_ label: String) -> some View {
+        Text(label)
+            .font(VFont.caption)
+            .foregroundColor(VColor.contentSecondary)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.surfaceOverlay)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    private var skeletonCallRow: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VSkeletonBone(width: 130, height: 14)
+            VSkeletonBone(width: 180, height: 12)
+            HStack {
+                VSkeletonBone(width: 56, height: 18, radius: VRadius.sm)
+                Spacer()
+                VSkeletonBone(width: 54, height: 10)
+            }
+        }
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceOverlay.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    private var skeletonPayloadColumn: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
-                VSkeletonBone(width: 80, height: 12)
-                Spacer()
                 VSkeletonBone(width: 90, height: 12)
+                Spacer()
+                VSkeletonBone(width: 70, height: 12)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -299,14 +502,127 @@ struct MessageInspectorView: View {
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
+        .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(VColor.surfaceOverlay.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     private func formattedTimestamp(_ epochMs: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .medium
-        return formatter.string(from: date)
+        Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+            .formatted(date: .omitted, time: .shortened)
+    }
+
+    private func formattedDateTime(_ epochMs: Int) -> String {
+        Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+            .formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+enum MessageInspectorLoadState: Equatable {
+    case loading
+    case empty
+    case failed
+    case loaded
+}
+
+enum MessageInspectorDetailTab: String, CaseIterable {
+    case overview
+    case prompt
+    case response
+    case raw
+
+    var label: String {
+        switch self {
+        case .overview:
+            return "Overview"
+        case .prompt:
+            return "Prompt"
+        case .response:
+            return "Response"
+        case .raw:
+            return "Raw"
+        }
+    }
+
+    var icon: VIcon {
+        switch self {
+        case .overview:
+            return .layoutGrid
+        case .prompt:
+            return .scrollText
+        case .response:
+            return .messageSquare
+        case .raw:
+            return .fileCode
+        }
+    }
+}
+
+struct MessageInspectorViewState {
+    private(set) var loadState: MessageInspectorLoadState = .loading
+    private(set) var logs: [LLMRequestLogEntry] = []
+    private(set) var selectedLogID: String?
+    private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
+
+    var selectedLog: LLMRequestLogEntry? {
+        guard let selectedLogID else { return nil }
+        return logs.first(where: { $0.id == selectedLogID })
+    }
+
+    mutating func beginLoading(resetSelection: Bool) {
+        loadState = .loading
+        logs = []
+
+        if resetSelection {
+            selectedLogID = nil
+            selectedDetailTab = .overview
+        }
+    }
+
+    mutating func finishLoading(with response: LLMContextResponse?) {
+        guard let response else {
+            loadState = .failed
+            logs = []
+            selectedLogID = nil
+            return
+        }
+
+        let orderedLogs = Self.ordered(response.logs)
+        logs = orderedLogs
+
+        guard !orderedLogs.isEmpty else {
+            loadState = .empty
+            selectedLogID = nil
+            return
+        }
+
+        loadState = .loaded
+
+        if let selectedLogID,
+           orderedLogs.contains(where: { $0.id == selectedLogID }) {
+            return
+        }
+
+        selectedLogID = orderedLogs.first?.id
+    }
+
+    mutating func selectLog(id: String) {
+        guard logs.contains(where: { $0.id == id }) else { return }
+        selectedLogID = id
+    }
+
+    mutating func selectDetailTab(_ tab: MessageInspectorDetailTab) {
+        selectedDetailTab = tab
+    }
+
+    static func ordered(_ logs: [LLMRequestLogEntry]) -> [LLMRequestLogEntry] {
+        logs.sorted { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+
+            return lhs.id > rhs.id
+        }
     }
 }
