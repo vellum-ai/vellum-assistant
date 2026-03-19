@@ -350,8 +350,8 @@ struct AgentPanelContent: View {
 
                     // Text content
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        // Header: name + tag on same line
-                        HStack {
+                        // Header: name + tag + trash on same line
+                        HStack(spacing: VSpacing.sm) {
                             Text(skill.name)
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.contentDefault)
@@ -361,6 +361,17 @@ struct AgentPanelContent: View {
                             Spacer()
 
                             VSkillTypePill(source: skill.source)
+
+                            if isRemovable {
+                                VButton(
+                                    label: "Delete",
+                                    iconOnly: VIcon.trash.rawValue,
+                                    style: .dangerGhost,
+                                    tooltip: "Uninstall skill"
+                                ) {
+                                    onDelete()
+                                }
+                            }
                         }
 
                         // Description — fixed 2-line height for uniform cards
@@ -384,21 +395,6 @@ struct AgentPanelContent: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .onHover { isHovered = $0 }
-            // Trash button overlay for installed skills (shown on card hover)
-            .overlay(alignment: .topTrailing) {
-                if isRemovable && isHovered {
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        tooltip: "Uninstall skill"
-                    ) {
-                        onDelete()
-                    }
-                    .padding(.top, VSpacing.sm)
-                    .padding(.trailing, VSpacing.sm)
-                }
-            }
             .contextMenu {
                 Button("Remove", role: .destructive, action: onDelete)
             }
