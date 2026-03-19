@@ -138,25 +138,50 @@ struct InferenceServiceCard: View {
             draftProvider = store.selectedInferenceProvider
             initialProvider = store.selectedInferenceProvider
 
-            // If the user logged out while on another tab, the persisted
-            // inference mode may still be "managed". Reset both the draft
-            // and the persisted mode so the daemon doesn't attempt managed-
-            // proxy routing while unauthenticated.
+            // If the user is not authenticated and the persisted mode is
+            // "managed", reset the draft so the UI shows "your-own".
+            // When auth is still loading (startup), only reset the draft —
+            // the persisted mode is preserved so it can be restored when
+            // auth completes. When auth is confirmed absent, also persist
+            // the reset so the daemon doesn't attempt managed-proxy routing.
             if !isLoggedIn && draftMode == "managed" {
                 draftMode = "your-own"
-                store.setInferenceMode("your-own")
+                if !authManager.isLoading {
+                    store.setInferenceMode("your-own")
+                }
             }
         }
         .onChange(of: store.inferenceMode) { _, newValue in
-            // Sync draft when external changes arrive (e.g. daemon reload)
-            draftMode = newValue
+            // Sync draft when external changes arrive (e.g. daemon reload),
+            // but guard against adopting managed mode while unauthenticated.
+            if newValue == "managed" && !isLoggedIn {
+                draftMode = "your-own"
+            } else {
+                draftMode = newValue
+            }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            // When the user logs out while this card is mounted, reset
-            // both the draft and the persisted mode so the daemon doesn't
-            // attempt managed-proxy routing while unauthenticated.
             if !isAuthenticated && draftMode == "managed" {
+                // When the user logs out while this card is mounted, reset
+                // both the draft and the persisted mode so the daemon doesn't
+                // attempt managed-proxy routing while unauthenticated.
                 draftMode = "your-own"
+                store.setInferenceMode("your-own")
+            } else if isAuthenticated && store.inferenceMode == "managed" {
+                // When auth becomes available (e.g. startup transition from
+                // loading to authenticated), restore the persisted managed
+                // mode that onAppear may have temporarily overridden.
+                draftMode = "managed"
+            }
+        }
+        .onChange(of: authManager.isLoading) { _, isLoading in
+            // When auth finishes loading without authenticating, persist
+            // the mode reset that onAppear deferred during the loading
+            // state. Without this, the persisted mode stays "managed"
+            // while the UI shows "your-own" — pressing Save for unrelated
+            // edits would not trigger a mode change since draftMode already
+            // equals the visual state.
+            if !isLoading && !isLoggedIn && store.inferenceMode == "managed" {
                 store.setInferenceMode("your-own")
             }
         }
