@@ -103,8 +103,8 @@ private func escapeKey(_ key: String) -> String {
 private func convert(_ value: Any, path: String) -> JSONNode {
     switch value {
     case let dict as NSDictionary:
-        let sortedKeys = (dict.allKeys as? [String] ?? []).sorted()
-        let entries: [(key: String, value: JSONNode)] = sortedKeys.map { key in
+        let keys = dict.allKeys as? [String] ?? []
+        let entries: [(key: String, value: JSONNode)] = keys.map { key in
             let childPath = "\(path).\(escapeKey(key))"
             return (key: key, value: convert(dict[key] as Any, path: childPath))
         }
