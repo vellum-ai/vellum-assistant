@@ -54,6 +54,8 @@ import {
   memorySummaries,
   messageAttachments,
   messages,
+  openLoops,
+  timeContexts,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -703,6 +705,12 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(conversationStarters)
         .where(eq(conversationStarters.scopeId, memoryScopeId))
         .run();
+
+      // Sweep brief-state tables scoped to this private conversation.
+      tx.delete(timeContexts)
+        .where(eq(timeContexts.scopeId, memoryScopeId))
+        .run();
+      tx.delete(openLoops).where(eq(openLoops.scopeId, memoryScopeId)).run();
     }
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
