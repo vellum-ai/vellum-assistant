@@ -275,6 +275,12 @@ export function conversationManagementRouteDefinitions(
             targetId: itemId,
           });
         }
+        for (const summaryId of deleted.deletedSummaryIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "summary",
+            targetId: summaryId,
+          });
+        }
         log.info({ conversationId: resolvedId }, "Deleted conversation");
         return new Response(null, { status: 204 });
       },
