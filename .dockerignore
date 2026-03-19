@@ -2,8 +2,6 @@
 **
 !assistant/
 !assistant/**
-!cli/
-!cli/**
 !credential-executor/
 !credential-executor/**
 !packages/
@@ -16,12 +14,6 @@ assistant/out/
 assistant/build/
 assistant/.env
 assistant/.env.*
-cli/node_modules/
-cli/dist/
-cli/out/
-cli/build/
-cli/.env
-cli/.env.*
 credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
