@@ -665,6 +665,7 @@ struct MainWindowView: View {
                     ErrorToastOverlay(
                         errorManager: viewModel.errorManager,
                         hasAPIKey: windowState.hasAPIKey,
+                        isAuthenticated: authManager.isAuthenticated,
                         onOpenSettings: { windowState.selection = .panel(.settings) },
                         onRetryConversationError: { viewModel.retryAfterConversationError() },
                         onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
@@ -673,7 +674,7 @@ struct MainWindowView: View {
                         onRetryLastMessage: { viewModel.retryLastMessage() },
                         onDismissError: { viewModel.dismissError() }
                     )
-                } else if !windowState.hasAPIKey {
+                } else if !windowState.hasAPIKey && authManager.isAuthenticated {
                     ChatConversationErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
@@ -998,6 +999,7 @@ struct MainWindowView: View {
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
+    let isAuthenticated: Bool
     let onOpenSettings: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -1008,7 +1010,7 @@ private struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if !hasAPIKey {
+            if !hasAPIKey && isAuthenticated {
                 ChatConversationErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
                     icon: .keyRound,
