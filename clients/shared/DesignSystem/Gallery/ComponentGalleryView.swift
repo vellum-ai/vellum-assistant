@@ -220,9 +220,13 @@ struct ComponentGalleryView: View {
                                         .listRowBackground(rowBackground(for: .component(item.category, component.id)))
                                         .onHover { hovering in hoveredPage = hovering ? .component(item.category, component.id) : nil }
                                 }
-                            } label: {
-                                Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
-                            }
+                                } label: {
+                                    Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            isExpanded(item.category).wrappedValue.toggle()
+                                        }
+                                }
                         }
                     }
                 }
