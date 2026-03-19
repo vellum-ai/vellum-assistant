@@ -10,11 +10,16 @@ public enum LayoutConfigStore {
     }
 
     public static func load() -> LayoutConfig {
+        let path = configURL.path
+        guard FileManager.default.fileExists(atPath: path) else {
+            log.info("No layout config file at \(path), using default")
+            return .default
+        }
         let data: Data
         do {
             data = try Data(contentsOf: configURL)
         } catch {
-            log.error("Failed to read layout config data from \(self.configURL.path): \(error)")
+            log.error("Failed to read layout config data from \(path): \(error)")
             return .default
         }
         do {
