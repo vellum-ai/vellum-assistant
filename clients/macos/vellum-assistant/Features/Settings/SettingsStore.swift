@@ -2403,7 +2403,8 @@ public final class SettingsStore: ObservableObject {
 
             do {
                 try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
-                await fetchManagedOAuthConnections(providerKey: providerKey, userId: userId)
+                // Optimistically remove the connection from local state
+                managedOAuthConnections[providerKey]?.removeAll { $0.id == connectionId }
             } catch {
                 log.error("Failed to disconnect managed OAuth connection for \(providerKey): \(error)")
                 managedOAuthError[providerKey] = error.localizedDescription
