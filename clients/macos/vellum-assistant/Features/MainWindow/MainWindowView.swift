@@ -856,18 +856,18 @@ struct MainWindowView: View {
     @ViewBuilder
     private func coreLayoutContent(geometry: GeometryProxy) -> some View {
         coreLayoutBase(geometry: geometry)
-            .ignoresSafeArea(edges: .top)
-            .background(VColor.surfaceBase.ignoresSafeArea())
-            .frame(width: geometry.size.width / zoomManager.zoomLevel,
-                   height: geometry.size.height / zoomManager.zoomLevel)
-            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .overlay { preferencesDismissLayer }
             .overlay { conversationActionsDismissLayer }
             .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
+            .ignoresSafeArea(edges: .top)
+            .background(VColor.surfaceBase.ignoresSafeArea())
+            .frame(width: geometry.size.width / zoomManager.zoomLevel,
+                   height: geometry.size.height / zoomManager.zoomLevel)
+            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
     }
 
     @ViewBuilder
