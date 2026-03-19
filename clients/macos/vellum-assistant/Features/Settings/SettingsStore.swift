@@ -978,10 +978,6 @@ public final class SettingsStore: ObservableObject {
         providerCatalog.first { $0.id == provider }?.defaultModel ?? ""
     }
 
-    func dynamicProviderApiKeyUrl(_ provider: String) -> String? {
-        providerCatalog.first { $0.id == provider }?.apiKeyUrl
-    }
-
     func dynamicProviderApiKeyPlaceholder(_ provider: String) -> String? {
         providerCatalog.first { $0.id == provider }?.apiKeyPlaceholder
     }
