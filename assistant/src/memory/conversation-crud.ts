@@ -116,6 +116,8 @@ export interface ConversationRow {
   memoryScopeId: string;
   originChannel: string | null;
   originInterface: string | null;
+  forkParentConversationId: string | null;
+  forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
 }
@@ -139,6 +141,8 @@ export const parseConversation = createRowMapper<
   memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
   originInterface: "originInterface",
+  forkParentConversationId: "forkParentConversationId",
+  forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
 });
