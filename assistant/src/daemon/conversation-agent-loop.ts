@@ -208,7 +208,17 @@ export interface AgentLoopConversationContext {
   currentPage?: string;
   readonly surfaceState: Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;

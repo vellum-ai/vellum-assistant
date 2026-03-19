@@ -123,7 +123,17 @@ export interface AbortContext {
   surfaceActionRequestIds: Set<string>;
   surfaceState: Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >;
   accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   readonly queue: MessageQueue;
