@@ -241,6 +241,7 @@ struct ComponentGalleryView: View {
                 }
                 .padding(VSpacing.xxl)
             }
+            .id(selectedPage)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.surfaceOverlay)
         }
