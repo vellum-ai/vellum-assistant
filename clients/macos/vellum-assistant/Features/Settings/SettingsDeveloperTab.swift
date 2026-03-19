@@ -793,6 +793,11 @@ struct SettingsDeveloperTab: View {
         isRevokingApiKey = true
         defer { isRevokingApiKey = false }
 
+        // Capture assistant ID before the await so local credential cleanup
+        // targets the same assistant the remote DELETE was issued against,
+        // even if the user switches assistants while the request is in flight.
+        let targetAssistantId = selectedAssistantId
+
         let body: [String: String] = ["type": "credential", "name": "vellum:assistant_api_key"]
         do {
             let response = try await GatewayHTTPClient.delete(
@@ -806,7 +811,7 @@ struct SettingsDeveloperTab: View {
                 #else
                 let credStorage = KeychainCredentialStorage()
                 #endif
-                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: selectedAssistantId)
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: targetAssistantId)
                 _ = credStorage.delete(account: credentialAccount)
 
                 showRevokeStatus("Assistant API key revoked", isError: false)
