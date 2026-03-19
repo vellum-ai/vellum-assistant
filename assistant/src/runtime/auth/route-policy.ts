@@ -437,6 +437,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
+  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] }, // legacy alias
   { endpoint: "oauth/apps", scopes: ["settings.read"] },
   { endpoint: "oauth/apps.create", scopes: ["settings.write"] },
   { endpoint: "oauth/apps.delete", scopes: ["settings.write"] },
