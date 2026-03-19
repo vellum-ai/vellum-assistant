@@ -82,6 +82,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateMemoryArchiveTables,
   migrateMemoryBriefState,
   migrateMemoryItemSupersession,
   migrateMemoryReducerCheckpoints,
@@ -489,7 +490,10 @@ export function initializeDb(): void {
   // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
   migrateMemoryBriefState(database);
 
-  // 86. Add memory reducer checkpoint columns to conversations
+  // 86. Memory archive tables (observations, chunks, episodes) for simplified memory v1
+  migrateMemoryArchiveTables(database);
+
+  // 87. Add memory reducer checkpoint columns to conversations
   migrateMemoryReducerCheckpoints(database);
 
   validateMigrationState(database);
