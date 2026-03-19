@@ -9,7 +9,10 @@ struct SettingsPrivacyTab: View {
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     /// Tracks the in-flight privacy sync task so rapid toggles cancel the
-    /// previous write and only the latest value reaches the daemon.
+    /// previous write and only the latest values reach the daemon.
+    /// A single task suffices because `syncPrivacyConfig()` always sends
+    /// both current store values, so cancelling one toggle's task cannot
+    /// silently drop the other toggle's change.
     @State private var privacySyncTask: Task<Void, Never>?
 
     var body: some View {
@@ -34,7 +37,7 @@ struct SettingsPrivacyTab: View {
                     get: { store.collectUsageData },
                     set: { newValue in
                         store.collectUsageData = newValue
-                        syncPrivacyConfig(collectUsageData: newValue)
+                        syncPrivacyConfig()
                     }
                 ))
             }
@@ -60,7 +63,7 @@ struct SettingsPrivacyTab: View {
                         } else {
                             MetricKitManager.closeSentry()
                         }
-                        syncPrivacyConfig(sendDiagnostics: newValue)
+                        syncPrivacyConfig()
                     }
                 ))
             }
@@ -69,13 +72,18 @@ struct SettingsPrivacyTab: View {
 
     // MARK: - Privacy Config Sync
 
-    /// Syncs a privacy config change to the daemon, cancelling any in-flight
-    /// sync so that only the latest toggle value wins when the user toggles
-    /// rapidly.
-    private func syncPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) {
+    /// Syncs the full privacy config to the daemon, cancelling any in-flight
+    /// sync so that only the latest state wins when the user toggles rapidly.
+    ///
+    /// Always sends **both** current store values so that cancelling one
+    /// toggle's in-flight task cannot silently drop the other toggle's change.
+    private func syncPrivacyConfig() {
         privacySyncTask?.cancel()
         privacySyncTask = Task {
-            try? await featureFlagClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
+            try? await featureFlagClient.setPrivacyConfig(
+                collectUsageData: store.collectUsageData,
+                sendDiagnostics: store.sendDiagnostics
+            )
         }
     }
 }

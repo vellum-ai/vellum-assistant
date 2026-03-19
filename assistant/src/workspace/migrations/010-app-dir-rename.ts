@@ -1,5 +1,5 @@
 /**
- * Workspace migration 009: Rename UUID-based app directories and files to
+ * Workspace migration 010: Rename UUID-based app directories and files to
  * human-readable slugified names.
  *
  * Inline slugify + dedup logic (not imported from app-store) so the migration
@@ -10,6 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -20,7 +21,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import type { WorkspaceMigration } from "./types.js";
 
@@ -145,7 +145,7 @@ export const appDirRenameMigration: WorkspaceMigration = {
       const gitDir = join(appsDir, ".git");
       if (existsSync(gitDir)) {
         execSync(
-          "git add -A && git commit -m 'Migration 009: rename app dirs to slugified names' --allow-empty",
+          "git add -A && git commit -m 'Migration 010: rename app dirs to slugified names' --allow-empty",
           {
             cwd: appsDir,
             stdio: "ignore",

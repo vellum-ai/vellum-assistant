@@ -248,6 +248,7 @@ export interface ModelInfo {
     models: Array<{ id: string; displayName: string }>;
     defaultModel: string;
     apiKeyUrl?: string;
+    apiKeyPlaceholder?: string;
   }>;
   maskedKeys?: Record<string, string>;
 }

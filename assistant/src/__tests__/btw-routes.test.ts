@@ -348,6 +348,7 @@ describe("POST /v1/btw", () => {
 
     // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
+    expect(options!.config!.modelIntent).toBe("latency-optimized");
   });
 
   // -- No persistence --

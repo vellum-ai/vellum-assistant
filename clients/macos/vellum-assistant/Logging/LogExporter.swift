@@ -229,10 +229,8 @@ enum LogExporter {
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant: Bool = {
-            guard let id = connectedId else { return false }
-            return LockfileAssistant.loadByName(id)?.isManaged == true
-        }()
+        let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+        let isManagedAssistant = connectedAssistant?.isManaged == true
 
         var daemonUnreachable = false
         if isManagedAssistant, let assistantId = connectedId,
@@ -242,7 +240,12 @@ enum LogExporter {
             let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
             if !success {
                 daemonUnreachable = true
-                collectFallbackDaemonLogs(into: tempDir, home: home, fileManager: fileManager)
+                collectFallbackDaemonLogs(
+                    into: tempDir,
+                    home: home,
+                    connectedAssistant: connectedAssistant,
+                    fileManager: fileManager
+                )
             }
         }
 
@@ -453,16 +456,24 @@ enum LogExporter {
     /// filesystem and copies them into `directory/daemon-logs-fallback/`.
     /// Includes the main daemon log (`vellum.log`) and the 3 most recent
     /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
+    ///
+    /// Resolves the workspace log directory from the connected assistant's
+    /// lockfile entry (via `instanceDir` or `baseDataDir`) to support
+    /// multi-instance setups. Falls back to `~/.vellum/workspace/` when
+    /// no lockfile entry is available.
     private nonisolated static func collectFallbackDaemonLogs(
         into directory: URL,
         home: String,
+        connectedAssistant: LockfileAssistant?,
         fileManager: FileManager
     ) {
         let fallbackDir = directory.appendingPathComponent("daemon-logs-fallback", isDirectory: true)
         try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
 
-        let workspaceLogDir = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
+        let workspaceDir: String = connectedAssistant?.workspaceDir
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".vellum/workspace").path
+        let workspaceLogDir = URL(fileURLWithPath: workspaceDir)
+            .appendingPathComponent("data/logs", isDirectory: true)
 
         var totalBytes = 0
 

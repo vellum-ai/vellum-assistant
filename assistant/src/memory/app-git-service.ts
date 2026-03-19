@@ -11,7 +11,7 @@
  * Reuses WorkspaceGitService for all git operations (mutex, circuit breaker,
  * lazy init, etc.).
  *
- * NOTE: After the 009-app-dir-rename migration, git pathspecs use dirName
+ * NOTE: After the 010-app-dir-rename migration, git pathspecs use dirName
  * (slug) instead of appId (UUID). History queries will only return commits
  * made after the migration rename. Commits before the migration used UUID-
  * based paths and are not visible through the current slug-based pathspecs.
@@ -197,7 +197,7 @@ export async function commitAppTurnChanges(
  * Scopes `git log` to files belonging to this app using dirName-based
  * pathspecs: {dirName}.json, {dirName}/.
  *
- * Note: After the 009 migration, only commits made after the rename are
+ * Note: After the 010 migration, only commits made after the rename are
  * visible. Pre-migration commits used UUID-based paths.
  */
 export async function getAppHistory(

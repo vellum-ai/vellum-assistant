@@ -375,6 +375,9 @@ extension AppDelegate {
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
+                    // Clear any stale startup error from a previous hatch attempt
+                    // so a successful hatch doesn't leave a non-nil error in app state.
+                    self.daemonStartupError = nil
                     do {
                         try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch let error as AssistantCli.CLIError {
@@ -483,10 +486,12 @@ extension AppDelegate {
             let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
             let hasExplicitCollectUsageData = collectUsageData != nil
 
+            let legacySendDiagnostics = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
             let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            // Fall back to legacy collectUsageData keys so users who opted
-            // out via the old master switch keep Sentry disabled.
-            let sendDiagnostics = canonicalSendDiagnostics ?? collectUsageData
+            // Fall back to the legacy sendPerformanceReports key first, then
+            // to legacy collectUsageData keys so users who opted out via the
+            // old master switch keep Sentry disabled.
+            let sendDiagnostics = canonicalSendDiagnostics ?? legacySendDiagnostics ?? collectUsageData
             let hasExplicitSendDiagnostics = sendDiagnostics != nil
 
             // Apply Sentry state based on sendDiagnostics (default true when absent)

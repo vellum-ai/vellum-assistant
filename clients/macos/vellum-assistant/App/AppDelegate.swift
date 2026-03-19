@@ -131,7 +131,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Structured error from the most recent daemon startup failure.
     /// Populated by `setupDaemonClient()` when `hatch()` throws a
-    /// `CLIError.daemonStartupFailed`. Read by the UI (PR 3) to show a
+    /// `CLIError.daemonStartupFailed`. Read by the UI to show a
     /// contextual error view instead of a generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 

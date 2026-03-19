@@ -85,7 +85,7 @@ struct GoogleOAuthServiceCard: View {
             createAppSheet
         }
         .alert("Delete OAuth App?", isPresented: $showDeleteAppAlert) {
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { appToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let app = appToDelete {
                     Task { await store.deleteYourOwnOAuthApp(id: app.id) }
@@ -98,7 +98,10 @@ struct GoogleOAuthServiceCard: View {
             }
         }
         .alert("Disconnect Account?", isPresented: $showDisconnectAlert) {
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                disconnectConnection = nil
+                disconnectAppId = nil
+            }
             Button("Disconnect", role: .destructive) {
                 if let conn = disconnectConnection, let appId = disconnectAppId {
                     Task { await store.disconnectYourOwnOAuthConnection(id: conn.id, appId: appId) }
@@ -131,9 +134,7 @@ struct GoogleOAuthServiceCard: View {
             }
 
             if let error = store.googleOAuthError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                VInlineMessage(error, tone: .error)
             }
         }
     }
@@ -216,23 +217,14 @@ struct GoogleOAuthServiceCard: View {
 
     @ViewBuilder
     private var yourOwnBody: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            HStack {
-                Spacer()
-                Button {
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    showCreateAppSheet = true
-                } label: {
-                    VIconView(.plus, size: 14)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .buttonStyle(.borderless)
-                .help("Add OAuth App")
-            }
-
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnOAuthIsLoading {
-                VBusyIndicator()
+                HStack {
+                    Spacer()
+                    VBusyIndicator()
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.lg)
             } else if store.yourOwnOAuthApps.isEmpty {
                 yourOwnEmptyState
             } else {
@@ -240,9 +232,7 @@ struct GoogleOAuthServiceCard: View {
             }
 
             if let error = store.yourOwnOAuthError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                VInlineMessage(error, tone: .error)
             }
         }
         .onAppear {
@@ -251,35 +241,61 @@ struct GoogleOAuthServiceCard: View {
     }
 
     private var yourOwnEmptyState: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("No OAuth apps configured.")
-                .font(VFont.body)
+        VStack(spacing: VSpacing.lg) {
+            VIconView(.keyRound, size: 32)
                 .foregroundColor(VColor.contentTertiary)
-            Text("Create an OAuth app with your Google Cloud credentials to get started.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
+
+            VStack(spacing: VSpacing.xs) {
+                Text("No OAuth apps configured")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentDefault)
+                Text("Add your Google Cloud OAuth credentials to connect accounts.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VButton(label: "Add OAuth App", leftIcon: "lucide-plus", style: .primary) {
+                createAppClientId = ""
+                createAppClientSecret = ""
+                showCreateAppSheet = true
+            }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.lg)
     }
 
     private var yourOwnAppsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             ForEach(store.yourOwnOAuthApps) { app in
                 yourOwnAppCard(for: app)
+            }
+
+            VButton(label: "Add OAuth App", leftIcon: "lucide-plus", style: .outlined) {
+                createAppClientId = ""
+                createAppClientSecret = ""
+                showCreateAppSheet = true
             }
         }
     }
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header row: masked client_id + creation date + trash
-            HStack {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Header: key icon + masked client_id + date + trash
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.keyRound, size: 14)
+                    .foregroundColor(VColor.contentTertiary)
+
                 Text(maskedClientId(app.client_id))
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
+
                 Spacer()
+
                 Text(formattedDate(app.created_at))
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
+
                 if hoveredAppId == app.id {
                     Button {
                         appToDelete = app
@@ -289,32 +305,44 @@ struct GoogleOAuthServiceCard: View {
                             .foregroundColor(VColor.systemNegativeStrong)
                     }
                     .buttonStyle(.borderless)
-                    .transition(.opacity)
+                    .transition(.opacity.animation(VAnimation.fast))
                 }
             }
 
-            // Connections section
+            Divider()
+                .foregroundColor(VColor.borderBase)
+
+            // Connections
             let connections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
             if connections.isEmpty {
-                Text("No connected accounts")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.circleUser, size: 14)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text("No connected accounts")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .padding(.vertical, VSpacing.xxs)
             } else {
-                ForEach(connections) { conn in
-                    yourOwnConnectionRow(for: conn, appId: app.id)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(connections) { conn in
+                        yourOwnConnectionRow(for: conn, appId: app.id)
+                    }
                 }
             }
 
-            // Action row: Log In button
-            HStack {
+            // Connect button
+            HStack(spacing: VSpacing.sm) {
                 VButton(
-                    label: "Log In",
-                    style: .primary,
+                    label: store.yourOwnOAuthConnectingAppId == app.id ? "Connecting..." : "Connect Account",
+                    leftIcon: "lucide-log-in",
+                    style: .outlined,
                     isDisabled: store.yourOwnOAuthConnectingAppId == app.id
                 ) {
                     store.startYourOwnOAuthConnect(appId: app.id)
                 }
                 if store.yourOwnOAuthConnectingAppId == app.id {
+                    VBusyIndicator(size: 8, color: VColor.contentTertiary)
                     Text("Waiting for authorization...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
@@ -329,27 +357,32 @@ struct GoogleOAuthServiceCard: View {
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
         .onHover { hovering in
-            hoveredAppId = hovering ? app.id : nil
+            withAnimation(VAnimation.fast) {
+                hoveredAppId = hovering ? app.id : nil
+            }
         }
     }
 
     private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(conn.account_info ?? "Google Account")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-            }
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.circleUser, size: 14)
+                .foregroundColor(VColor.contentSecondary)
+
+            Text(conn.account_info ?? "Google Account")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+
             Spacer()
-            Text("Connected")
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemPositiveStrong)
+
+            VBadge(label: "Connected", icon: .circleCheck, tone: .positive, emphasis: .subtle)
+
             VButton(label: "Disconnect", style: .danger, size: .compact) {
                 disconnectConnection = conn
                 disconnectAppId = appId
                 showDisconnectAlert = true
             }
         }
+        .padding(.vertical, VSpacing.xxs)
     }
 
     // MARK: - Create App Sheet
@@ -365,7 +398,7 @@ struct GoogleOAuthServiceCard: View {
                     Text("Client ID")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
-                    VTextField(placeholder: "Enter client ID", text: $createAppClientId)
+                    VTextField(placeholder: "e.g. 123456789.apps.googleusercontent.com", text: $createAppClientId)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Client Secret")
@@ -375,6 +408,7 @@ struct GoogleOAuthServiceCard: View {
                         .vInputStyle()
                         .font(VFont.body)
                 }
+                VInlineMessage("Find these in your Google Cloud Console under APIs & Services > Credentials.", tone: .info)
             }
         } footer: {
             HStack {
@@ -396,13 +430,15 @@ struct GoogleOAuthServiceCard: View {
                 }
             }
         }
-        .frame(width: 420)
+        .frame(width: 440)
     }
 
     // MARK: - Helpers
 
     private func maskedClientId(_ clientId: String) -> String {
-        if clientId.count > 8 {
+        if clientId.count > 16 {
+            return String(clientId.prefix(12)) + "..." + String(clientId.suffix(4))
+        } else if clientId.count > 8 {
             return String(clientId.prefix(8)) + "..."
         }
         return clientId

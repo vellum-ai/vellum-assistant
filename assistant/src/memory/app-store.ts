@@ -212,7 +212,7 @@ export function resolveAppDir(id: string): {
       const raw = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(raw) as { id?: string; dirName?: string };
       if (parsed.id === id) {
-        const dirName = parsed.dirName ?? id;
+        const dirName = parsed.dirName || id;
         if (parsed.dirName) {
           validateDirName(dirName);
         }
