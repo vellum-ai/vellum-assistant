@@ -574,7 +574,7 @@ describe("skill_load inline command expansion for included skills", () => {
   // ── Feature flag off for child inline commands ────────────────────────
 
   describe("feature flag disabled for included skills", () => {
-    test("child inline commands are not expanded when flag is off", async () => {
+    test("skill_load returns error when child has inline commands and flag is off", async () => {
       testConfig.assistantFeatureFlagValues = {
         "feature_flags.inline-skill-commands.enabled": false,
       };
@@ -594,14 +594,14 @@ describe("skill_load inline command expansion for included skills", () => {
       );
 
       const result = await executeSkillLoad({ skill: "parent-flag-off" });
-      // Note: the root skill does NOT have inline commands, so loading succeeds.
-      // The child's inline commands are simply not expanded (raw body used).
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("Root content.");
-      // The child body should contain the raw token (not expanded)
-      expect(result.content).toContain("!`echo hello`");
-      // No inline_skill_command tags should appear for the child
-      expect(result.content).not.toContain("inline_skill_command");
+      // Fail closed: the entire skill_load must error when any included child
+      // has inline commands and the feature flag is off, matching the root
+      // skill behavior and the documented fail-closed contract.
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("child-flag-off");
+      expect(result.content).toContain(
+        "inline-skill-commands feature flag is disabled",
+      );
       // Runner should not be called
       expect(runInlineCommandCalls).toHaveLength(0);
     });
