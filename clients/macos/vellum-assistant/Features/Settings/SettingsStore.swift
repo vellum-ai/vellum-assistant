@@ -3079,9 +3079,9 @@ struct YourOwnOAuthConnection: Codable, Identifiable, Sendable {
     let id: String
     let provider_key: String
     let account_info: String?
-    let granted_scopes: String
+    let granted_scopes: [String]
     let status: String
-    let has_refresh_token: Int
+    let has_refresh_token: Bool
     let expires_at: Int?
     let created_at: Int
     let updated_at: Int

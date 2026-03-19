@@ -351,7 +351,7 @@ struct OAuthProviderServiceCard: View {
                 } else {
                     VButton(
                         label: "Connect Account",
-                        leftIcon: "lucide-log-in",
+                        leftIcon: "lucide-external-link",
                         style: .outlined,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil
                     ) {
