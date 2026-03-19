@@ -54,7 +54,7 @@ struct MainThreadStallDetectorTests {
         stageOneThreshold: TimeInterval = 2.0,
         stageTwoThreshold: TimeInterval = 5.0,
         samplingAllowed: Bool = true
-    ) -> (detector: MainThreadStallDetector, blockedQueue: DispatchQueue) {
+    ) -> (detector: MainThreadStallDetector, blockedQueue: DispatchQueue, samplingQueue: DispatchQueue) {
         let detector = MainThreadStallDetector(testInit: true)
         let outputDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("stall-test-\(UUID().uuidString)", isDirectory: true)
@@ -72,7 +72,11 @@ struct MainThreadStallDetectorTests {
         blockedQueue.suspend()
         detector.probeTargetQueue = blockedQueue
 
-        return (detector, blockedQueue)
+        // Inject a serial sampling queue so tests can drain it before asserting.
+        let samplingQueue = DispatchQueue(label: "com.vellum.test.sampling")
+        detector.samplingQueue = samplingQueue
+
+        return (detector, blockedQueue, samplingQueue)
     }
 
     // MARK: - Stage One: Capture Before Recovery
@@ -81,7 +85,7 @@ struct MainThreadStallDetectorTests {
     func stageOneCaptureFiresWithoutRecovery() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, _) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         // First ping dispatches probe to the blocked queue.
@@ -109,7 +113,7 @@ struct MainThreadStallDetectorTests {
     func stageOneDoesNotFireBelowThreshold() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, _) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         detector.queue.sync {
@@ -133,7 +137,7 @@ struct MainThreadStallDetectorTests {
     func stageOneCustomThreshold() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(
+        let (detector, blockedQueue, _) = makeDetector(
             clock: clock,
             sampleRunner: sampleRunner,
             stageOneThreshold: 0.5
@@ -162,7 +166,7 @@ struct MainThreadStallDetectorTests {
     func stageTwoAttemptsSamplingOnce() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, samplingQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         detector.queue.sync {
@@ -176,6 +180,9 @@ struct MainThreadStallDetectorTests {
             detector.ping()
         }
 
+        // Drain the async sampling dispatch before asserting.
+        samplingQueue.sync {}
+
         #expect(sampleRunner.callCount == 1, "Stage two should attempt sampling exactly once")
 
         // Advance more — should NOT sample again.
@@ -185,6 +192,8 @@ struct MainThreadStallDetectorTests {
             detector.ping()
         }
 
+        samplingQueue.sync {}
+
         #expect(sampleRunner.callCount == 1, "Stage two should not attempt sampling twice for the same stall")
     }
 
@@ -192,7 +201,7 @@ struct MainThreadStallDetectorTests {
     func stageTwoSamplingGatedOnSendDiagnostics() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(
+        let (detector, blockedQueue, _) = makeDetector(
             clock: clock,
             sampleRunner: sampleRunner,
             samplingAllowed: false
@@ -223,7 +232,7 @@ struct MainThreadStallDetectorTests {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
         sampleRunner.shouldSucceed = false
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, samplingQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         detector.queue.sync {
@@ -237,6 +246,9 @@ struct MainThreadStallDetectorTests {
             detector.ping()
         }
 
+        // Drain the async sampling dispatch before asserting.
+        samplingQueue.sync {}
+
         #expect(sampleRunner.callCount == 1, "Sampling was attempted despite expected failure")
 
         // Detector should still be operational after the failure.
@@ -245,6 +257,8 @@ struct MainThreadStallDetectorTests {
         detector.queue.sync {
             detector.ping()
         }
+
+        samplingQueue.sync {}
 
         #expect(sampleRunner.callCount == 1, "No additional sampling after failure")
     }
@@ -255,7 +269,7 @@ struct MainThreadStallDetectorTests {
     func stageOneOnlyFiresOncePerStall() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, _) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         // Dispatch probe.
@@ -292,7 +306,7 @@ struct MainThreadStallDetectorTests {
     func prolongedStallFiresBothStages() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, samplingQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         // Dispatch probe.
@@ -316,6 +330,9 @@ struct MainThreadStallDetectorTests {
         detector.queue.sync {
             detector.ping()
         }
+
+        // Drain the async sampling dispatch before asserting.
+        samplingQueue.sync {}
 
         #expect(sampleRunner.callCount == 1, "Stage two should fire at 5.5s")
     }
@@ -345,7 +362,7 @@ struct MainThreadStallDetectorTests {
     func hangContextJsonIsContentSafe() throws {
         let clock = MockClock()
         let sampleRunner = MockSampleRunner()
-        let (detector, blockedQueue) = makeDetector(clock: clock, sampleRunner: sampleRunner)
+        let (detector, blockedQueue, _) = makeDetector(clock: clock, sampleRunner: sampleRunner)
         defer { blockedQueue.resume() }
 
         detector.queue.sync {
