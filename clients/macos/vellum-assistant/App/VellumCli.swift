@@ -89,6 +89,8 @@ final class VellumCli {
             "gemini": "GEMINI_API_KEY",
             "fireworks": "FIREWORKS_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
+            "brave": "BRAVE_API_KEY",
+            "perplexity": "PERPLEXITY_API_KEY",
         ]
 
     /// Environment variable keys forwarded from the host process to CLI
