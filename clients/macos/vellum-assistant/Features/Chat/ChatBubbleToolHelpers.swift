@@ -83,6 +83,10 @@ extension ChatBubble {
 
     /// Maps tool names to user-friendly present-tense labels for the running state.
     static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
+        // Filter out the preview-phase placeholder so tool-specific cases
+        // don't accidentally embed it in their labels (e.g. "Loading Preparing...").
+        let inputSummary = (inputSummary == "Preparing...") ? nil : inputSummary
+
         // For app file tools, prefer the descriptive building status from tool input
         if let status = buildingStatus {
             if toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update" {
@@ -113,6 +117,8 @@ extension ChatBubble {
                 return "Loading \(display)"
             }
             return "Loading a skill"
+        case "skill_execute":
+            return "Using a skill"
         default:
             // Convert raw snake_case name to a readable fallback
             let display = toolName.replacingOccurrences(of: "_", with: " ")

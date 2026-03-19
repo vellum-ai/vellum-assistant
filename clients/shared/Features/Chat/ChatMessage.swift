@@ -939,6 +939,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "app_create":                         return "Create App"
         case "app_refresh", "app_update":          return "Refresh App"
         case "request_system_permission":          return "Request Permission"
+        case "skill_execute":                      return "Use Skill"
         default:
             return toolName
                 .replacingOccurrences(of: "_", with: " ")
@@ -964,6 +965,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "browser_type":                       return .keyboard
         case "app_create", "app_refresh", "app_update": return .smartphone
         case "request_system_permission":          return .shield
+        case "skill_execute":                      return .puzzle
         default:                                   return .puzzle
         }
     }
@@ -1075,6 +1077,8 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Updated a playbook"
         case "playbook_list":
             return "Listed playbooks"
+        case "skill_execute":
+            return inputSummary.isEmpty ? "Used a skill" : inputSummary
         default:
             return friendlyName
         }
