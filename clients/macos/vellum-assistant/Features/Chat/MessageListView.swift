@@ -1459,6 +1459,12 @@ private struct MessageCellView: View, Equatable {
         }
     }
 
+    private func commandListFallbackMessage(from message: ChatMessage) -> ChatMessage {
+        var fallbackMessage = message
+        fallbackMessage.commandList = nil
+        return fallbackMessage
+    }
+
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
         RunningIndicator(

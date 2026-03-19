@@ -330,10 +330,18 @@ struct ChatContentView: View {
         if let parsedEntries = CommandListBubble.parsedEntries(from: message.text) {
             CommandListBubble(commands: parsedEntries)
         } else {
-            var fallbackMessage = message
-            fallbackMessage.commandList = nil
-            regularMessageBubble(message: fallbackMessage, index: index, messages: messages)
+            regularMessageBubble(
+                message: commandListFallbackMessage(from: message),
+                index: index,
+                messages: messages
+            )
         }
+    }
+
+    private func commandListFallbackMessage(from message: ChatMessage) -> ChatMessage {
+        var fallbackMessage = message
+        fallbackMessage.commandList = nil
+        return fallbackMessage
     }
 
     @ViewBuilder

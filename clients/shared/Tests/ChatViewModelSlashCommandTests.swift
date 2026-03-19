@@ -157,12 +157,63 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
 
         XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
         XCTAssertEqual(viewModel.messages.count, 0)
+    }
 
-        viewModel.isWorkspaceRefinementInFlight = false
-        viewModel.inputText = "/model"
-        viewModel.sendMessage()
+    func testDeprecatedDaemonManagedSlashCommandsBypassWorkspaceRefinement() {
+        viewModel.activeSurfaceId = "surface-1"
+        viewModel.isChatDockedToSide = false
 
-        XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
-        XCTAssertEqual(viewModel.messages.count, 0)
+        let deprecatedCommands = [
+            "/model",
+            "/opus write a summary",
+            "/OPUS write a summary",
+        ]
+
+        for command in deprecatedCommands {
+            viewModel.isWorkspaceRefinementInFlight = false
+            viewModel.inputText = command
+            viewModel.sendMessage()
+
+            XCTAssertFalse(viewModel.isWorkspaceRefinementInFlight)
+        }
+
+        XCTAssertEqual(viewModel.messages.map(\.text), deprecatedCommands)
+    }
+
+    func testPopulateFromHistoryRetagsCommandListAcrossPaginationBoundary() {
+        let assistantReply = HistoryResponseMessage(
+            id: UUID().uuidString,
+            role: "assistant",
+            text: "/commands — List all available commands",
+            timestamp: 2_000
+        )
+
+        viewModel.populateFromHistory(
+            [assistantReply],
+            hasMore: true,
+            oldestTimestamp: 2_000
+        )
+
+        XCTAssertNil(viewModel.messages.first?.commandList)
+
+        let olderUserMessage = HistoryResponseMessage(
+            id: UUID().uuidString,
+            role: "user",
+            text: "/commands",
+            timestamp: 1_000
+        )
+
+        viewModel.populateFromHistory(
+            [olderUserMessage],
+            hasMore: false,
+            oldestTimestamp: 1_000,
+            isPaginationLoad: true
+        )
+
+        XCTAssertEqual(viewModel.messages.map(\.text), [
+            "/commands",
+            "/commands — List all available commands",
+        ])
+        XCTAssertNotNil(viewModel.messages[1].commandList)
     }
 }
