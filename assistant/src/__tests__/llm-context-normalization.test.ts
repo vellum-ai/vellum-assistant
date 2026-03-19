@@ -191,8 +191,16 @@ describe("normalizeLlmContextPayloads", () => {
             content: [
               { type: "text", text: "Checking sources." },
               {
-                type: "tool_use",
-                id: "toolu_req_1",
+                type: "thinking",
+                thinking: "I should search the changelog.",
+              },
+              {
+                type: "redacted_thinking",
+                signature: "sig_req_1",
+              },
+              {
+                type: "server_tool_use",
+                id: "srvtoolu_req_1",
                 name: "web_search",
                 input: { query: "vellum changelog" },
               },
@@ -219,6 +227,20 @@ describe("normalizeLlmContextPayloads", () => {
         content: [
           { type: "text", text: "I found the changelog." },
           {
+            type: "thinking",
+            thinking: "I should fetch the page.",
+          },
+          {
+            type: "redacted_thinking",
+            signature: "sig_resp_1",
+          },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_resp_1",
+            name: "web_search",
+            input: { query: "vellum changelog" },
+          },
+          {
             type: "tool_use",
             id: "toolu_resp_1",
             name: "fetch_page",
@@ -239,9 +261,9 @@ describe("normalizeLlmContextPayloads", () => {
       requestMessageCount: 2,
       requestToolCount: 1,
       responseMessageCount: 1,
-      responseToolCallCount: 1,
+      responseToolCallCount: 2,
       responsePreview: "I found the changelog.",
-      toolCallNames: ["fetch_page"],
+      toolCallNames: ["web_search", "fetch_page"],
     });
     expect(normalized.requestSections).toEqual([
       {
@@ -261,6 +283,18 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Assistant message 2",
         role: "assistant",
         text: "Checking sources.",
+      },
+      {
+        kind: "reasoning",
+        label: "Assistant message 2 reasoning",
+        role: "assistant",
+        text: "I should search the changelog.",
+      },
+      {
+        kind: "reasoning",
+        label: "Assistant message 2 reasoning",
+        role: "assistant",
+        text: "[redacted thinking]",
       },
       {
         kind: "tool_use",
@@ -304,12 +338,97 @@ describe("normalizeLlmContextPayloads", () => {
         text: "I found the changelog.",
       },
       {
+        kind: "reasoning",
+        label: "Assistant response reasoning",
+        role: "assistant",
+        text: "I should fetch the page.",
+      },
+      {
+        kind: "reasoning",
+        label: "Assistant response reasoning",
+        role: "assistant",
+        text: "[redacted thinking]",
+      },
+      {
+        kind: "tool_use",
+        label: "Assistant response tool use",
+        role: "assistant",
+        toolName: "web_search",
+        data: { query: "vellum changelog" },
+        text: '{"query":"vellum changelog"}',
+      },
+      {
         kind: "tool_use",
         label: "Assistant response tool use",
         role: "assistant",
         toolName: "fetch_page",
         data: { url: "https://example.com/changelog" },
         text: '{"url":"https://example.com/changelog"}',
+      },
+    ]);
+  });
+
+  test("keeps Anthropic reasoning separate from response preview text", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_008,
+      requestPayload: {
+        model: "claude-sonnet",
+        messages: [{ role: "user", content: "Give me the answer." }],
+      },
+      responsePayload: {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 21,
+          output_tokens: 10,
+        },
+        content: [
+          {
+            type: "thinking",
+            thinking: "I have enough context now.",
+          },
+          {
+            type: "redacted_thinking",
+            signature: "sig_resp_2",
+          },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      inputTokens: 21,
+      outputTokens: 10,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: "end_turn",
+      requestMessageCount: 1,
+      requestToolCount: 0,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "The answer is 42.",
+      toolCallNames: undefined,
+    });
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "The answer is 42.",
+      },
+      {
+        kind: "reasoning",
+        label: "Assistant response reasoning",
+        role: "assistant",
+        text: "I have enough context now.",
+      },
+      {
+        kind: "reasoning",
+        label: "Assistant response reasoning",
+        role: "assistant",
+        text: "[redacted thinking]",
       },
     ]);
   });

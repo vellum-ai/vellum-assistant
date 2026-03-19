@@ -24,6 +24,7 @@ export interface LlmContextSection {
   kind:
     | "system"
     | "message"
+    | "reasoning"
     | "settings"
     | "tool_definitions"
     | "tool_use"
@@ -284,6 +285,7 @@ function normalizeAnthropicRequestPayload(
       const type = asString(block.type);
       return (
         type === "tool_use" ||
+        type === "server_tool_use" ||
         type === "tool_result" ||
         type === "web_search_tool_result" ||
         type === "thinking" ||
@@ -373,12 +375,20 @@ function normalizeAnthropicResponsePayload(
     content,
     "Assistant response",
   );
-  const responseText = collectAnthropicText(content);
+  const responseText = collectAnthropicPreviewText(content);
   const responseToolNames = content
     .map((block) =>
-      asString(block.type) === "tool_use" ? asString(block.name) : undefined,
+      isAnthropicToolUseType(asString(block.type))
+        ? asString(block.name)
+        : undefined,
     )
     .filter((name): name is string => typeof name === "string");
+  const hasAnthropicResponseMessage = responseSections.some(
+    (section) =>
+      section.kind === "message" ||
+      section.kind === "tool_use" ||
+      section.kind === "reasoning",
+  );
 
   const usage = asRecord(response.usage);
   return {
@@ -393,10 +403,7 @@ function normalizeAnthropicResponsePayload(
       stopReason: asString(response.stop_reason),
       requestMessageCount: undefined,
       requestToolCount: undefined,
-      responseMessageCount:
-        responseText !== undefined || responseToolNames.length > 0
-          ? 1
-          : undefined,
+      responseMessageCount: hasAnthropicResponseMessage ? 1 : undefined,
       responseToolCallCount:
         responseToolNames.length > 0 ? responseToolNames.length : undefined,
       responsePreview: responseText ? truncateText(responseText) : undefined,
@@ -562,7 +569,7 @@ function anthropicMessageSections(
   const role = asString(message.role) ?? "unknown";
   const content = message.content;
   const sections: LlmContextSection[] = [];
-  const text = collectAnthropicText(content);
+  const text = collectAnthropicMessageText(content);
   if (text) {
     sections.push({
       kind: "message",
@@ -574,7 +581,17 @@ function anthropicMessageSections(
 
   for (const block of asRecordArray(content) ?? []) {
     const type = asString(block.type);
-    if (type === "tool_use") {
+    if (type === "thinking" || type === "redacted_thinking") {
+      sections.push({
+        kind: "reasoning",
+        label: `${label} reasoning`,
+        role,
+        text: collectAnthropicReasoningText(block),
+      });
+      continue;
+    }
+
+    if (isAnthropicToolUseType(type)) {
       sections.push({
         kind: "tool_use",
         label: `${label} tool use`,
@@ -840,16 +857,32 @@ function collectAnthropicText(content: unknown): string | undefined {
       continue;
     }
 
-    if (type === "thinking") {
-      const thinking = asString(block.thinking);
-      if (thinking) {
-        textParts.push(thinking);
-      }
-      continue;
+    if (type === "image") {
+      textParts.push("[image]");
     }
+  }
 
-    if (type === "redacted_thinking") {
-      textParts.push("[redacted thinking]");
+  return joinTextParts(textParts);
+}
+
+function collectAnthropicMessageText(content: unknown): string | undefined {
+  if (typeof content === "string") {
+    return hasMeaningfulText(content) ? content : undefined;
+  }
+
+  const blocks = asRecordArray(content);
+  if (!blocks) {
+    return undefined;
+  }
+
+  const textParts: string[] = [];
+  for (const block of blocks) {
+    const type = asString(block.type);
+    if (type === "text") {
+      const text = asString(block.text);
+      if (text) {
+        textParts.push(text);
+      }
       continue;
     }
 
@@ -859,6 +892,51 @@ function collectAnthropicText(content: unknown): string | undefined {
   }
 
   return joinTextParts(textParts);
+}
+
+function collectAnthropicPreviewText(content: unknown): string | undefined {
+  if (typeof content === "string") {
+    return hasMeaningfulText(content) ? content : undefined;
+  }
+
+  const blocks = asRecordArray(content);
+  if (!blocks) {
+    return undefined;
+  }
+
+  const textParts: string[] = [];
+  for (const block of blocks) {
+    if (asString(block.type) !== "text") {
+      continue;
+    }
+
+    const text = asString(block.text);
+    if (text) {
+      textParts.push(text);
+    }
+  }
+
+  return joinTextParts(textParts);
+}
+
+function collectAnthropicReasoningText(
+  block: Record<string, unknown>,
+): string | undefined {
+  const type = asString(block.type);
+  if (type === "thinking") {
+    const thinking = asString(block.thinking);
+    return thinking ? thinking : undefined;
+  }
+
+  if (type === "redacted_thinking") {
+    return "[redacted thinking]";
+  }
+
+  return undefined;
+}
+
+function isAnthropicToolUseType(type: string | undefined): boolean {
+  return type === "tool_use" || type === "server_tool_use";
 }
 
 function isAnthropicToolResultType(type: string | undefined): boolean {
