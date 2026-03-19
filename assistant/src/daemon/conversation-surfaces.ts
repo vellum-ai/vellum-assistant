@@ -873,7 +873,7 @@ export function handleSurfaceAction(
 }
 
 /**
- * After an app_update, refresh any active surface that displays the updated app.
+ * After an app_refresh, refresh any active surface that displays the updated app.
  */
 export function refreshSurfacesForApp(
   ctx: SurfaceConversationContext,
@@ -922,7 +922,7 @@ export function refreshSurfacesForApp(
     refreshed = true;
     log.info(
       { conversationId: ctx.conversationId, surfaceId, appId },
-      "Auto-refreshed surface after app_update",
+      "Auto-refreshed surface after app_refresh",
     );
   }
   return refreshed;

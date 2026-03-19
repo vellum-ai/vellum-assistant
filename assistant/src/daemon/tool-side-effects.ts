@@ -163,7 +163,7 @@ registerHook(
   (_name, input, _result, { ctx, broadcastToAllClients }) => {
     const appId = input.app_id as string | undefined;
     if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients);
+      handleAppChange(ctx, appId, broadcastToAllClients, { fileChange: true });
     }
   },
 );
