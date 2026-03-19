@@ -74,7 +74,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].text, "/status")
     }
 
-    func testModelsRefreshesMetadataButDeprecatedModelDoesNot() async {
+    func testModelsRefreshesMetadataButUnsupportedFormsDoNot() async {
         settingsClient.modelInfoResponse = ModelInfoMessage(
             type: "model_info",
             model: "test-model",
@@ -89,12 +89,41 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         await Task.yield()
         XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 1)
 
+        viewModel.inputText = "/models foo"
+        viewModel.sendMessage()
+
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 1)
+
         viewModel.inputText = "/model"
         viewModel.sendMessage()
 
         await Task.yield()
         await Task.yield()
         XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 1)
+    }
+
+    func testUnsupportedSlashFormsUseWorkspaceRefinementWhenSurfaceIsActive() {
+        viewModel.activeSurfaceId = "surface-1"
+        viewModel.isChatDockedToSide = false
+
+        let unsupportedForms = [
+            "/commands foo",
+            "/models foo",
+            "/status foo",
+            "/pair foo",
+            "/btw",
+        ]
+
+        for command in unsupportedForms {
+            viewModel.isWorkspaceRefinementInFlight = false
+            viewModel.inputText = command
+            viewModel.sendMessage()
+
+            XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
+            XCTAssertEqual(viewModel.messages.count, 0)
+        }
     }
 
     func testUnknownSlashCommandsUseWorkspaceRefinementWhenSurfaceIsActive() {

@@ -199,7 +199,7 @@ export async function resolveSlash(
   }
 
   // Handle /pair command
-  const pairResult = resolvePairCommand(content);
+  const pairResult = resolvePairCommand(content, context);
   if (pairResult) return pairResult;
 
   // Handle /status command
@@ -253,8 +253,19 @@ async function savePairingQRCodePng(
   writeFileSync(qrPngPath, pngBuffer);
 }
 
-function resolvePairCommand(content: string): SlashResolution | null {
+function resolvePairCommand(
+  content: string,
+  context?: SlashContext,
+): SlashResolution | null {
   if (content.trim() !== "/pair") return null;
+
+  if (context?.userMessageInterface && context.userMessageInterface !== "macos") {
+    return {
+      kind: "unknown",
+      message:
+        "The `/pair` command is only available in the macOS desktop app.",
+    };
+  }
 
   if (!pairingStoreRef) {
     return {

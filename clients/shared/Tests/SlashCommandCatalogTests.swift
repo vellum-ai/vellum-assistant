@@ -27,6 +27,14 @@ final class SlashCommandCatalogTests: XCTestCase {
         XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw"])
     }
 
+    func testStatusDescriptionMatchesConversationCopy() {
+        let status = ChatSlashCommandCatalog.commands(
+            for: .macos,
+            surface: .helpBubble
+        ).first(where: { $0.name == "status" })
+        XCTAssertEqual(status?.description, "Show conversation status and context usage")
+    }
+
     func testBtwSelectionBehaviorUsesTrailingSpaceInsertion() {
         let descriptor = ChatSlashCommandCatalog.descriptor(
             forRawInput: "/btw tell me more",
@@ -50,5 +58,87 @@ final class SlashCommandCatalogTests: XCTestCase {
             surface: .helpBubble
         )
         XCTAssertNil(helpDescriptor)
+    }
+
+    func testSendPathRecognitionRequiresSupportedForms() {
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/commands",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/models",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/status",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/pair",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/btw follow up",
+            platform: .macos,
+            surface: .sendPath
+        ))
+
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/commands foo",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/models foo",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/status foo",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/pair foo",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/btw",
+            platform: .macos,
+            surface: .sendPath
+        ))
+    }
+
+    func testPairIsMacOSOnlyOnSendPath() {
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/pair",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/pair",
+            platform: .ios,
+            surface: .sendPath
+        ))
+    }
+
+    func testModelMetadataRefreshOnlyForExactModelsCommand() {
+        XCTAssertTrue(ChatSlashCommandCatalog.shouldRefreshModelMetadata(
+            forRawInput: "/models",
+            platform: .macos
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.shouldRefreshModelMetadata(
+            forRawInput: "/models foo",
+            platform: .macos
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.shouldRefreshModelMetadata(
+            forRawInput: "/commands",
+            platform: .macos
+        ))
     }
 }

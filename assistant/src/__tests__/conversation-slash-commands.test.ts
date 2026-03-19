@@ -77,3 +77,47 @@ describe("resolveSlash /commands interface-aware help", () => {
     ]);
   });
 });
+
+describe("resolveSlash command contract", () => {
+  test("keeps unsupported slash forms as passthrough", async () => {
+    const slashForms = [
+      "/commands foo",
+      "/models foo",
+      "/status foo",
+      "/pair foo",
+      "/btw",
+    ];
+
+    for (const input of slashForms) {
+      const result = await resolveSlash(
+        input,
+        makeSlashContext({ userMessageInterface: "macos" }),
+      );
+      expect(result).toEqual({ kind: "passthrough", content: input });
+    }
+  });
+
+  test("rejects /pair on iOS interfaces", async () => {
+    const result = await resolveSlash(
+      "/pair",
+      makeSlashContext({ userMessageInterface: "ios" }),
+    );
+    expect(result.kind).toBe("unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("Expected /pair on iOS to resolve to kind=unknown");
+    }
+    expect(result.message).toContain("only available in the macOS desktop app");
+  });
+
+  test("keeps /pair handling enabled on macOS interfaces", async () => {
+    const result = await resolveSlash(
+      "/pair",
+      makeSlashContext({ userMessageInterface: "macos" }),
+    );
+    expect(result.kind).toBe("unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("Expected /pair on macOS to resolve to kind=unknown");
+    }
+    expect(result.message).toContain("Pairing is not available");
+  });
+});

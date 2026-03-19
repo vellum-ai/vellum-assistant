@@ -16,11 +16,17 @@ public enum ChatSlashCommandSelectionBehavior: Hashable {
     case insertTrailingSpace
 }
 
+public enum ChatSlashCommandSendPathMatchRule: Hashable {
+    case exact
+    case commandWithArgument
+}
+
 public struct ChatSlashCommandDescriptor: Hashable {
     public let name: String
     public let description: String
     public let icon: String
     public let selectionBehavior: ChatSlashCommandSelectionBehavior
+    public let sendPathMatchRule: ChatSlashCommandSendPathMatchRule
     public let pickerPlatforms: Set<ChatSlashCommandPlatform>
     public let helpBubblePlatforms: Set<ChatSlashCommandPlatform>
     public let sendPathPlatforms: Set<ChatSlashCommandPlatform>
@@ -31,6 +37,7 @@ public struct ChatSlashCommandDescriptor: Hashable {
         description: String,
         icon: String,
         selectionBehavior: ChatSlashCommandSelectionBehavior,
+        sendPathMatchRule: ChatSlashCommandSendPathMatchRule = .exact,
         pickerPlatforms: Set<ChatSlashCommandPlatform>,
         helpBubblePlatforms: Set<ChatSlashCommandPlatform>,
         sendPathPlatforms: Set<ChatSlashCommandPlatform>,
@@ -40,6 +47,7 @@ public struct ChatSlashCommandDescriptor: Hashable {
         self.description = description
         self.icon = icon
         self.selectionBehavior = selectionBehavior
+        self.sendPathMatchRule = sendPathMatchRule
         self.pickerPlatforms = pickerPlatforms
         self.helpBubblePlatforms = helpBubblePlatforms
         self.sendPathPlatforms = sendPathPlatforms
@@ -94,7 +102,7 @@ public enum ChatSlashCommandCatalog {
         ),
         ChatSlashCommandDescriptor(
             name: "status",
-            description: "Show session status and context usage",
+            description: "Show conversation status and context usage",
             icon: "info.circle",
             selectionBehavior: .autoSend,
             pickerPlatforms: allPlatforms,
@@ -106,6 +114,7 @@ public enum ChatSlashCommandCatalog {
             description: "Ask a side question while the assistant is working",
             icon: "bubble.left.and.text.bubble.right",
             selectionBehavior: .insertTrailingSpace,
+            sendPathMatchRule: .commandWithArgument,
             pickerPlatforms: allPlatforms,
             helpBubblePlatforms: allPlatforms,
             sendPathPlatforms: allPlatforms
@@ -117,7 +126,7 @@ public enum ChatSlashCommandCatalog {
             selectionBehavior: .autoSend,
             pickerPlatforms: [.macos],
             helpBubblePlatforms: [.macos],
-            sendPathPlatforms: allPlatforms
+            sendPathPlatforms: [.macos]
         ),
     ]
 
@@ -144,6 +153,13 @@ public enum ChatSlashCommandCatalog {
         platform: ChatSlashCommandPlatform? = nil,
         surface: ChatSlashCommandSurface? = nil
     ) -> ChatSlashCommandDescriptor? {
+        if surface == .sendPath {
+            return descriptorForSendPath(
+                forRawInput: rawInput,
+                platform: platform
+            )
+        }
+
         guard let commandName = normalizedCommandName(from: rawInput) else {
             return nil
         }
@@ -167,6 +183,34 @@ public enum ChatSlashCommandCatalog {
         return descriptor
     }
 
+    private static func descriptorForSendPath(
+        forRawInput rawInput: String,
+        platform: ChatSlashCommandPlatform?
+    ) -> ChatSlashCommandDescriptor? {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmed.hasPrefix("/") else {
+            return nil
+        }
+
+        return allCommands.first { descriptor in
+            if let platform, !descriptor.isVisible(on: platform, surface: .sendPath) {
+                return false
+            }
+            let slashName = descriptor.slashName.lowercased()
+            switch descriptor.sendPathMatchRule {
+            case .exact:
+                return trimmed == slashName
+            case .commandWithArgument:
+                guard trimmed.hasPrefix("\(slashName) ") else {
+                    return false
+                }
+                let argument = String(trimmed.dropFirst(slashName.count + 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return !argument.isEmpty
+            }
+        }
+    }
+
     public static func isRecognizedSlashCommand(
         _ rawInput: String,
         platform: ChatSlashCommandPlatform? = nil,
@@ -176,6 +220,17 @@ public enum ChatSlashCommandCatalog {
     }
 
     public static func shouldRefreshModelMetadata(forRawInput rawInput: String) -> Bool {
-        descriptor(forRawInput: rawInput, surface: .sendPath)?.refreshesModelMetadata == true
+        shouldRefreshModelMetadata(forRawInput: rawInput, platform: nil)
+    }
+
+    public static func shouldRefreshModelMetadata(
+        forRawInput rawInput: String,
+        platform: ChatSlashCommandPlatform?
+    ) -> Bool {
+        descriptor(
+            forRawInput: rawInput,
+            platform: platform,
+            surface: .sendPath
+        )?.refreshesModelMetadata == true
     }
 }
