@@ -19,12 +19,6 @@ final class OnboardingWindow {
     }
 
     func show() {
-        #if DEBUG
-        if CommandLine.arguments.contains("--skip-permission-checks") {
-            state.skipPermissionChecks = true
-        }
-        #endif
-
         let flowView = OnboardingFlowView(
             state: state,
             daemonClient: daemonClient,
