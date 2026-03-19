@@ -209,11 +209,12 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Your Own OAuth State
 
-    @Published var yourOwnOAuthApps: [YourOwnOAuthApp] = []
+    @Published var yourOwnOAuthApps: [String: [YourOwnOAuthApp]] = [:]
     @Published var yourOwnOAuthConnectionsByApp: [String: [YourOwnOAuthConnection]] = [:]
-    @Published var yourOwnOAuthIsLoading: Bool = false
-    @Published var yourOwnOAuthError: String? = nil
+    @Published var yourOwnOAuthIsLoading: Set<String> = []
+    @Published var yourOwnOAuthError: [String: String] = [:]
     @Published var yourOwnOAuthConnectingAppId: String? = nil
+    @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
@@ -2355,18 +2356,21 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Your Own OAuth Actions
 
-    func fetchYourOwnOAuthApps() {
-        yourOwnOAuthIsLoading = true
-        yourOwnOAuthError = nil
+    func fetchYourOwnOAuthApps(providerKey: String) {
+        yourOwnOAuthIsLoading.insert(providerKey)
+        yourOwnOAuthError[providerKey] = nil
         Task {
             do {
                 let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
                     path: "oauth/apps",
-                    params: ["provider_key": "integration:google"],
+                    params: ["provider_key": providerKey],
                     timeout: 10
                 )
                 if response.isSuccess, let decoded {
-                    self.yourOwnOAuthApps = decoded.apps
+                    self.yourOwnOAuthApps[providerKey] = decoded.apps
+                    if let provider = decoded.provider {
+                        self.yourOwnOAuthProviderMetadata[providerKey] = provider
+                    }
                     for app in decoded.apps {
                         await self.fetchYourOwnOAuthConnections(appId: app.id)
                     }
@@ -2378,13 +2382,13 @@ public final class SettingsStore: ObservableObject {
                     } else {
                         errorMsg = "HTTP \(response.statusCode)"
                     }
-                    self.yourOwnOAuthError = errorMsg
+                    self.yourOwnOAuthError[providerKey] = errorMsg
                 }
             } catch {
                 log.error("Failed to fetch Your Own OAuth apps: \(error)")
-                self.yourOwnOAuthError = error.localizedDescription
+                self.yourOwnOAuthError[providerKey] = error.localizedDescription
             }
-            self.yourOwnOAuthIsLoading = false
+            self.yourOwnOAuthIsLoading.remove(providerKey)
         }
     }
 
@@ -2402,10 +2406,10 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func createYourOwnOAuthApp(clientId: String, clientSecret: String) async {
-        yourOwnOAuthError = nil
+    func createYourOwnOAuthApp(providerKey: String, clientId: String, clientSecret: String) async {
+        yourOwnOAuthError[providerKey] = nil
         var body: [String: Any] = [
-            "provider_key": "integration:google",
+            "provider_key": providerKey,
             "client_id": clientId,
         ]
         // Set via subscript to avoid pre-commit secret detection on the literal key.
@@ -2414,7 +2418,7 @@ public final class SettingsStore: ObservableObject {
         do {
             let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
             if response.isSuccess {
-                self.fetchYourOwnOAuthApps()
+                self.fetchYourOwnOAuthApps(providerKey: providerKey)
             } else {
                 let errorMsg: String
                 if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -2423,20 +2427,20 @@ public final class SettingsStore: ObservableObject {
                 } else {
                     errorMsg = "HTTP \(response.statusCode)"
                 }
-                self.yourOwnOAuthError = "Failed to create app: \(errorMsg)"
+                self.yourOwnOAuthError[providerKey] = "Failed to create app: \(errorMsg)"
             }
         } catch {
             log.error("Failed to create Your Own OAuth app: \(error)")
-            self.yourOwnOAuthError = "Failed to create app: \(error.localizedDescription)"
+            self.yourOwnOAuthError[providerKey] = "Failed to create app: \(error.localizedDescription)"
         }
     }
 
-    func deleteYourOwnOAuthApp(id: String) async {
-        yourOwnOAuthError = nil
+    func deleteYourOwnOAuthApp(id: String, providerKey: String) async {
+        yourOwnOAuthError[providerKey] = nil
         do {
             let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
             if response.isSuccess {
-                self.yourOwnOAuthApps.removeAll { $0.id == id }
+                self.yourOwnOAuthApps[providerKey]?.removeAll { $0.id == id }
                 self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
             } else {
                 let errorMsg: String
@@ -2446,16 +2450,17 @@ public final class SettingsStore: ObservableObject {
                 } else {
                     errorMsg = "HTTP \(response.statusCode)"
                 }
-                self.yourOwnOAuthError = "Failed to delete app: \(errorMsg)"
+                self.yourOwnOAuthError[providerKey] = "Failed to delete app: \(errorMsg)"
             }
         } catch {
             log.error("Failed to delete Your Own OAuth app: \(error)")
-            self.yourOwnOAuthError = "Failed to delete app: \(error.localizedDescription)"
+            self.yourOwnOAuthError[providerKey] = "Failed to delete app: \(error.localizedDescription)"
         }
     }
 
     func disconnectYourOwnOAuthConnection(id: String, appId: String) async {
-        yourOwnOAuthError = nil
+        let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
+        if let providerKey { yourOwnOAuthError[providerKey] = nil }
         do {
             let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
             if response.isSuccess {
@@ -2468,11 +2473,11 @@ public final class SettingsStore: ObservableObject {
                 } else {
                     errorMsg = "HTTP \(response.statusCode)"
                 }
-                self.yourOwnOAuthError = "Failed to disconnect: \(errorMsg)"
+                if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to disconnect: \(errorMsg)" }
             }
         } catch {
             log.error("Failed to disconnect Your Own OAuth connection: \(error)")
-            self.yourOwnOAuthError = "Failed to disconnect: \(error.localizedDescription)"
+            if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to disconnect: \(error.localizedDescription)" }
         }
     }
 
@@ -2484,7 +2489,8 @@ public final class SettingsStore: ObservableObject {
 
     func startYourOwnOAuthConnect(appId: String) {
         yourOwnOAuthConnectingAppId = appId
-        yourOwnOAuthError = nil
+        let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
+        if let providerKey { yourOwnOAuthError[providerKey] = nil }
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
@@ -2496,7 +2502,7 @@ public final class SettingsStore: ObservableObject {
                     } else {
                         errorMsg = "HTTP \(response.statusCode)"
                     }
-                    self.yourOwnOAuthError = "Failed to start connect: \(errorMsg)"
+                    if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(errorMsg)" }
                     self.yourOwnOAuthConnectingAppId = nil
                     return
                 }
@@ -2505,7 +2511,7 @@ public final class SettingsStore: ObservableObject {
                 let connectResponse = try decoder.decode(YourOwnOAuthConnectResponse.self, from: response.data)
 
                 guard let authURL = URL(string: connectResponse.auth_url) else {
-                    self.yourOwnOAuthError = "Invalid auth URL"
+                    if let providerKey { self.yourOwnOAuthError[providerKey] = "Invalid auth URL" }
                     self.yourOwnOAuthConnectingAppId = nil
                     return
                 }
@@ -2544,10 +2550,28 @@ public final class SettingsStore: ObservableObject {
                 }
             } catch {
                 log.error("Failed to start Your Own OAuth connect: \(error)")
-                self.yourOwnOAuthError = "Failed to start connect: \(error.localizedDescription)"
+                if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(error.localizedDescription)" }
                 self.yourOwnOAuthConnectingAppId = nil
             }
         }
+    }
+
+    // MARK: - Your Own OAuth Convenience Accessors
+
+    func yourOwnApps(for providerKey: String) -> [YourOwnOAuthApp] {
+        yourOwnOAuthApps[providerKey] ?? []
+    }
+
+    func yourOwnIsLoading(for providerKey: String) -> Bool {
+        yourOwnOAuthIsLoading.contains(providerKey)
+    }
+
+    func yourOwnError(for providerKey: String) -> String? {
+        yourOwnOAuthError[providerKey]
+    }
+
+    func yourOwnProviderMeta(for providerKey: String) -> OAuthProviderMetadata? {
+        yourOwnOAuthProviderMetadata[providerKey]
     }
 
     func setWebSearchProvider(_ provider: String) {
@@ -3012,7 +3036,17 @@ struct YourOwnOAuthConnection: Codable, Identifiable, Sendable {
     let updated_at: Int
 }
 
+struct OAuthProviderMetadata: Codable, Sendable {
+    let provider_key: String
+    let display_name: String?
+    let description: String?
+    let dashboard_url: String?
+    let client_id_placeholder: String?
+    let requires_client_secret: Int
+}
+
 struct YourOwnOAuthAppsResponse: Codable, Sendable {
+    let provider: OAuthProviderMetadata?
     let apps: [YourOwnOAuthApp]
 }
 
