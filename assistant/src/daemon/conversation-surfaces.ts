@@ -352,6 +352,39 @@ function handleDocumentContentChanged(
   }
 }
 
+/**
+ * Handle state_update action from a dynamic page.
+ * Accumulates state via shallow merge without triggering an LLM turn.
+ */
+function handleStateUpdate(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!data) {
+    log.debug({ surfaceId }, "state_update action called with no data");
+    return;
+  }
+
+  const surfaceState = ctx.surfaceState.get(surfaceId);
+  if (!surfaceState || surfaceState.surfaceType !== "dynamic_page") {
+    log.warn(
+      { surfaceId, surfaceType: surfaceState?.surfaceType },
+      "state_update action received for non-dynamic_page surface",
+    );
+    return;
+  }
+
+  const existing = ctx.accumulatedSurfaceState.get(surfaceId) ?? {};
+  const merged = { ...existing, ...data };
+  ctx.accumulatedSurfaceState.set(surfaceId, merged);
+
+  log.debug(
+    { surfaceId, accumulatedState: merged },
+    "Accumulated surface state updated",
+  );
+}
+
 export function pushUndoState(
   surfaceUndoStacks: Map<string, string[]>,
   surfaceId: string,
@@ -643,6 +676,14 @@ export function handleSurfaceAction(
     handleDocumentContentChanged(ctx, surfaceId, data);
     return;
   }
+
+  // state_update is a silent accumulation action — merge data into accumulated
+  // state without triggering an LLM turn.
+  if (actionId === "state_update") {
+    handleStateUpdate(ctx, surfaceId, data);
+    return;
+  }
+
   // Merge stored action-level data (from ui_show definition) with client-sent
   // data. This is critical for relay_prompt buttons: the client only sends the
   // actionId, but the prompt payload lives in the action definition's data.
@@ -1207,6 +1248,7 @@ export async function surfaceProxyResolver(
     ctx.surfaceState.delete(surfaceId);
     ctx.surfaceUndoStacks.delete(surfaceId);
     ctx.lastSurfaceAction.delete(surfaceId);
+    ctx.accumulatedSurfaceState.delete(surfaceId);
     return {
       content: lastAction ? "Surface completed" : "Surface dismissed",
       isError: false,
