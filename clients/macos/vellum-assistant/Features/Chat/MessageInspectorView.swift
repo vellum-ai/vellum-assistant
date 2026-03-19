@@ -87,9 +87,11 @@ struct MessageInspectorView: View {
                         .foregroundColor(VColor.contentSecondary)
                 }
 
-                Text(shortMessageId)
+                Text(messageId)
                     .font(VFont.monoSmall)
                     .foregroundColor(VColor.contentTertiary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         }
@@ -290,13 +292,6 @@ struct MessageInspectorView: View {
     }
 
     // MARK: - Helpers
-
-    private var shortMessageId: String {
-        if messageId.count > 12 {
-            return String(messageId.prefix(12)) + "..."
-        }
-        return messageId
-    }
 
     private var skeletonColumn: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
