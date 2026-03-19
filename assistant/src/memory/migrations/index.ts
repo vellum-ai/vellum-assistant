@@ -122,6 +122,7 @@ export { migrateCreateTraceEventsTable } from "./177-create-trace-events-table.j
 export { migrateOAuthProvidersManagedServiceConfigKey } from "./178-oauth-providers-managed-service-config-key.js";
 export { migrateLlmRequestLogMessageId } from "./179-llm-request-log-message-id.js";
 export { migrateBackfillInlineAttachmentsToDisk } from "./180-backfill-inline-attachments-to-disk.js";
+export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-starters-checkpoints.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -99,6 +99,7 @@ import {
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
   migrateRenameSourceSessionIdColumn,
+  migrateRenameThreadStartersCheckpoints,
   migrateRenameThreadStartersTable,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
@@ -449,6 +450,9 @@ export function initializeDb(): void {
 
   // 77. Rename thread_starters → conversation_starters table and indexes
   migrateRenameThreadStartersTable(database);
+
+  // 77b. Rename checkpoint keys from thread_starters: → conversation_starters: prefix
+  migrateRenameThreadStartersCheckpoints(database);
 
   // 78. Lifecycle events table for app_open / hatch telemetry
   createLifecycleEventsTable(database);
