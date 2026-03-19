@@ -666,6 +666,7 @@ private struct ChatBootstrapTimeoutView: View {
 struct ScrollWheelDetector: NSViewRepresentable {
     let onScrollUp: () -> Void
     let onScrollToBottom: () -> Void
+    var conversationId: UUID?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -677,6 +678,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
         coordinator.view = view
         coordinator.onScrollUp = onScrollUp
         coordinator.onScrollToBottom = onScrollToBottom
+        coordinator.conversationId = conversationId
         coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             // Only process events within this view's bounds (scoped to the chat scroll area)
             guard let view = coordinator.view,
@@ -699,12 +701,24 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
                                 "deltaY=%.1f isScrollable=%d clipH=%.0f docH=%.0f",
                                 event.scrollingDeltaY, isScrollable ? 1 : 0, clipHeight, docHeight)
+                    ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                        kind: .scrollWheelUntether,
+                        conversationId: coordinator.conversationId?.uuidString,
+                        reason: "deltaY=\(String(format: "%.1f", event.scrollingDeltaY)) isScrollable=\(isScrollable)",
+                        contentHeight: docHeight,
+                        viewportHeight: clipHeight
+                    ))
                     if isScrollable {
                         coordinator.onScrollUp?()
                     }
                 } else {
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
                                 "deltaY=%.1f scrollViewNotFound=1", event.scrollingDeltaY)
+                    ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                        kind: .scrollWheelUntether,
+                        conversationId: coordinator.conversationId?.uuidString,
+                        reason: "deltaY=\(String(format: "%.1f", event.scrollingDeltaY)) scrollViewNotFound=true"
+                    ))
                     coordinator.onScrollUp?()
                 }
             } else if event.scrollingDeltaY < -1 {
@@ -721,6 +735,13 @@ struct ScrollWheelDetector: NSViewRepresentable {
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelRetether",
                                         "distFromBottom=%.1f isScrollable=%d",
                                         distanceFromBottom, isScrollable ? 1 : 0)
+                            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                                kind: .scrollWheelRetether,
+                                conversationId: coordinator.conversationId?.uuidString,
+                                reason: "distFromBottom=\(String(format: "%.1f", distanceFromBottom)) isScrollable=\(isScrollable)",
+                                contentHeight: docHeight,
+                                viewportHeight: clipBounds.height
+                            ))
                             coordinator.onScrollToBottom?()
                         }
                     }
@@ -734,6 +755,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onScrollUp = onScrollUp
         context.coordinator.onScrollToBottom = onScrollToBottom
+        context.coordinator.conversationId = conversationId
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -746,6 +768,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
         weak var view: NSView?
         var onScrollUp: (() -> Void)?
         var onScrollToBottom: (() -> Void)?
+        var conversationId: UUID?
         var monitor: Any?
 
         /// Resolves the chat's vertical NSScrollView.

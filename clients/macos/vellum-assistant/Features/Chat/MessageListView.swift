@@ -1012,7 +1012,8 @@ struct MessageListView: View {
                         // to true and allows future pin requests.
                         bottomPinCoordinator.handleUserAction(.scrollToBottom)
                         hasReceivedScrollEvent = true
-                    }
+                    },
+                    conversationId: conversationId
                 )
                 ConversationScrollbarVisibilityController(shouldShow: shouldShowConversationScrollbar)
             }
