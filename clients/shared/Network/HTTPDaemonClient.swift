@@ -150,6 +150,10 @@ public final class HTTPTransport {
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
+    /// Set by the owning DaemonClient when a planned service group update
+    /// is in progress. Accelerates health check polling for faster reconnection.
+    var isUpdateInProgress: Bool = false
+
     /// Current reconnect backoff delay in seconds (for SSE).
     private var sseReconnectDelay: TimeInterval = 1.0
 
@@ -696,7 +700,8 @@ public final class HTTPTransport {
         healthCheckTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: UInt64((self?.healthCheckInterval ?? 15.0) * 1_000_000_000))
+                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
+                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 } catch {
                     return
                 }
