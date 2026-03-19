@@ -69,6 +69,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         )
 
         XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertEqual(model.responseStopReason, "tool_calls")
         XCTAssertEqual(model.responseModeLabel, "Tool-calling response")
         XCTAssertEqual(model.sections.count, 3)
 
@@ -105,6 +106,32 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections[2].copyText, model.sections[2].bodyText)
     }
 
+    func testResponseTabModelDerivesTextOnlyMetadataForNormalizedSections() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "text": "A normalized assistant response"
+                ]),
+                summary: LLMCallSummary(
+                    stopReason: "end_turn"
+                ),
+                responseSections: [
+                    LLMContextSection(
+                        kind: .assistant,
+                        label: "Assistant response",
+                        role: "assistant",
+                        text: "A normalized assistant response"
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertEqual(model.responseStopReason, "end_turn")
+        XCTAssertEqual(model.responseModeLabel, "Text-only response")
+        XCTAssertEqual(model.sections.count, 1)
+    }
+
     func testResponseTabModelFallsBackWithoutNormalizedSections() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
@@ -118,7 +145,8 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
         XCTAssertFalse(model.hasNormalizedSections)
         XCTAssertTrue(model.sections.isEmpty)
-        XCTAssertEqual(model.responseModeLabel, "Text-only response")
+        XCTAssertNil(model.responseModeLabel)
+        XCTAssertNil(model.responseStopReason)
         XCTAssertEqual(model.fallbackMessage, "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload.")
     }
 
