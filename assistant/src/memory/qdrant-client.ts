@@ -20,7 +20,7 @@ export interface QdrantClientConfig {
 }
 
 export interface QdrantPointPayload {
-  target_type: "segment" | "item" | "summary" | "media" | "episode";
+  target_type: "segment" | "item" | "summary" | "media" | "chunk" | "episode";
   target_id: string;
   text: string;
   kind?: string;
@@ -230,7 +230,7 @@ export class VellumQdrantClient {
   }
 
   async upsert(
-    targetType: "segment" | "item" | "summary" | "media" | "episode",
+    targetType: "segment" | "item" | "summary" | "media" | "chunk" | "episode",
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
@@ -324,7 +324,9 @@ export class VellumQdrantClient {
   async searchWithFilter(
     vector: number[],
     limit: number,
-    targetTypes: Array<"segment" | "item" | "summary" | "media" | "episode">,
+    targetTypes: Array<
+      "segment" | "item" | "summary" | "media" | "chunk" | "episode"
+    >,
     excludeMessageIds?: string[],
     scopeIds?: string[],
   ): Promise<QdrantSearchResult[]> {

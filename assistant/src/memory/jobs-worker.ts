@@ -11,6 +11,7 @@ import { generateConversationStartersJob } from "./job-handlers/conversation-sta
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
+  embedChunkJob,
   embedEpisodeJob,
   embedItemJob,
   embedMediaJob,
@@ -267,6 +268,9 @@ async function processJob(
       return;
     case "embed_summary":
       await embedSummaryJob(job, config);
+      return;
+    case "embed_chunk":
+      await embedChunkJob(job, config);
       return;
     case "embed_episode":
       await embedEpisodeJob(job, config);

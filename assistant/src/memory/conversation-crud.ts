@@ -45,6 +45,7 @@ import { enqueueMemoryJob } from "./jobs-store.js";
 import {
   channelInboundEvents,
   conversations,
+  conversationStarters,
   llmRequestLogs,
   memoryEmbeddings,
   memoryItems,
@@ -545,12 +546,18 @@ export function forkConversation(params: {
  */
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
-  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    orphanedItemIds: [],
+    deletedSummaryIds: [],
+  };
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
+  const memoryScopeId = convBeforeDelete?.memoryScopeId;
+  const isPrivateScope = memoryScopeId?.startsWith("private:") ?? false;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -636,6 +643,65 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
+        .run();
+    }
+
+    if (isPrivateScope && memoryScopeId) {
+      // Sweep remaining memory items with this private scopeId.
+      const scopeItems = tx
+        .select({ id: memoryItems.id })
+        .from(memoryItems)
+        .where(eq(memoryItems.scopeId, memoryScopeId))
+        .all();
+      const alreadyDeleted = new Set(result.orphanedItemIds);
+      const scopeItemIds = scopeItems
+        .map((r) => r.id)
+        .filter((id) => !alreadyDeleted.has(id));
+
+      if (scopeItemIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "item"),
+              inArray(memoryEmbeddings.targetId, scopeItemIds),
+            ),
+          )
+          .run();
+        tx.delete(memoryItemSources)
+          .where(inArray(memoryItemSources.memoryItemId, scopeItemIds))
+          .run();
+        tx.delete(memoryItems)
+          .where(inArray(memoryItems.id, scopeItemIds))
+          .run();
+        result.orphanedItemIds.push(...scopeItemIds);
+      }
+
+      // Sweep memory summaries with this private scopeId.
+      const scopeSummaries = tx
+        .select({ id: memorySummaries.id })
+        .from(memorySummaries)
+        .where(eq(memorySummaries.scopeId, memoryScopeId))
+        .all();
+      const scopeSummaryIds = scopeSummaries.map((r) => r.id);
+
+      if (scopeSummaryIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "summary"),
+              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
+            ),
+          )
+          .run();
+        tx.delete(memorySummaries)
+          .where(inArray(memorySummaries.id, scopeSummaryIds))
+          .run();
+        result.deletedSummaryIds.push(...scopeSummaryIds);
+      }
+
+      // Sweep conversation starters with this private scopeId.
+      tx.delete(conversationStarters)
+        .where(eq(conversationStarters.scopeId, memoryScopeId))
         .run();
     }
 
@@ -831,7 +897,10 @@ export function wipeConversation(id: string): WipeConversationResult {
   return {
     ...deletedMemoryIds,
     unsupersededItemIds,
-    deletedSummaryIds,
+    deletedSummaryIds: [
+      ...deletedSummaryIds,
+      ...deletedMemoryIds.deletedSummaryIds,
+    ],
     cancelledJobCount,
   };
 }
@@ -853,16 +922,25 @@ export function purgePrivateConversations(): {
     .all();
 
   if (privateConvs.length === 0) {
-    return { count: 0, deletedMemory: { segmentIds: [], orphanedItemIds: [] } };
+    return {
+      count: 0,
+      deletedMemory: {
+        segmentIds: [],
+        orphanedItemIds: [],
+        deletedSummaryIds: [],
+      },
+    };
   }
 
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
+  const allDeletedSummaryIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
   }
 
   return {
@@ -870,6 +948,7 @@ export function purgePrivateConversations(): {
     deletedMemory: {
       segmentIds: allSegmentIds,
       orphanedItemIds: allOrphanedItemIds,
+      deletedSummaryIds: allDeletedSummaryIds,
     },
   };
 }
@@ -1253,11 +1332,11 @@ export function deleteLastExchange(conversationId: string): number {
 export interface DeletedMemoryIds {
   segmentIds: string[];
   orphanedItemIds: string[];
+  deletedSummaryIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
   unsupersededItemIds: string[];
-  deletedSummaryIds: string[];
   cancelledJobCount: number;
 }
 
@@ -1323,7 +1402,11 @@ export function relinkAttachments(
  */
 export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
-  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    orphanedItemIds: [],
+    deletedSummaryIds: [],
+  };
 
   // Collect attachment IDs linked to this message before cascade-delete
   // so we can scope orphan cleanup to only those candidates.

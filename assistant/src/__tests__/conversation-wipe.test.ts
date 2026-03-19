@@ -26,6 +26,7 @@ mock.module("../util/logger.js", () => ({
 import {
   addMessage,
   createConversation,
+  deleteConversation,
   getConversation,
   getMessages,
   wipeConversation,
@@ -434,5 +435,188 @@ describe("wipeConversation", () => {
       .query("SELECT * FROM memory_items WHERE id = 'itemB'")
       .get();
     expect(itemBRow).not.toBeNull();
+  });
+});
+
+describe("deleteConversation — private scope cleanup", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM conversation_starters`);
+    db.run(`DELETE FROM memory_item_sources`);
+    db.run(`DELETE FROM memory_segments`);
+    db.run(`DELETE FROM memory_items`);
+    db.run(`DELETE FROM memory_summaries`);
+    db.run(`DELETE FROM memory_embeddings`);
+    db.run(`DELETE FROM memory_jobs`);
+    db.run(`DELETE FROM tool_invocations`);
+    db.run(`DELETE FROM llm_request_logs`);
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test("sourceless items cleaned up", () => {
+    const conv = createConversation({ conversationType: "private" });
+    const scopeId = conv.memoryScopeId;
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert a memory item with matching scopeId but no memory_item_sources
+    raw
+      .query(
+        `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+         VALUES ('priv-item-1', 'active', 'fact', 'test', 'test fact', 0.8, 'fp-priv-1', ?, ?, ?)`,
+      )
+      .run(scopeId, now, now);
+
+    const result = deleteConversation(conv.id);
+
+    // Item should be gone
+    const itemRow = raw
+      .query("SELECT * FROM memory_items WHERE id = 'priv-item-1'")
+      .get();
+    expect(itemRow).toBeNull();
+
+    // Its ID should be in orphanedItemIds
+    expect(result.orphanedItemIds).toContain("priv-item-1");
+  });
+
+  test("summaries cleaned up", () => {
+    const conv = createConversation({ conversationType: "private" });
+    const scopeId = conv.memoryScopeId;
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert a memory summary with matching scopeId
+    raw
+      .query(
+        `INSERT INTO memory_summaries (id, scope, scope_key, summary, token_estimate, version, scope_id, start_at, end_at, created_at, updated_at)
+         VALUES ('priv-sum-1', 'global', 'all', 'private summary', 100, 1, ?, ?, ?, ?, ?)`,
+      )
+      .run(scopeId, now, now, now, now);
+
+    const result = deleteConversation(conv.id);
+
+    // Summary should be gone
+    const summaryRow = raw
+      .query("SELECT * FROM memory_summaries WHERE id = 'priv-sum-1'")
+      .get();
+    expect(summaryRow).toBeNull();
+
+    // Its ID should be in deletedSummaryIds
+    expect(result.deletedSummaryIds).toContain("priv-sum-1");
+  });
+
+  test("standard conversations unaffected", async () => {
+    const conv = createConversation("standard test");
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert items with scopeId = "default"
+    raw
+      .query(
+        `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+         VALUES ('default-item-1', 'active', 'fact', 'test', 'test fact', 0.8, 'fp-default', 'default', ?, ?)`,
+      )
+      .run(now, now);
+
+    deleteConversation(conv.id);
+
+    // Default-scope items should still exist
+    const itemRow = raw
+      .query("SELECT * FROM memory_items WHERE id = 'default-item-1'")
+      .get();
+    expect(itemRow).not.toBeNull();
+  });
+
+  test("embeddings cleaned up", () => {
+    const conv = createConversation({ conversationType: "private" });
+    const scopeId = conv.memoryScopeId;
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert a memory item with matching scopeId
+    raw
+      .query(
+        `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+         VALUES ('priv-item-emb', 'active', 'fact', 'test', 'test fact', 0.8, 'fp-priv-emb', ?, ?, ?)`,
+      )
+      .run(scopeId, now, now);
+
+    // Insert a corresponding embedding
+    raw
+      .query(
+        `INSERT INTO memory_embeddings (id, target_type, target_id, provider, model, dimensions, created_at, updated_at)
+         VALUES ('emb-priv-item', 'item', 'priv-item-emb', 'test', 'test', 384, ?, ?)`,
+      )
+      .run(now, now);
+
+    deleteConversation(conv.id);
+
+    // Both item and embedding should be deleted
+    const itemRow = raw
+      .query("SELECT * FROM memory_items WHERE id = 'priv-item-emb'")
+      .get();
+    expect(itemRow).toBeNull();
+
+    const embeddingRow = raw
+      .query("SELECT * FROM memory_embeddings WHERE id = 'emb-priv-item'")
+      .get();
+    expect(embeddingRow).toBeNull();
+  });
+
+  test("no duplicate IDs", async () => {
+    const conv = createConversation({ conversationType: "private" });
+    const scopeId = conv.memoryScopeId;
+    const msg = await addMessage(conv.id, "user", "hello");
+    const now = Date.now();
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // Insert a memory item with the private scopeId AND a source linking to the message
+    raw
+      .query(
+        `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+         VALUES ('priv-item-dup', 'active', 'fact', 'test', 'test fact', 0.8, 'fp-priv-dup', ?, ?, ?)`,
+      )
+      .run(scopeId, now, now);
+
+    raw
+      .query(
+        `INSERT INTO memory_item_sources (memory_item_id, message_id, created_at) VALUES ('priv-item-dup', ?, ?)`,
+      )
+      .run(msg.id, now);
+
+    const result = deleteConversation(conv.id);
+
+    // The item ID should appear exactly once in orphanedItemIds (caught by
+    // source-based cleanup, not double-counted by scope sweep).
+    const count = result.orphanedItemIds.filter(
+      (id) => id === "priv-item-dup",
+    ).length;
+    expect(count).toBe(1);
   });
 });

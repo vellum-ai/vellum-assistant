@@ -11,6 +11,7 @@ import type { MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
 import {
   mediaAssets,
+  memoryChunks,
   memoryEpisodes,
   memoryItems,
   memorySegments,
@@ -89,6 +90,26 @@ export async function embedSummaryJob(
       memory_scope_id: summary.scopeId,
     },
   );
+}
+
+export async function embedChunkJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const chunkId = asString(job.payload.chunkId);
+  if (!chunkId) return;
+  const db = getDb();
+  const chunk = db
+    .select()
+    .from(memoryChunks)
+    .where(eq(memoryChunks.id, chunkId))
+    .get();
+  if (!chunk) return;
+  await embedAndUpsert(config, "chunk", chunk.id, chunk.content, {
+    observation_id: chunk.observationId,
+    created_at: chunk.createdAt,
+    memory_scope_id: chunk.scopeId,
+  });
 }
 
 export async function embedMediaJob(
