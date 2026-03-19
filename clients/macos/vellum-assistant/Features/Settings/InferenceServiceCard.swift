@@ -121,11 +121,11 @@ struct InferenceServiceCard: View {
                         providerPicker
                     }
 
-                    // API Key field
-                    apiKeyField
-
                     // Model picker
                     modelPicker
+
+                    // API Key field
+                    apiKeyField
                 }
             }
         )

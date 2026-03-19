@@ -348,7 +348,9 @@ describe("getAttachmentsByIds", () => {
     const a = uploadAttachment("a.txt", "text/plain", "AAAA");
     const b = uploadAttachment("b.txt", "text/plain", "BBBB");
 
-    const results = getAttachmentsByIds([a.id, b.id], { hydrateFileData: true });
+    const results = getAttachmentsByIds([a.id, b.id], {
+      hydrateFileData: true,
+    });
     expect(results).toHaveLength(2);
     expect(results[0].dataBase64).toBe("AAAA");
     expect(results[1].dataBase64).toBe("BBBB");

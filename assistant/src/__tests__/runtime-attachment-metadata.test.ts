@@ -181,7 +181,11 @@ describe("Runtime attachment metadata", () => {
   });
 
   test("GET /attachments/:id returns attachment with payload", async () => {
-    const stored = uploadAttachment("report.pdf", "application/pdf", "JVBERA==");
+    const stored = uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERA==",
+    );
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,

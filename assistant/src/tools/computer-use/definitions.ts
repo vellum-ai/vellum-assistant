@@ -71,7 +71,7 @@ export const computerUseClickTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["reasoning"],
+        required: ["reasoning", "activity"],
       },
     };
   },
@@ -108,7 +108,7 @@ export const computerUseTypeTextTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["text", "reasoning"],
+        required: ["text", "reasoning", "activity"],
       },
     };
   },
@@ -146,7 +146,7 @@ export const computerUseKeyTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["key", "reasoning"],
+        required: ["key", "reasoning", "activity"],
       },
     };
   },
@@ -201,7 +201,7 @@ export const computerUseScrollTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["direction", "amount", "reasoning"],
+        required: ["direction", "amount", "reasoning", "activity"],
       },
     };
   },
@@ -262,7 +262,7 @@ export const computerUseDragTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["reasoning"],
+        required: ["reasoning", "activity"],
       },
     };
   },
@@ -298,7 +298,7 @@ export const computerUseWaitTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["duration_ms", "reasoning"],
+        required: ["duration_ms", "reasoning", "activity"],
       },
     };
   },
@@ -337,7 +337,7 @@ export const computerUseOpenAppTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["app_name", "reasoning"],
+        required: ["app_name", "reasoning", "activity"],
       },
     };
   },
@@ -375,7 +375,7 @@ export const computerUseRunAppleScriptTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["script", "reasoning"],
+        required: ["script", "reasoning", "activity"],
       },
     };
   },
@@ -408,7 +408,7 @@ export const computerUseDoneTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["summary"],
+        required: ["summary", "activity"],
       },
     };
   },
@@ -445,7 +445,7 @@ export const computerUseRespondTool: Tool = {
           },
           activity: activityProperty,
         },
-        required: ["answer", "reasoning"],
+        required: ["answer", "reasoning", "activity"],
       },
     };
   },

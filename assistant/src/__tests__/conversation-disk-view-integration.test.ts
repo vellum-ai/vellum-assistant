@@ -15,14 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must come before any imports that depend on them
@@ -142,9 +135,7 @@ describe("createConversation → disk view", () => {
     const conv = createConversation();
 
     const dirPath = getConversationDirPath(conv.id, conv.createdAt);
-    const meta = JSON.parse(
-      readFileSync(join(dirPath, "meta.json"), "utf-8"),
-    );
+    const meta = JSON.parse(readFileSync(join(dirPath, "meta.json"), "utf-8"));
     expect(meta.title).toBeNull();
   });
 });
@@ -162,13 +153,9 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
   test("appends JSONL line for a text message", async () => {
     const conv = createConversation("Msg Test");
 
-    const msg = await addMessage(
-      conv.id,
-      "user",
-      "Hello world",
-      undefined,
-      { skipIndexing: true },
-    );
+    const msg = await addMessage(conv.id, "user", "Hello world", undefined, {
+      skipIndexing: true,
+    });
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);
 
@@ -188,13 +175,9 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
   test("message with attachment copies file and includes in JSONL", async () => {
     const conv = createConversation("Attach Test");
 
-    const msg = await addMessage(
-      conv.id,
-      "user",
-      "See attached",
-      undefined,
-      { skipIndexing: true },
-    );
+    const msg = await addMessage(conv.id, "user", "See attached", undefined, {
+      skipIndexing: true,
+    });
 
     const att = uploadAttachment("screenshot.png", "image/png", "iVBORw0K");
     linkAttachmentToMessage(msg.id, att.id, 0);

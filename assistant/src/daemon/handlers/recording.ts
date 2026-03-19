@@ -6,10 +6,7 @@ import { v4 as uuid } from "uuid";
 import {
   attachFileBackedAttachmentToMessage,
 } from "../../memory/attachments-store.js";
-import {
-  addMessage,
-  getConversation,
-} from "../../memory/conversation-crud.js";
+import { addMessage, getConversation } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { type HandlerContext, log } from "./shared.js";

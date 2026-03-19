@@ -119,10 +119,7 @@ async function splitAudio(
 
 async function resolveSource(
   input: Record<string, unknown>,
-): Promise<
-  | { inputPath: string; isVideo: boolean }
-  | ToolExecutionResult
-> {
+): Promise<{ inputPath: string; isVideo: boolean } | ToolExecutionResult> {
   const filePath = input.file_path as string | undefined;
 
   if (!filePath) {

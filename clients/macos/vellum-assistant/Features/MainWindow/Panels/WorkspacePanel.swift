@@ -79,6 +79,11 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
+
+            // Default view mode using both file name and MIME type from the response
+            if let detail {
+                viewMode = defaultViewMode(for: detail.name, mimeType: detail.mimeType)
+            }
         }
         fileLoadTask = task
     }

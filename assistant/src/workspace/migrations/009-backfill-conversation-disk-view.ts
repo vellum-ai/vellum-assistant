@@ -43,7 +43,9 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
           if (existing.updatedAt === expectedUpdatedAt) {
             processed++;
             if (processed % 50 === 0) {
-              log.info(`Backfilled ${processed}/${total} conversations to disk`);
+              log.info(
+                `Backfilled ${processed}/${total} conversations to disk`,
+              );
             }
             continue;
           }

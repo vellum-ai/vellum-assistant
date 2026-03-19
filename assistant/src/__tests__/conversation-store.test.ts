@@ -549,7 +549,11 @@ describe("attachment reuse across conversation lifecycles", () => {
   test("attachment uploaded in conversation A is retrievable by ID without any conversation reference", async () => {
     const convA = createConversation("Conversation A");
     const msgA = await addMessage(convA.id, "assistant", "Here is a file");
-    const stored = uploadAttachment("report.pdf", "application/pdf", "JVBERA==");
+    const stored = uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERA==",
+    );
     linkAttachmentToMessage(msgA.id, stored.id, 0);
 
     // Create a completely separate conversation

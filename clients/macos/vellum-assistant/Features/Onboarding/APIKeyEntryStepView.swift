@@ -91,11 +91,11 @@ struct APIKeyEntryStepView: View {
                 if isCustomProviderEnabled {
                     providerPicker
 
+                    modelPicker
+
                     if providerRequiresKey {
                         apiKeyField
                     }
-
-                    modelPicker
 
                     OnboardingButton(
                         title: "Continue",
@@ -271,7 +271,7 @@ struct APIKeyEntryStepView: View {
             if providerRequiresKey {
                 APIKeyManager.setKey(trimmed, for: state.selectedProvider)
             }
-            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
+            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
             // Persist provider + model
             let existingConfig = WorkspaceConfigIO.read()
             var services = existingConfig["services"] as? [String: Any] ?? [:]
@@ -286,9 +286,10 @@ struct APIKeyEntryStepView: View {
             guard !trimmed.isEmpty else { return }
             APIKeyManager.setKey(trimmed, for: "anthropic")
 
-            // Set service modes to "your-own" for any services that don't already
-            // have a mode configured (first-time BYOK onboarding).
-            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
+            // Force service modes to "your-own" — the user explicitly chose to
+            // provide their own API key, which should override any mode that the
+            // managed bootstrap may have set asynchronously before this point.
+            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
 
             saveModelToConfig("claude-opus-4-6")
             state.advance()
