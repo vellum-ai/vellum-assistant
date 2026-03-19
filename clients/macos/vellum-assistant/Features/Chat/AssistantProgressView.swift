@@ -256,18 +256,7 @@ struct AssistantProgressView: View {
                MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
             {
                 isExpanded = true
-                if onRehydrate != nil {
-                    let hasStrippedToolCall = toolCalls.contains { tc in
-                        tc.isComplete
-                            && tc.inputFull.isEmpty
-                            && tc.result == nil
-                            && tc.inputRawDict == nil
-                            && tc.cachedImage == nil
-                    }
-                    if hasStrippedToolCall {
-                        onRehydrate?()
-                    }
-                }
+                // Rehydration is handled by onChange(of: isExpanded) above.
             }
             // Auto-expand when a pending confirmation exists on appear
             if hasPendingConfirmation && !isExpanded {
