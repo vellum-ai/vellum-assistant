@@ -441,26 +441,23 @@ struct VCodeTextView: NSViewRepresentable {
 private class ClickReportingTextView: NSTextView {
     var onContentClick: (() -> Void)?
 
-    /// Location where the current mouseDown started, used to distinguish
-    /// a stationary click from a drag-to-select gesture.
-    private var mouseDownLocation: NSPoint?
-
     override func mouseDown(with event: NSEvent) {
-        mouseDownLocation = event.locationInWindow
+        let mouseDownLocation = event.locationInWindow
         super.mouseDown(with: event)
-    }
 
-    override func mouseUp(with event: NSEvent) {
-        defer { mouseDownLocation = nil }
-        super.mouseUp(with: event)
+        // NSTextView handles click/drag tracking inside mouseDown and may not
+        // invoke our mouseUp override afterward, so detect the completed click
+        // here once AppKit returns control to us.
+        guard event.clickCount == 1 else { return }
 
         // Only fire if the mouse didn't move significantly (i.e. not a drag
         // for text selection). A 3-point threshold accounts for minor jitter.
-        if let down = mouseDownLocation {
-            let up = event.locationInWindow
-            let dx = abs(up.x - down.x)
-            let dy = abs(up.y - down.y)
-            if dx < 3 && dy < 3 {
+        let mouseUpLocation = window?.mouseLocationOutsideOfEventStream ?? mouseDownLocation
+        let dx = abs(mouseUpLocation.x - mouseDownLocation.x)
+        let dy = abs(mouseUpLocation.y - mouseDownLocation.y)
+        if dx < 3 && dy < 3 {
+            let onContentClick = onContentClick
+            DispatchQueue.main.async {
                 onContentClick?()
             }
         }
