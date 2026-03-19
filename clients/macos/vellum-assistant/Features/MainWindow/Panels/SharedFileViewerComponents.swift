@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -188,7 +189,30 @@ struct FileContentView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay.opacity(0.9))
         )
+        .background(PointerCursorOverlay())
         .padding(VSpacing.sm)
+    }
+}
+
+// MARK: - Pointer Cursor Override
+
+/// An AppKit-level cursor rect that forces the pointing-hand cursor.
+///
+/// SwiftUI's `.pointerCursor()` modifier is overridden by NSTextView's
+/// cursor tracking areas when the overlay sits above a VCodeView. This
+/// NSViewRepresentable registers a `pointingHand` cursor rect at the
+/// AppKit level so it takes priority over the I-beam cursor underneath.
+private struct PointerCursorOverlay: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        PointerTrackingView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private class PointerTrackingView: NSView {
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 }
 
