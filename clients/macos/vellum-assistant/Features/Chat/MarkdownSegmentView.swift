@@ -55,26 +55,34 @@ struct MarkdownSegmentView: View {
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let language, !language.isEmpty {
-                            Text(language)
-                                .font(.system(size: scaledCodeLabelSize, weight: .medium))
-                                .foregroundColor(mutedTextColor)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.top, VSpacing.xs)
+                    ZStack(alignment: .topTrailing) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let language, !language.isEmpty {
+                                Text(language)
+                                    .font(.system(size: scaledCodeLabelSize, weight: .medium))
+                                    .foregroundColor(mutedTextColor)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.top, VSpacing.xs)
+                            }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(code)
+                                    .font(.custom("DMMono-Regular", size: 13))
+                                    .foregroundColor(textColor)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: true, vertical: true)
+                                    .padding(VSpacing.sm)
+                            }
                         }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(code)
-                                .font(.custom("DMMono-Regular", size: 13))
-                                .foregroundColor(textColor)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: true, vertical: true)
-                                .padding(VSpacing.sm)
+                        .optionalMaxWidth(maxContentWidth)
+                        .background(codeBackgroundColor)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                        VButton(label: "Copy code", iconOnly: VIcon.copy.rawValue, style: .ghost, iconSize: 20, iconColor: mutedTextColor) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(code, forType: .string)
                         }
+                        .padding(VSpacing.xs)
                     }
-                    .optionalMaxWidth(maxContentWidth)
-                    .background(codeBackgroundColor)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 case .table(let headers, let rows):
                     MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
