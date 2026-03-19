@@ -1634,7 +1634,7 @@ describe("AgentLoop", () => {
   // should inject a system_notice nudging the LLM to retry instead of ending.
   test("injects retry nudge system_notice when tool returns an error", async () => {
     const { provider, calls } = createMockProvider([
-      // First turn: LLM calls a tool
+      // First turn: LLM calls a tool that errors
       toolUseResponse("t1", "read_file", { path: "/missing.txt" }),
       // Second turn: LLM retries after seeing the error + nudge
       toolUseResponse("t2", "read_file", { path: "/existing.txt" }),
@@ -1677,8 +1677,7 @@ describe("AgentLoop", () => {
 
     const retryNudge = toolResultMessage.content.find(
       (b): b is Extract<ContentBlock, { type: "text" }> =>
-        b.type === "text" &&
-        b.text.includes("Do not end your turn or report the error"),
+        b.type === "text" && b.text.includes("looks recoverable"),
     );
     expect(retryNudge).toBeDefined();
 
@@ -1688,9 +1687,57 @@ describe("AgentLoop", () => {
       thirdCallMessages[thirdCallMessages.length - 1];
     const noRetryNudge = thirdToolResultMessage.content.find(
       (b): b is Extract<ContentBlock, { type: "text" }> =>
-        b.type === "text" &&
-        b.text.includes("Do not end your turn or report the error"),
+        b.type === "text" && b.text.includes("looks recoverable"),
     );
     expect(noRetryNudge).toBeUndefined();
+  });
+
+  // Retry nudge stops after MAX_CONSECUTIVE_ERROR_NUDGES (3) consecutive errors
+  test("stops injecting retry nudge after 3 consecutive error turns", async () => {
+    const { provider, calls } = createMockProvider([
+      // 4 consecutive error turns, then final text
+      toolUseResponse("t1", "read_file", { path: "/a" }),
+      toolUseResponse("t2", "read_file", { path: "/b" }),
+      toolUseResponse("t3", "read_file", { path: "/c" }),
+      toolUseResponse("t4", "read_file", { path: "/d" }),
+      textResponse("Giving up."),
+    ]);
+
+    const toolExecutor = async (
+      _name: string,
+      _input: Record<string, unknown>,
+    ) => {
+      return { content: "service unavailable", isError: true };
+    };
+
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+    await loop.run([userMessage], () => {});
+
+    expect(calls).toHaveLength(5);
+
+    // Helper to check if a call's last user message has the retry nudge
+    const hasRetryNudge = (callIndex: number): boolean => {
+      const msgs = calls[callIndex].messages;
+      const lastMsg = msgs[msgs.length - 1];
+      return lastMsg.content.some(
+        (b) =>
+          b.type === "text" &&
+          "text" in b &&
+          (b as { text: string }).text.includes("looks recoverable"),
+      );
+    };
+
+    // Turns 1-3 should have the nudge
+    expect(hasRetryNudge(1)).toBe(true);
+    expect(hasRetryNudge(2)).toBe(true);
+    expect(hasRetryNudge(3)).toBe(true);
+    // Turn 4 should NOT have the nudge (exceeded limit)
+    expect(hasRetryNudge(4)).toBe(false);
   });
 });
