@@ -359,7 +359,7 @@ export async function persistUserMessage(
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table so asset_search can find them.
+    // Index user attachments in the attachments table for later retrieval.
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
       if (!a.data) continue;
