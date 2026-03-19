@@ -428,6 +428,8 @@ struct MainWindowView: View {
                 }
             }
             Spacer()
+                .contentShape(Rectangle())
+                .background(WindowDragArea())
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
@@ -469,6 +471,8 @@ struct MainWindowView: View {
                 })
             }
             Spacer()
+                .contentShape(Rectangle())
+                .background(WindowDragArea())
             if updateManager.isUpdateAvailable {
                 VButton(
                     label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
