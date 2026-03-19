@@ -146,6 +146,49 @@ describe("conversation-title-service", () => {
     expect(prompt).toContain("Looks good");
   });
 
+  test("regeneration extracts text from tool_result content blocks", async () => {
+    mockGetMessages.mockReturnValueOnce([
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "Search for restaurants" },
+        ]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "tool_use", id: "toolu_1", name: "web_search", input: {} },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: "Found 3 restaurants nearby",
+          },
+        ]),
+      },
+    ]);
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    await regenerateConversationTitle({ conversationId: "conv-1", provider });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
+      ?.content as string;
+    expect(prompt).not.toContain('"type":"tool_result"');
+    expect(prompt).toContain("Search for restaurants");
+    expect(prompt).toContain("Found 3 restaurants nearby");
+  });
+
   test("uses the BTW side-chain helper for title regeneration", async () => {
     const provider = {
       name: "test-provider",

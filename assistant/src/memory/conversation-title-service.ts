@@ -342,8 +342,9 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
  * Extract human-readable text from a message content string.
  * Messages are stored as JSON-stringified content block arrays
  * (e.g. `[{"type":"text","text":"hello"}]`). This extracts and
- * concatenates all text blocks, falling back to the raw string
- * when the content is not a JSON content-block array.
+ * concatenates all text blocks (including text nested inside
+ * tool_result blocks), falling back to the raw string when the
+ * content is not a JSON content-block array.
  */
 function extractTextFromContent(raw: string): string {
   try {
@@ -351,13 +352,25 @@ function extractTextFromContent(raw: string): string {
     if (Array.isArray(parsed)) {
       const texts: string[] = [];
       for (const block of parsed) {
-        if (
-          block &&
-          typeof block === "object" &&
-          block.type === "text" &&
-          typeof block.text === "string"
-        ) {
+        if (!block || typeof block !== "object") continue;
+        if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
+        } else if (block.type === "tool_result") {
+          // tool_result content can be a plain string or nested content blocks
+          if (typeof block.content === "string") {
+            texts.push(block.content);
+          } else if (Array.isArray(block.content)) {
+            for (const nested of block.content) {
+              if (
+                nested &&
+                typeof nested === "object" &&
+                nested.type === "text" &&
+                typeof nested.text === "string"
+              ) {
+                texts.push(nested.text);
+              }
+            }
+          }
         }
       }
       if (texts.length > 0) return texts.join("\n");
