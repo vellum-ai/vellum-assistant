@@ -167,7 +167,7 @@ final class ConversationForkIOSTests: XCTestCase {
         persistedTip.daemonMessageId = "msg-tip"
         viewModel.messages = [persistedTip]
 
-        waitUntil(timeout: 1.0) { viewModel.onFork != nil }
+        await waitUntil(timeout: 1.0) { viewModel.onFork != nil }
 
         viewModel.inputText = "/fork"
         viewModel.sendMessage()
@@ -176,7 +176,7 @@ final class ConversationForkIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.first?.text, "Persisted assistant reply")
         XCTAssertEqual(viewModel.inputText, "")
 
-        waitUntil(timeout: 1.0) { store.selectionRequest != nil }
+        await waitUntil(timeout: 1.0) { store.selectionRequest != nil }
 
         XCTAssertEqual(forkClient.requests.count, 1)
         XCTAssertEqual(forkClient.requests.first?.conversationId, "conv-parent")
@@ -226,23 +226,12 @@ final class ConversationForkIOSTests: XCTestCase {
         timeout: TimeInterval,
         file: StaticString = #filePath,
         line: UInt = #line,
-        condition: @escaping () -> Bool
-    ) {
-        let expectation = expectation(description: "Condition met")
-        let deadline = Date().addingTimeInterval(timeout)
-
-        func poll() {
-            if condition() {
-                expectation.fulfill()
-            } else if Date() < deadline {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                    poll()
-                }
-            }
+        condition: @escaping @Sendable () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while !condition() && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
-
-        poll()
-        wait(for: [expectation], timeout: timeout + 0.2)
         XCTAssertTrue(condition(), file: file, line: line)
     }
 

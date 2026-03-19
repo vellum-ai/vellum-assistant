@@ -920,19 +920,20 @@ class IOSConversationStore: ObservableObject {
                 messages.last(where: { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden })?.daemonMessageId
             }
             .removeDuplicates()
-            .sink { [weak self, weak vm] _ in
+            .sink { [weak self, weak vm] latestTipId in
                 guard let self, let vm else { return }
-                self.updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId)
+                self.updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId, knownTipId: latestTipId)
             }
             .store(in: &cancellables)
     }
 
-    private func updateForkCommandHandler(vm: ChatViewModel, conversationLocalId: UUID) {
+    private func updateForkCommandHandler(vm: ChatViewModel, conversationLocalId: UUID, knownTipId: String? = nil) {
+        let hasTip = knownTipId != nil || latestPersistedTipDaemonMessageId(for: conversationLocalId) != nil
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
               !conversation.isPrivate,
               conversation.conversationId != nil,
-              latestPersistedTipDaemonMessageId(for: conversationLocalId) != nil else {
+              hasTip else {
             vm.onFork = nil
             return
         }
