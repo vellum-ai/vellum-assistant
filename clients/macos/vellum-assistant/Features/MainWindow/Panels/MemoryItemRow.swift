@@ -17,13 +17,22 @@ struct MemoryItemRow: View {
                 // Kind icon
                 kindIcon
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(item.subject)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Header row: badges + delete aligned to top
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        // Title + timestamp tightly grouped on the left
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(item.subject)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Text(item.relativeLastSeen)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                                .padding(.top, -1)
+                        }
 
                         Spacer()
 
@@ -43,12 +52,6 @@ struct MemoryItemRow: View {
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
                 }
-
-                Spacer()
-
-                Text(item.relativeLastSeen)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(VSpacing.lg)
             .background(isHovered ? VColor.surfaceActive : Color.clear)
