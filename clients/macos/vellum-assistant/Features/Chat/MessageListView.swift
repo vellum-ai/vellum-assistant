@@ -912,6 +912,14 @@ struct MessageListView: View {
                     } else {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
+                } else if scrollTracking.isPinningDuringExpansion {
+                    // User scrolled away during the pinning window — still clear
+                    // the flag once expired so avatar follower updates resume.
+                    let elapsed = CFAbsoluteTimeGetCurrent() - scrollTracking.expansionPinStartTime
+                    if elapsed > 0.25 {
+                        scrollTracking.isPinningDuringExpansion = false
+                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
+                    }
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
