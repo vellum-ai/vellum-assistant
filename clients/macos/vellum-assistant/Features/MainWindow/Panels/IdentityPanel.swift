@@ -100,6 +100,7 @@ struct IdentityPanel: View {
                                     .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
+                        .onTapGesture { showAvatarSheet = true }
 
                         Spacer().frame(minHeight: VSpacing.xs)
 
@@ -123,6 +124,7 @@ struct IdentityPanel: View {
                     .frame(width: cardWidth, height: cardHeight)
                     .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.borderBase, lineWidth: 1))
                     .vShadow(VShadow.md)
                     .overlay(alignment: .topTrailing) {
                         VButton(label: "Minimize", iconOnly: VIcon.chevronUp.rawValue, style: .ghost) {
@@ -236,72 +238,6 @@ struct IdentityPanel: View {
         }
     }
 
-    // MARK: - ID Card
-
-    @ViewBuilder
-    private func idCardSection(identity: IdentityInfo?, remoteIdentity: RemoteIdentityInfo?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Agent ID (only available from local identity)
-            if let identity {
-                idRow(label: "Agent ID", value: identity.agentID, mono: true)
-            }
-
-            // Given name: remote > local > assistantId
-            let name = AssistantDisplayName.firstUserFacing(from: [
-                remoteIdentity?.name.nilIfEmpty,
-                identity?.name,
-                lockfileAssistant?.assistantId,
-            ])
-            if let name {
-                idRow(label: "Given name", value: name)
-            }
-
-            // Role: remote > local (truncated with tooltip for long values)
-            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-            if let role, !role.isEmpty {
-                idRow(label: "Role", value: role, truncate: true)
-            }
-
-            // Personality: remote > local
-            let personality = remoteIdentity?.personality.nilIfEmpty ?? identity?.personality
-            if let personality, !personality.isEmpty {
-                idRow(label: "Personality", value: personality)
-            }
-
-            // Version: remote > daemon > metadata
-            let version = remoteIdentity?.version ?? daemonClient.daemonVersion ?? metadata?.version
-            idRow(label: "Version", value: version ?? "—")
-
-            if let date = metadata?.createdAt {
-                idRow(label: "Created at", value: formatDate(date))
-            }
-
-            idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
-        }
-    }
-
-    private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-
-            if truncate {
-                Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .help(value)
-            } else {
-                Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
@@ -319,12 +255,6 @@ struct IdentityPanel: View {
         return formatter.string(from: date)
     }
 
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
 }
 
 private extension String {
