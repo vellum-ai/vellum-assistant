@@ -29,6 +29,17 @@ public final class SettingsStore: ObservableObject {
     @Published var hasImageGenKey: Bool
     @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
+
+    // MARK: - Embedding Config State
+    @Published var embeddingProvider: String = "auto"
+    @Published var embeddingModel: String? = nil
+    @Published var embeddingActiveProvider: String? = nil
+    @Published var embeddingActiveModel: String? = nil
+    @Published var embeddingAvailableProviders: [EmbeddingProviderOption] = []
+    @Published var embeddingEnabled: Bool = true
+    @Published var embeddingDegraded: Bool = false
+    @Published var embeddingKeySaveError: String? = nil
+
     @Published var maskedKey: String = ""
     @Published var apiKeySaveError: String?
     @Published var apiKeySaving: Bool = false
@@ -441,6 +452,7 @@ public final class SettingsStore: ObservableObject {
                 self?.refreshChannelVerificationStatus(channel: "phone")
                 self?.refreshChannelVerificationStatus(channel: "slack")
                 self?.loadProviderRoutingSources()
+                self?.refreshEmbeddingConfig()
             }
             .store(in: &cancellables)
 
@@ -610,6 +622,9 @@ public final class SettingsStore: ObservableObject {
 
             // Fetch provider routing sources (managed vs BYO) on init
             loadProviderRoutingSources()
+
+            // Fetch embedding config on init
+            refreshEmbeddingConfig()
         }
     }
 
@@ -1002,6 +1017,48 @@ public final class SettingsStore: ObservableObject {
 
     func dynamicProviderApiKeyPlaceholder(_ provider: String) -> String? {
         providerCatalog.first { $0.id == provider }?.apiKeyPlaceholder
+    }
+
+    // MARK: - Embedding Config Actions
+
+    func refreshEmbeddingConfig() {
+        Task { @MainActor in
+            let settingsClient = SettingsClient()
+            guard let config = await settingsClient.fetchEmbeddingConfig() else { return }
+            self.embeddingProvider = config.provider
+            self.embeddingModel = config.model
+            self.embeddingActiveProvider = config.activeProvider
+            self.embeddingActiveModel = config.activeModel
+            if let providers = config.availableProviders {
+                self.embeddingAvailableProviders = providers
+            }
+            if let status = config.status {
+                self.embeddingEnabled = status.enabled
+                self.embeddingDegraded = status.degraded
+            }
+        }
+    }
+
+    func setEmbeddingProvider(_ provider: String, model: String?) {
+        Task { @MainActor in
+            let settingsClient = SettingsClient()
+            guard let config = await settingsClient.setEmbeddingConfig(provider: provider, model: model) else { return }
+            self.embeddingProvider = config.provider
+            self.embeddingModel = config.model
+            self.embeddingActiveProvider = config.activeProvider
+            self.embeddingActiveModel = config.activeModel
+            if let status = config.status {
+                self.embeddingEnabled = status.enabled
+                self.embeddingDegraded = status.degraded
+            }
+        }
+    }
+
+    func saveEmbeddingAPIKey(_ raw: String, provider: String) {
+        // Delegate to saveInferenceAPIKey — same keychain store, same daemon validation
+        saveInferenceAPIKey(raw, provider: provider, onSuccess: {
+            self.refreshEmbeddingConfig()
+        })
     }
 
     // MARK: - Telegram Integration Actions
