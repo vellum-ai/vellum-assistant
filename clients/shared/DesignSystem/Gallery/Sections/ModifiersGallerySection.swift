@@ -257,6 +257,59 @@ struct ModifiersGallerySection: View {
                         }
                 }
             }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .vShimmer()
+            GallerySectionHeader(
+                title: ".vShimmer()",
+                description: "Sweeps a translucent highlight across the view for skeleton loading. Respects reduced motion."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.md) {
+                            VSkeletonBone(width: 40, height: 40, radius: VRadius.pill)
+                            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 120, height: 14)
+                                VSkeletonBone(width: 80, height: 12)
+                            }
+                        }
+                        VSkeletonBone(height: 14)
+                        VSkeletonBone(width: 240, height: 14)
+                        VSkeletonBone(width: 180, height: 14)
+                    }
+                    .vShimmer()
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .inlineWidgetCard()
+            GallerySectionHeader(
+                title: ".inlineWidgetCard()",
+                description: "Standard card chrome for inline chat widgets. Applies padding, background, border, and optional hover highlight."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VStack(spacing: VSpacing.md) {
+                        Text("Non-interactive (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        Text("Widget content")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .inlineWidgetCard()
+                    }
+                    VStack(spacing: VSpacing.md) {
+                        Text("Interactive (hover highlight)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        Text("Clickable widget")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .inlineWidgetCard(interactive: true)
+                    }
+                }
+            }
         }
     }
 }
