@@ -859,6 +859,7 @@ private struct StepDetailRow: View {
 
                 if needsTruncation {
                     Button {
+                        suppressAutoScroll?()
                         withAnimation(VAnimation.fast) {
                             if isOutputExpanded {
                                 expandedOutputIds.remove(id)
