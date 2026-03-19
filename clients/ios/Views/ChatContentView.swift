@@ -27,8 +27,36 @@ private struct ScrollViewportHeightKey: PreferenceKey {
     }
 }
 
+struct PendingChatAnchorResolution: Equatable {
+    let localMessageId: UUID
+    let requiresExpandedWindow: Bool
+}
+
+func resolvePendingChatAnchor(
+    daemonMessageId: String,
+    displayedMessages: [ChatMessage],
+    displayedMessageCount: Int
+) -> PendingChatAnchorResolution? {
+    guard let messageIndex = displayedMessages.firstIndex(where: { $0.daemonMessageId == daemonMessageId }) else {
+        return nil
+    }
+
+    let visibleCount = displayedMessageCount == Int.max
+        ? displayedMessages.count
+        : min(displayedMessageCount, displayedMessages.count)
+    let visibleStartIndex = max(0, displayedMessages.count - visibleCount)
+
+    return PendingChatAnchorResolution(
+        localMessageId: displayedMessages[messageIndex].id,
+        requiresExpandedWindow: displayedMessageCount != Int.max && messageIndex < visibleStartIndex
+    )
+}
+
 struct ChatContentView: View {
     @ObservedObject var viewModel: ChatViewModel
+    var pendingAnchorRequestId: UUID? = nil
+    var pendingAnchorDaemonMessageId: String? = nil
+    var onPendingAnchorHandled: ((UUID) -> Void)? = nil
     @FocusState private var isInputFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var emptyStateVisible = false
@@ -58,6 +86,10 @@ struct ChatContentView: View {
         // as new messages arrive, which would cause previously loaded history to vanish.
         guard viewModel.displayedMessageCount < all.count else { return all }
         return Array(all.suffix(viewModel.displayedMessageCount))
+    }
+
+    private var hasPendingAnchor: Bool {
+        pendingAnchorRequestId != nil && pendingAnchorDaemonMessageId != nil
     }
 
     var body: some View {
@@ -171,7 +203,7 @@ struct ChatContentView: View {
                 }
             }
             .onChange(of: viewModel.messages.count) { _, _ in
-                if isNearBottom && !viewModel.isLoadingMoreMessages {
+                if !hasPendingAnchor && isNearBottom && !viewModel.isLoadingMoreMessages {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
@@ -179,12 +211,12 @@ struct ChatContentView: View {
                 // Scroll without animation during streaming to avoid jank.
                 // Only scroll when actively streaming and the user hasn't
                 // scrolled away.
-                if viewModel.messages.last?.isStreaming == true && isNearBottom {
+                if !hasPendingAnchor && viewModel.messages.last?.isStreaming == true && isNearBottom {
                     scrollToBottom(proxy: proxy, animated: false)
                 }
             }
             .onChange(of: viewModel.isSending) { _, isSending in
-                if isSending {
+                if !hasPendingAnchor && isSending {
                     isNearBottom = true
                     withAnimation(.easeOut(duration: 0.3)) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -192,7 +224,7 @@ struct ChatContentView: View {
                 }
             }
             .onChange(of: viewModel.activeSubagents.count) { oldCount, newCount in
-                if newCount > oldCount && isNearBottom {
+                if !hasPendingAnchor && newCount > oldCount && isNearBottom {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
@@ -202,6 +234,7 @@ struct ChatContentView: View {
                 isNearBottom = true
                 isPaginationInFlight = false
                 scrollRestoreTask?.cancel()
+                guard !hasPendingAnchor else { return }
                 scrollRestoreTask = Task { @MainActor in
                     // Stage 0: immediate — covers the happy path where
                     // layout is already ready.
@@ -216,9 +249,17 @@ struct ChatContentView: View {
                     try? await Task.sleep(nanoseconds: 150_000_000)
                     guard !Task.isCancelled else { return }
                     scrollToBottom(proxy: proxy, animated: false)
-
-                    scrollRestoreTask = nil
                 }
+            }
+            .onAppear {
+                attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+            }
+            .onChange(of: pendingAnchorRequestId) { _, _ in
+                attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+            }
+            .onChange(of: viewModel.isHistoryLoaded) { _, isHistoryLoaded in
+                guard isHistoryLoaded else { return }
+                attemptPendingAnchorScrollIfNeeded(proxy: proxy)
             }
             .onDisappear {
                 scrollRestoreTask?.cancel()
@@ -648,6 +689,38 @@ struct ChatContentView: View {
             }
         } else {
             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+        }
+    }
+
+    private func attemptPendingAnchorScrollIfNeeded(proxy: ScrollViewProxy) {
+        guard let pendingAnchorRequestId,
+              let pendingAnchorDaemonMessageId,
+              viewModel.isHistoryLoaded else {
+            return
+        }
+
+        scrollRestoreTask?.cancel()
+
+        guard let resolution = resolvePendingChatAnchor(
+            daemonMessageId: pendingAnchorDaemonMessageId,
+            displayedMessages: viewModel.displayedMessages,
+            displayedMessageCount: viewModel.displayedMessageCount
+        ) else {
+            onPendingAnchorHandled?(pendingAnchorRequestId)
+            return
+        }
+
+        scrollRestoreTask = Task { @MainActor in
+            if resolution.requiresExpandedWindow {
+                viewModel.displayedMessageCount = Int.max
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard !Task.isCancelled else { return }
+            }
+
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo(resolution.localMessageId, anchor: .center)
+            }
+            onPendingAnchorHandled?(pendingAnchorRequestId)
         }
     }
 }
