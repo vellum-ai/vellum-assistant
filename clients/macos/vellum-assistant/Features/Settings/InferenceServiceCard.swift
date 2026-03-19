@@ -16,7 +16,7 @@ struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     @Binding var apiKeyText: String
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -237,11 +237,7 @@ struct InferenceServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    if let showToast {
-                        await authManager.loginWithToast(showToast: showToast)
-                    } else {
-                        await authManager.startWorkOSLogin()
-                    }
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }
@@ -374,12 +370,12 @@ struct InferenceServiceCard: View {
             if isCustomProviderEnabled {
                 store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
                     keyTextBinding.wrappedValue = ""
-                    showToast?("\(displayName) API key saved", .success)
+                    showToast("\(displayName) API key saved", .success)
                 })
             } else {
                 store.saveAPIKey(trimmedKey, onSuccess: {
                     keyTextBinding.wrappedValue = ""
-                    showToast?("API key saved", .success)
+                    showToast("API key saved", .success)
                 })
             }
         }

@@ -48,7 +48,7 @@ struct SettingsPanel: View {
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     // MARK: - Init
@@ -60,7 +60,7 @@ struct SettingsPanel: View {
         conversationManager: ConversationManager,
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
-        showToast: ((String, ToastInfo.Style) -> Void)? = nil,
+        showToast: @escaping (String, ToastInfo.Style) -> Void,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     ) {
         self.onClose = onClose

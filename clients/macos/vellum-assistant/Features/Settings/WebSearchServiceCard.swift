@@ -15,7 +15,7 @@ struct WebSearchServiceCard: View {
     var authManager: AuthManager
     @Binding var perplexityKeyText: String
     @Binding var braveKeyText: String
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -166,11 +166,7 @@ struct WebSearchServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    if let showToast {
-                        await authManager.loginWithToast(showToast: showToast)
-                    } else {
-                        await authManager.startWorkOSLogin()
-                    }
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }
