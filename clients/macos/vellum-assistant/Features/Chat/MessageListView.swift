@@ -79,6 +79,7 @@ struct MessageListView: View {
     let assistantActivityReason: String?
     let assistantStatusText: String?
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
@@ -729,6 +730,7 @@ struct MessageListView: View {
                             onModelPickerSelect: onModelPickerSelect,
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
+                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders
                         )
                         .equatable()
@@ -1306,6 +1308,8 @@ private struct MessageCellView: View, Equatable {
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
+            && lhs.catalogModels.count == rhs.catalogModels.count
+            && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
             && lhs.configuredProviders == rhs.configuredProviders
     }
 
@@ -1348,15 +1352,14 @@ private struct MessageCellView: View, Equatable {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     let selectedModel: String
+    let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
+            models: catalogModels,
             selectedModelId: selectedModel,
             onSelect: { modelId in
                 onModelPickerSelect?(msg.id, modelId)

@@ -2671,19 +2671,37 @@ public struct CatalogModel: Codable, Sendable {
     }
 }
 
+public struct ProviderCatalogEntry: Codable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let models: [CatalogModel]
+    public let defaultModel: String
+
+    public init(id: String, displayName: String, models: [CatalogModel], defaultModel: String) {
+        self.id = id
+        self.displayName = displayName
+        self.models = models
+        self.defaultModel = defaultModel
+    }
+}
+
 public struct ModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
     public let configuredProviders: [String]?
     public let availableModels: [CatalogModel]?
+    public let allProviders: [ProviderCatalogEntry]?
+    public let maskedKeys: [String: String]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil, allProviders: [ProviderCatalogEntry]? = nil, maskedKeys: [String: String]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
         self.configuredProviders = configuredProviders
         self.availableModels = availableModels
+        self.allProviders = allProviders
+        self.maskedKeys = maskedKeys
     }
 }
 
