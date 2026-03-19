@@ -42,6 +42,7 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
+    var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -240,6 +241,7 @@ struct ChatView: View {
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            onForkFromMessage: onForkFromMessage,
                             showInspectButton: showInspectButton,
                             onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
