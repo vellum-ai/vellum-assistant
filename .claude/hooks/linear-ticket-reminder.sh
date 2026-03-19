@@ -2,21 +2,20 @@
 # Inject a Linear ticket reminder for specific team members.
 # Users NOT in the remind list see nothing added to context.
 #
-# Uses GitHub usernames (already public in CODEOWNERS) matched against
-# the git email's noreply pattern or the committer name.
-# To find a teammate's GitHub username: check CODEOWNERS
+# Matches against git user.name (from `git config user.name`).
+# To find a teammate's name: git log --format='%an' --author=Name | sort -u
 
-REMIND_USERS=(
-  "vincent0426"
+REMIND_NAMES=(
+  "Vincent"
+  "Harrison Ngo"
   "NgoHarrison"
-  "alex-nork"
+  "Alex Nork"
 )
 
-CURRENT_EMAIL=$(git config user.email 2>/dev/null || echo "")
 CURRENT_NAME=$(git config user.name 2>/dev/null || echo "")
 
-for u in "${REMIND_USERS[@]}"; do
-  if [[ "$CURRENT_EMAIL" == *"$u"* || "$CURRENT_NAME" == "$u" ]]; then
+for n in "${REMIND_NAMES[@]}"; do
+  if [[ "$CURRENT_NAME" == "$n" ]]; then
     jq -n '{
       "hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
