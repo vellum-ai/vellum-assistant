@@ -1268,6 +1268,20 @@ struct MessageListView: View {
                     phaseWhenSendingStopped = assistantActivityPhase
                 }
             }
+            .onChange(of: assistantActivityPhase) {
+                // Clear stale confirmation marker when the phase leaves
+                // "awaiting_confirmation" while isSending is still false (e.g.,
+                // confirmation denied → idle, or reconnect resets the phase).
+                // When the daemon resumes (phase → thinking AND isSending → true
+                // simultaneously), isSending is already true here, so we skip —
+                // the isSending handler needs the marker intact.
+                if !isSending
+                    && phaseWhenSendingStopped == "awaiting_confirmation"
+                    && assistantActivityPhase != "awaiting_confirmation"
+                {
+                    phaseWhenSendingStopped = assistantActivityPhase
+                }
+            }
             .onChange(of: isThinking) {
                 if !isThinking {
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
@@ -1434,7 +1448,9 @@ struct MessageListView: View {
                 // hasFreshAnchorMeasurement from becoming true.
                 anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
-                phaseWhenSendingStopped = ""
+                // Capture the new conversation's activity phase so a conversation
+                // already paused in awaiting_confirmation is correctly tracked.
+                phaseWhenSendingStopped = isSending ? "" : assistantActivityPhase
                 // Reset the OLD conversation's scroll-loop guard state so it
                 // doesn't leak into future sessions for that conversation.
                 if let oldConvId = oldConversationId {
