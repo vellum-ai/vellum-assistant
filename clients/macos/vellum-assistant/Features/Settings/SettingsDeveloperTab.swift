@@ -1021,9 +1021,14 @@ struct SettingsDeveloperTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
-                Text("Default: \(flag.defaultEnabled ? "On" : "Off")")
-                    .font(VFont.small)
-                    .foregroundColor(VColor.contentTertiary)
+                HStack(spacing: VSpacing.xxs) {
+                    Text("Default:")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.contentTertiary)
+                    VBadge(label: flag.defaultEnabled ? "On" : "Off",
+                           tone: flag.defaultEnabled ? .danger : .neutral,
+                           emphasis: .subtle)
+                }
             }
             Spacer()
             VToggle(isOn: flagBinding)
