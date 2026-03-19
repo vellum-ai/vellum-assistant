@@ -15,10 +15,12 @@ import type {
 } from "../channels/types.js";
 import {
   addMessage,
+  getConversation,
   getMessageById,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   recordRequestLog,
@@ -709,6 +711,16 @@ export async function handleMessageComplete(
     assistantChannelMetadata,
   );
   state.lastAssistantMessageId = assistantMsg.id;
+
+  // Sync assistant message to disk view
+  const convForDisk = getConversation(deps.ctx.conversationId);
+  if (convForDisk) {
+    syncMessageToDisk(
+      deps.ctx.conversationId,
+      assistantMsg.id,
+      convForDisk.createdAt,
+    );
+  }
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
