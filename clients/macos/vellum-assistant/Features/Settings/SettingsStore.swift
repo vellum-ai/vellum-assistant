@@ -361,8 +361,14 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-        // selectedImageGenModel is initialized with a hardcoded default and
-        // populated from the daemon's workspace config via loadServiceModes().
+        // Restore persisted image-gen model as a local fallback so the
+        // user's selection survives restarts even if the daemon is unreachable.
+        // loadServiceModes() will override with the daemon's authoritative
+        // value once it connects.
+        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
+        if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
+            self.selectedImageGenModel = storedImageGenModel
+        }
 
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
@@ -841,6 +847,7 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
+        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
         Task {
             _ = await settingsClient.setImageGenModel(modelId: model)
         }
