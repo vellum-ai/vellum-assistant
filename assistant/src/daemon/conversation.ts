@@ -38,7 +38,6 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getMessages } from "../memory/conversation-crud.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
@@ -398,39 +397,36 @@ export class Conversation {
   }
 
   /**
-   * Scan ALL persisted messages (including compacted ones) for ui_surface
-   * content blocks and populate surfaceState so findConversationBySurfaceId
-   * works for surfaces restored from history (e.g. after daemon restart).
+   * Scan loaded conversation history for ui_surface content blocks and
+   * populate surfaceState so that findConversationBySurfaceId works for
+   * surfaces restored from history (e.g. after daemon restart).
+   *
+   * Only scans live (non-compacted) messages in this.messages — not all DB
+   * rows — because surface IDs are not globally unique and restoring stale
+   * compacted surfaces would let findConversationBySurfaceId route actions
+   * to the wrong conversation.
    */
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
-    const dbMessages = getMessages(this.conversationId);
-    for (const row of dbMessages) {
-      try {
-        const content = JSON.parse(row.content);
-        if (!Array.isArray(content)) continue;
-        for (const block of content) {
-          if (
-            block.type === "ui_surface" &&
-            typeof block.surfaceId === "string"
-          ) {
-            this.surfaceState.set(block.surfaceId, {
-              surfaceType: (block.surfaceType ?? "dynamic_page") as SurfaceType,
-              data: (block.data ?? {}) as SurfaceData,
-              title: block.title as string | undefined,
-              actions: Array.isArray(block.actions)
-                ? (block.actions as Array<{
-                    id: string;
-                    label: string;
-                    style?: string;
-                    data?: Record<string, unknown>;
-                  }>)
-                : undefined,
-            });
-          }
+    for (const msg of this.messages) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        const b = block as unknown as Record<string, unknown>;
+        if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
+          this.surfaceState.set(b.surfaceId, {
+            surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+            data: (b.data ?? {}) as SurfaceData,
+            title: b.title as string | undefined,
+            actions: Array.isArray(b.actions)
+              ? (b.actions as Array<{
+                  id: string;
+                  label: string;
+                  style?: string;
+                  data?: Record<string, unknown>;
+                }>)
+              : undefined,
+          });
         }
-      } catch {
-        // Content isn't valid JSON — skip
       }
     }
   }
