@@ -44,6 +44,12 @@ enum SentryDeviceInfo {
                 scope.removeTag(key: "organization_id")
             }
             scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
+            if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
+                scope.setTag(value: commitSHA, key: "commit_sha")
+            }
+            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                scope.setTag(value: clientVersion, key: "client_version")
+            }
         }
     }
 
