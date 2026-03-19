@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getBaseDataDir } from "../../config/env-registry.js";
+import { isTemplatePlaceholder } from "../../daemon/handlers/identity.js";
 import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -155,7 +156,9 @@ export function handleGetIdentity(): Response {
     const lower = trimmed.toLowerCase();
     const extract = (prefix: string): string | null => {
       if (!lower.startsWith(prefix)) return null;
-      return trimmed.split(":**").pop()?.trim() ?? null;
+      const value = trimmed.split(":**").pop()?.trim() ?? null;
+      if (value && isTemplatePlaceholder(value)) return null;
+      return value;
     };
 
     const name = extract("- **name:**");

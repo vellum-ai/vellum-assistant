@@ -45,6 +45,29 @@ struct MainThreadStallDetectorTests {
         }
     }
 
+    /// Stub last-known diagnostics provider for tests. Returns a fixed snapshot.
+    final class StubLastKnownProvider: HangContextWriter.LastKnownDiagnosticsProvider, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _snapshot: LastKnownDiagnosticsSnapshot?
+
+        var snapshot: LastKnownDiagnosticsSnapshot? {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _snapshot
+            }
+            set {
+                lock.lock()
+                _snapshot = newValue
+                lock.unlock()
+            }
+        }
+
+        func lastKnownDiagnostics() -> LastKnownDiagnosticsSnapshot? {
+            snapshot
+        }
+    }
+
     /// Creates a detector with injected test dependencies.
     /// The `probeTargetQueue` is a suspended queue to simulate a wedged main thread
     /// (the probe callback never runs, so `probeInFlight` stays true).
@@ -53,13 +76,18 @@ struct MainThreadStallDetectorTests {
         sampleRunner: MockSampleRunner,
         stageOneThreshold: TimeInterval = 2.0,
         stageTwoThreshold: TimeInterval = 5.0,
-        samplingAllowed: Bool = true
+        samplingAllowed: Bool = true,
+        lastKnownProvider: HangContextWriter.LastKnownDiagnosticsProvider? = nil
     ) -> (detector: MainThreadStallDetector, blockedQueue: DispatchQueue, samplingQueue: DispatchQueue) {
         let detector = MainThreadStallDetector(testInit: true)
         let outputDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("stall-test-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        detector.hangContextWriter = HangContextWriter(outputDirectory: outputDir, diagnosticsProvider: nil)
+        detector.hangContextWriter = HangContextWriter(
+            outputDirectory: outputDir,
+            diagnosticsProvider: nil,
+            lastKnownProvider: lastKnownProvider
+        )
         detector.stageOneThreshold = stageOneThreshold
         detector.stageTwoThreshold = stageTwoThreshold
         detector.nowNanos = { clock.nanos }
@@ -395,5 +423,186 @@ struct MainThreadStallDetectorTests {
         let presentKeys = allKeys(in: json)
         let violations = presentKeys.intersection(forbiddenKeys)
         #expect(violations.isEmpty, "Hang context must not contain user-content keys: \(violations.sorted())")
+    }
+
+    // MARK: - Sampling Disabled Flag
+
+    @Test
+    func samplingDisabledWritesSamplingSkippedFlag() throws {
+        let clock = MockClock()
+        let sampleRunner = MockSampleRunner()
+        let (detector, blockedQueue, _) = makeDetector(
+            clock: clock,
+            sampleRunner: sampleRunner,
+            samplingAllowed: false
+        )
+        defer { blockedQueue.resume() }
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        // Advance past stage-two threshold so the sampling-disabled path runs.
+        clock.advance(by: 6.0)
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        let fileURL = detector.hangContextWriter.outputDirectory
+            .appendingPathComponent("hang-context.json")
+        let data = try Data(contentsOf: fileURL)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // The samplingSkipped flag should be present and true.
+        let samplingSkipped = json["samplingSkipped"] as? Bool
+        #expect(samplingSkipped == true, "hang-context.json should contain samplingSkipped: true when sampling is disabled")
+
+        // Sampling should not have been attempted.
+        #expect(sampleRunner.callCount == 0, "Sampling should not be attempted when disabled")
+    }
+
+    @Test
+    func samplingEnabledDoesNotWriteSamplingSkippedFlag() throws {
+        let clock = MockClock()
+        let sampleRunner = MockSampleRunner()
+        let (detector, blockedQueue, samplingQueue) = makeDetector(
+            clock: clock,
+            sampleRunner: sampleRunner,
+            samplingAllowed: true
+        )
+        defer { blockedQueue.resume() }
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        clock.advance(by: 6.0)
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        samplingQueue.sync {}
+
+        let fileURL = detector.hangContextWriter.outputDirectory
+            .appendingPathComponent("hang-context.json")
+        let data = try Data(contentsOf: fileURL)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // samplingSkipped should not be present (or should be null).
+        let samplingSkipped = json["samplingSkipped"]
+        let isAbsentOrNull = samplingSkipped == nil || samplingSkipped is NSNull
+        #expect(isAbsentOrNull, "hang-context.json should not contain samplingSkipped when sampling is enabled")
+    }
+
+    // MARK: - Last-Known Diagnostics in Stage One
+
+    @Test
+    func stageOneIncludesLastKnownDiagnostics() throws {
+        let clock = MockClock()
+        let sampleRunner = MockSampleRunner()
+        let lastKnownProvider = StubLastKnownProvider()
+
+        // Seed the provider with a diagnostic event and transcript snapshot.
+        let seedEvent = ChatDiagnosticEvent(
+            id: "test-event-1",
+            timestamp: Date(timeIntervalSince1970: 1000),
+            kind: .scrollPositionChanged,
+            conversationId: "conv-1",
+            reason: "test breadcrumb"
+        )
+        let seedSnapshot = ChatTranscriptSnapshot(
+            conversationId: "conv-1",
+            capturedAt: Date(timeIntervalSince1970: 1000),
+            messageCount: 5,
+            toolCallCount: 2,
+            isPinnedToBottom: true,
+            isUserScrolling: false
+        )
+        lastKnownProvider.snapshot = LastKnownDiagnosticsSnapshot(
+            capturedAt: Date(timeIntervalSince1970: 1000),
+            recentEvents: [seedEvent],
+            transcriptSnapshots: [seedSnapshot]
+        )
+
+        let (detector, blockedQueue, _) = makeDetector(
+            clock: clock,
+            sampleRunner: sampleRunner,
+            lastKnownProvider: lastKnownProvider
+        )
+        defer { blockedQueue.resume() }
+
+        // Dispatch probe.
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        // Advance past stage-one threshold.
+        clock.advance(by: 2.5)
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        // Read and parse the hang-context.json.
+        let fileURL = detector.hangContextWriter.outputDirectory
+            .appendingPathComponent("hang-context.json")
+        let data = try Data(contentsOf: fileURL)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // The last-known diagnostics should be included in the stage-one write.
+        let events = json["recentDiagnosticEvents"] as? [[String: Any]] ?? []
+        #expect(!events.isEmpty, "Stage-one hang context should contain last-known diagnostic events")
+        #expect(events[0]["id"] as? String == "test-event-1", "Event ID should match the seeded event")
+
+        let snapshots = json["transcriptSnapshots"] as? [[String: Any]] ?? []
+        #expect(!snapshots.isEmpty, "Stage-one hang context should contain last-known transcript snapshots")
+        #expect(snapshots[0]["conversationId"] as? String == "conv-1", "Snapshot conversation ID should match")
+
+        // lastKnownDiagnosticsCapturedAt should be present since we used the fallback.
+        let capturedAt = json["lastKnownDiagnosticsCapturedAt"]
+        #expect(capturedAt != nil && !(capturedAt is NSNull), "lastKnownDiagnosticsCapturedAt should be present when using fallback")
+    }
+
+    @Test
+    func stageOneWithoutLastKnownProviderHasEmptyDiagnostics() throws {
+        let clock = MockClock()
+        let sampleRunner = MockSampleRunner()
+
+        // No lastKnownProvider — simulates the case where the main actor
+        // never gets a chance to populate diagnostics.
+        let (detector, blockedQueue, _) = makeDetector(
+            clock: clock,
+            sampleRunner: sampleRunner
+        )
+        defer { blockedQueue.resume() }
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        clock.advance(by: 2.5)
+
+        detector.queue.sync {
+            detector.ping()
+        }
+
+        let fileURL = detector.hangContextWriter.outputDirectory
+            .appendingPathComponent("hang-context.json")
+        let data = try Data(contentsOf: fileURL)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Without a last-known provider, events and snapshots should be empty arrays.
+        let events = json["recentDiagnosticEvents"] as? [Any] ?? []
+        #expect(events.isEmpty, "Stage-one should have empty events when no last-known provider exists")
+
+        let snapshots = json["transcriptSnapshots"] as? [Any] ?? []
+        #expect(snapshots.isEmpty, "Stage-one should have empty snapshots when no last-known provider exists")
+
+        // lastKnownDiagnosticsCapturedAt should be absent or null.
+        let capturedAt = json["lastKnownDiagnosticsCapturedAt"]
+        let isAbsentOrNull = capturedAt == nil || capturedAt is NSNull
+        #expect(isAbsentOrNull, "lastKnownDiagnosticsCapturedAt should be absent without a last-known provider")
     }
 }

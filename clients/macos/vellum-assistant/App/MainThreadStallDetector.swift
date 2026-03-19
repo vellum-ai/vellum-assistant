@@ -33,7 +33,8 @@ final class MainThreadStallDetector {
 
     /// Writer used to persist hang context. Tests inject a mock.
     var hangContextWriter: HangContextWriter = HangContextWriter(
-        diagnosticsProvider: MainActorDiagnosticsProvider()
+        diagnosticsProvider: MainActorDiagnosticsProvider(),
+        lastKnownProvider: BackgroundDiagnosticsProvider()
     )
 
     /// Closure that returns whether `/usr/bin/sample` capture is allowed.
@@ -167,15 +168,19 @@ final class MainThreadStallDetector {
             stageTwoFired = true
             log.warning("Stage 2 stall capture: main thread blocked for \(String(format: "%.1f", elapsed))s")
 
+            // Check sampling permission upfront so we can write the flag in a single pass.
+            let skipSampling = !isSamplingAllowed()
+
             // Update hang context with the longer duration (synchronous).
             let stallStart = Date(timeIntervalSinceNow: -elapsed)
             hangContextWriter.writeHangContextSync(
                 stallStartTime: stallStart,
-                stallDurationSeconds: elapsed
+                stallDurationSeconds: elapsed,
+                samplingSkipped: skipSampling
             )
 
             // Gate sampling on sendDiagnostics preference.
-            guard isSamplingAllowed() else {
+            guard !skipSampling else {
                 log.info("Skipping process sampling: sendDiagnostics is disabled")
                 return
             }
