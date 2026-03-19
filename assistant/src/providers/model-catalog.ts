@@ -41,6 +41,15 @@ export const INFERENCE_PROVIDER_API_KEY_URLS: Record<string, string> = {
   openrouter: "https://openrouter.ai/keys",
 };
 
+/** API key placeholder patterns for inference providers (omit providers that don't require keys). */
+export const INFERENCE_PROVIDER_API_KEY_PLACEHOLDERS: Record<string, string> = {
+  anthropic: "sk-ant-api03-...",
+  openai: "sk-proj-...",
+  gemini: "AIza...",
+  fireworks: "fw_...",
+  openrouter: "sk-or-v1-...",
+};
+
 const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
@@ -56,6 +65,7 @@ export interface ProviderCatalogEntry {
   models: CatalogModel[];
   defaultModel: string;
   apiKeyUrl?: string;
+  apiKeyPlaceholder?: string;
 }
 
 /** Build the full provider catalog with metadata for each inference provider. */
@@ -66,6 +76,7 @@ export function getFullProviderCatalog(): ProviderCatalogEntry[] {
     models,
     defaultModel: models[0]?.id ?? "",
     apiKeyUrl: INFERENCE_PROVIDER_API_KEY_URLS[id],
+    apiKeyPlaceholder: INFERENCE_PROVIDER_API_KEY_PLACEHOLDERS[id],
   }));
 }
 
