@@ -38,16 +38,20 @@ extension EnvironmentValues {
         if isVisible != newVisible { isVisible = newVisible }
     }
 
-    func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
-        guard storedViewportHeight != height else { return }
+    /// Returns `true` when the viewport height actually changed, so callers
+    /// can refresh any state tied to the visible geometry.
+    @discardableResult
+    func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) -> Bool {
+        guard storedViewportHeight != height else { return false }
         storedViewportHeight = height
         // Don't recompute visibility before the anchor position has been
         // measured — lastMinY starts at .infinity, and .infinity <= height + 20
         // evaluates to false, incorrectly flipping isVisible to false and
         // flashing the "Scroll to latest" button on short conversations.
-        guard lastMinY.isFinite else { return }
+        guard lastMinY.isFinite else { return true }
         let newVisible = lastMinY >= -20 && lastMinY <= height + 20
         if isVisible != newVisible { isVisible = newVisible }
+        return true
     }
 }
 
@@ -894,7 +898,15 @@ struct MessageListView: View {
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
-                anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
+                let viewportChanged = anchorTracker.updateViewport(
+                    height: height,
+                    storedViewportHeight: &scrollViewportHeight
+                )
+                if viewportChanged, scrollTracking.lastTailAnchorY.isFinite {
+                    // Reconcile the avatar follower on resize so a hidden target
+                    // is refreshed before a later visibility transition reveals it.
+                    updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
+                }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .transaction { $0.disablesAnimations = true }
