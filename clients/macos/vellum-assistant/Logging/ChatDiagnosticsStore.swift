@@ -373,6 +373,9 @@ final class ChatDiagnosticsStore {
 
         // Write to session log if under size cap.
         writeToSessionLog(event)
+
+        // Refresh the background-safe snapshot.
+        refreshLastKnownSnapshot()
     }
 
     // MARK: - Transcript Snapshots
@@ -397,6 +400,9 @@ final class ChatDiagnosticsStore {
             let evicted = snapshotOrder.removeFirst()
             transcriptSnapshots.removeValue(forKey: evicted)
         }
+
+        // Refresh the background-safe snapshot.
+        refreshLastKnownSnapshot()
     }
 
     /// Returns the current snapshot for a conversation, if any.
@@ -482,4 +488,68 @@ final class ChatDiagnosticsStore {
     func recentEvents(_ count: Int) -> [ChatDiagnosticEvent] {
         Array(events.suffix(count))
     }
+
+    // MARK: - Background-Safe Last-Known Snapshot
+
+    /// Maximum number of events retained in the last-known snapshot.
+    static let lastKnownEventCapacity = 50
+
+    /// A background-safe snapshot of the most recent sanitized diagnostics.
+    ///
+    /// Updated on every `record(_:)` and `updateSnapshot(_:)` call so that
+    /// the stall detector's background queue can read it without awaiting
+    /// the main actor. This is the fallback data source when the main thread
+    /// is wedged and `enrichWithDiagnosticsAsync()` never completes.
+    ///
+    /// **Thread safety**: Written only from `@MainActor`; read atomically
+    /// via `nonisolated` accessor through the `NSLock`-guarded getter.
+    private(set) var lastKnownDiagnostics: LastKnownDiagnosticsSnapshot? {
+        didSet {
+            _lastKnownLock.lock()
+            _lastKnownBackgroundCopy = lastKnownDiagnostics
+            _lastKnownLock.unlock()
+        }
+    }
+
+    /// Lock protecting the background-readable copy.
+    private let _lastKnownLock = NSLock()
+
+    /// Background-readable copy of `lastKnownDiagnostics`, guarded by `_lastKnownLock`.
+    private var _lastKnownBackgroundCopy: LastKnownDiagnosticsSnapshot?
+
+    /// Returns the last-known diagnostics snapshot from any thread.
+    /// This is safe to call from the stall detector's background queue.
+    nonisolated func lastKnownDiagnosticsFromBackground() -> LastKnownDiagnosticsSnapshot? {
+        _lastKnownLock.lock()
+        defer { _lastKnownLock.unlock() }
+        return _lastKnownBackgroundCopy
+    }
+
+    /// Rebuilds the last-known diagnostics snapshot from current state.
+    private func refreshLastKnownSnapshot() {
+        let recentEvents = Array(events.suffix(Self.lastKnownEventCapacity))
+        let snapshots = transcriptSnapshots.values.sorted { $0.conversationId < $1.conversationId }
+        lastKnownDiagnostics = LastKnownDiagnosticsSnapshot(
+            capturedAt: Date(),
+            recentEvents: recentEvents,
+            transcriptSnapshots: snapshots
+        )
+    }
+}
+
+// MARK: - Last-Known Diagnostics Snapshot
+
+/// A point-in-time snapshot of the most recent sanitized diagnostic events
+/// and transcript snapshots. Designed to be read from a background queue
+/// without awaiting the main actor.
+///
+/// **Privacy invariant**: Contains only the same content-safe data as
+/// `ChatDiagnosticEvent` and `ChatTranscriptSnapshot` — no user content.
+struct LastKnownDiagnosticsSnapshot: Codable, Sendable {
+    /// When this snapshot was captured.
+    let capturedAt: Date
+    /// Recent diagnostic events (up to `ChatDiagnosticsStore.lastKnownEventCapacity`).
+    let recentEvents: [ChatDiagnosticEvent]
+    /// Per-conversation transcript snapshots, sorted by conversation ID.
+    let transcriptSnapshots: [ChatTranscriptSnapshot]
 }
