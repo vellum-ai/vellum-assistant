@@ -128,6 +128,20 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         XCTAssertNil(content.fallbackMessage)
     }
 
+    func testProviderLabelsStayReadableForKnownRuntimeProviders() throws {
+        XCTAssertEqual(providerLabel(for: "openai"), "OpenAI")
+        XCTAssertEqual(providerLabel(for: "anthropic"), "Anthropic")
+        XCTAssertEqual(providerLabel(for: "gemini"), "Gemini")
+        XCTAssertEqual(providerLabel(for: "openrouter"), "OpenRouter")
+        XCTAssertEqual(providerLabel(for: "fireworks"), "Fireworks")
+        XCTAssertEqual(providerLabel(for: "ollama"), "Ollama")
+    }
+
+    func testUnknownProviderSlugIsNormalizedIntoReadableText() throws {
+        XCTAssertEqual(providerLabel(for: "future-provider_name"), "Future Provider Name")
+        XCTAssertEqual(providerLabel(for: "custom"), "Custom")
+    }
+
     func testMissingSummaryFallsBackToRawPayloadHint() throws {
         let entry = try decodeEntry(
             #"""
@@ -167,5 +181,33 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
 
     private func decodeEntry(_ json: String) throws -> LLMRequestLogEntry {
         try JSONDecoder().decode(LLMRequestLogEntry.self, from: Data(json.utf8))
+    }
+
+    private func providerLabel(for provider: String) -> String {
+        let entry = LLMRequestLogEntry(
+            id: "provider-\(provider)",
+            requestPayload: AnyCodable(["type": "request"]),
+            responsePayload: AnyCodable(["type": "response"]),
+            createdAt: 0,
+            summary: .init(
+                model: "gpt-4.1",
+                provider: provider,
+                inputTokens: nil,
+                outputTokens: nil,
+                cacheCreationInputTokens: nil,
+                cacheReadInputTokens: nil,
+                stopReason: nil,
+                requestMessageCount: nil,
+                requestToolCount: nil,
+                responseMessageCount: nil,
+                responseToolCallCount: nil,
+                responsePreview: nil,
+                toolCallNames: nil
+            ),
+            requestSections: nil,
+            responseSections: nil
+        )
+
+        return MessageInspectorOverviewContent(entry: entry).identityRows[0].value
     }
 }
