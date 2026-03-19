@@ -19,6 +19,10 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
 
         func setImageGenModel(modelId: String) async -> ModelInfoMessage? { nil }
 
+        func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? { nil }
+
+        func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage? { nil }
+
         func fetchTelegramConfig() async -> TelegramConfigResponseMessage? { nil }
 
         func setTelegramConfig(
