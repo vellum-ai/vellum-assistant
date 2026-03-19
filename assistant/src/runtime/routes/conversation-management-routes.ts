@@ -16,6 +16,7 @@
 import {
   batchSetDisplayOrders,
   deleteConversation,
+  PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import {
@@ -117,6 +118,9 @@ export function conversationManagementRouteDefinitions(
           return Response.json({ conversation });
         } catch (err) {
           if (err instanceof UserError) {
+            if (err.message === PRIVATE_CONVERSATION_FORK_ERROR) {
+              return httpError("FORBIDDEN", err.message, 403);
+            }
             return httpError("NOT_FOUND", err.message, 404);
           }
           throw err;

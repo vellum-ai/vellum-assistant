@@ -63,9 +63,11 @@ import {
   createConversation,
   forkConversation,
   getMessages,
+  PRIVATE_CONVERSATION_FORK_ERROR,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
   channelInboundEvents,
   conversationAssistantAttentionState,
@@ -153,7 +155,12 @@ describe("forkConversation", () => {
       sourceMessages.map((message) => message.createdAt),
     );
     expect(forkMessages.map((message) => parseMetadata(message.metadata))).toEqual(
-      sourceMessages.map((message) => parseMetadata(message.metadata)),
+      sourceMessages.map((message) => {
+        const metadata = parseMetadata(message.metadata);
+        return metadata && typeof metadata === "object"
+          ? { ...(metadata as Record<string, unknown>), forkSourceMessageId: message.id }
+          : { forkSourceMessageId: message.id };
+      }),
     );
     expect(
       forkMessages.every(
@@ -242,7 +249,7 @@ describe("forkConversation", () => {
     );
   });
 
-  test("normalizes private source forks to standard conversations without external bindings", async () => {
+  test("rejects private source forks", async () => {
     const source = createConversation({
       title: "Private notes",
       conversationType: "private",
@@ -276,19 +283,9 @@ describe("forkConversation", () => {
       })
       .run();
 
-    const fork = forkConversation({ conversationId: source.id });
-    const binding = db
-      .select()
-      .from(externalConversationBindings)
-      .where(eq(externalConversationBindings.conversationId, fork.id))
-      .get();
-
-    expect(source.conversationType).toBe("private");
-    expect(fork.conversationType).toBe("standard");
-    expect(fork.memoryScopeId).toBe("default");
-    expect(fork.originChannel).toBeNull();
-    expect(fork.originInterface).toBeNull();
-    expect(binding).toBeUndefined();
+    expect(() => forkConversation({ conversationId: source.id })).toThrow(
+      PRIVATE_CONVERSATION_FORK_ERROR,
+    );
   });
 
   test("marks copied assistant history as seen and excludes request logs, queued work, and inbound events", async () => {
@@ -300,7 +297,7 @@ describe("forkConversation", () => {
       undefined,
       { skipIndexing: true },
     );
-    await addMessage(
+    const sourceAssistant = await addMessage(
       source.id,
       "assistant",
       "I found the failing migration.",
@@ -315,7 +312,7 @@ describe("forkConversation", () => {
       .values({
         id: "llm-log-1",
         conversationId: source.id,
-        messageId: sourceUser.id,
+        messageId: sourceAssistant.id,
         requestPayload: '{"prompt":"debug"}',
         responsePayload: '{"result":"ok"}',
         createdAt: now,
@@ -377,6 +374,14 @@ describe("forkConversation", () => {
     const forkAssistant = getMessages(fork.id).find(
       (message) => message.role === "assistant",
     );
+    const forkAssistantMetadata = forkAssistant?.metadata
+      ? (JSON.parse(forkAssistant.metadata) as {
+          forkSourceMessageId?: string;
+        })
+      : null;
+    const forkRequestLogs = forkAssistant
+      ? getRequestLogsByMessageId(forkAssistant.id)
+      : [];
     const forkState = getAttentionStateByConversationIds([fork.id]).get(fork.id);
     const forkRequestLogCount = db
       .select()
@@ -402,6 +407,10 @@ describe("forkConversation", () => {
     expect(sourceState).toBeDefined();
     expect(sourceState?.lastSeenAssistantMessageId).toBeNull();
     expect(forkAssistant).toBeDefined();
+    expect(forkAssistantMetadata?.forkSourceMessageId).toBe(sourceAssistant.id);
+    expect(forkRequestLogs).toHaveLength(1);
+    expect(forkRequestLogs[0]?.conversationId).toBe(source.id);
+    expect(forkRequestLogs[0]?.messageId).toBe(sourceAssistant.id);
     expect(forkState).toBeDefined();
     expect(forkState?.latestAssistantMessageId).toBe(forkAssistant?.id);
     expect(forkState?.lastSeenAssistantMessageId).toBe(forkAssistant?.id);

@@ -66,7 +66,11 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
+import {
+  addMessage,
+  createConversation,
+  PRIVATE_CONVERSATION_FORK_ERROR,
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { getPolicy } from "../runtime/auth/route-policy.js";
 import { mintToken } from "../runtime/auth/token-service.js";
@@ -195,6 +199,61 @@ describe("POST /v1/conversations/fork", () => {
       error: {
         code: "NOT_FOUND",
         message: "Conversation missing-conversation not found",
+      },
+    });
+  });
+
+  test("does not expose private parents in detail reads", async () => {
+    const parent = createConversation({
+      title: "Private parent",
+      conversationType: "private",
+    });
+    const parentMessage = await addMessage(
+      parent.id,
+      "assistant",
+      "Private parent message",
+      undefined,
+      { skipIndexing: true },
+    );
+    const child = createConversation("Child conversation");
+    getDb().run(
+      `UPDATE conversations
+       SET fork_parent_conversation_id = '${parent.id}',
+           fork_parent_message_id = '${parentMessage.id}'
+       WHERE id = '${child.id}'`,
+    );
+
+    await startServer();
+
+    const response = await fetch(url(`/conversations/${child.id}`), {
+      headers: AUTH_HEADERS,
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      conversation: ConversationSummary;
+    };
+    expect(body.conversation).not.toHaveProperty("forkParent");
+  });
+
+  test("rejects private source conversations", async () => {
+    const source = createConversation({
+      title: "Private source",
+      conversationType: "private",
+    });
+
+    await startServer();
+
+    const response = await fetch(url("/conversations/fork"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({ conversationId: source.id }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "FORBIDDEN",
+        message: PRIVATE_CONVERSATION_FORK_ERROR,
       },
     });
   });

@@ -63,6 +63,9 @@ const subagentNotificationSchema = z.object({
   conversationId: z.string().optional(),
 });
 
+export const PRIVATE_CONVERSATION_FORK_ERROR =
+  "Private conversations cannot be forked";
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -83,12 +86,41 @@ export const messageMetadataSchema = z
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+function cloneForkMessageMetadata(
+  metadata: string | null,
+  sourceMessageId: string,
+): string {
+  if (!metadata) {
+    return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+  }
+
+  try {
+    const parsed = JSON.parse(metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const sourceRecord = parsed as Record<string, unknown>;
+      const forkSourceMessageId =
+        typeof sourceRecord.forkSourceMessageId === "string"
+          ? sourceRecord.forkSourceMessageId
+          : sourceMessageId;
+      return JSON.stringify({
+        ...sourceRecord,
+        forkSourceMessageId,
+      });
+    }
+  } catch {
+    // Fall through to source-only metadata.
+  }
+
+  return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+}
 
 /**
  * Extract provenance metadata fields from a TrustContext.
@@ -293,6 +325,9 @@ export function forkConversation(params: {
   if (!sourceConversation) {
     throw new UserError(`Conversation ${conversationId} not found`);
   }
+  if (sourceConversation.conversationType === "private") {
+    throw new UserError(PRIVATE_CONVERSATION_FORK_ERROR);
+  }
 
   const sourceMessages = db
     .select()
@@ -346,7 +381,7 @@ export function forkConversation(params: {
         role: message.role,
         content: message.content,
         createdAt: message.createdAt,
-        metadata: message.metadata,
+        metadata: cloneForkMessageMetadata(message.metadata, message.id),
       })
       .run();
     forkedMessageIds.set(message.id, forkedMessageId);
