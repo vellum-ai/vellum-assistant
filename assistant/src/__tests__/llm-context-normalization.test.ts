@@ -553,6 +553,67 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
+  test("rejects ambiguous request payloads that match OpenAI and Anthropic", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_010,
+      requestPayload: {
+        model: "gpt-4.1",
+        tool_choice: { type: "auto" },
+        parallel_tool_calls: true,
+        messages: [{ role: "user", content: "Hello there." }],
+      },
+      responsePayload: {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hello back.",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+        },
+      },
+    });
+
+    expect(normalized).toEqual({});
+  });
+
+  test("rejects ambiguous response payloads that match OpenAI and Anthropic", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_011,
+      requestPayload: {
+        model: "gpt-4.1",
+        parallel_tool_calls: true,
+        messages: [{ role: "user", content: "Hello there." }],
+      },
+      responsePayload: {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hello back.",
+            },
+          },
+        ],
+        content: [{ type: "text", text: "Hello back." }],
+        stop_reason: "end_turn",
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+        },
+      },
+    });
+
+    expect(normalized).toEqual({});
+  });
+
   test("normalizes Anthropic document attachments in request prompt sections", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_009,

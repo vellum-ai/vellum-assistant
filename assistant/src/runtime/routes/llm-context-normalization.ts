@@ -70,41 +70,37 @@ export function normalizeLlmContextPayloads(
     Boolean(candidate),
   );
 
-  const requestProviders = new Set(
-    requestCandidates.map((candidate) => candidate.provider),
-  );
-  const responseProviders = new Set(
-    responseCandidates.map((candidate) => candidate.provider),
-  );
-  const sharedProviders = [...requestProviders].filter((provider) =>
-    responseProviders.has(provider),
-  );
-
-  if (sharedProviders.length > 1) {
+  if (requestCandidates.length > 1 || responseCandidates.length > 1) {
     return {};
   }
 
-  if (sharedProviders.length === 1) {
-    const provider = sharedProviders[0] as LlmContextSummary["provider"];
-    return mergeNormalizedCandidates(
-      requestCandidates.find((candidate) => candidate.provider === provider) ??
-        undefined,
-      responseCandidates.find((candidate) => candidate.provider === provider) ??
-        undefined,
-    );
+  const requestCandidate = requestCandidates[0];
+  const responseCandidate = responseCandidates[0];
+
+  if (requestCandidate && responseCandidate) {
+    if (requestCandidate.provider !== responseCandidate.provider) {
+      return {};
+    }
+
+    return mergeNormalizedCandidates(requestCandidate, responseCandidate);
   }
 
-  if (requestCandidates.length === 1 && responseCandidates.length === 0) {
-    return requestCandidates[0] as LlmContextNormalizationResult;
+  if (requestCandidate) {
+    return requestCandidate as LlmContextNormalizationResult;
   }
 
-  if (responseCandidates.length === 1 && requestCandidates.length === 0) {
-    const responseCandidate =
-      responseCandidates[0] as NormalizedPayloadCandidate;
+  if (responseCandidate) {
     const requestCandidate = normalizeCompatibleRequestPayload(
       input.requestPayload,
       responseCandidate.provider,
     );
+    if (
+      requestCandidate &&
+      requestCandidate.provider !== responseCandidate.provider
+    ) {
+      return {};
+    }
+
     return mergeNormalizedCandidates(requestCandidate, responseCandidate);
   }
 
