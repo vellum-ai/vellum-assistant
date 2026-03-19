@@ -516,7 +516,7 @@ struct AgentPanelContent: View {
                     .frame(maxHeight: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceBase)
+                            .fill(VColor.surfaceLift)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
@@ -658,7 +658,7 @@ struct AgentPanelContent: View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header — matches WorkspaceTreeSidebar header
+                // Header — height matches FileContentHeaderBar (36pt)
                 HStack {
                     Text("Files")
                         .font(VFont.headline)
@@ -666,7 +666,7 @@ struct AgentPanelContent: View {
                     Spacer()
                 }
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                .frame(height: 36)
 
                 Divider().background(VColor.borderBase)
 
