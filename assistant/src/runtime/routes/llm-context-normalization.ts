@@ -294,7 +294,7 @@ function normalizeAnthropicRequestPayload(
   const hasAnthropicSignal =
     request.system !== undefined ||
     requestToolNames.length > 0 ||
-    Boolean(asRecord(request.tool_choice)) ||
+    isAnthropicToolChoice(request.tool_choice) ||
     hasAnthropicContentSignal;
   if (!allowPlainText && !hasAnthropicSignal) {
     return null;
@@ -723,6 +723,18 @@ function extractAnthropicToolNames(tools: unknown): string[] {
     .filter((name): name is string => typeof name === "string");
 }
 
+function isAnthropicToolChoice(toolChoice: unknown): boolean {
+  const record = asRecord(toolChoice);
+  if (!record) {
+    return false;
+  }
+
+  const type = asString(record.type);
+  return (
+    type === "auto" || type === "any" || type === "tool" || type === "none"
+  );
+}
+
 function extractGeminiToolNames(tools: unknown): string[] {
   const toolGroups = asRecordArray(tools) ?? [];
   const names: string[] = [];
@@ -843,14 +855,6 @@ function collectAnthropicText(content: unknown): string | undefined {
 
     if (type === "image") {
       textParts.push("[image]");
-      continue;
-    }
-
-    if (isAnthropicToolResultType(type)) {
-      const resultText = collectAnthropicToolResultText(block);
-      if (resultText) {
-        textParts.push(resultText);
-      }
     }
   }
 

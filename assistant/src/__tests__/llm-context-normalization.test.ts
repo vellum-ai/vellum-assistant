@@ -493,18 +493,12 @@ describe("normalizeLlmContextPayloads", () => {
       stopReason: "end_turn",
       requestMessageCount: 1,
       requestToolCount: 0,
-      responseMessageCount: 1,
+      responseMessageCount: undefined,
       responseToolCallCount: undefined,
-      responsePreview: "[Web search results]",
+      responsePreview: undefined,
       toolCallNames: undefined,
     });
     expect(normalized.requestSections).toEqual([
-      {
-        kind: "message",
-        label: "User message 1",
-        role: "user",
-        text: "[Web search results]",
-      },
       {
         kind: "tool_result",
         label: "User message 1 tool result",
@@ -525,12 +519,6 @@ describe("normalizeLlmContextPayloads", () => {
       },
     ]);
     expect(normalized.responseSections).toEqual([
-      {
-        kind: "message",
-        label: "Assistant response",
-        role: "assistant",
-        text: "[Web search results]",
-      },
       {
         kind: "tool_result",
         label: "Assistant response tool result",
@@ -711,12 +699,15 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
-  test("normalizes an OpenAI request even when the response payload is malformed", () => {
+  test("normalizes an OpenAI request with object tool_choice even when the response payload is malformed", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_005,
       requestPayload: {
         model: "gpt-4.1",
-        tool_choice: "auto",
+        tool_choice: {
+          type: "function",
+          function: { name: "lookup" },
+        },
         messages: [
           {
             role: "system",
@@ -794,7 +785,10 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Request settings",
         data: {
           model: "gpt-4.1",
-          tool_choice: "auto",
+          tool_choice: {
+            type: "function",
+            function: { name: "lookup" },
+          },
         },
         language: "json",
       },
