@@ -258,6 +258,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Set automatically when `daemon_status` is received. Does not block the connection.
     @Published public internal(set) var versionMismatch: Bool = false
 
+    /// Whether a planned service group update is in progress.
+    /// Set when a `service_group_update_starting` event is received,
+    /// cleared when reconnected and `daemon_status` confirms the new version.
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+
+    /// The version being upgraded to, if an update is in progress.
+    @Published public internal(set) var updateTargetVersion: String?
+
     /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
     /// Used to detect instance switches — if this changes, the stored actor token is stale.
     @Published public internal(set) var keyFingerprint: String?
@@ -553,6 +561,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         httpPort = nil
         daemonVersion = nil
         versionMismatch = false
+        isUpdateInProgress = false
+        updateTargetVersion = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
