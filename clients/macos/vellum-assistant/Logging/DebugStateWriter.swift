@@ -13,15 +13,23 @@ final class DebugStateWriter {
     private var timer: Timer?
     private weak var appDelegate: AppDelegate?
 
-    private let fileURL: URL
+    let fileURL: URL
     private let encoder: JSONEncoder
+    private let diagnosticsStore: ChatDiagnosticsStore
 
-    init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+    init(directory: URL? = nil, diagnosticsStore: ChatDiagnosticsStore? = nil) {
+        let dir: URL
+        if let directory {
+            dir = directory
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+            dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("debug-state.json")
+
+        self.diagnosticsStore = diagnosticsStore ?? ChatDiagnosticsStore.shared
 
         self.encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -56,7 +64,7 @@ final class DebugStateWriter {
 
     // MARK: - Snapshot Capture
 
-    private func captureSnapshot(from appDelegate: AppDelegate) -> DebugSnapshot {
+    func captureSnapshot(from appDelegate: AppDelegate) -> DebugSnapshot {
         let daemonClient = appDelegate.services.daemonClient
         let conversationManager = appDelegate.mainWindow?.conversationManager
 
@@ -94,6 +102,14 @@ final class DebugStateWriter {
 
         var activeChatState: DebugSnapshot.ActiveChatState?
         if let vm = conversationManager?.activeViewModel {
+            // Merge transcript diagnostics from the shared diagnostics store
+            // when a snapshot exists for the active conversation.
+            var transcriptDiagnostics: DebugSnapshot.TranscriptDiagnostics?
+            if let activeConvId = conversationManager?.activeConversationId,
+               let transcriptSnapshot = diagnosticsStore.snapshot(for: activeConvId.uuidString) {
+                transcriptDiagnostics = DebugSnapshot.TranscriptDiagnostics(from: transcriptSnapshot)
+            }
+
             activeChatState = DebugSnapshot.ActiveChatState(
                 conversationId: vm.conversationId,
                 isThinking: vm.isThinking,
@@ -107,7 +123,8 @@ final class DebugStateWriter {
                 pendingQueuedCount: vm.pendingQueuedCount,
                 pendingAttachmentCount: vm.pendingAttachments.count,
                 isRecording: vm.isRecording,
-                activeSubagentCount: vm.activeSubagents.count
+                activeSubagentCount: vm.activeSubagents.count,
+                transcriptDiagnostics: transcriptDiagnostics
             )
         }
 
@@ -176,6 +193,58 @@ struct DebugSnapshot: Codable {
         let pendingAttachmentCount: Int
         let isRecording: Bool
         let activeSubagentCount: Int
+        let transcriptDiagnostics: TranscriptDiagnostics?
+    }
+
+    /// Content-safe transcript diagnostics sourced from `ChatDiagnosticsStore`.
+    ///
+    /// Contains only identifiers, flags, counts, timestamps, and numeric geometry.
+    /// Never includes message text, tool input/output bodies, surface HTML,
+    /// or attachment data.
+    struct TranscriptDiagnostics: Codable {
+        let capturedAt: Date
+        let messageCount: Int
+        let toolCallCount: Int
+        let isPinnedToBottom: Bool
+        let isUserScrolling: Bool
+        let scrollOffsetY: Double?
+        let contentHeight: Double?
+        let viewportHeight: Double?
+        let isNearBottom: Bool?
+        let hasReceivedScrollEvent: Bool?
+        let isPaginationInFlight: Bool?
+        let suppressionReason: String?
+        let anchorMessageId: String?
+        let highlightedMessageId: String?
+        let anchorMinY: Double?
+        let tailAnchorY: Double?
+        let scrollViewportHeight: Double?
+        let containerWidth: Double?
+        let lastScrollToReason: String?
+        let lastLoopWarningTimestamp: Date?
+
+        init(from snapshot: ChatTranscriptSnapshot) {
+            self.capturedAt = snapshot.capturedAt
+            self.messageCount = snapshot.messageCount
+            self.toolCallCount = snapshot.toolCallCount
+            self.isPinnedToBottom = snapshot.isPinnedToBottom
+            self.isUserScrolling = snapshot.isUserScrolling
+            self.scrollOffsetY = snapshot.scrollOffsetY
+            self.contentHeight = snapshot.contentHeight
+            self.viewportHeight = snapshot.viewportHeight
+            self.isNearBottom = snapshot.isNearBottom
+            self.hasReceivedScrollEvent = snapshot.hasReceivedScrollEvent
+            self.isPaginationInFlight = snapshot.isPaginationInFlight
+            self.suppressionReason = snapshot.suppressionReason
+            self.anchorMessageId = snapshot.anchorMessageId
+            self.highlightedMessageId = snapshot.highlightedMessageId
+            self.anchorMinY = snapshot.anchorMinY
+            self.tailAnchorY = snapshot.tailAnchorY
+            self.scrollViewportHeight = snapshot.scrollViewportHeight
+            self.containerWidth = snapshot.containerWidth
+            self.lastScrollToReason = snapshot.lastScrollToReason
+            self.lastLoopWarningTimestamp = snapshot.lastLoopWarningTimestamp
+        }
     }
 
     struct ComputerUseState: Codable {
