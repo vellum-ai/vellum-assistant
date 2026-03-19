@@ -80,4 +80,38 @@ final class ConversationAvatarFollowerTests: XCTestCase {
             )
         )
     }
+
+    @MainActor
+    func testViewportChangeRecomputesVisibility() {
+        let tracker = AnchorVisibilityTracker()
+        tracker.lastMinY = 520
+        tracker.isVisible = false
+        var storedViewportHeight: CGFloat = 500
+
+        let changed = tracker.updateViewport(
+            height: 540,
+            storedViewportHeight: &storedViewportHeight
+        )
+
+        XCTAssertTrue(changed)
+        XCTAssertEqual(storedViewportHeight, 540)
+        XCTAssertTrue(tracker.isVisible)
+    }
+
+    @MainActor
+    func testViewportChangeNoOpsWhenHeightIsUnchanged() {
+        let tracker = AnchorVisibilityTracker()
+        tracker.lastMinY = 520
+        tracker.isVisible = false
+        var storedViewportHeight: CGFloat = 540
+
+        let changed = tracker.updateViewport(
+            height: 540,
+            storedViewportHeight: &storedViewportHeight
+        )
+
+        XCTAssertFalse(changed)
+        XCTAssertEqual(storedViewportHeight, 540)
+        XCTAssertFalse(tracker.isVisible)
+    }
 }
