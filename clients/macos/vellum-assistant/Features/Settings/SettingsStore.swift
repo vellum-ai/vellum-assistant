@@ -832,8 +832,14 @@ public final class SettingsStore: ObservableObject {
     func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil, onError: ((String) -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        apiKeySaveError = nil
-        apiKeySaving = true
+        // Only mutate inference-card state when called from the inference path
+        // (onError == nil). When called from the embedding path, these would
+        // briefly flash saving state on the inference card and clear any
+        // existing inference error.
+        if onError == nil {
+            apiKeySaveError = nil
+            apiKeySaving = true
+        }
 
         // Persist locally first
         APIKeyManager.setKey(trimmed, for: provider)
@@ -846,7 +852,9 @@ public final class SettingsStore: ObservableObject {
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
-            apiKeySaving = false
+            if onError == nil {
+                apiKeySaving = false
+            }
             if result.success {
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
