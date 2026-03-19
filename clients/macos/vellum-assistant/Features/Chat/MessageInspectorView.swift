@@ -5,9 +5,10 @@ import VellumAssistantShared
 ///
 /// Shows a skeleton placeholder while fetching, an empty-state message when no
 /// logs are available, and collapsible sections for each LLM call with
-/// pretty-printed JSON and copy-to-clipboard buttons.
+/// side-by-side request and response payloads.
 struct MessageInspectorView: View {
     let messageId: String
+    let onBack: () -> Void
 
     private let llmContextClient: any LLMContextClientProtocol = LLMContextClient()
 
@@ -23,7 +24,7 @@ struct MessageInspectorView: View {
             Divider()
             content
         }
-        .frame(minWidth: 600, idealWidth: 800, minHeight: 400, idealHeight: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
         .task(id: messageId) {
             isLoading = true
@@ -51,14 +52,46 @@ struct MessageInspectorView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
-            Text("LLM Context Inspector")
-                .font(VFont.headline)
+        HStack(alignment: .center, spacing: VSpacing.md) {
+            Button(action: onBack) {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.chevronLeft, size: 12)
+                    Text("Back")
+                        .font(VFont.bodyMedium)
+                }
                 .foregroundColor(VColor.contentDefault)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(VColor.surfaceOverlay)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to conversation")
+
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text("LLM Context Inspector")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.contentDefault)
+
+                Text("Request on the left, response on the right.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+            }
+
             Spacer()
-            Text(messageId.prefix(12) + "...")
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentTertiary)
+
+            VStack(alignment: .trailing, spacing: VSpacing.xxs) {
+                if !isLoading, let logCount = response?.logs.count {
+                    Text(logCount == 1 ? "1 LLM call" : "\(logCount) LLM calls")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+
+                Text(shortMessageId)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.contentTertiary)
+                    .textSelection(.enabled)
+            }
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -84,7 +117,6 @@ struct MessageInspectorView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(0..<3, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 0) {
-                    // Simulated header row
                     HStack(spacing: VSpacing.sm) {
                         VSkeletonBone(width: 10, height: 10, radius: 2)
                         VSkeletonBone(width: 120, height: 14)
@@ -96,13 +128,9 @@ struct MessageInspectorView: View {
                     .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
-                    // Simulated JSON content area
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        VSkeletonBone(height: 12)
-                            .frame(maxWidth: .infinity)
-                        VSkeletonBone(height: 12)
-                            .frame(maxWidth: .infinity * 0.85)
-                        VSkeletonBone(width: 200, height: 12)
+                    HStack(alignment: .top, spacing: VSpacing.lg) {
+                        skeletonColumn
+                        skeletonColumn
                     }
                     .padding(VSpacing.md)
                     .background(VColor.surfaceOverlay.opacity(0.5))
@@ -189,17 +217,21 @@ struct MessageInspectorView: View {
             )
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
+                HStack(alignment: .top, spacing: VSpacing.lg) {
                     jsonSection(
                         title: "Request",
                         formattedText: formattedJSON["\(entry.id)-request"] ?? ""
                     )
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
                     jsonSection(
                         title: "Response",
                         formattedText: formattedJSON["\(entry.id)-response"] ?? ""
                     )
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(VColor.surfaceOverlay.opacity(0.5))
                 .clipShape(
                     UnevenRoundedRectangle(
@@ -216,11 +248,11 @@ struct MessageInspectorView: View {
     // MARK: - JSON Section
 
     private func jsonSection(title: String, formattedText: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
                 Text(title)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentSecondary)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
 
@@ -235,6 +267,7 @@ struct MessageInspectorView: View {
                     .foregroundColor(VColor.contentSecondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Copy \(title)")
             }
 
             ScrollView([.horizontal, .vertical]) {
@@ -243,9 +276,9 @@ struct MessageInspectorView: View {
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
                     .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxHeight: 300)
+            .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
@@ -253,9 +286,41 @@ struct MessageInspectorView: View {
                     .stroke(VColor.borderBase, lineWidth: 1)
             )
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     // MARK: - Helpers
+
+    private var shortMessageId: String {
+        if messageId.count > 12 {
+            return String(messageId.prefix(12)) + "..."
+        }
+        return messageId
+    }
+
+    private var skeletonColumn: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                VSkeletonBone(width: 80, height: 12)
+                Spacer()
+                VSkeletonBone(width: 90, height: 12)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VSkeletonBone(height: 12)
+                    .frame(maxWidth: .infinity)
+                VSkeletonBone(height: 12)
+                    .frame(maxWidth: .infinity)
+                VSkeletonBone(height: 12)
+                    .frame(maxWidth: 220)
+            }
+            .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+            .padding(VSpacing.sm)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
 
     private func prettyPrintJSON(_ value: AnyCodable) -> String {
         guard let rawValue = value.value else { return "null" }

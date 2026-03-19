@@ -606,6 +606,24 @@ struct ActiveChatViewWrapper: View {
     private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
+        chatContent
+            .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+            .overlay {
+                if let messageId = inspectorMessageId {
+                    MessageInspectorView(
+                        messageId: messageId,
+                        onBack: dismissInspector
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(VAnimation.standard, value: inspectorMessageId)
+            .onChange(of: conversationId) { _, _ in
+                inspectorMessageId = nil
+            }
+    }
+
+    private var chatContent: some View {
         ChatView(
             messages: viewModel.messages,
             inputText: Binding(
@@ -678,7 +696,7 @@ struct ActiveChatViewWrapper: View {
             },
             showInspectButton: showInspectButton,
             onInspectMessage: { daemonMessageId in
-                inspectorMessageId = daemonMessageId
+                presentInspector(for: daemonMessageId)
             },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
@@ -747,15 +765,18 @@ struct ActiveChatViewWrapper: View {
                 AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
             }
         )
-        .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-        .sheet(isPresented: Binding(
-            get: { inspectorMessageId != nil },
-            set: { if !$0 { inspectorMessageId = nil } }
-        )) {
-            if let messageId = inspectorMessageId {
-                MessageInspectorView(messageId: messageId)
-                    .frame(minWidth: 600, minHeight: 400)
-            }
+    }
+
+    private func presentInspector(for messageId: String?) {
+        guard let messageId else { return }
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = messageId
+        }
+    }
+
+    private func dismissInspector() {
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = nil
         }
     }
 }
