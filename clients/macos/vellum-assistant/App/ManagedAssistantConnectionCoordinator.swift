@@ -38,9 +38,9 @@ final class ManagedAssistantConnectionCoordinator {
     private let dateProvider: () -> Date
 
     init(
-        bootstrapService: ManagedAssistantBootstrapProviding = ManagedAssistantBootstrapService.shared,
+        bootstrapService: ManagedAssistantBootstrapProviding,
         userDefaults: UserDefaults = .standard,
-        runtimeURLProvider: @escaping () -> String = { AuthService.shared.baseURL },
+        runtimeURLProvider: @escaping () -> String,
         updateAssistantTag: @escaping (String?) -> Void = { assistantId in
             SentryDeviceInfo.updateAssistantTag(assistantId)
         },
@@ -53,6 +53,24 @@ final class ManagedAssistantConnectionCoordinator {
         self.updateAssistantTag = updateAssistantTag
         self.lockfilePath = lockfilePath
         self.dateProvider = dateProvider
+    }
+
+    convenience init(
+        userDefaults: UserDefaults = .standard,
+        updateAssistantTag: @escaping (String?) -> Void = { assistantId in
+            SentryDeviceInfo.updateAssistantTag(assistantId)
+        },
+        lockfilePath: String? = nil,
+        dateProvider: @escaping () -> Date = Date.init
+    ) {
+        self.init(
+            bootstrapService: ManagedAssistantBootstrapService.shared,
+            userDefaults: userDefaults,
+            runtimeURLProvider: { AuthService.shared.baseURL },
+            updateAssistantTag: updateAssistantTag,
+            lockfilePath: lockfilePath,
+            dateProvider: dateProvider
+        )
     }
 
     func activateManagedAssistant() async throws -> ManagedAssistantConnectionResult {
