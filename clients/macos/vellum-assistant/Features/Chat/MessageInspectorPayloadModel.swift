@@ -28,9 +28,7 @@ struct MessageInspectorPayloadModel: Equatable {
 
     init(payload: AnyCodable, preferredViewMode: MessageInspectorPayloadViewMode = .tree) {
         if let string = payload.value as? String {
-            source = string
-            isTreeAvailable = false
-            viewMode = .source
+            self.init(source: string, isTreeAvailable: false, viewMode: .source)
             return
         }
 
@@ -41,9 +39,12 @@ struct MessageInspectorPayloadModel: Equatable {
     }
 
     init(source: String, preferredViewMode: MessageInspectorPayloadViewMode = .tree) {
-        self.source = source
-        isTreeAvailable = Self.canRenderTree(source: source)
-        viewMode = isTreeAvailable ? preferredViewMode : .source
+        let isTreeAvailable = Self.canRenderTree(source: source)
+        self.init(
+            source: source,
+            isTreeAvailable: isTreeAvailable,
+            viewMode: isTreeAvailable ? preferredViewMode : .source
+        )
     }
 
     var availableViewModes: [MessageInspectorPayloadViewMode] {
@@ -56,6 +57,16 @@ struct MessageInspectorPayloadModel: Equatable {
 
     var showsExpandCollapseActions: Bool {
         isTreeAvailable && viewMode == .tree
+    }
+
+    private init(
+        source: String,
+        isTreeAvailable: Bool,
+        viewMode: MessageInspectorPayloadViewMode
+    ) {
+        self.source = source
+        self.isTreeAvailable = isTreeAvailable
+        self.viewMode = viewMode
     }
 
     static func canRenderTree(source: String) -> Bool {
