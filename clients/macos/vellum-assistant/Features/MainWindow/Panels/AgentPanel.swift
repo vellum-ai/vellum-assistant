@@ -464,8 +464,6 @@ struct AgentPanelContent: View {
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
-                VSkillTypePill(source: skill.source)
-
                 if skill.updateAvailable {
                     Text("UPDATE")
                         .font(VFont.small)
@@ -473,6 +471,8 @@ struct AgentPanelContent: View {
                 }
 
                 Spacer()
+
+                VSkillTypePill(source: skill.source)
 
                 if skill.source == "managed" || skill.source == "clawhub" {
                     VButton(
