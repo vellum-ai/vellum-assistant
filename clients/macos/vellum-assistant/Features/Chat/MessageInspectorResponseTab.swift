@@ -259,8 +259,8 @@ struct MessageInspectorResponseTabModel: Equatable {
         guard let records = jsonRecords(from: root) else { return [] }
 
         if let openAiChoices = records["choices"] as? [Any] {
-            return openAiChoices.compactMap { choice in
-                guard let choiceRecord = choice as? [String: Any] else { return nil }
+            return openAiChoices.flatMap { choice -> [String] in
+                guard let choiceRecord = choice as? [String: Any] else { return [] }
                 let message = choiceRecord["message"] as? [String: Any]
                 let toolCalls = message?["tool_calls"] as? [Any]
                 return toolCalls?.compactMap { toolCall in
@@ -275,7 +275,6 @@ struct MessageInspectorResponseTabModel: Equatable {
                     return toolName
                 } ?? []
             }
-            .flatMap { $0 }
         }
 
         if let content = records["content"] as? [Any] {
