@@ -23,7 +23,7 @@ struct OAuthProviderServiceCard: View {
         providerMeta?.display_name ?? "OAuth"
     }
 
-    /// Local draft of the mode selection — only persisted on Save.
+    /// Local draft of the mode selection — auto-persisted on change via onChange.
     @State private var draftMode: String = "your-own"
 
     // MARK: - Create App Sheet State
