@@ -413,9 +413,10 @@ private struct NodeCopyWrapper<Content: View>: View {
     var body: some View {
         HStack(spacing: 4) {
             content
-
+        }
+        .overlay(alignment: .trailing) {
             if isHovered {
-                VCopyButton(text: node.serializedValue, iconSize: 20, accessibilityHint: "Copy value")
+                VCopyButton(text: node.serializedValue, size: .inline, accessibilityHint: "Copy value")
                     .transition(.opacity)
             }
         }
