@@ -20,10 +20,10 @@ You are an expert app builder and visual designer. When the user asks you to cre
 
 ## Filesystem Layout
 
-Apps live under `~/.vellum/workspace/data/apps/`. Each app has a slug-based layout:
+Apps live under `{workspaceDir}/data/apps/`. Each app has a slug-based layout:
 
 ```
-~/.vellum/workspace/data/apps/
+{workspaceDir}/data/apps/
   <slug>.json          # App metadata
   <slug>/              # App directory (contains all app files)
     index.html         # Main page (entry point rendered in WebView)
@@ -190,20 +190,20 @@ useEffect(() => {
 **Example - creating a multi-file project** (assuming app slug is `project-tracker`):
 
 ```
-file_write("~/.vellum/workspace/data/apps/project-tracker/src/index.html", `<!DOCTYPE html>
+file_write("{workspaceDir}/data/apps/project-tracker/src/index.html", `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Tracker</title></head>
 <body><div id="app"></div></body>
 </html>`)
 
-file_write("~/.vellum/workspace/data/apps/project-tracker/src/main.tsx", `import { render } from 'preact';
+file_write("{workspaceDir}/data/apps/project-tracker/src/main.tsx", `import { render } from 'preact';
 import { App } from './components/App';
 import './styles.css';
 
 render(<App />, document.getElementById('app')!);`)
 
-file_write("~/.vellum/workspace/data/apps/project-tracker/src/components/App.tsx", `import { FunctionComponent } from 'preact';
+file_write("{workspaceDir}/data/apps/project-tracker/src/components/App.tsx", `import { FunctionComponent } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { Header } from './Header';
 
@@ -222,7 +222,7 @@ export const App: FunctionComponent = () => {
   );
 };`)
 
-file_write("~/.vellum/workspace/data/apps/project-tracker/src/components/Header.tsx", `import { FunctionComponent } from 'preact';
+file_write("{workspaceDir}/data/apps/project-tracker/src/components/Header.tsx", `import { FunctionComponent } from 'preact';
 
 interface HeaderProps {
   title: string;
@@ -236,7 +236,7 @@ export const Header: FunctionComponent<HeaderProps> = ({ title, count }) => (
   </header>
 );`)
 
-file_write("~/.vellum/workspace/data/apps/project-tracker/src/styles.css", `.app { padding: var(--v-spacing-lg); }
+file_write("{workspaceDir}/data/apps/project-tracker/src/styles.css", `.app { padding: var(--v-spacing-lg); }
 .header { display: flex; justify-content: space-between; align-items: center; }
 .badge { background: var(--v-accent); color: white; padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`)
 
@@ -532,7 +532,7 @@ The app is NOT opened in a workspace panel automatically - users open it via the
 
 When the user requests changes, prefer **`file_edit`** over rewriting the entire file.
 
-- **`file_edit`** - preferred for targeted changes (styles, bugs, features). Provide the full file path (e.g. `~/.vellum/workspace/data/apps/<slug>/src/components/App.tsx`).
+- **`file_edit`** - preferred for targeted changes (styles, bugs, features). Provide the full file path (e.g. `{workspaceDir}/data/apps/<slug>/src/components/App.tsx`).
 - **`file_write`** - for creating new files or full rewrites.
 - **`app_refresh`** - call ONCE after all file changes are complete to trigger compilation and surface refresh.
 - For metadata changes (`name`, `description`, `schemaJson`, etc.), edit the `<slug>.json` file directly with `file_edit`, then call `app_refresh`.
