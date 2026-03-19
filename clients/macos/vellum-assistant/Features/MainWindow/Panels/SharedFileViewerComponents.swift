@@ -200,44 +200,42 @@ struct FileContentView: View {
 ///
 /// SwiftUI's `.pointerCursor()` modifier is overridden by NSTextView's
 /// cursor tracking areas when the overlay sits above a VCodeView. This
-/// NSViewRepresentable registers a `pointingHand` cursor rect at the
-/// AppKit level so it takes priority over the I-beam cursor underneath.
+/// uses Apple's recommended `NSTrackingArea` + `resetCursorRects` +
+/// `invalidateCursorRects(for:)` pattern so the frontmost view's cursor
+/// rect takes priority over the I-beam cursor underneath.
+///
+/// Reference: Apple docs on "Managing Cursor-Update Events" —
+/// `mouseEntered` triggers `invalidateCursorRects(for:)` which causes
+/// the system to call `resetCursorRects`, where we register our
+/// pointing-hand cursor rect via `addCursorRect(_:cursor:)`.
 private struct PointerCursorOverlay: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
+    func makeNSView(context: Context) -> PointerTrackingView {
         PointerTrackingView()
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: PointerTrackingView, context: Context) {}
 }
 
 private class PointerTrackingView: NSView {
-    private var currentTrackingArea: NSTrackingArea?
-
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let existing = currentTrackingArea {
-            removeTrackingArea(existing)
-        }
-        let area = NSTrackingArea(
+        // Remove stale tracking areas before adding a fresh one
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
             rect: bounds,
-            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited],
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
             owner: self,
             userInfo: nil
-        )
-        currentTrackingArea = area
-        addTrackingArea(area)
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        NSCursor.pointingHand.set()
+        ))
     }
 
     override func mouseEntered(with event: NSEvent) {
-        NSCursor.pointingHand.set()
+        window?.invalidateCursorRects(for: self)
     }
 
-    override func mouseExited(with event: NSEvent) {
-        NSCursor.arrow.set()
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(visibleRect, cursor: .pointingHand)
     }
 }
 
