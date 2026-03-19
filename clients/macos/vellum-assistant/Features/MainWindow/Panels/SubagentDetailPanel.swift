@@ -212,6 +212,7 @@ struct SubagentDetailPanel: View {
         switch event.kind {
         case .text:
             MarkdownSegmentView(segments: parseMarkdownSegments(event.content), maxContentWidth: nil)
+                .equatable()
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

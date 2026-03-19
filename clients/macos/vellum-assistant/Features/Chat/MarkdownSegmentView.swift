@@ -6,7 +6,7 @@ import VellumAssistantShared
 /// Reusable view that renders parsed `MarkdownSegment` arrays.
 /// Groups consecutive text-selectable segments (text, headings, lists) into
 /// unified Text views so that text selection can span across paragraphs.
-struct MarkdownSegmentView: View {
+struct MarkdownSegmentView: View, Equatable {
     let segments: [MarkdownSegment]
     var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.contentDefault
@@ -16,6 +16,18 @@ struct MarkdownSegmentView: View {
     var codeTextColor: Color = VColor.systemNegativeStrong
     var codeBackgroundColor: Color = VColor.surfaceActive
     var hrColor: Color = VColor.borderBase
+
+    static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
+        lhs.segments == rhs.segments
+            && lhs.maxContentWidth == rhs.maxContentWidth
+            && lhs.textColor == rhs.textColor
+            && lhs.secondaryTextColor == rhs.secondaryTextColor
+            && lhs.mutedTextColor == rhs.mutedTextColor
+            && lhs.tintColor == rhs.tintColor
+            && lhs.codeTextColor == rhs.codeTextColor
+            && lhs.codeBackgroundColor == rhs.codeBackgroundColor
+            && lhs.hrColor == rhs.hrColor
+    }
 
     var body: some View {
         let groups = groupedSegments
