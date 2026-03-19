@@ -333,19 +333,23 @@ struct GoogleOAuthServiceCard: View {
 
             // Connect button
             HStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: store.yourOwnOAuthConnectingAppId == app.id ? "Connecting..." : "Connect Account",
-                    leftIcon: "lucide-log-in",
-                    style: .outlined,
-                    isDisabled: store.yourOwnOAuthConnectingAppId == app.id
-                ) {
-                    store.startYourOwnOAuthConnect(appId: app.id)
-                }
                 if store.yourOwnOAuthConnectingAppId == app.id {
+                    VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
+                        store.cancelYourOwnOAuthConnect()
+                    }
                     VBusyIndicator(size: 8, color: VColor.contentTertiary)
                     Text("Waiting for authorization...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
+                } else {
+                    VButton(
+                        label: "Connect Account",
+                        leftIcon: "lucide-log-in",
+                        style: .outlined,
+                        isDisabled: store.yourOwnOAuthConnectingAppId != nil
+                    ) {
+                        store.startYourOwnOAuthConnect(appId: app.id)
+                    }
                 }
             }
         }

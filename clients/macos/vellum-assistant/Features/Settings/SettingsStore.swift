@@ -2473,6 +2473,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func cancelYourOwnOAuthConnect() {
+        yourOwnOAuthConnectPollingTask?.cancel()
+        yourOwnOAuthConnectPollingTask = nil
+        yourOwnOAuthConnectingAppId = nil
+    }
+
     func startYourOwnOAuthConnect(appId: String) {
         yourOwnOAuthConnectingAppId = appId
         yourOwnOAuthError = nil
