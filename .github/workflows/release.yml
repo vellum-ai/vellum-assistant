@@ -104,6 +104,9 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
+    # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
+    # keeping the dependency graph simple while ensuring accurate Slack reporting.
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -115,6 +118,12 @@ jobs:
         environment: [dev, production]
     environment: ${{ matrix.environment }}
     steps:
+      - name: Fail if image build failed
+        if: needs.push-assistant-image.result != 'success'
+        run: |
+          echo "::error::push-assistant-image failed with result: ${{ needs.push-assistant-image.result }}"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -383,6 +392,9 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
+    # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
+    # keeping the dependency graph simple while ensuring accurate Slack reporting.
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -394,6 +406,12 @@ jobs:
         environment: [dev, production]
     environment: ${{ matrix.environment }}
     steps:
+      - name: Fail if image build failed
+        if: needs.push-gateway-image.result != 'success'
+        run: |
+          echo "::error::push-gateway-image failed with result: ${{ needs.push-gateway-image.result }}"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -508,6 +526,9 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
+    # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
+    # keeping the dependency graph simple while ensuring accurate Slack reporting.
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -519,6 +540,12 @@ jobs:
         environment: [dev, production]
     environment: ${{ matrix.environment }}
     steps:
+      - name: Fail if image build failed
+        if: needs.push-credential-executor-image.result != 'success'
+        run: |
+          echo "::error::push-credential-executor-image failed with result: ${{ needs.push-credential-executor-image.result }}"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -2040,7 +2067,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-image, push-assistant-manifest, push-gateway-image, push-gateway-manifest, push-credential-executor-image, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2075,8 +2102,6 @@ jobs:
 
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
-          # For docker jobs, combine image + manifest results: if either failed, report failure
-          ci_icon_pair() { if [ "$1" = "success" ] && [ "$2" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ] && [ "$2" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
 
           A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
@@ -2087,9 +2112,9 @@ jobs:
           DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
           I=$(ci_icon "${{ needs.build-ios.result }}")
           RI=$(ci_icon "${{ needs.release-ios.result }}")
-          AI=$(ci_icon_pair "${{ needs.push-assistant-image.result }}" "${{ needs.push-assistant-manifest.result }}")
-          GI=$(ci_icon_pair "${{ needs.push-gateway-image.result }}" "${{ needs.push-gateway-manifest.result }}")
-          CEI=$(ci_icon_pair "${{ needs.push-credential-executor-image.result }}" "${{ needs.push-credential-executor-manifest.result }}")
+          AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
+          GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
+          CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
