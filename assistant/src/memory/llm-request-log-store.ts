@@ -1,7 +1,11 @@
-import { and, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getMessageById, messageMetadataSchema } from "./conversation-crud.js";
+import {
+  getAssistantMessageIdsInTurn,
+  getMessageById,
+  messageMetadataSchema,
+} from "./conversation-crud.js";
 import { getDb } from "./db.js";
 import { llmRequestLogs } from "./schema.js";
 
@@ -68,6 +72,38 @@ export function backfillMessageIdOnLogs(
     .run();
 }
 
+/**
+ * Internal helper: query `llm_request_logs` for rows matching any of the
+ * given message IDs, ordered by `createdAt ASC`. Uses the existing
+ * `idx_llm_request_logs_message_id` index via `inArray`.
+ */
+function selectLogsByMessageIds(messageIds: string[]): Array<{
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  provider: string | null;
+  requestPayload: string;
+  responsePayload: string;
+  createdAt: number;
+}> {
+  if (messageIds.length === 0) return [];
+  const db = getDb();
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+    })
+    .from(llmRequestLogs)
+    .where(inArray(llmRequestLogs.messageId, messageIds))
+    .orderBy(llmRequestLogs.createdAt)
+    .all();
+}
+
 export function getRequestLogsByMessageId(messageId: string): Array<{
   id: string;
   conversationId: string;
@@ -77,31 +113,19 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
   responsePayload: string;
   createdAt: number;
 }> {
-  const db = getDb();
-  const selectLogs = (targetMessageId: string) =>
-    db
-      .select({
-        id: llmRequestLogs.id,
-        conversationId: llmRequestLogs.conversationId,
-        messageId: llmRequestLogs.messageId,
-        provider: llmRequestLogs.provider,
-        requestPayload: llmRequestLogs.requestPayload,
-        responsePayload: llmRequestLogs.responsePayload,
-        createdAt: llmRequestLogs.createdAt,
-      })
-      .from(llmRequestLogs)
-      .where(eq(llmRequestLogs.messageId, targetMessageId))
-      .orderBy(llmRequestLogs.createdAt)
-      .all();
-
-  const exactLogs = selectLogs(messageId);
-  if (exactLogs.length > 0) {
-    return exactLogs;
+  // Resolve all assistant message IDs in the same turn so the inspector
+  // shows every LLM call from the entire agent turn, not just the queried message.
+  const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
+  const turnLogs = selectLogsByMessageIds(turnMessageIds);
+  if (turnLogs.length > 0) {
+    return turnLogs;
   }
 
+  // Fork-source fallback: if no logs found for the turn, check whether
+  // the queried message was forked from a source and resolve that source's turn.
   const message = getMessageById(messageId);
   if (!message?.metadata) {
-    return exactLogs;
+    return [];
   }
 
   try {
@@ -113,10 +137,11 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
         ? parsed.data.forkSourceMessageId
         : null;
     if (!sourceMessageId || sourceMessageId === messageId) {
-      return exactLogs;
+      return [];
     }
-    return selectLogs(sourceMessageId);
+    const sourceTurnIds = getAssistantMessageIdsInTurn(sourceMessageId);
+    return selectLogsByMessageIds(sourceTurnIds);
   } catch {
-    return exactLogs;
+    return [];
   }
 }
