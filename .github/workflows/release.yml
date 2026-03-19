@@ -188,12 +188,12 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          GCP_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          SOURCES=$(printf "${GCP_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -463,12 +463,12 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          GCP_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          SOURCES=$(printf "${GCP_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
@@ -598,12 +598,12 @@ jobs:
         continue-on-error: true
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          GCP_IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
           done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
-          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          SOURCES=$(printf "${GCP_IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
