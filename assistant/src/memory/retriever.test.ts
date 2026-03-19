@@ -1141,6 +1141,22 @@ describe("Memory Retriever Pipeline", () => {
         now - 110_000,
       );
 
+      // Simulate Qdrant returning the parent-conversation segment as a
+      // semantic hit so it enters the candidate map (recency search is scoped
+      // to forkConv and would never find it).
+      mockQdrantResults.push({
+        id: "qdrant-fork-1",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-parent-1",
+          text: "discuss fork patterns detail",
+          created_at: now - 110_000,
+          message_id: "parent-msg-1",
+          conversation_id: parentConv,
+        },
+      });
+
       const result = await buildMemoryRecall(
         "fork patterns",
         forkConv,
@@ -1148,9 +1164,10 @@ describe("Memory Retriever Pipeline", () => {
       );
 
       expect(result.enabled).toBe(true);
-      // Recency finds segments from this conversation, but the parent-sourced
-      // segment (via forkSourceMessageId) and the fork's own segments should
-      // all be filtered as in-context.
+      // The segment entered the candidate map via semantic search…
+      expect(result.semanticHits).toBeGreaterThanOrEqual(1);
+      // …but the fork-source filtering removed it because parent-msg-1 is
+      // in the in-context set (via forkSourceMessageId on fork-msg-1).
       expect(result.mergedCount).toBe(0);
     });
 
@@ -1324,6 +1341,22 @@ describe("Memory Retriever Pipeline", () => {
         now - 290_000,
       );
 
+      // Simulate Qdrant returning the grandparent segment as a semantic hit
+      // so it enters the candidate map (recency search is scoped to childConv
+      // and would never find it).
+      mockQdrantResults.push({
+        id: "qdrant-gp-1",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-gp",
+          text: "grandparent topic detail",
+          created_at: now - 290_000,
+          message_id: "gp-msg-1",
+          conversation_id: grandparentConv,
+        },
+      });
+
       const result = await buildMemoryRecall(
         "grandparent topic",
         childConv,
@@ -1331,8 +1364,10 @@ describe("Memory Retriever Pipeline", () => {
       );
 
       expect(result.enabled).toBe(true);
-      // The segment from the grandparent message should be filtered because
-      // the child's fork message metadata traces back to gp-msg-1.
+      // The segment entered the candidate map via semantic search…
+      expect(result.semanticHits).toBeGreaterThanOrEqual(1);
+      // …but the fork-source filtering removed it because gp-msg-1 is in the
+      // in-context set (via forkSourceMessageId on child-multi-msg-1).
       expect(result.mergedCount).toBe(0);
     });
 
