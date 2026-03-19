@@ -851,7 +851,6 @@ jobs:
   # This is the primary/default build.
   build-macos-arm64:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1188,7 +1187,6 @@ jobs:
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1812,7 +1810,6 @@ jobs:
 
   build-ios:
     needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'release/v') }}
     runs-on: macos-15
     timeout-minutes: 15
     steps:
