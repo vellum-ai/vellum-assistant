@@ -45,6 +45,7 @@ enum APIKeyManager {
         "fireworks",
         "gemini",
         "openai",
+        "openrouter",
         "perplexity",
     ]
 
