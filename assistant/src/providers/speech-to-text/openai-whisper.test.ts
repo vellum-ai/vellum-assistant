@@ -1,4 +1,18 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Module mocks (must precede dynamic imports)
+// ---------------------------------------------------------------------------
+
+let mockOpenAIKey: string | undefined;
+
+mock.module("../../security/secure-keys.js", () => ({
+  getProviderKeyAsync: async (provider: string) =>
+    provider === "openai" ? mockOpenAIKey : undefined,
+}));
+
+// Dynamic import so the mock is in effect when resolve.ts loads.
+const { resolveSpeechToTextProvider } = await import("./resolve.js");
 
 import { OpenAIWhisperProvider } from "./openai-whisper.js";
 
@@ -150,5 +164,27 @@ describe("OpenAIWhisperProvider", () => {
       const bodyPart = msg.replace("Whisper API error (500): ", "");
       expect(bodyPart.length).toBeLessThanOrEqual(300);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSpeechToTextProvider
+// ---------------------------------------------------------------------------
+
+describe("resolveSpeechToTextProvider", () => {
+  beforeEach(() => {
+    mockOpenAIKey = undefined;
+  });
+
+  test("returns null when no OpenAI key is configured", async () => {
+    mockOpenAIKey = undefined;
+    const provider = await resolveSpeechToTextProvider();
+    expect(provider).toBeNull();
+  });
+
+  test("returns an OpenAIWhisperProvider when key exists", async () => {
+    mockOpenAIKey = "sk-real-key";
+    const provider = await resolveSpeechToTextProvider();
+    expect(provider).toBeInstanceOf(OpenAIWhisperProvider);
   });
 });
