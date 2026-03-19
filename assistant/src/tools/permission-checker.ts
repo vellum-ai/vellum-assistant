@@ -142,10 +142,17 @@ export class PermissionChecker {
         // is the owner - prompting makes no sense when there is no client.
         // Exception: requireFreshApproval tools cannot be auto-approved -
         // without a human present, bundle installation must be denied.
+        // Exception: inline-command skill loads (skill_load_dynamic:*) must
+        // never be silently auto-approved — they execute embedded commands
+        // and require explicit human review or a pinned trust rule.
+        const isDynamicSkillLoad =
+          result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
+          true;
         if (
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
-          !context.requireFreshApproval
+          !context.requireFreshApproval &&
+          !isDynamicSkillLoad
         ) {
           log.info(
             { toolName: name, riskLevel },

@@ -36,9 +36,7 @@ enum APIKeyManager {
     }()
 
     /// Provider identifiers whose API keys are synced to the daemon as
-    /// `type: "api_key"`. ElevenLabs is excluded because the daemon expects
-    /// it as `type: "credential"` with name `"elevenlabs:api_key"` — the
-    /// sync loops in AppDelegate and SettingsStore handle it separately.
+    /// `type: "api_key"`.
     static let allSyncableProviders = [
         "anthropic",
         "brave",
@@ -54,8 +52,6 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
-        // ElevenLabs is not in allSyncableProviders (different sync type)
-        // but still counts as a configured key.
         if getKey(for: "elevenlabs") != nil { return true }
         return false
     }
@@ -67,11 +63,10 @@ enum APIKeyManager {
     /// Safe to call multiple times — skips providers that already have a
     /// value in credential storage.
     static func migrateFromUserDefaults() {
-        // Migrate api_key-type providers
         for provider in allSyncableProviders {
             migrateProviderFromUserDefaults(provider)
         }
-        // ElevenLabs uses a different sync type but still needs migration
+        // ElevenLabs is stored locally only (not synced to daemon)
         migrateProviderFromUserDefaults("elevenlabs")
     }
 

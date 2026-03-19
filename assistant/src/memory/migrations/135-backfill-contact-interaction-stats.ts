@@ -1,4 +1,4 @@
-import type { DrizzleDb } from "../db-connection.js";
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -7,6 +7,14 @@ import { withCrashRecovery } from "./validate-migration-state.js";
  * existing data, so it stays at 0 and accumulates going forward.
  */
 export function migrateBackfillContactInteractionStats(db: DrizzleDb): void {
+  const raw = getSqliteFrom(db);
+  const colExists = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'last_interaction'`,
+    )
+    .get();
+  if (!colExists) return;
+
   withCrashRecovery(db, "backfill_contact_interaction_stats", () => {
     db.run(/*sql*/ `
       UPDATE contacts

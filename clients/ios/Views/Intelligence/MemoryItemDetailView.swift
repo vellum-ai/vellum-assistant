@@ -177,6 +177,24 @@ struct MemoryItemDetailView: View {
 
                 detailRow(label: "Status", value: liveItem.status.capitalized)
                 detailRow(label: "Verification", value: formatVerificationState(liveItem.verificationState))
+
+                if let scopeLabel = liveItem.scopeLabel {
+                    HStack {
+                        Text("Scope")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                        Spacer()
+                        HStack(spacing: VSpacing.xxs) {
+                            VIconView(.lock, size: 12)
+                                .foregroundColor(VColor.contentSecondary)
+                            Text(scopeLabel)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Scope: \(scopeLabel)")
+                }
             }
         }
     }

@@ -315,6 +315,13 @@ mock.module("../agent/message-types.js", () => ({
   }),
 }));
 
+mock.module("../memory/archive-store.js", () => ({
+  insertCompactionEpisode: () => ({
+    episodeId: "mock-episode-id",
+    jobId: "mock-job-id",
+  }),
+}));
+
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: () => {},

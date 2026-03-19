@@ -150,7 +150,7 @@ struct DebugPanel: View {
                             : memoryDegraded ? "Degraded"
                             : "Healthy",
                         color: !memory.enabled ? VColor.contentTertiary
-                            : memoryDegraded ? VColor.systemNegativeHover
+                            : memoryDegraded ? VColor.systemMidStrong
                             : VColor.systemPositiveStrong
                     )
                     if let provider = memory.provider {
@@ -165,7 +165,7 @@ struct DebugPanel: View {
                             icon: "exclamationmark.triangle",
                             label: "Degradation Reason",
                             value: reason,
-                            color: VColor.systemNegativeHover
+                            color: VColor.systemMidStrong
                         )
                     }
                 }

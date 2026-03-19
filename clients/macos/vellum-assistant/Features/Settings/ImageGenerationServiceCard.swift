@@ -46,18 +46,14 @@ struct ImageGenerationServiceCard: View {
             title: "Image Generation",
             subtitle: "Configure which provider and model to use for AI image generation",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: false,
-            onSave: { save() },
-            onReset: {
-                store.clearImageGenKey()
-                apiKeyText = ""
-            },
-            showReset: draftMode == "your-own" && isConnected,
-            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 if isLoggedIn {
-                    modelPicker
+                    PickerWithInlineSave(
+                        hasChanges: hasChanges,
+                        onSave: { save() }
+                    ) {
+                        modelPicker
+                    }
                 } else {
                     managedLoginPrompt
                 }
@@ -83,6 +79,17 @@ struct ImageGenerationServiceCard: View {
 
                     // Model picker
                     modelPicker
+
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        onSave: { save() },
+                        onReset: {
+                            store.clearImageGenKey()
+                            apiKeyText = ""
+                        },
+                        showReset: isConnected
+                    )
                 }
             }
         )

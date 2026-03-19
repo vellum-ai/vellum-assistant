@@ -513,14 +513,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testMarkingSeenConnectedConversationUnreadUpdatesLocalStateAndEmitsSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationUnreadSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationUnreadSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-4",
             "title": "Seen conversation",
@@ -548,15 +543,15 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         XCTAssertTrue(updatedConversation.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(sentSignals.count, 1)
-        XCTAssertEqual(sentSignals[0].conversationId, "connected-session-4")
-        XCTAssertEqual(sentSignals[0].sourceChannel, "vellum")
-        XCTAssertEqual(sentSignals[0].signalType, "ios_conversation_opened")
-        XCTAssertEqual(sentSignals[0].confidence, "explicit")
-        XCTAssertEqual(sentSignals[0].source, "ui-navigation")
-        XCTAssertEqual(sentSignals[0].evidenceText, "User selected Mark as unread")
+        XCTAssertEqual(mockUnreadClient.sentSignals.count, 1)
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].conversationId, "connected-session-4")
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].sourceChannel, "vellum")
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].signalType, "ios_conversation_opened")
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].confidence, "explicit")
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].source, "ui-navigation")
+        XCTAssertEqual(mockUnreadClient.sentSignals[0].evidenceText, "User selected Mark as unread")
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-4" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -567,14 +562,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testMarkingAlreadyUnreadConnectedConversationUnreadDoesNothing() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationUnreadSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationUnreadSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-5",
             "title": "Unread conversation",
@@ -595,19 +585,16 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
         store.markConversationUnread(storedConversation)
 
-        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(mockUnreadClient.sentSignals.isEmpty)
         XCTAssertTrue(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? false)
     }
 
     func testMarkingSeenConnectedConversationUnreadRollsBackWhenSendFails() {
         let daemonClient = DaemonClient()
-        daemonClient.sendOverride = { _ in
-            throw NSError(domain: "ConversationLifecycleIOSTests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "offline"
-            ])
-        }
+        let mockUnreadClient = MockConversationUnreadClient()
+        mockUnreadClient.shouldThrow = true
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-unread-failure",
             "title": "Seen conversation",
@@ -640,14 +627,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testMarkingConversationWithoutAssistantReplyUnreadDoesNothing() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationUnreadSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationUnreadSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-6",
             "title": "No assistant reply yet",
@@ -666,20 +648,15 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
         store.markConversationUnread(storedConversation)
 
-        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(mockUnreadClient.sentSignals.isEmpty)
         XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
     func testMarkingConversationWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationUnreadSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationUnreadSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-live-assistant",
             "title": "Live assistant reply",
@@ -717,9 +694,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(updatedConversation.hasUnseenLatestAssistantMessage)
         XCTAssertNil(updatedConversation.lastSeenAssistantMessageAt)
         XCTAssertNotNil(updatedConversation.latestAssistantMessageAt)
-        XCTAssertEqual(sentSignals.count, 1)
+        XCTAssertEqual(mockUnreadClient.sentSignals.count, 1)
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, conversationUnreadClient: mockUnreadClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -980,4 +957,19 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
     #endif
+}
+
+@MainActor
+private final class MockConversationUnreadClient: ConversationUnreadClientProtocol {
+    var shouldThrow = false
+    private(set) var sentSignals: [ConversationUnreadSignal] = []
+
+    func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
+        sentSignals.append(signal)
+        if shouldThrow {
+            throw NSError(domain: "MockConversationUnreadClient", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "simulated failure"
+            ])
+        }
+    }
 }

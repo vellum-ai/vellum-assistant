@@ -1,6 +1,7 @@
 /**
  * Route handlers for conversation management operations.
  *
+ * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
@@ -19,7 +20,9 @@ import {
   PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
+import { updateConversationTitle } from "../../memory/conversation-crud.js";
 import {
+  getOrCreateConversation,
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
@@ -66,6 +69,44 @@ export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
+    {
+      endpoint: "conversations",
+      method: "POST",
+      policyKey: "conversations",
+      handler: async ({ req }) => {
+        let body: { conversationKey?: string; conversationType?: string } = {};
+        try {
+          body = (await req.json()) as typeof body;
+        } catch {
+          // Empty or malformed body — fall through with defaults.
+        }
+        const conversationKey = body.conversationKey ?? crypto.randomUUID();
+        const requestedType =
+          body.conversationType === "private" ? "private" : "standard";
+        const result = getOrCreateConversation(conversationKey, {
+          conversationType: requestedType,
+        });
+        if (result.created) {
+          updateConversationTitle(result.conversationId, "New Conversation");
+        }
+        log.info(
+          {
+            conversationId: result.conversationId,
+            conversationKey,
+            created: result.created,
+          },
+          "Created conversation via POST",
+        );
+        return Response.json(
+          {
+            id: result.conversationId,
+            conversationKey,
+            conversationType: result.conversationType,
+          },
+          { status: result.created ? 201 : 200 },
+        );
+      },
+    },
     {
       endpoint: "conversations/fork",
       method: "POST",
@@ -185,8 +226,17 @@ export function conversationManagementRouteDefinitions(
     {
       endpoint: "conversations",
       method: "DELETE",
-      policyKey: "conversations",
-      handler: () => {
+      policyKey: "conversations/clear-all",
+      handler: ({ req }) => {
+        const confirm = req.headers.get("x-confirm-destructive");
+        if (confirm !== "clear-all-conversations") {
+          return httpError(
+            "BAD_REQUEST",
+            "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
+              "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
+            400,
+          );
+        }
         deps.clearAllConversations();
         return new Response(null, { status: 204 });
       },
@@ -223,6 +273,24 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "summary",
             targetId: summaryId,
+          });
+        }
+        for (const obsId of result.deletedObservationIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "observation",
+            targetId: obsId,
+          });
+        }
+        for (const chunkId of result.deletedChunkIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "chunk",
+            targetId: chunkId,
+          });
+        }
+        for (const episodeId of result.deletedEpisodeIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "episode",
+            targetId: episodeId,
           });
         }
         log.info(
@@ -273,6 +341,30 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "item",
             targetId: itemId,
+          });
+        }
+        for (const summaryId of deleted.deletedSummaryIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "summary",
+            targetId: summaryId,
+          });
+        }
+        for (const obsId of deleted.deletedObservationIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "observation",
+            targetId: obsId,
+          });
+        }
+        for (const chunkId of deleted.deletedChunkIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "chunk",
+            targetId: chunkId,
+          });
+        }
+        for (const episodeId of deleted.deletedEpisodeIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "episode",
+            targetId: episodeId,
           });
         }
         log.info({ conversationId: resolvedId }, "Deleted conversation");

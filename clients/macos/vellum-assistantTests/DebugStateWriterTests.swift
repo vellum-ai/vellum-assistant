@@ -490,4 +490,129 @@ struct DebugStateWriterTests {
         #expect(writer.fileURL.lastPathComponent == "debug-state.json")
         #expect(FileManager.default.fileExists(atPath: tempDir.path))
     }
+
+    // MARK: - Non-Finite Geometry Regression
+
+    /// Regression test: when transcript diagnostics contain sanitized non-finite
+    /// geometry (anchorMinY, tailAnchorY, scrollViewportHeight, containerWidth
+    /// replaced with nil via NumericSanitizer), `debug-state.json` must still
+    /// serialize successfully. Before the sanitizer was adopted, raw .infinity /
+    /// .nan values caused NSCocoaErrorDomain Code=4866 during JSON encoding.
+    @Test @MainActor
+    func debugStateSerializesWithNonFiniteGeometry() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("debug-state-nonfinite-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = ChatDiagnosticsStore()
+        let conversationId = UUID().uuidString
+
+        // Simulate what MessageListView produces when geometry is non-finite:
+        // NumericSanitizer replaces inf/NaN with nil and records the field names.
+        var sanitizer = NumericSanitizer()
+        let safeAnchorMinY = sanitizer.sanitize(Double.infinity, field: "anchorMinY")
+        let safeTailAnchorY = sanitizer.sanitize(Double.nan, field: "tailAnchorY")
+        let safeViewportHeight = sanitizer.sanitize(-Double.infinity, field: "scrollViewportHeight")
+        let safeContainerWidth = sanitizer.sanitize(Double(600), field: "containerWidth")
+
+        // Verify the sanitizer correctly replaced non-finite values.
+        #expect(safeAnchorMinY == nil)
+        #expect(safeTailAnchorY == nil)
+        #expect(safeViewportHeight == nil)
+        #expect(safeContainerWidth == 600.0)
+        #expect(sanitizer.nonFiniteFields == ["anchorMinY", "tailAnchorY", "scrollViewportHeight"])
+
+        store.updateSnapshot(ChatTranscriptSnapshot(
+            conversationId: conversationId,
+            capturedAt: Date(),
+            messageCount: 20,
+            toolCallCount: 5,
+            isPinnedToBottom: true,
+            isUserScrolling: false,
+            scrollOffsetY: safeAnchorMinY,
+            contentHeight: nil,
+            viewportHeight: safeViewportHeight,
+            isNearBottom: true,
+            hasReceivedScrollEvent: true,
+            isPaginationInFlight: false,
+            anchorMinY: safeAnchorMinY,
+            tailAnchorY: safeTailAnchorY,
+            scrollViewportHeight: safeViewportHeight,
+            containerWidth: safeContainerWidth,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        ))
+
+        let transcriptSnapshot = store.snapshot(for: conversationId)!
+        let diagnostics = DebugSnapshot.TranscriptDiagnostics(from: transcriptSnapshot)
+
+        let snapshot = DebugSnapshot(
+            timestamp: Date(),
+            appVersion: "test",
+            daemon: DebugSnapshot.DaemonState(
+                isConnected: true,
+                isConnecting: false,
+                daemonVersion: "1.0.0",
+                transport: "http"
+            ),
+            conversations: DebugSnapshot.ConversationsState(
+                activeConversationId: conversationId,
+                count: 1,
+                conversations: []
+            ),
+            activeChat: DebugSnapshot.ActiveChatState(
+                conversationId: conversationId,
+                isThinking: false,
+                isSending: false,
+                isBootstrapping: false,
+                errorText: nil,
+                conversationErrorCategory: nil,
+                conversationErrorDebugDetails: nil,
+                selectedModel: "test-model",
+                messageCount: 20,
+                pendingQueuedCount: 0,
+                pendingAttachmentCount: 0,
+                isRecording: false,
+                activeSubagentCount: 0,
+                transcriptDiagnostics: diagnostics
+            ),
+            computerUse: DebugSnapshot.ComputerUseState(
+                isActive: false,
+                isStarting: false
+            )
+        )
+
+        // This must not throw — before the sanitizer, .infinity / .nan caused
+        // NSCocoaErrorDomain Code=4866 here.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(snapshot)
+        let fileURL = tempDir.appendingPathComponent("debug-state.json")
+        try data.write(to: fileURL, options: .atomic)
+
+        // Verify the file is valid JSON and round-trips.
+        let readData = try Data(contentsOf: fileURL)
+        let json = try JSONSerialization.jsonObject(with: readData) as! [String: Any]
+        let activeChat = json["activeChat"] as! [String: Any]
+        let td = activeChat["transcriptDiagnostics"] as! [String: Any]
+
+        // Sanitized fields should be null in the output.
+        #expect(td["anchorMinY"] is NSNull || td["anchorMinY"] == nil)
+        #expect(td["tailAnchorY"] is NSNull || td["tailAnchorY"] == nil)
+        #expect(td["scrollViewportHeight"] is NSNull || td["scrollViewportHeight"] == nil)
+        // Finite field should be preserved.
+        #expect(td["containerWidth"] as? Double == 600.0)
+        // nonFiniteFields should list the dropped fields.
+        let droppedFields = td["nonFiniteFields"] as? [String]
+        #expect(droppedFields == ["anchorMinY", "tailAnchorY", "scrollViewportHeight"])
+
+        // Full round-trip decode must succeed.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(DebugSnapshot.self, from: readData)
+        #expect(decoded.activeChat?.transcriptDiagnostics?.anchorMinY == nil)
+        #expect(decoded.activeChat?.transcriptDiagnostics?.containerWidth == 600.0)
+        #expect(decoded.activeChat?.transcriptDiagnostics?.nonFiniteFields == ["anchorMinY", "tailAnchorY", "scrollViewportHeight"])
+    }
 }

@@ -11,7 +11,7 @@ import { getExternalAssistantId } from "../../runtime/auth/external-assistant-id
 import type { WorkspaceMigration } from "./types.js";
 
 export const backfillInstallationIdMigration: WorkspaceMigration = {
-  id: "002-backfill-installation-id",
+  id: "011-backfill-installation-id",
   description:
     "Backfill installationId into lockfile from SQLite checkpoint and clean up stale row",
   run(_workspaceDir: string): void {

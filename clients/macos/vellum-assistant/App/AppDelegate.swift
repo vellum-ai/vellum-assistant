@@ -12,6 +12,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// The canonical product name shown in menus and the About panel.
+    /// Use this instead of hardcoding "Vellum" so the name is defined
+    /// in one place.
+    public static let appName = "Vellum"
+
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
     /// the delegate.  Use `AppDelegate.shared` instead.
@@ -150,6 +155,94 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var localBootstrapDidComplete = false
 
     @AppStorage("themePreference") private var themePreference: String = "system"
+
+    // MARK: - App Menu Name Patching
+
+    /// The bundle display name from Info.plist (may be a custom dock label).
+    private lazy var bundleDisplayName: String = {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? Self.appName
+    }()
+
+    /// Delegate that patches the app menu items to "Vellum" right before
+    /// macOS renders them.
+    private var appMenuPatchDelegate: AppMenuPatchDelegate?
+    private var appMenuTrackingObserver: NSObjectProtocol?
+    private var appMenuActivationObserver: NSObjectProtocol?
+
+    public func applicationWillFinishLaunching(_ notification: Notification) {
+        // Ensure the macOS app menu consistently says "Vellum" (Hide Vellum,
+        // Quit Vellum, etc.) regardless of the executable name — which may
+        // differ between production builds (renamed to "Vellum" by build.sh)
+        // and development builds (SPM target name).  The bundle display name
+        // may be a custom dock label (e.g. an assistant name), so we patch
+        // both the process name and the main menu items.
+        ProcessInfo.processInfo.processName = Self.appName
+    }
+
+    /// Installs observers that patch the app menu bar title and items to
+    /// "Vellum".  The menu bar title is patched via didBeginTracking (fires
+    /// when the user clicks the menu bar, before rendering) and the submenu
+    /// items are patched via a delegate.
+    func patchAppMenuTitles() {
+        guard bundleDisplayName != Self.appName else { return }
+
+        if appMenuPatchDelegate == nil {
+            appMenuPatchDelegate = AppMenuPatchDelegate(
+                bundleDisplayName: bundleDisplayName
+            )
+        }
+
+        // Patch submenu items via delegate.
+        if let appMenu = NSApp.mainMenu?.items.first?.submenu {
+            appMenu.delegate = appMenuPatchDelegate
+            appMenuPatchDelegate?.patchTitles(menu: appMenu)
+        }
+
+        // Capture outside @Sendable closures to avoid main-actor isolation warning.
+        let appName = AppDelegate.appName
+
+        // Patch the menu bar title right when the user clicks the menu bar.
+        if appMenuTrackingObserver == nil {
+            appMenuTrackingObserver = NotificationCenter.default.addObserver(
+                forName: NSMenu.didBeginTrackingNotification,
+                object: NSApp.mainMenu,
+                queue: .main
+            ) { _ in
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
+                }
+            }
+        }
+
+        // Patch when the app becomes active (reopen from Dock, Cmd+Tab, etc.)
+        // so the title is correct before the user clicks the menu.
+        if appMenuActivationObserver == nil {
+            appMenuActivationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
+                }
+            }
+        }
+
+        // Apply immediately, and again after a short delay to catch SwiftUI
+        // resetting the title after applicationDidFinishLaunching returns.
+        applyMenuBarTitlePatch()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyMenuBarTitlePatch()
+        }
+    }
+
+    private func applyMenuBarTitlePatch() {
+        if let item = NSApp.mainMenu?.items.first, item.title != Self.appName {
+            item.title = Self.appName
+        }
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // ── Single-instance guard ──────────────────────────────────────
@@ -291,6 +384,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
+        patchAppMenuTitles()
         setupHotKey()
 
         // Install CLI symlinks early so they are available before the daemon
@@ -364,6 +458,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         AvatarAppearanceManager.shared.reloadAvatar()
         setupMenuBar()
         setupFileMenu()
+        patchAppMenuTitles()
         registerNavigationMonitor()
         registerZoomMonitor()
         setupHotKey()
@@ -468,6 +563,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = avatarChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appMenuTrackingObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()

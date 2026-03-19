@@ -1745,6 +1745,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
+    private let conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient()
+
     private func emitConversationUnreadSignal(conversationId: String) async throws {
         let signal = ConversationUnreadSignal(
             conversationId: conversationId,
@@ -1754,7 +1756,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             source: "ui-navigation",
             evidenceText: "User selected Mark as unread"
         )
-        try await daemonClient.sendConversationUnread(signal)
+        try await conversationUnreadClient.sendConversationUnread(signal)
     }
 
     private func rollbackUnreadMutationIfNeeded(

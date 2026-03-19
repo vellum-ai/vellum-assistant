@@ -75,7 +75,7 @@ struct TraceRowView: View {
         case "error":
             return VColor.systemNegativeStrong
         case "warning":
-            return VColor.systemNegativeHover
+            return VColor.systemMidStrong
         case "success":
             return VColor.systemPositiveStrong
         default:

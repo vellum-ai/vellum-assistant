@@ -78,20 +78,26 @@ struct ComposerFocusBridge: NSViewRepresentable {
         }
         window.composerContainerView = container
 
-        // Prevent the internal NSTextView from intercepting file drops.
-        // SwiftUI's TextField wraps an NSTextView that registers for file URL
-        // drag types by default, causing it to insert file paths as text.
-        // Re-register with only text types so file drops fall through to the
-        // SwiftUI .onDrop handler on the parent ScrollView.
-        Self.unregisterFileDragTypes(in: container)
+        // Strip file drag types from the internal NSTextView so it doesn't
+        // intercept file drops (which would insert the file path as text).
+        // AppKit's NSTextView can re-register its default drag types after
+        // layout passes, so we use a RunLoop observer in the coordinator to
+        // continuously re-apply the restriction.
+        Self.unregisterDragTypes(in: container)
+        context.coordinator.startDragTypeGuard(container: container)
     }
 
-    private static func unregisterFileDragTypes(in view: NSView) {
+    private static func unregisterDragTypes(in view: NSView) {
         if view is NSTextView {
-            view.registerForDraggedTypes([.string, .rtf, .rtfd])
+            // Completely remove all drag types so the NSTextView never
+            // intercepts drops. Finder file drags include the path as
+            // .string, so even text-only registration would accept them.
+            // Text can still be pasted via Cmd+V; only text drag-and-drop
+            // from other apps is lost (very rare use case).
+            view.unregisterDraggedTypes()
         }
         for subview in view.subviews {
-            unregisterFileDragTypes(in: subview)
+            unregisterDragTypes(in: subview)
         }
     }
 
@@ -105,9 +111,48 @@ struct ComposerFocusBridge: NSViewRepresentable {
     final class Coordinator {
         var parent: ComposerFocusBridge
         var eventMonitor: Any?
+        private var dragTypeGuardObserver: CFRunLoopObserver?
+        private weak var guardedContainer: NSView?
 
         init(parent: ComposerFocusBridge) {
             self.parent = parent
+        }
+
+        /// Install a RunLoop observer that re-strips file drag types from the
+        /// NSTextView after every layout/display pass. AppKit's text system can
+        /// re-register default drag types internally (e.g. when the view
+        /// reconfigures after a SwiftUI state change), so a one-shot deferred
+        /// call isn't reliable.
+        func startDragTypeGuard(container: NSView) {
+            // Avoid duplicate observers for the same container.
+            if guardedContainer === container, dragTypeGuardObserver != nil { return }
+            stopDragTypeGuard()
+            guardedContainer = container
+
+            let observer = CFRunLoopObserverCreateWithHandler(
+                kCFAllocatorDefault,
+                CFRunLoopActivity.beforeWaiting.rawValue,
+                true,  // repeats
+                0      // order
+            ) { [weak self, weak container] _, _ in
+                guard let container else {
+                    self?.stopDragTypeGuard()
+                    return
+                }
+                ComposerFocusBridge.unregisterDragTypes(in: container)
+            }
+            if let observer {
+                CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+                dragTypeGuardObserver = observer
+            }
+        }
+
+        func stopDragTypeGuard() {
+            if let observer = dragTypeGuardObserver {
+                CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+                dragTypeGuardObserver = nil
+            }
+            guardedContainer = nil
         }
 
         func setupEventMonitor() {
@@ -169,6 +214,7 @@ struct ComposerFocusBridge: NSViewRepresentable {
                 NSEvent.removeMonitor(monitor)
                 eventMonitor = nil
             }
+            stopDragTypeGuard()
         }
 
         static func pasteboardHasImageContent() -> Bool {

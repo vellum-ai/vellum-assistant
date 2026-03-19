@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import VellumAssistantLib
@@ -321,6 +322,259 @@ struct ChatDiagnosticsStoreTests {
         #expect(recent.count == 5)
         #expect(recent.first?.id == "event-15")
         #expect(recent.last?.id == "event-19")
+    }
+
+    // MARK: - Non-Finite Numeric Sanitization
+
+    @Test @MainActor
+    func eventWithNonFiniteFieldsEncodesSuccessfully() throws {
+        // Build an event using the sanitizer to handle non-finite values.
+        var sanitizer = NumericSanitizer()
+        let scrollY = sanitizer.sanitize(Double.nan, field: "scrollOffsetY")
+        let content = sanitizer.sanitize(Double.infinity, field: "contentHeight")
+        let viewport = sanitizer.sanitize(-Double.infinity, field: "viewportHeight")
+
+        let event = ChatDiagnosticEvent(
+            kind: .scrollPositionChanged,
+            conversationId: "conv-nan",
+            scrollOffsetY: scrollY,
+            contentHeight: content,
+            viewportHeight: viewport,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Non-finite values should have been sanitized to nil.
+        let scrollVal = json["scrollOffsetY"]
+        #expect(scrollVal == nil || scrollVal is NSNull,
+                "scrollOffsetY should be absent or null when NaN")
+        let contentVal = json["contentHeight"]
+        #expect(contentVal == nil || contentVal is NSNull,
+                "contentHeight should be absent or null when infinity")
+        let viewportVal = json["viewportHeight"]
+        #expect(viewportVal == nil || viewportVal is NSNull,
+                "viewportHeight should be absent or null when -infinity")
+
+        // nonFiniteFields should list the sanitized field names.
+        let dropped = json["nonFiniteFields"] as? [String]
+        #expect(dropped != nil, "nonFiniteFields should be present")
+        #expect(dropped?.contains("scrollOffsetY") == true)
+        #expect(dropped?.contains("contentHeight") == true)
+        #expect(dropped?.contains("viewportHeight") == true)
+    }
+
+    @Test @MainActor
+    func snapshotWithNonFiniteFieldsEncodesSuccessfully() throws {
+        var sanitizer = NumericSanitizer()
+        let scrollY = sanitizer.sanitize(Double.nan, field: "scrollOffsetY")
+        let content = sanitizer.sanitize(Double.infinity, field: "contentHeight")
+        let viewport = sanitizer.sanitize(600.0, field: "viewportHeight") // finite — kept
+        let anchorMinY = sanitizer.sanitize(-Double.infinity, field: "anchorMinY")
+
+        let snapshot = ChatTranscriptSnapshot(
+            conversationId: "conv-nan-snap",
+            capturedAt: Date(),
+            messageCount: 5,
+            toolCallCount: 1,
+            isPinnedToBottom: true,
+            isUserScrolling: false,
+            scrollOffsetY: scrollY,
+            contentHeight: content,
+            viewportHeight: viewport,
+            anchorMinY: anchorMinY,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(snapshot)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Finite value should survive.
+        #expect(json["viewportHeight"] as? Double == 600.0)
+
+        // Non-finite values should be absent or null.
+        let scrollVal = json["scrollOffsetY"]
+        #expect(scrollVal == nil || scrollVal is NSNull)
+        let contentVal = json["contentHeight"]
+        #expect(contentVal == nil || contentVal is NSNull)
+        let anchorVal = json["anchorMinY"]
+        #expect(anchorVal == nil || anchorVal is NSNull)
+
+        // nonFiniteFields should list exactly the dropped fields.
+        let dropped = json["nonFiniteFields"] as? [String]
+        #expect(dropped != nil, "nonFiniteFields should be present")
+        #expect(dropped?.count == 3)
+        #expect(dropped?.contains("scrollOffsetY") == true)
+        #expect(dropped?.contains("contentHeight") == true)
+        #expect(dropped?.contains("anchorMinY") == true)
+        // Finite field should NOT be listed.
+        #expect(dropped?.contains("viewportHeight") != true)
+    }
+
+    @Test @MainActor
+    func sanitizerPreservesFiniteValues() {
+        var sanitizer = NumericSanitizer()
+        let result = sanitizer.sanitize(42.5, field: "testField")
+        #expect(result == 42.5)
+        #expect(sanitizer.nonFiniteFields == nil)
+    }
+
+    @Test @MainActor
+    func sanitizerHandlesNilInput() {
+        var sanitizer = NumericSanitizer()
+        let doubleResult = sanitizer.sanitize(Double?(nil), field: "testDouble")
+        #expect(doubleResult == nil)
+        let cgResult = sanitizer.sanitize(CGFloat?(nil), field: "testCG")
+        #expect(cgResult == nil)
+        // nil inputs should not be recorded as dropped.
+        #expect(sanitizer.nonFiniteFields == nil)
+    }
+
+    @Test @MainActor
+    func sanitizerHandlesCGFloatNaN() {
+        var sanitizer = NumericSanitizer()
+        let result = sanitizer.sanitize(CGFloat.nan, field: "width")
+        #expect(result == nil)
+        #expect(sanitizer.nonFiniteFields == ["width"])
+    }
+
+    @Test @MainActor
+    func sanitizerHandlesCGFloatInfinity() {
+        var sanitizer = NumericSanitizer()
+        let result = sanitizer.sanitize(CGFloat.infinity, field: "height")
+        #expect(result == nil)
+        #expect(sanitizer.nonFiniteFields == ["height"])
+    }
+
+    // MARK: - Scroll-Wheel Safe Payload Builder
+
+    @Test @MainActor
+    func scrollWheelEventWithNanHeightsEncodesSuccessfully() throws {
+        let event = ChatDiagnosticEvent.scrollWheelEvent(
+            kind: .scrollWheelUntether,
+            conversationId: "conv-nan-scroll",
+            reason: "deltaY=5.0 nan geometry",
+            contentHeight: CGFloat.nan,
+            viewportHeight: CGFloat.nan
+        )
+
+        // Record into the store to exercise the full JSONL path.
+        let store = ChatDiagnosticsStore()
+        store.record(event)
+
+        // Encode to JSON — must not throw.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Non-finite values should be absent or null.
+        let contentVal = json["contentHeight"]
+        #expect(contentVal == nil || contentVal is NSNull,
+                "contentHeight should be absent or null when NaN")
+        let viewportVal = json["viewportHeight"]
+        #expect(viewportVal == nil || viewportVal is NSNull,
+                "viewportHeight should be absent or null when NaN")
+
+        // nonFiniteFields should report which fields were dropped.
+        let dropped = json["nonFiniteFields"] as? [String]
+        #expect(dropped != nil, "nonFiniteFields should be present")
+        #expect(dropped?.contains("contentHeight") == true)
+        #expect(dropped?.contains("viewportHeight") == true)
+    }
+
+    @Test @MainActor
+    func scrollWheelEventWithInfHeightsEncodesSuccessfully() throws {
+        let event = ChatDiagnosticEvent.scrollWheelEvent(
+            kind: .scrollWheelRetether,
+            conversationId: "conv-inf-scroll",
+            reason: "distFromBottom=0.0 inf geometry",
+            contentHeight: CGFloat.infinity,
+            viewportHeight: -CGFloat.infinity
+        )
+
+        // Record into the store to exercise the full JSONL path.
+        let store = ChatDiagnosticsStore()
+        store.record(event)
+
+        // Encode to JSON — must not throw.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Non-finite values should be absent or null.
+        let contentVal = json["contentHeight"]
+        #expect(contentVal == nil || contentVal is NSNull,
+                "contentHeight should be absent or null when infinity")
+        let viewportVal = json["viewportHeight"]
+        #expect(viewportVal == nil || viewportVal is NSNull,
+                "viewportHeight should be absent or null when -infinity")
+
+        // nonFiniteFields should report which fields were dropped.
+        let dropped = json["nonFiniteFields"] as? [String]
+        #expect(dropped != nil, "nonFiniteFields should be present")
+        #expect(dropped?.contains("contentHeight") == true)
+        #expect(dropped?.contains("viewportHeight") == true)
+    }
+
+    @Test @MainActor
+    func scrollWheelEventWithFiniteHeightsPreservesValues() throws {
+        let event = ChatDiagnosticEvent.scrollWheelEvent(
+            kind: .scrollWheelUntether,
+            conversationId: "conv-finite-scroll",
+            reason: "deltaY=3.0 normal geometry",
+            contentHeight: 5000.0,
+            viewportHeight: 800.0
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Finite values should be preserved.
+        #expect(json["contentHeight"] as? Double == 5000.0)
+        #expect(json["viewportHeight"] as? Double == 800.0)
+
+        // nonFiniteFields should be absent when all values are finite.
+        let dropped = json["nonFiniteFields"]
+        #expect(dropped == nil || dropped is NSNull,
+                "nonFiniteFields should be absent when all values are finite")
+    }
+
+    @Test @MainActor
+    func scrollWheelEventWithMixedFiniteAndNanPreservesFinite() throws {
+        let event = ChatDiagnosticEvent.scrollWheelEvent(
+            kind: .scrollWheelRetether,
+            conversationId: "conv-mixed-scroll",
+            reason: "mixed geometry",
+            contentHeight: CGFloat.nan,
+            viewportHeight: 600.0
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // NaN value should be absent or null.
+        let contentVal = json["contentHeight"]
+        #expect(contentVal == nil || contentVal is NSNull,
+                "contentHeight should be absent or null when NaN")
+
+        // Finite value should be preserved.
+        #expect(json["viewportHeight"] as? Double == 600.0)
+
+        // nonFiniteFields should only list the dropped field.
+        let dropped = json["nonFiniteFields"] as? [String]
+        #expect(dropped != nil, "nonFiniteFields should be present")
+        #expect(dropped == ["contentHeight"])
     }
 
     // MARK: - Event Kind Encoding

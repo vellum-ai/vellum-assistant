@@ -45,14 +45,20 @@ import { enqueueMemoryJob } from "./jobs-store.js";
 import {
   channelInboundEvents,
   conversations,
+  conversationStarters,
   llmRequestLogs,
+  memoryChunks,
   memoryEmbeddings,
+  memoryEpisodes,
   memoryItems,
   memoryItemSources,
+  memoryObservations,
   memorySegments,
   memorySummaries,
   messageAttachments,
   messages,
+  openLoops,
+  timeContexts,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -171,6 +177,9 @@ export interface ConversationRow {
   forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
+  memoryReducedThroughMessageId: string | null;
+  memoryDirtyTailSinceMessageId: string | null;
+  memoryLastReducedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -196,6 +205,9 @@ export const parseConversation = createRowMapper<
   forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
+  memoryReducedThroughMessageId: "memoryReducedThroughMessageId",
+  memoryDirtyTailSinceMessageId: "memoryDirtyTailSinceMessageId",
+  memoryLastReducedAt: "memoryLastReducedAt",
 });
 
 export interface MessageRow {
@@ -539,12 +551,21 @@ export function forkConversation(params: {
  */
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
-  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    orphanedItemIds: [],
+    deletedSummaryIds: [],
+    deletedObservationIds: [],
+    deletedChunkIds: [],
+    deletedEpisodeIds: [],
+  };
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
+  const memoryScopeId = convBeforeDelete?.memoryScopeId;
+  const isPrivateScope = memoryScopeId?.startsWith("private:") ?? false;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -631,6 +652,134 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
+    }
+
+    if (isPrivateScope && memoryScopeId) {
+      // Sweep remaining memory items with this private scopeId.
+      const scopeItems = tx
+        .select({ id: memoryItems.id })
+        .from(memoryItems)
+        .where(eq(memoryItems.scopeId, memoryScopeId))
+        .all();
+      const alreadyDeleted = new Set(result.orphanedItemIds);
+      const scopeItemIds = scopeItems
+        .map((r) => r.id)
+        .filter((id) => !alreadyDeleted.has(id));
+
+      if (scopeItemIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "item"),
+              inArray(memoryEmbeddings.targetId, scopeItemIds),
+            ),
+          )
+          .run();
+        tx.delete(memoryItemSources)
+          .where(inArray(memoryItemSources.memoryItemId, scopeItemIds))
+          .run();
+        tx.delete(memoryItems)
+          .where(inArray(memoryItems.id, scopeItemIds))
+          .run();
+        result.orphanedItemIds.push(...scopeItemIds);
+      }
+
+      // Sweep memory summaries with this private scopeId.
+      const scopeSummaries = tx
+        .select({ id: memorySummaries.id })
+        .from(memorySummaries)
+        .where(eq(memorySummaries.scopeId, memoryScopeId))
+        .all();
+      const scopeSummaryIds = scopeSummaries.map((r) => r.id);
+
+      if (scopeSummaryIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "summary"),
+              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
+            ),
+          )
+          .run();
+        tx.delete(memorySummaries)
+          .where(inArray(memorySummaries.id, scopeSummaryIds))
+          .run();
+        result.deletedSummaryIds.push(...scopeSummaryIds);
+      }
+
+      // Sweep conversation starters with this private scopeId.
+      tx.delete(conversationStarters)
+        .where(eq(conversationStarters.scopeId, memoryScopeId))
+        .run();
+
+      // Sweep brief-state tables scoped to this private conversation.
+      tx.delete(timeContexts)
+        .where(eq(timeContexts.scopeId, memoryScopeId))
+        .run();
+      tx.delete(openLoops).where(eq(openLoops.scopeId, memoryScopeId)).run();
+    }
+
+    // Collect archive table IDs before the cascade delete removes them.
+    // Observations and episodes reference conversations with ON DELETE CASCADE,
+    // and chunks cascade from observations.
+    const observationRows = tx
+      .select({ id: memoryObservations.id })
+      .from(memoryObservations)
+      .where(eq(memoryObservations.conversationId, id))
+      .all();
+    const observationIds = observationRows.map((r) => r.id);
+
+    if (observationIds.length > 0) {
+      // Collect chunk IDs before observations cascade-delete them.
+      const chunkRows = tx
+        .select({ id: memoryChunks.id })
+        .from(memoryChunks)
+        .where(inArray(memoryChunks.observationId, observationIds))
+        .all();
+      const chunkIds = chunkRows.map((r) => r.id);
+
+      // Clean up embeddings for chunks.
+      if (chunkIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "chunk"),
+              inArray(memoryEmbeddings.targetId, chunkIds),
+            ),
+          )
+          .run();
+        result.deletedChunkIds.push(...chunkIds);
+      }
+
+      // Clean up embeddings for observations.
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "observation"),
+            inArray(memoryEmbeddings.targetId, observationIds),
+          ),
+        )
+        .run();
+      result.deletedObservationIds.push(...observationIds);
+    }
+
+    const episodeRows = tx
+      .select({ id: memoryEpisodes.id })
+      .from(memoryEpisodes)
+      .where(eq(memoryEpisodes.conversationId, id))
+      .all();
+    const episodeIds = episodeRows.map((r) => r.id);
+
+    if (episodeIds.length > 0) {
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "episode"),
+            inArray(memoryEmbeddings.targetId, episodeIds),
+          ),
+        )
+        .run();
+      result.deletedEpisodeIds.push(...episodeIds);
     }
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
@@ -825,7 +974,10 @@ export function wipeConversation(id: string): WipeConversationResult {
   return {
     ...deletedMemoryIds,
     unsupersededItemIds,
-    deletedSummaryIds,
+    deletedSummaryIds: [
+      ...deletedSummaryIds,
+      ...deletedMemoryIds.deletedSummaryIds,
+    ],
     cancelledJobCount,
   };
 }
@@ -847,16 +999,34 @@ export function purgePrivateConversations(): {
     .all();
 
   if (privateConvs.length === 0) {
-    return { count: 0, deletedMemory: { segmentIds: [], orphanedItemIds: [] } };
+    return {
+      count: 0,
+      deletedMemory: {
+        segmentIds: [],
+        orphanedItemIds: [],
+        deletedSummaryIds: [],
+        deletedObservationIds: [],
+        deletedChunkIds: [],
+        deletedEpisodeIds: [],
+      },
+    };
   }
 
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
+  const allDeletedSummaryIds: string[] = [];
+  const allDeletedObservationIds: string[] = [];
+  const allDeletedChunkIds: string[] = [];
+  const allDeletedEpisodeIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
+    allDeletedObservationIds.push(...deleted.deletedObservationIds);
+    allDeletedChunkIds.push(...deleted.deletedChunkIds);
+    allDeletedEpisodeIds.push(...deleted.deletedEpisodeIds);
   }
 
   return {
@@ -864,6 +1034,10 @@ export function purgePrivateConversations(): {
     deletedMemory: {
       segmentIds: allSegmentIds,
       orphanedItemIds: allOrphanedItemIds,
+      deletedSummaryIds: allDeletedSummaryIds,
+      deletedObservationIds: allDeletedObservationIds,
+      deletedChunkIds: allDeletedChunkIds,
+      deletedEpisodeIds: allDeletedEpisodeIds,
     },
   };
 }
@@ -946,6 +1120,13 @@ export async function addMessage(
       throw err;
     }
   }
+
+  // Mark the conversation dirty for delayed memory reduction. This runs
+  // after the insert transaction succeeds so the reducer knows which
+  // conversations have unprocessed messages. The helper preserves the
+  // earliest unreduced boundary (no-op when already dirty).
+  markConversationMemoryDirty(conversationId, messageId);
+
   const message = {
     id: messageId,
     conversationId,
@@ -1134,6 +1315,15 @@ export function clearAll(): { conversations: number; messages: number } {
   rawExec("DELETE FROM messages");
   rawExec("DELETE FROM conversations");
 
+  // Record audit event — lifecycle_events is NOT deleted by clearAll(),
+  // so this survives the wipe and provides a permanent trail.
+  rawRun(
+    `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
+    uuid(),
+    "conversations_clear_all",
+    Date.now(),
+  );
+
   // Rebuild corrupted FTS tables and restore triggers after all base-table
   // DELETEs have completed. Dropping the virtual table clears the corruption,
   // and recreating it + triggers means subsequent writes maintain FTS
@@ -1240,11 +1430,14 @@ export function deleteLastExchange(conversationId: string): number {
 export interface DeletedMemoryIds {
   segmentIds: string[];
   orphanedItemIds: string[];
+  deletedSummaryIds: string[];
+  deletedObservationIds: string[];
+  deletedChunkIds: string[];
+  deletedEpisodeIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
   unsupersededItemIds: string[];
-  deletedSummaryIds: string[];
   cancelledJobCount: number;
 }
 
@@ -1310,7 +1503,14 @@ export function relinkAttachments(
  */
 export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
-  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    orphanedItemIds: [],
+    deletedSummaryIds: [],
+    deletedObservationIds: [],
+    deletedChunkIds: [],
+    deletedEpisodeIds: [],
+  };
 
   // Collect attachment IDs linked to this message before cascade-delete
   // so we can scope orphan cleanup to only those candidates.
@@ -1396,6 +1596,134 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   deleteOrphanAttachments(candidateAttachmentIds);
 
   return result;
+}
+
+/**
+ * Mark a conversation as having unreduced messages starting from the given
+ * message. Sets `memoryDirtyTailSinceMessageId` only when it is currently
+ * null so the earliest unreduced boundary is preserved across multiple
+ * messages — later messages must not clobber the original dirty marker.
+ *
+ * Also upserts a pending `reduce_conversation_memory` job scheduled at
+ * `now + idleDelayMs`. If a pending job for this conversation already exists,
+ * its `runAfter` is pushed forward (rescheduled) so the reducer waits for
+ * the full idle window after the *latest* message — avoiding premature runs
+ * while the user is still actively typing.
+ */
+export function markConversationMemoryDirty(
+  conversationId: string,
+  messageId: string,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ memoryDirtyTailSinceMessageId: messageId })
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        isNull(conversations.memoryDirtyTailSinceMessageId),
+      ),
+    )
+    .run();
+
+  // Schedule (or reschedule) a deferred reducer job for this conversation.
+  scheduleReducerJob(conversationId);
+}
+
+/**
+ * Upsert a pending `reduce_conversation_memory` job for the given
+ * conversation, scheduled `idleDelayMs` from now. If one already exists in
+ * pending state, its `runAfter` is pushed forward to restart the idle timer.
+ * This ensures exactly one pending reducer job per conversation — new
+ * messages reschedule rather than duplicate.
+ */
+export function scheduleReducerJob(
+  conversationId: string,
+  runAfter?: number,
+): void {
+  const idleDelayMs = getReducerIdleDelayMs();
+  const scheduledAt = runAfter ?? Date.now() + idleDelayMs;
+
+  const existing = rawGet<{ id: string; status: string }>(
+    `SELECT id, status FROM memory_jobs
+     WHERE type = 'reduce_conversation_memory'
+       AND json_extract(payload, '$.conversationId') = ?
+       AND status = 'pending'
+     LIMIT 1`,
+    conversationId,
+  );
+
+  if (existing) {
+    // Reschedule: push runAfter forward so the idle timer resets.
+    rawRun(
+      `UPDATE memory_jobs SET run_after = ?, updated_at = ? WHERE id = ?`,
+      scheduledAt,
+      Date.now(),
+      existing.id,
+    );
+  } else {
+    enqueueMemoryJob(
+      "reduce_conversation_memory",
+      { conversationId },
+      scheduledAt,
+    );
+  }
+}
+
+/**
+ * Startup sweep: find conversations that are marked dirty and whose tail
+ * message is already older than the idle delay. For these conversations the
+ * reducer should have run but didn't (daemon was down). Enqueue immediate
+ * reducer jobs for each so they are processed on the next worker tick.
+ *
+ * Conversations whose tail is still within the idle window are skipped —
+ * the normal `markConversationMemoryDirty` path will schedule them when
+ * new messages arrive (or on the next conversation interaction).
+ *
+ * Returns the number of jobs enqueued.
+ */
+export function sweepStaleReducerJobs(): number {
+  const idleDelayMs = getReducerIdleDelayMs();
+  const cutoff = Date.now() - idleDelayMs;
+
+  // Find dirty conversations whose latest message is older than the idle
+  // window AND that don't already have a pending reducer job.
+  const stale = rawAll<{ conversationId: string }>(
+    `SELECT c.id AS conversationId
+     FROM conversations c
+     WHERE c.memory_dirty_tail_since_message_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_jobs mj
+         WHERE mj.type = 'reduce_conversation_memory'
+           AND json_extract(mj.payload, '$.conversationId') = c.id
+           AND mj.status IN ('pending', 'running')
+       )
+       AND (
+         SELECT MAX(m.created_at) FROM messages m
+         WHERE m.conversation_id = c.id
+       ) <= ?`,
+    cutoff,
+  );
+
+  for (const { conversationId } of stale) {
+    enqueueMemoryJob("reduce_conversation_memory", { conversationId });
+  }
+
+  return stale.length;
+}
+
+function getReducerIdleDelayMs(): number {
+  // Some test suites mock getConfig() with partial objects; fall back to the
+  // schema default so reducer scheduling stays stable outside full config load.
+  const config = getConfig() as {
+    memory?: {
+      simplified?: {
+        reducer?: {
+          idleDelayMs?: number;
+        };
+      };
+    };
+  };
+  return config.memory?.simplified?.reducer?.idleDelayMs ?? 30_000;
 }
 
 export function setConversationOriginChannelIfUnset(

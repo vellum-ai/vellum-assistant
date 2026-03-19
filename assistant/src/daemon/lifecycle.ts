@@ -30,6 +30,7 @@ import {
   getConversationType,
   getMessages,
   purgePrivateConversations,
+  sweepStaleReducerJobs,
 } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db.js";
@@ -200,14 +201,46 @@ export async function runDaemon(): Promise<void> {
           targetId: itemId,
         });
       }
+      for (const summaryId of deletedMemory.deletedSummaryIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "summary",
+          targetId: summaryId,
+        });
+      }
+      for (const obsId of deletedMemory.deletedObservationIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "observation",
+          targetId: obsId,
+        });
+      }
+      for (const chunkId of deletedMemory.deletedChunkIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "chunk",
+          targetId: chunkId,
+        });
+      }
+      for (const episodeId of deletedMemory.deletedEpisodeIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "episode",
+          targetId: episodeId,
+        });
+      }
       if (
         deletedMemory.segmentIds.length > 0 ||
-        deletedMemory.orphanedItemIds.length > 0
+        deletedMemory.orphanedItemIds.length > 0 ||
+        deletedMemory.deletedSummaryIds.length > 0 ||
+        deletedMemory.deletedObservationIds.length > 0 ||
+        deletedMemory.deletedChunkIds.length > 0 ||
+        deletedMemory.deletedEpisodeIds.length > 0
       ) {
         log.info(
           {
             segments: deletedMemory.segmentIds.length,
             orphanedItems: deletedMemory.orphanedItemIds.length,
+            deletedSummaries: deletedMemory.deletedSummaryIds.length,
+            deletedObservations: deletedMemory.deletedObservationIds.length,
+            deletedChunks: deletedMemory.deletedChunkIds.length,
+            deletedEpisodes: deletedMemory.deletedEpisodeIds.length,
           },
           "Enqueued Qdrant vector cleanup jobs for purged private conversations",
         );
@@ -229,6 +262,24 @@ export async function runDaemon(): Promise<void> {
       log.info(
         { event: "startup_expired_stale_requests", expiredCount },
         `Expired ${expiredCount} stale canonical request(s) from previous process`,
+      );
+    }
+
+    // Sweep dirty conversations whose tail messages are already past the
+    // idle delay — they should have been reduced while the daemon was down.
+    // Enqueue immediate reducer jobs so the memory worker picks them up.
+    try {
+      const sweepCount = sweepStaleReducerJobs();
+      if (sweepCount > 0) {
+        log.info(
+          { sweepCount },
+          `Enqueued reducer jobs for ${sweepCount} stale dirty conversation(s)`,
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Startup sweep for stale reducer jobs failed — continuing startup",
       );
     }
 

@@ -204,6 +204,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     func testSessionCapsRetries() {
         var session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: UUID(),
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -223,6 +224,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     func testExhaustedSessionDoesNotCoalesce() {
         var session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: UUID(),
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -307,6 +309,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convA = UUID()
         let convB = UUID()
         let session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: convA,
             reason: .expansion,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -319,6 +322,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
     func testSessionCoalesceRequiresSameReason() {
         let convId = UUID()
         let session = BottomPinSession(
+            sessionId: UUID(),
             conversationId: convId,
             reason: .streaming,
             startTime: CFAbsoluteTimeGetCurrent()
@@ -350,8 +354,11 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
         coordinator.requestPin(reason: .initialRestore, conversationId: convId)
 
-        // Allow the retry loop to run.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Poll until the session completes (robust against slow CI scheduling).
+        let deadline = CFAbsoluteTimeGetCurrent() + 1.0
+        while coordinator.activeSession != nil, CFAbsoluteTimeGetCurrent() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
 
         // Should have stopped after success (3 attempts), not continued to maxRetries.
         XCTAssertGreaterThanOrEqual(callCount, 3)
@@ -383,5 +390,340 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         // No more attempts after detach.
         XCTAssertEqual(callCount, countAfterDetach)
         XCTAssertNil(coordinator.activeSession)
+    }
+
+    // MARK: - Session ID Stability
+
+    func testSessionHasStableSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        let sessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(sessionId, "Active session should have a stable sessionId")
+    }
+
+    func testCoalescingPreservesSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        let originalSessionId = coordinator.activeSession?.sessionId
+
+        // Second request with same reason coalesces.
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+
+        XCTAssertEqual(coordinator.activeSession?.sessionId, originalSessionId,
+                       "Coalesced request should preserve the original sessionId")
+    }
+
+    func testNewSessionGetsDistinctSessionId() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        let firstSessionId = coordinator.activeSession?.sessionId
+
+        // Different reason triggers a new session.
+        coordinator.requestPin(reason: .resize, conversationId: convId)
+        let secondSessionId = coordinator.activeSession?.sessionId
+
+        XCTAssertNotNil(firstSessionId)
+        XCTAssertNotNil(secondSessionId)
+        XCTAssertNotEqual(firstSessionId, secondSessionId,
+                          "A new session should get a distinct sessionId")
+    }
+
+    // MARK: - Timeout
+
+    func testSessionTimesOutAfterDeadline() async throws {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        // Wait longer than sessionTimeout (0.5s) + retry interval headroom.
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        // Session should have self-terminated via timeout.
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should be nil after timeout expires")
+    }
+
+    // MARK: - Cancel on Detach
+
+    func testDetachCancelsActiveSessionAndSuppressesFutureRequests() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        coordinator.detach(trigger: .userScrollUp)
+
+        XCTAssertNil(coordinator.activeSession,
+                     "Detach should cancel the active session")
+        XCTAssertFalse(coordinator.isFollowingBottom)
+
+        // Subsequent requests should be suppressed.
+        let countBefore = pinRequestCount
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
+        XCTAssertEqual(pinRequestCount, countBefore,
+                       "Pin requests should be suppressed while detached")
+    }
+
+    func testCancelOnDetachDuringRetryLoop() async throws {
+        let convId = UUID()
+        var callCount = 0
+        pinShouldSucceed = false
+
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return false
+        }
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        XCTAssertNotNil(coordinator.activeSession)
+
+        // Let a retry or two fire.
+        try await Task.sleep(nanoseconds: 120_000_000)
+        let countBeforeDetach = callCount
+
+        // Detach mid-retry loop.
+        coordinator.detach(trigger: .userScrollUp)
+
+        // Wait for the task to observe cancellation.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertNil(coordinator.activeSession)
+        // No additional pin attempts should have been made after detach.
+        XCTAssertEqual(callCount, countBeforeDetach,
+                       "No retries should fire after detach")
+    }
+
+    // MARK: - Stale Task Cleanup (Generation Mismatch)
+
+    func testStaleTaskDoesNotClobberNewerSession() async throws {
+        let conv1 = UUID()
+        let conv2 = UUID()
+        pinShouldSucceed = false
+
+        // Start a session that will enter the retry loop.
+        coordinator.requestPin(reason: .streaming, conversationId: conv1)
+        let firstSessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(firstSessionId)
+
+        // Immediately start a new session for a different conversation,
+        // which bumps the generation counter and invalidates the first task.
+        coordinator.requestPin(reason: .expansion, conversationId: conv2)
+        let secondSessionId = coordinator.activeSession?.sessionId
+        XCTAssertNotNil(secondSessionId)
+        XCTAssertNotEqual(firstSessionId, secondSessionId)
+
+        // Let async tasks run to completion.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // The stale first task should not have cleared the second session.
+        // The second session either completed normally or timed out on its own.
+        // Either way, no leftover state from the first session should remain.
+        if let remaining = coordinator.activeSession {
+            XCTAssertEqual(remaining.sessionId, secondSessionId,
+                           "If a session remains, it must be the newer one")
+        }
+    }
+
+    func testRapidRequestsOnlyKeepLatestSession() {
+        let convId = UUID()
+        pinShouldSucceed = false
+
+        // Fire multiple requests with different reasons in rapid succession.
+        coordinator.requestPin(reason: .expansion, conversationId: convId)
+        coordinator.requestPin(reason: .resize, conversationId: convId)
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        // Only the last session should be active.
+        XCTAssertEqual(coordinator.activeSession?.reason, .streaming,
+                       "Only the most recent session should remain active")
+    }
+
+    // MARK: - Completion Path
+
+    func testSuccessfulRetryCompletesSession() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            // Succeed on the second attempt (first retry).
+            return callCount >= 2
+        }
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+
+        // First attempt fails synchronously; retry loop should succeed.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertGreaterThanOrEqual(callCount, 2)
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should be cleared after successful retry")
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Coordinator should still be following bottom after success")
+    }
+
+    func testSessionElapsedMsIsNonNegative() {
+        let session = BottomPinSession(
+            sessionId: UUID(),
+            conversationId: UUID(),
+            reason: .streaming,
+            startTime: CFAbsoluteTimeGetCurrent()
+        )
+
+        XCTAssertGreaterThanOrEqual(session.elapsedMs, 0,
+                                    "elapsedMs should be non-negative for a freshly created session")
+    }
+
+    // MARK: - Geometry Unavailable Regression
+
+    /// Regression: transient missing geometry must not trigger endless retry churn.
+    ///
+    /// Before the fix, `geometryUnavailable` was collapsed into `needsRepin = true`,
+    /// so the coordinator's `onPinRequested` callback would always return `false`
+    /// when geometry was missing, causing the session to exhaust its retry budget
+    /// and then potentially trigger new sessions from other call sites that also
+    /// treated missing geometry as "needs repin". With the fix, call sites only
+    /// request new pins for `.needsRepin` (genuine drift), and the coordinator
+    /// callback returns `outcome == .anchored` (only true for finite, in-bounds
+    /// geometry). This test verifies the session terminates within its retry budget
+    /// when geometry is persistently unavailable, and that follow state is preserved.
+    func testTransientMissingGeometryDoesNotCauseEndlessRetries() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        // Simulate geometry unavailable: onPinRequested always returns false
+        // (the verify() call would return .geometryUnavailable, so
+        // outcome == .anchored is false).
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return false // geometry unavailable — not anchored
+        }
+
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+
+        // Wait long enough for the session to exhaust or timeout.
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        // The session must have terminated on its own (bounded retries or timeout).
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should terminate after bounded retries, not run indefinitely")
+
+        // Total attempts must not exceed the session budget.
+        XCTAssertLessThanOrEqual(callCount, BottomPinSession.maxRetries,
+                                  "Retry count should be bounded by maxRetries")
+
+        // The coordinator should still be logically following bottom —
+        // transient geometry issues must not detach the follow state.
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Transient geometry unavailability should not detach follow state")
+
+        // Issuing the same pin reason again must NOT coalesce with the
+        // now-terminated session — it starts a fresh one, proving the old
+        // session was fully cleaned up.
+        let countBefore = callCount
+        coordinator.requestPin(reason: .initialRestore, conversationId: convId)
+        XCTAssertGreaterThan(callCount, countBefore,
+                             "A new pin request after session cleanup should fire immediately")
+    }
+
+    /// Regression: when geometry transitions from unavailable to available
+    /// mid-session, the session should complete successfully without churning
+    /// through all retries.
+    func testGeometryBecomingAvailableMidSessionCompletesPin() async throws {
+        let convId = UUID()
+        var callCount = 0
+
+        // First few attempts simulate geometry unavailable (returns false),
+        // then geometry becomes available (returns true).
+        coordinator.onPinRequested = { reason, animated in
+            callCount += 1
+            return callCount >= 3 // anchored after attempt 3
+        }
+
+        coordinator.requestPin(reason: .streaming, conversationId: convId)
+
+        // Wait for retries to process.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // Session should have completed successfully once geometry appeared.
+        XCTAssertNil(coordinator.activeSession,
+                     "Session should complete once geometry becomes available")
+        XCTAssertGreaterThanOrEqual(callCount, 3,
+                                    "Should have retried until geometry was available")
+        XCTAssertLessThanOrEqual(callCount, BottomPinSession.maxRetries,
+                                  "Should not have retried beyond the success point")
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Should still be following bottom after successful pin")
+    }
+
+    // MARK: - VerificationOutcome Policy
+
+    /// Verifies that the anchor policy correctly distinguishes between
+    /// genuinely off-screen anchors and unavailable geometry.
+    func testVerificationOutcomeDistinguishesGeometryStates() {
+        // Finite, in-bounds anchor
+        let anchored = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 500, viewportHeight: 600
+        )
+        XCTAssertEqual(anchored, .anchored)
+
+        // Finite, genuinely off-screen
+        let offScreen = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 700, viewportHeight: 600
+        )
+        XCTAssertEqual(offScreen, .needsRepin)
+
+        // Non-finite anchor (geometry not yet measured)
+        let infiniteAnchor = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .infinity, viewportHeight: 600
+        )
+        XCTAssertEqual(infiniteAnchor, .geometryUnavailable)
+
+        // Non-finite viewport (geometry not yet measured)
+        let infiniteViewport = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: 500, viewportHeight: .infinity
+        )
+        XCTAssertEqual(infiniteViewport, .geometryUnavailable)
+
+        // Both non-finite
+        let bothInfinite = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .infinity, viewportHeight: .infinity
+        )
+        XCTAssertEqual(bothInfinite, .geometryUnavailable)
+
+        // NaN anchor
+        let nanAnchor = MessageListBottomAnchorPolicy.verify(
+            anchorMinY: .nan, viewportHeight: 600
+        )
+        XCTAssertEqual(nanAnchor, .geometryUnavailable)
+    }
+
+    /// Verifies that the legacy `needsRepin` helper still collapses
+    /// `geometryUnavailable` into `true` for backwards compatibility.
+    func testLegacyNeedsRepinCollapsesGeometryUnavailable() {
+        // geometryUnavailable -> true (backwards-compatible behavior)
+        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: .infinity, viewportHeight: 600
+        ))
+
+        // anchored -> false
+        XCTAssertFalse(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: 500, viewportHeight: 600
+        ))
+
+        // needsRepin -> true
+        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
+            anchorMinY: 700, viewportHeight: 600
+        ))
     }
 }

@@ -56,17 +56,10 @@ public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
-    func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
     func stopSSE()
-}
-
-extension DaemonClientProtocol {
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        try send(signal)
-    }
 }
 
 // MARK: - Usage Response Models
@@ -667,35 +660,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             os_signpost(.end, log: networkLog, name: "daemonHTTPSend", signpostID: sendID)
             throw error
         }
-    }
-
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        if let override = sendOverride {
-            try override(signal)
-            return
-        }
-
-        guard let httpTransport else {
-            throw SendError.notConnected
-        }
-        guard httpTransport.isConnected else {
-            throw SendError.notConnected
-        }
-        try await httpTransport.sendConversationUnread(signal)
-    }
-
-    // MARK: - Queue Management
-
-    /// Delete a specific queued message by its requestId.
-    public func sendDeleteQueuedMessage(conversationId: String, requestId: String) throws {
-        try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
-    }
-
-    // MARK: - Regenerate
-
-    /// Regenerate the last assistant response for a conversation.
-    public func sendRegenerate(conversationId: String) throws {
-        try send(RegenerateMessage(conversationId: conversationId))
     }
 
     // MARK: - Conversations

@@ -1176,7 +1176,7 @@ function normalizeCompatibleRequestPayload(
 
 function hasOpenAiModelPrefix(model: string | undefined): boolean {
   if (!model) return false;
-  return /^(gpt-|chatgpt-|ft:|o[13](-|$))/.test(model);
+  return /^(gpt-|chatgpt-|ft:|o[1-9]\d*(-|$))/.test(model);
 }
 
 function hasAnthropicModelPrefix(model: string | undefined): boolean {

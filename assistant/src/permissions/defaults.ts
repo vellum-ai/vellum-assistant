@@ -198,6 +198,19 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     })),
   );
 
+  // Inline-command skill loads use a distinct candidate namespace
+  // (skill_load_dynamic:*) so they prompt by default instead of falling
+  // through to the permissive skill_load:* allow rule below. The higher
+  // priority ensures this rule wins when both could match.
+  const skillLoadDynamicRule: DefaultRuleTemplate = {
+    id: "default:ask-skill_load_dynamic-global",
+    tool: "skill_load",
+    pattern: "skill_load_dynamic:*",
+    scope: "everywhere",
+    decision: "ask",
+    priority: 200,
+  };
+
   const skillLoadRule: DefaultRuleTemplate = {
     id: "default:allow-skill_load-global",
     tool: "skill_load",
@@ -294,6 +307,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     bootstrapDeleteRule,
     updatesDeleteRule,
     ...skillSourceMutationRules,
+    skillLoadDynamicRule,
     skillLoadRule,
     skillExecuteRule,
     browserNavigateRule,

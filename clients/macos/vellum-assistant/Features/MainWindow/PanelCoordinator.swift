@@ -387,6 +387,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
+                conversationManager: conversationManager,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isTemporaryChat: activeConversation?.kind == .private,
                 voiceModeManager: voiceModeManager,
@@ -586,6 +587,7 @@ struct ActiveChatViewWrapper: View {
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
+    let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
@@ -662,6 +664,8 @@ struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
+            onDropStarted: { viewModel.attachmentManager.beginExternalLoad() },
+            onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
             selectedModel: settingsStore.selectedModel,
             configuredProviders: settingsStore.configuredProviders,
             providerCatalog: settingsStore.providerCatalog,
@@ -690,6 +694,11 @@ struct ActiveChatViewWrapper: View {
                             style: .error
                         )
                     }
+                }
+            },
+            onForkFromMessage: { [conversationManager] daemonMessageId in
+                Task { @MainActor in
+                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
                 }
             },
             showInspectButton: showInspectButton,

@@ -38,7 +38,7 @@ runs:
             ;;
           failure)
             ICON=":kimk-cryingggggggg:"
-            COLOR="#884EA0"
+            COLOR="#E74C3C"
             ;;
           cancelled)
             ICON=":meow_meltshoe:"

@@ -15,6 +15,12 @@ private let log = Logger(
 /// continues. A separate `enrichWithDiagnostics` path attempts a best-effort
 /// main-actor read; if the main thread is wedged it simply won't complete.
 final class HangContextWriter: @unchecked Sendable {
+    private struct WriteState: Sendable {
+        var generation: Int = 0
+        var latestStallStartTime: Date?
+        var latestStallDurationSeconds: Double = 0
+        var latestSamplingSkipped: Bool = false
+    }
 
     /// Protocol for providing diagnostic events from a background queue.
     /// The concrete implementation reads from `ChatDiagnosticsStore` on the main actor.
@@ -22,6 +28,13 @@ final class HangContextWriter: @unchecked Sendable {
     protocol DiagnosticsProvider: Sendable {
         func recentEvents() async -> [ChatDiagnosticEvent]
         func transcriptSnapshots() async -> [String: ChatTranscriptSnapshot]
+    }
+
+    /// Protocol for providing last-known diagnostics without awaiting the main actor.
+    /// The concrete implementation reads the lock-guarded background copy from
+    /// `ChatDiagnosticsStore`. Tests inject a stub.
+    protocol LastKnownDiagnosticsProvider: Sendable {
+        func lastKnownDiagnostics() -> LastKnownDiagnosticsSnapshot?
     }
 
     // MARK: - Configuration
@@ -32,12 +45,12 @@ final class HangContextWriter: @unchecked Sendable {
     /// Provider for diagnostic events and snapshots.
     let diagnosticsProvider: DiagnosticsProvider?
 
+    /// Provider for last-known diagnostics readable from any thread.
+    let lastKnownProvider: LastKnownDiagnosticsProvider?
+
     // MARK: - Private
 
-    private let lock = NSLock()
-    private var writeGeneration: Int = 0
-    private var latestStallStartTime: Date?
-    private var latestStallDurationSeconds: Double = 0
+    private let writeStateLock = OSAllocatedUnfairLock<WriteState>(initialState: WriteState())
 
     private let encoder: JSONEncoder
 
@@ -45,7 +58,8 @@ final class HangContextWriter: @unchecked Sendable {
 
     init(
         outputDirectory: URL? = nil,
-        diagnosticsProvider: DiagnosticsProvider? = nil
+        diagnosticsProvider: DiagnosticsProvider? = nil,
+        lastKnownProvider: LastKnownDiagnosticsProvider? = nil
     ) {
         if let dir = outputDirectory {
             self.outputDirectory = dir
@@ -58,6 +72,7 @@ final class HangContextWriter: @unchecked Sendable {
                 .appendingPathComponent("vellum-assistant", isDirectory: true)
         }
         self.diagnosticsProvider = diagnosticsProvider
+        self.lastKnownProvider = lastKnownProvider
 
         self.encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -75,24 +90,41 @@ final class HangContextWriter: @unchecked Sendable {
         stallStartTime: Date,
         stallDurationSeconds: Double,
         recentEvents: [ChatDiagnosticEvent] = [],
-        transcriptSnapshots: [ChatTranscriptSnapshot] = []
+        transcriptSnapshots: [ChatTranscriptSnapshot] = [],
+        samplingSkipped: Bool = false
     ) {
-        lock.lock()
-        writeGeneration += 1
-        latestStallStartTime = stallStartTime
-        latestStallDurationSeconds = stallDurationSeconds
-        lock.unlock()
+        writeStateLock.withLock { state in
+            state.generation += 1
+            state.latestStallStartTime = stallStartTime
+            state.latestStallDurationSeconds = stallDurationSeconds
+            state.latestSamplingSkipped = samplingSkipped
+        }
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let pid = ProcessInfo.processInfo.processIdentifier
+
+        // If no explicit events/snapshots were provided, fall back to the
+        // last-known background-safe snapshot so stage-one capture is useful
+        // even when the main actor never satisfies enrichWithDiagnosticsAsync().
+        var effectiveEvents = recentEvents
+        var effectiveSnapshots = transcriptSnapshots
+        var lastKnownCapturedAt: Date? = nil
+        if effectiveEvents.isEmpty && effectiveSnapshots.isEmpty,
+           let lastKnown = lastKnownProvider?.lastKnownDiagnostics() {
+            effectiveEvents = lastKnown.recentEvents
+            effectiveSnapshots = lastKnown.transcriptSnapshots
+            lastKnownCapturedAt = lastKnown.capturedAt
+        }
 
         let context = HangContext(
             stallStartTime: stallStartTime,
             stallDurationSeconds: stallDurationSeconds,
             pid: Int(pid),
             appVersion: version ?? "unknown",
-            recentDiagnosticEvents: recentEvents,
-            transcriptSnapshots: transcriptSnapshots
+            recentDiagnosticEvents: effectiveEvents,
+            transcriptSnapshots: effectiveSnapshots,
+            lastKnownDiagnosticsCapturedAt: lastKnownCapturedAt,
+            samplingSkipped: samplingSkipped ? true : nil
         )
 
         do {
@@ -120,9 +152,7 @@ final class HangContextWriter: @unchecked Sendable {
         stallDurationSeconds: Double
     ) {
         guard let provider = diagnosticsProvider else { return }
-        lock.lock()
-        let capturedGeneration = writeGeneration
-        lock.unlock()
+        let capturedGeneration = writeStateLock.withLock { $0.generation }
 
         Task.detached(priority: .utility) { [self] in
             let events = await provider.recentEvents()
@@ -130,18 +160,19 @@ final class HangContextWriter: @unchecked Sendable {
             let sortedSnapshots = snapshots.values.sorted { $0.conversationId < $1.conversationId }
 
             // If a newer write occurred (e.g. Stage 2) while we were awaiting
-            // diagnostics, use its duration so we don't overwrite with a stale value.
-            self.lock.lock()
-            let useLatest = self.writeGeneration > capturedGeneration
-            let actualStartTime = useLatest ? (self.latestStallStartTime ?? stallStartTime) : stallStartTime
-            let actualDuration = useLatest ? self.latestStallDurationSeconds : stallDurationSeconds
-            self.lock.unlock()
+            // diagnostics, use its values so we don't overwrite with stale data.
+            let latestState = self.writeStateLock.withLock { $0 }
+            let useLatest = latestState.generation > capturedGeneration
+            let actualStartTime = useLatest ? (latestState.latestStallStartTime ?? stallStartTime) : stallStartTime
+            let actualDuration = useLatest ? latestState.latestStallDurationSeconds : stallDurationSeconds
+            let actualSamplingSkipped = latestState.latestSamplingSkipped
 
             self.writeHangContextSync(
                 stallStartTime: actualStartTime,
                 stallDurationSeconds: actualDuration,
                 recentEvents: events,
-                transcriptSnapshots: sortedSnapshots
+                transcriptSnapshots: sortedSnapshots,
+                samplingSkipped: actualSamplingSkipped
             )
         }
     }
@@ -157,6 +188,33 @@ struct HangContext: Codable, Sendable {
     let appVersion: String
     let recentDiagnosticEvents: [ChatDiagnosticEvent]
     let transcriptSnapshots: [ChatTranscriptSnapshot]
+    /// When the last-known diagnostics snapshot was captured, if the events and
+    /// snapshots were sourced from the background-safe fallback rather than
+    /// a live main-actor read. `nil` when diagnostics came from async enrichment.
+    let lastKnownDiagnosticsCapturedAt: Date?
+    /// Whether process sampling was skipped because `sendDiagnostics` is disabled.
+    /// Present (and `true`) only when sampling was explicitly skipped.
+    let samplingSkipped: Bool?
+
+    init(
+        stallStartTime: Date,
+        stallDurationSeconds: Double,
+        pid: Int,
+        appVersion: String,
+        recentDiagnosticEvents: [ChatDiagnosticEvent],
+        transcriptSnapshots: [ChatTranscriptSnapshot],
+        lastKnownDiagnosticsCapturedAt: Date? = nil,
+        samplingSkipped: Bool? = nil
+    ) {
+        self.stallStartTime = stallStartTime
+        self.stallDurationSeconds = stallDurationSeconds
+        self.pid = pid
+        self.appVersion = appVersion
+        self.recentDiagnosticEvents = recentDiagnosticEvents
+        self.transcriptSnapshots = transcriptSnapshots
+        self.lastKnownDiagnosticsCapturedAt = lastKnownDiagnosticsCapturedAt
+        self.samplingSkipped = samplingSkipped
+    }
 }
 
 // MARK: - Default Diagnostics Provider
@@ -174,5 +232,13 @@ struct MainActorDiagnosticsProvider: HangContextWriter.DiagnosticsProvider {
         await MainActor.run {
             ChatDiagnosticsStore.shared.transcriptSnapshots
         }
+    }
+}
+
+/// Production last-known diagnostics provider that reads the background-safe
+/// cache mirrored by `ChatDiagnosticsStore`. Safe to call from any thread.
+struct BackgroundDiagnosticsProvider: HangContextWriter.LastKnownDiagnosticsProvider {
+    func lastKnownDiagnostics() -> LastKnownDiagnosticsSnapshot? {
+        LastKnownDiagnosticsCache.shared.snapshot()
     }
 }

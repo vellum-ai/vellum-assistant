@@ -166,7 +166,7 @@ public final class AuthManager {
             log.info("User cancelled WorkOS login")
         } catch {
             log.error("WorkOS login failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            errorMessage = error.localizedDescription
+            errorMessage = "Unable to sign in. Please try again."
         }
     }
 

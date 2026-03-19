@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import os
 
@@ -5,6 +6,77 @@ private let log = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: "ChatDiagnostics"
 )
+
+// MARK: - Numeric Sanitization
+
+/// Collects the names of fields whose values were non-finite (nan, inf, -inf)
+/// so they can be reported downstream without crashing JSON encoding.
+struct NumericSanitizer: Sendable {
+    /// Names of fields that were dropped because their value was non-finite.
+    private(set) var droppedFields: [String] = []
+
+    /// Returns a finite `Double` if the input is finite, otherwise records the
+    /// field name and returns `nil`.
+    mutating func sanitize(_ value: CGFloat?, field: String) -> Double? {
+        guard let v = value else { return nil }
+        let d = Double(v)
+        guard d.isFinite else {
+            droppedFields.append(field)
+            return nil
+        }
+        return d
+    }
+
+    /// Returns a finite `Double` if the input is finite, otherwise records the
+    /// field name and returns `nil`.
+    mutating func sanitize(_ value: Double?, field: String) -> Double? {
+        guard let v = value else { return nil }
+        guard v.isFinite else {
+            droppedFields.append(field)
+            return nil
+        }
+        return v
+    }
+
+    /// The list of dropped field names, or `nil` if no fields were dropped.
+    var nonFiniteFields: [String]? {
+        droppedFields.isEmpty ? nil : droppedFields
+    }
+}
+
+// MARK: - Safe Payload Builders
+
+extension ChatDiagnosticEvent {
+    /// Builds a scroll-wheel diagnostic event from raw geometry values,
+    /// sanitizing non-finite `contentHeight` and `viewportHeight` through
+    /// `NumericSanitizer` so the resulting event is always JSON-encodable.
+    ///
+    /// Callers pass raw `CGFloat` geometry straight from AppKit
+    /// (`NSScrollView.documentView.frame.height`, `contentView.bounds.height`)
+    /// without worrying about NaN or infinity — the sanitizer replaces
+    /// non-finite values with `nil` and records which fields were dropped
+    /// in `nonFiniteFields`.
+    static func scrollWheelEvent(
+        kind: ChatDiagnosticEventKind,
+        conversationId: String?,
+        reason: String?,
+        contentHeight: CGFloat?,
+        viewportHeight: CGFloat?
+    ) -> ChatDiagnosticEvent {
+        var sanitizer = NumericSanitizer()
+        let safeContentHeight = sanitizer.sanitize(contentHeight, field: "contentHeight")
+        let safeViewportHeight = sanitizer.sanitize(viewportHeight, field: "viewportHeight")
+
+        return ChatDiagnosticEvent(
+            kind: kind,
+            conversationId: conversationId,
+            reason: reason,
+            contentHeight: safeContentHeight,
+            viewportHeight: safeViewportHeight,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        )
+    }
+}
 
 // MARK: - Event Payloads
 
@@ -19,6 +91,9 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case appLifecycle
     case scrollWheelUntether
     case scrollWheelRetether
+    case detectorInstall
+    case detectorUpdate
+    case detectorRemove
 }
 
 /// Content-safe diagnostic event.
@@ -58,6 +133,12 @@ struct ChatDiagnosticEvent: Codable, Sendable {
     /// Viewport height at event time.
     let viewportHeight: Double?
 
+    // MARK: Sanitization metadata
+
+    /// Names of geometry fields whose original values were non-finite
+    /// (nan, inf, -inf) and were replaced with `nil` during construction.
+    let nonFiniteFields: [String]?
+
     init(
         kind: ChatDiagnosticEventKind,
         conversationId: String? = nil,
@@ -68,7 +149,8 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         isUserScrolling: Bool? = nil,
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
-        viewportHeight: Double? = nil
+        viewportHeight: Double? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.id = UUID().uuidString
         self.timestamp = Date()
@@ -82,6 +164,7 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.nonFiniteFields = nonFiniteFields
     }
 
     /// Test-only initializer that allows setting id and timestamp explicitly.
@@ -97,7 +180,8 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         isUserScrolling: Bool? = nil,
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
-        viewportHeight: Double? = nil
+        viewportHeight: Double? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -111,6 +195,7 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.nonFiniteFields = nonFiniteFields
     }
 }
 
@@ -160,6 +245,12 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     /// Timestamp of the last scroll-loop warning from `ChatScrollLoopGuard`.
     let lastLoopWarningTimestamp: Date?
 
+    // MARK: Sanitization metadata
+
+    /// Names of geometry fields whose original values were non-finite
+    /// (nan, inf, -inf) and were replaced with `nil` during construction.
+    let nonFiniteFields: [String]?
+
     init(
         conversationId: String,
         capturedAt: Date,
@@ -181,7 +272,8 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         scrollViewportHeight: Double? = nil,
         containerWidth: Double? = nil,
         lastScrollToReason: String? = nil,
-        lastLoopWarningTimestamp: Date? = nil
+        lastLoopWarningTimestamp: Date? = nil,
+        nonFiniteFields: [String]? = nil
     ) {
         self.conversationId = conversationId
         self.capturedAt = capturedAt
@@ -204,6 +296,27 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.containerWidth = containerWidth
         self.lastScrollToReason = lastScrollToReason
         self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
+        self.nonFiniteFields = nonFiniteFields
+    }
+}
+
+/// Background-readable cache for the latest sanitized diagnostics snapshot.
+///
+/// Kept outside `ChatDiagnosticsStore` so background readers do not need to
+/// access the store's `@MainActor` singleton just to read the fallback copy.
+final class LastKnownDiagnosticsCache: @unchecked Sendable {
+    static let shared = LastKnownDiagnosticsCache()
+
+    private let snapshotLock = OSAllocatedUnfairLock<LastKnownDiagnosticsSnapshot?>(initialState: nil)
+
+    private init() {}
+
+    func update(_ snapshot: LastKnownDiagnosticsSnapshot?) {
+        snapshotLock.withLock { $0 = snapshot }
+    }
+
+    func snapshot() -> LastKnownDiagnosticsSnapshot? {
+        snapshotLock.withLock { $0 }
     }
 }
 
@@ -314,6 +427,9 @@ final class ChatDiagnosticsStore {
 
         // Write to session log if under size cap.
         writeToSessionLog(event)
+
+        // Refresh the background-safe snapshot.
+        refreshLastKnownSnapshot()
     }
 
     // MARK: - Transcript Snapshots
@@ -338,6 +454,9 @@ final class ChatDiagnosticsStore {
             let evicted = snapshotOrder.removeFirst()
             transcriptSnapshots.removeValue(forKey: evicted)
         }
+
+        // Refresh the background-safe snapshot.
+        refreshLastKnownSnapshot()
     }
 
     /// Returns the current snapshot for a conversation, if any.
@@ -423,4 +542,58 @@ final class ChatDiagnosticsStore {
     func recentEvents(_ count: Int) -> [ChatDiagnosticEvent] {
         Array(events.suffix(count))
     }
+
+    // MARK: - Background-Safe Last-Known Snapshot
+
+    /// Maximum number of events retained in the last-known snapshot.
+    static let lastKnownEventCapacity = 50
+
+    /// A background-safe snapshot of the most recent sanitized diagnostics.
+    ///
+    /// Updated on every `record(_:)` and `updateSnapshot(_:)` call so that
+    /// the stall detector's background queue can read it without awaiting
+    /// the main actor. This is the fallback data source when the main thread
+    /// is wedged and `enrichWithDiagnosticsAsync()` never completes.
+    ///
+    /// **Thread safety**: Written only from `@MainActor`; mirrored into
+    /// `LastKnownDiagnosticsCache` for lock-protected background reads.
+    private(set) var lastKnownDiagnostics: LastKnownDiagnosticsSnapshot? {
+        didSet {
+            LastKnownDiagnosticsCache.shared.update(lastKnownDiagnostics)
+        }
+    }
+
+    /// Returns the last-known diagnostics snapshot from any thread.
+    /// This is safe to call from the stall detector's background queue.
+    nonisolated func lastKnownDiagnosticsFromBackground() -> LastKnownDiagnosticsSnapshot? {
+        LastKnownDiagnosticsCache.shared.snapshot()
+    }
+
+    /// Rebuilds the last-known diagnostics snapshot from current state.
+    private func refreshLastKnownSnapshot() {
+        let recentEvents = Array(events.suffix(Self.lastKnownEventCapacity))
+        let snapshots = transcriptSnapshots.values.sorted { $0.conversationId < $1.conversationId }
+        lastKnownDiagnostics = LastKnownDiagnosticsSnapshot(
+            capturedAt: Date(),
+            recentEvents: recentEvents,
+            transcriptSnapshots: snapshots
+        )
+    }
+}
+
+// MARK: - Last-Known Diagnostics Snapshot
+
+/// A point-in-time snapshot of the most recent sanitized diagnostic events
+/// and transcript snapshots. Designed to be read from a background queue
+/// without awaiting the main actor.
+///
+/// **Privacy invariant**: Contains only the same content-safe data as
+/// `ChatDiagnosticEvent` and `ChatTranscriptSnapshot` — no user content.
+struct LastKnownDiagnosticsSnapshot: Codable, Sendable {
+    /// When this snapshot was captured.
+    let capturedAt: Date
+    /// Recent diagnostic events (up to `ChatDiagnosticsStore.lastKnownEventCapacity`).
+    let recentEvents: [ChatDiagnosticEvent]
+    /// Per-conversation transcript snapshots, sorted by conversation ID.
+    let transcriptSnapshots: [ChatTranscriptSnapshot]
 }

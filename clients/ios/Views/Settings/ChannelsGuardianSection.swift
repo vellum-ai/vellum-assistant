@@ -156,7 +156,7 @@ struct ChannelsGuardianSection: View {
             switch policy {
             case "allow": return (VColor.systemPositiveStrong, "Allow")
             case "deny": return (VColor.systemNegativeStrong, "Deny")
-            case "escalate": return (VColor.systemNegativeHover, "Escalate")
+            case "escalate": return (VColor.systemMidStrong, "Escalate")
             default: return (VColor.contentTertiary, policy.capitalized)
             }
         }()
@@ -176,7 +176,7 @@ struct ChannelsGuardianSection: View {
             switch status {
             case "active": return (VColor.systemPositiveStrong, "Active")
             case "revoked": return (VColor.systemNegativeStrong, "Revoked")
-            case "pending": return (VColor.systemNegativeHover, "Pending")
+            case "pending": return (VColor.systemMidStrong, "Pending")
             default: return (VColor.contentTertiary, status.capitalized)
             }
         }()
