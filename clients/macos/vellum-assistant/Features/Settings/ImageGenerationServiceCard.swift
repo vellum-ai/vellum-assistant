@@ -61,21 +61,14 @@ struct ImageGenerationServiceCard: View {
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     // API Key field
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.contentSecondary)
-                        SecureField("Enter your API key", text: $apiKeyText)
-                            .vInputStyle(maxWidth: 400)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-
-                        if let error = store.imageGenKeySaveError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.systemNegativeStrong)
-                        }
-                    }
+                    VTextField(
+                        "API Key",
+                        placeholder: "Enter your API key",
+                        text: $apiKeyText,
+                        isSecure: true,
+                        errorMessage: store.imageGenKeySaveError,
+                        maxWidth: 400
+                    )
 
                     // Model picker
                     modelPicker

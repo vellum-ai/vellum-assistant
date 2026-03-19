@@ -288,14 +288,13 @@ struct VoiceSettingsView: View {
                 }
             } else if ttsSetupExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("ElevenLabs API Key")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.contentSecondary)
-
-                    SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .vInputStyle(maxWidth: 400)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
+                    VTextField(
+                        "ElevenLabs API Key",
+                        placeholder: "Your ElevenLabs API key",
+                        text: $elevenLabsKeyText,
+                        isSecure: true,
+                        maxWidth: 400
+                    )
 
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
