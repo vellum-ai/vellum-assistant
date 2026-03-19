@@ -214,7 +214,7 @@ struct SecretPromptView: View {
                 // Secure input
                 SecureField(placeholder, text: $secretValue)
                     .font(VFont.mono)
-                    .vInputStyle()
+                    .vInputStyle(maxWidth: .infinity)
                     .accessibilityIdentifier("secure-credential-input")
 
                 // Safety explainer

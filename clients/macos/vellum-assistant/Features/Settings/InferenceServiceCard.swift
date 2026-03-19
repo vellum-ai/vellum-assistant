@@ -316,7 +316,6 @@ struct InferenceServiceCard: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .disabled(store.apiKeySaving)
-                .frame(maxWidth: 400)
 
             if let error = store.apiKeySaveError {
                 Text(error)

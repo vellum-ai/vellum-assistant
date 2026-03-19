@@ -189,7 +189,6 @@ struct EmbeddingServiceCard: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: 400)
 
             if let error = store.embeddingKeySaveError {
                 Text(error)
@@ -210,7 +209,6 @@ struct EmbeddingServiceCard: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: 400)
         }
     }
 

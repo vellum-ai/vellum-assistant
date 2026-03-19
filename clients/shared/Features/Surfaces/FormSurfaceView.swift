@@ -192,7 +192,8 @@ public struct FormSurfaceView: View {
             case .text:
                 VTextField(
                     placeholder: field.placeholder ?? "",
-                    text: textBinding(for: field.id)
+                    text: textBinding(for: field.id),
+                    maxWidth: .infinity
                 )
                 .onSubmit { handleEnterKey() }
             case .textarea:
@@ -203,7 +204,8 @@ public struct FormSurfaceView: View {
             case .number:
                 VTextField(
                     placeholder: field.placeholder ?? "",
-                    text: textBinding(for: field.id)
+                    text: textBinding(for: field.id),
+                    maxWidth: .infinity
                 )
                 .onSubmit { handleEnterKey() }
             case .select:

@@ -61,6 +61,24 @@ struct InputsGallerySection: View {
                             trailingIcon: VIcon.circleX.rawValue
                         )
                     }
+
+                    Divider().background(VColor.borderBase)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Constrained width (default maxWidth: 400)")
+                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VTextField(placeholder: "Default max width...", text: $textFieldValue)
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Full width (maxWidth: .infinity)")
+                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VTextField(
+                            placeholder: "Fills available width...",
+                            text: $textFieldValue,
+                            maxWidth: .infinity
+                        )
+                    }
                 }
             }
 

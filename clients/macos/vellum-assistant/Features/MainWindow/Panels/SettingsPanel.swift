@@ -270,7 +270,7 @@ struct SettingsPanel: View {
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
                 SecureField("", text: $devUnlockText)
-                    .vInputStyle()
+                    .vInputStyle(maxWidth: .infinity)
                     .font(VFont.mono)
                     .frame(width: 160)
                     .onSubmit {
