@@ -791,16 +791,16 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        syncCredentialToDaemon(name: "elevenlabs:api_key", value: trimmed)
+        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
+        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        addDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        deleteCredentialFromDaemon(name: "elevenlabs:api_key")
+        addDeletionTombstone(type: "api_key", name: "elevenlabs")
+        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -1246,11 +1246,6 @@ public final class SettingsStore: ObservableObject {
                 if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
-            }
-
-            // ElevenLabs uses the credential type, not api_key
-            if let key = APIKeyManager.getKey(for: "elevenlabs") {
-                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
             }
 
             replayDeletionTombstones()
