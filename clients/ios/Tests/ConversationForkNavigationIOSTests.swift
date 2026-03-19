@@ -178,7 +178,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
         action()
 
-        waitUntil(timeout: 1.0) { store.selectionRequest != nil }
+        await waitUntil(timeout: 1.0) { store.selectionRequest != nil }
 
         XCTAssertEqual(forkClient.requests.count, 1)
         XCTAssertEqual(forkClient.requests.first?.conversationId, "conv-parent")
@@ -233,23 +233,12 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         timeout: TimeInterval,
         file: StaticString = #filePath,
         line: UInt = #line,
-        condition: @escaping () -> Bool
-    ) {
-        let expectation = expectation(description: "Condition met")
-        let deadline = Date().addingTimeInterval(timeout)
-
-        func poll() {
-            if condition() {
-                expectation.fulfill()
-            } else if Date() < deadline {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                    poll()
-                }
-            }
+        condition: @escaping @Sendable () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while !condition() && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
-
-        poll()
-        wait(for: [expectation], timeout: timeout + 0.2)
         XCTAssertTrue(condition(), file: file, line: line)
     }
 
