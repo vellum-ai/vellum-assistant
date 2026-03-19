@@ -41,8 +41,7 @@ export const INFERENCE_PROVIDER_API_KEY_URLS: Record<string, string> = {
   openrouter: "https://openrouter.ai/keys",
 };
 
-/** Display names for inference providers */
-export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
