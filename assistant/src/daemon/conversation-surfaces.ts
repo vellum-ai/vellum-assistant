@@ -758,6 +758,11 @@ export function handleSurfaceAction(
       );
     }
   }
+  // When prompt is truthy, fallbackContent (which includes accumulated state)
+  // is discarded. Re-append accumulated state so the LLM sees it.
+  if (prompt && accumulatedState && Object.keys(accumulatedState).length > 0) {
+    content += `\n\nAccumulated surface state: ${JSON.stringify(accumulatedState)}`;
+  }
   // Show the user plain-text instead of raw JSON action data.
   const displayContent = prompt
     ? undefined
