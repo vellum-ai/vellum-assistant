@@ -406,7 +406,8 @@ struct AgentPanelContent: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
             .contentShape(Rectangle())
             .onTapGesture { onSelect() }
-            .pointerCursor(onHover: { isHovered = $0 })
+            .pointerCursor()
+            .onHover { isHovered = $0 }
             .contextMenu {
                 Button("Remove", role: .destructive, action: onDelete)
             }
