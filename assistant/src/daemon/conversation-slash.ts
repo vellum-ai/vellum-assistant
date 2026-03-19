@@ -6,16 +6,10 @@ import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import {
-  getConfiguredProviders,
-  isProviderAvailable,
-} from "../providers/provider-availability.js";
+import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { silentlyWithLog } from "../util/silently.js";
-import type { ModelSetContext } from "./handlers/config-model.js";
-import { setModel } from "./handlers/config-model.js";
-import { getAssistantName } from "./identity-helpers.js";
 import type { PairingStore } from "./pairing-store.js";
 
 export type SlashResolution =
@@ -45,23 +39,9 @@ export interface SlashContext {
   model: string;
   provider: string;
   estimatedCost: number;
-  /** Model set context for delegating model/provider changes to shared setModel(). */
-  modelSetContext?: ModelSetContext;
 }
 
-// ── /model command ───────────────────────────────────────────────────
-
-const AVAILABLE_MODELS = [
-  "claude-opus-4-6",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-] as const;
-
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "claude-opus-4-6": "Claude Opus 4.6",
-  "claude-sonnet-4-6": "Claude Sonnet 4.6",
-  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-};
+// ── /models command ──────────────────────────────────────────────────
 
 const PROVIDER_MODEL_SHORTCUTS: Record<
   string,
@@ -95,87 +75,6 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
   },
 };
 
-/** True when the trimmed content matches a provider shortcut like /opus, /gpt4, etc. */
-export function isProviderShortcut(content: string): boolean {
-  const match = content.trim().match(/^\/([a-z0-9-]+)(\s|$)/i);
-  if (!match) return false;
-  return match[1].toLowerCase() in PROVIDER_MODEL_SHORTCUTS;
-}
-
-/** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_SHORTCUTS. */
-export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
-  Object.values(PROVIDER_MODEL_SHORTCUTS).map(({ model, provider }) => [
-    model,
-    provider,
-  ]),
-);
-
-/** Partial-match a user input like "opus", "sonnet", "haiku" to a full model ID. */
-function matchModel(input: string): string | undefined {
-  const lower = input.toLowerCase().trim();
-  // Exact match first
-  const exact = AVAILABLE_MODELS.find((m) => m === lower);
-  if (exact) return exact;
-  // Partial match (e.g. "opus" → "claude-opus-4-6")
-  return AVAILABLE_MODELS.find((m) => m.includes(lower));
-}
-
-async function resolveProviderModelCommand(
-  content: string,
-  ctx?: ModelSetContext,
-): Promise<SlashResolution | null> {
-  const trimmed = content.trim();
-  if (!trimmed.startsWith("/")) return null;
-
-  // Extract the command (e.g., "/gpt4" → "gpt4")
-  const match = trimmed.match(/^\/([a-z0-9-]+)(\s|$)/i);
-  if (!match) return null;
-
-  const command = match[1].toLowerCase();
-  const shortcut = PROVIDER_MODEL_SHORTCUTS[command];
-  if (!shortcut) return null;
-
-  const { provider, model, displayName } = shortcut;
-  const config = getConfig();
-  const name = getAssistantName();
-
-  // Check if provider is available (secure key, env var, managed proxy, or no key needed)
-  if (!(await isProviderAvailable(provider))) {
-    return {
-      kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`keys set ${provider} <your-key>\``,
-    };
-  }
-
-  // Check if already using this provider+model
-  if (
-    config.services.inference.provider === provider &&
-    config.services.inference.model === model
-  ) {
-    const alreadyMsg = name
-      ? `${name} is already running on **${displayName}**.`
-      : `Already using **${displayName}**.`;
-    return {
-      kind: "unknown",
-      message: alreadyMsg,
-    };
-  }
-
-  // Delegate to shared setModel for config write, provider reinit, and conversation eviction
-  if (ctx) {
-    await setModel(model, ctx, provider);
-  }
-
-  const switchedMsg = name
-    ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
-    : `Switched to **${displayName}**. New conversations will use this model.`;
-
-  return {
-    kind: "unknown",
-    message: switchedMsg,
-  };
-}
-
 async function resolveModelList(): Promise<SlashResolution> {
   const config = getConfig();
 
@@ -205,90 +104,6 @@ async function resolveModelList(): Promise<SlashResolution> {
   };
 }
 
-async function resolveModelCommand(
-  content: string,
-  ctx?: ModelSetContext,
-): Promise<SlashResolution | null> {
-  const trimmed = content.trim();
-  // Match /models → route to list
-  if (trimmed === "/models") {
-    return await resolveModelList();
-  }
-
-  if (!trimmed.startsWith("/model")) return null;
-  // Ensure it's exactly "/model" or "/model " (not "/modelsomething")
-  if (trimmed.length > 6 && trimmed[6] !== " ") return null;
-
-  const args = trimmed.slice(6).trim();
-  const name = getAssistantName();
-
-  if (!args) {
-    // Show current model
-    const config = getConfig();
-    const displayName =
-      MODEL_DISPLAY_NAMES[config.services.inference.model] ??
-      config.services.inference.model;
-    const prefix = name ? `${name} is running on` : `Currently using`;
-    return {
-      kind: "unknown",
-      message: `${prefix} **${displayName}** (\`${config.services.inference.model}\`).`,
-    };
-  }
-
-  // Handle /model list
-  if (args === "list") {
-    return await resolveModelList();
-  }
-
-  // Try to match the model name
-  const matched = matchModel(args);
-  if (!matched) {
-    const available = AVAILABLE_MODELS.map(
-      (m) => `- **${MODEL_DISPLAY_NAMES[m]}** (\`${m}\`)`,
-    ).join("\n");
-    return {
-      kind: "unknown",
-      message: `Hmm, "${args}" doesn't match any available model. Here's what you can pick from:\n${available}`,
-    };
-  }
-
-  // Check if already using this model
-  const currentConfig = getConfig();
-  if (currentConfig.services.inference.model === matched) {
-    const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
-    const alreadyMsg = name
-      ? `${name} is already running on **${displayName}**.`
-      : `Already on **${displayName}**.`;
-    return {
-      kind: "unknown",
-      message: alreadyMsg,
-    };
-  }
-
-  // Validate that Anthropic provider is available (secure key, env var, or managed proxy)
-  if (!(await isProviderAvailable("anthropic"))) {
-    const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
-    return {
-      kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`keys set anthropic <your-key>\``,
-    };
-  }
-
-  // Delegate to shared setModel for config write, provider reinit, and conversation eviction
-  if (ctx) {
-    await setModel(matched, ctx, "anthropic");
-  }
-
-  const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
-  const switchedMsg = name
-    ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
-    : `Switched to **${displayName}**. New conversations will use this model.`;
-  return {
-    kind: "unknown",
-    message: switchedMsg,
-  };
-}
-
 function resolveStatusCommand(context: SlashContext): SlashResolution {
   const {
     inputTokens,
@@ -306,14 +121,13 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
   const filled = Math.round(pct / 5);
   const bar = "█".repeat(filled) + "░".repeat(20 - filled);
   const fmt = (n: number) => n.toLocaleString("en-US");
-  const displayName = MODEL_DISPLAY_NAMES[model] ?? model;
 
   const lines = [
     "Conversation Status\n",
     `Context:  ${bar}  ${pct}%  (${fmt(inputTokens)} / ${fmt(
       maxInputTokens,
     )} tokens)`,
-    `Model:    ${displayName} (${provider})`,
+    `Model:    ${model} (${provider})`,
     `Messages: ${fmt(messageCount)}`,
     `Tokens:   ${fmt(inputTokens)} in / ${fmt(outputTokens)} out`,
     `Cost:     $${estimatedCost.toFixed(2)} (estimated)`,
@@ -323,25 +137,17 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
 }
 
 /**
- * Resolve built-in slash commands (/model, /status, /commands, /pair, provider shortcuts).
+ * Resolve built-in slash commands (/models, /status, /commands, /pair).
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
 export async function resolveSlash(
   content: string,
   context?: SlashContext,
 ): Promise<SlashResolution> {
-  const modelSetCtx = context?.modelSetContext;
-
-  // Check provider shortcuts first (/gpt4, /opus, etc.)
-  const providerResult = await resolveProviderModelCommand(
-    content,
-    modelSetCtx,
-  );
-  if (providerResult) return providerResult;
-
-  // Handle /model command
-  const modelResult = await resolveModelCommand(content, modelSetCtx);
-  if (modelResult) return modelResult;
+  // Handle /models command (read-only listing)
+  if (content.trim() === "/models") {
+    return await resolveModelList();
+  }
 
   // Handle /pair command
   const pairResult = resolvePairCommand(content);
@@ -362,7 +168,6 @@ export async function resolveSlash(
   if (content.trim() === "/commands") {
     const lines = [
       "/commands — List all available commands",
-      "/model — Show or switch the current model",
       "/models — List all available models",
       "/pair — Generate pairing info for connecting a mobile device",
     ];

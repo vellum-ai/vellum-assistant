@@ -22,7 +22,6 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
-  isProviderShortcut,
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
@@ -1123,10 +1122,9 @@ export async function handleSendMessage(
 
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
-      const modelInfoEvent =
-        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
-          ? await buildModelInfoEvent()
-          : null;
+      const modelInfoEvent = isModelSlashCommand(rawContent)
+        ? await buildModelInfoEvent()
+        : null;
 
       const response = Response.json(
         {

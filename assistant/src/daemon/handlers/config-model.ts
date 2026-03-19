@@ -18,7 +18,6 @@ import {
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { getMaskedProviderKey } from "../../security/secure-keys.js";
-import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
@@ -28,6 +27,13 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
+
+/** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_CATALOG. */
+export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
+  Object.entries(PROVIDER_MODEL_CATALOG).flatMap(([provider, models]) =>
+    models.map(({ id }) => [id, provider]),
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)

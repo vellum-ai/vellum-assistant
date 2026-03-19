@@ -32,12 +32,7 @@ import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
-import {
-  isProviderShortcut,
-  resolveSlash,
-  type SlashContext,
-} from "./conversation-slash.js";
-import type { ModelSetContext } from "./handlers/config-model.js";
+import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import type {
   ServerMessage,
@@ -89,8 +84,6 @@ export interface ProcessConversationContext {
   addPreactivatedSkillId(id: string): void;
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
-  /** Model set context for delegating model/provider changes through shared setModel(). */
-  modelSetContext?: ModelSetContext;
   trustContext?: TrustContext;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(
@@ -202,7 +195,6 @@ function buildSlashContext(
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
-    modelSetContext: conversation.modelSetContext,
   };
 }
 
@@ -379,10 +371,7 @@ export async function drainQueue(
 
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
-      if (
-        isModelSlashCommand(next.content) ||
-        isProviderShortcut(next.content)
-      ) {
+      if (isModelSlashCommand(next.content)) {
         next.onEvent(await buildModelInfoEvent());
       }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
@@ -758,7 +747,7 @@ export async function processMessage(
 
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
-    if (isModelSlashCommand(content) || isProviderShortcut(content)) {
+    if (isModelSlashCommand(content)) {
       onEvent(await buildModelInfoEvent());
     }
     onEvent({ type: "assistant_text_delta", text: slashResult.message });

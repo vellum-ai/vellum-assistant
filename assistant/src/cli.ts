@@ -19,7 +19,7 @@ import {
 } from "./cli/main-screen.jsx";
 import { loadRawConfig, saveRawConfig } from "./config/loader.js";
 import { setServiceField } from "./config/raw-config-utils.js";
-import { MODEL_TO_PROVIDER } from "./daemon/conversation-slash.js";
+import { MODEL_TO_PROVIDER } from "./daemon/handlers/config-model.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type {
