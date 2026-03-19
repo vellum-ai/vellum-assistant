@@ -45,7 +45,9 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, managedServiceConfigKey) propagate to existing installations on every startup, while
+ * pingUrl, managedServiceConfigKey) and display metadata (displayName,
+ * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
+ * propagate to existing installations on every startup, while
  * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
  * only written on the initial insert.
  */
@@ -63,6 +65,11 @@ export function seedProviders(
     extraParams?: Record<string, string>;
     callbackTransport?: string;
     managedServiceConfigKey?: string;
+    displayName?: string;
+    description?: string;
+    dashboardUrl?: string | null;
+    clientIdPlaceholder?: string | null;
+    requiresClientSecret?: boolean;
   }>,
 ): void {
   const db = getDb();
@@ -79,6 +86,11 @@ export function seedProviders(
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
     const callbackTransport = p.callbackTransport ?? null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
+    const displayName = p.displayName ?? null;
+    const description = p.description ?? null;
+    const dashboardUrl = p.dashboardUrl ?? null;
+    const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
+    const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;
 
     db.insert(oauthProviders)
       .values({
@@ -94,6 +106,11 @@ export function seedProviders(
         callbackTransport,
         pingUrl,
         managedServiceConfigKey,
+        displayName,
+        description,
+        dashboardUrl,
+        clientIdPlaceholder,
+        requiresClientSecret,
         createdAt: now,
         updatedAt: now,
       })
@@ -108,6 +125,11 @@ export function seedProviders(
           callbackTransport,
           pingUrl,
           managedServiceConfigKey,
+          displayName,
+          description,
+          dashboardUrl,
+          clientIdPlaceholder,
+          requiresClientSecret,
           updatedAt: now,
         },
       })
