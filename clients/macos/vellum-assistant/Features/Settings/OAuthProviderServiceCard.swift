@@ -1,16 +1,27 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Card for the Google OAuth service with Managed/Your Own mode toggle.
+/// Generic card for an OAuth provider service with Managed/Your Own mode toggle.
 ///
-/// Managed mode shows a connect flow for linking Google accounts.
+/// Managed mode shows a connect flow for linking accounts via platform OAuth.
 /// Your Own mode shows OAuth app management with connection cards.
 /// The mode selection is persisted so user preference is retained.
 @MainActor
-struct GoogleOAuthServiceCard: View {
+struct OAuthProviderServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     var showToast: (String, ToastInfo.Style) -> Void
+    let providerKey: String
+
+    // MARK: - Metadata Helpers
+
+    private var providerMeta: OAuthProviderMetadata? {
+        store.yourOwnProviderMeta(for: providerKey)
+    }
+
+    private var displayName: String {
+        providerMeta?.display_name ?? "OAuth"
+    }
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -52,8 +63,8 @@ struct GoogleOAuthServiceCard: View {
 
     var body: some View {
         ServiceModeCard(
-            title: "Google OAuth",
-            subtitle: "Configure Google OAuth for Gmail and Calendar access",
+            title: "\(displayName) OAuth",
+            subtitle: "Configure \(displayName) OAuth\(providerMeta?.description.map { " for \($0)" } ?? "")",
             draftMode: $draftMode,
             hasChanges: hasChanges,
             isSaving: false,
@@ -79,7 +90,7 @@ struct GoogleOAuthServiceCard: View {
             if newValue == "managed" {
                 Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
             } else if newValue == "your-own" {
-                store.fetchYourOwnOAuthApps()
+                store.fetchYourOwnOAuthApps(providerKey: providerKey)
             }
         }
         .sheet(isPresented: $showCreateAppSheet) {
@@ -89,7 +100,7 @@ struct GoogleOAuthServiceCard: View {
             Button("Cancel", role: .cancel) { appToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let app = appToDelete {
-                    Task { await store.deleteYourOwnOAuthApp(id: app.id) }
+                    Task { await store.deleteYourOwnOAuthApp(id: app.id, providerKey: providerKey) }
                     appToDelete = nil
                 }
             }
@@ -112,7 +123,7 @@ struct GoogleOAuthServiceCard: View {
             }
         } message: {
             if let conn = disconnectConnection {
-                Text("Disconnect '\(conn.account_info ?? "Google Account")'? You can reconnect later.")
+                Text("Disconnect '\(conn.account_info ?? "\(displayName) Account")'? You can reconnect later.")
             }
         }
     }
@@ -129,7 +140,7 @@ struct GoogleOAuthServiceCard: View {
             } else if store.googleOAuthIsConnecting {
                 managedConnectingState
             } else {
-                VButton(label: "Connect Google Account", style: .primary) {
+                VButton(label: "Connect \(displayName) Account", style: .primary) {
                     store.startGoogleOAuthConnect(userId: currentUserId)
                 }
             }
@@ -142,7 +153,7 @@ struct GoogleOAuthServiceCard: View {
 
     private var managedLoginPrompt: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Log in to Vellum to connect Google.")
+            Text("Log in to Vellum to connect \(displayName).")
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
             VButton(
@@ -161,7 +172,7 @@ struct GoogleOAuthServiceCard: View {
 
     private var managedConnectingState: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            VButton(label: "Connect Google Account", style: .primary, isDisabled: true) {}
+            VButton(label: "Connect \(displayName) Account", style: .primary, isDisabled: true) {}
             Text("Waiting for authorization...")
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
@@ -187,7 +198,7 @@ struct GoogleOAuthServiceCard: View {
     private func connectionRow(for entry: OAuthConnectionEntry) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.account_label ?? "Google Account")
+                Text(entry.account_label ?? "\(displayName) Account")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentDefault)
                 if let scopes = entry.scopes_granted, !scopes.isEmpty {
@@ -212,25 +223,25 @@ struct GoogleOAuthServiceCard: View {
     @ViewBuilder
     private var yourOwnBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            if store.yourOwnOAuthIsLoading {
+            if store.yourOwnIsLoading(for: providerKey) {
                 HStack {
                     Spacer()
                     VBusyIndicator()
                     Spacer()
                 }
                 .padding(.vertical, VSpacing.lg)
-            } else if store.yourOwnOAuthApps.isEmpty {
+            } else if store.yourOwnApps(for: providerKey).isEmpty {
                 yourOwnEmptyState
             } else {
                 yourOwnAppsList
             }
 
-            if let error = store.yourOwnOAuthError {
+            if let error = store.yourOwnError(for: providerKey) {
                 VInlineMessage(error, tone: .error)
             }
         }
         .onAppear {
-            store.fetchYourOwnOAuthApps()
+            store.fetchYourOwnOAuthApps(providerKey: providerKey)
         }
     }
 
@@ -243,7 +254,7 @@ struct GoogleOAuthServiceCard: View {
                 Text("No OAuth apps configured")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
-                Text("Add your Google Cloud OAuth credentials to connect accounts.")
+                Text("Add your \(displayName) OAuth credentials to connect accounts.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
@@ -261,7 +272,7 @@ struct GoogleOAuthServiceCard: View {
 
     private var yourOwnAppsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(store.yourOwnOAuthApps) { app in
+            ForEach(store.yourOwnApps(for: providerKey)) { app in
                 yourOwnAppCard(for: app)
             }
 
@@ -366,7 +377,7 @@ struct GoogleOAuthServiceCard: View {
             VIconView(.circleUser, size: 14)
                 .foregroundColor(VColor.contentSecondary)
 
-            Text(conn.account_info ?? "Google Account")
+            Text(conn.account_info ?? "\(displayName) Account")
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
 
@@ -388,7 +399,7 @@ struct GoogleOAuthServiceCard: View {
     private var createAppSheet: some View {
         VModal(
             title: "Add OAuth App",
-            subtitle: "Enter your Google Cloud OAuth credentials",
+            subtitle: "Enter your \(displayName) OAuth credentials",
             closeAction: { showCreateAppSheet = false }
         ) {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -396,17 +407,21 @@ struct GoogleOAuthServiceCard: View {
                     Text("Client ID")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
-                    VTextField(placeholder: "e.g. 123456789.apps.googleusercontent.com", text: $createAppClientId)
+                    VTextField(placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID", text: $createAppClientId)
                 }
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Client Secret")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                    SecureField("Enter client secret", text: $createAppClientSecret)
-                        .vInputStyle()
-                        .font(VFont.body)
+                if (providerMeta?.requires_client_secret ?? 1) != 0 {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Client Secret")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                        SecureField("Enter client secret", text: $createAppClientSecret)
+                            .vInputStyle()
+                            .font(VFont.body)
+                    }
                 }
-                VInlineMessage("Find these in your Google Cloud Console under APIs & Services > Credentials.", tone: .info)
+                if providerMeta?.dashboard_url != nil {
+                    VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
+                }
             }
         } footer: {
             HStack {
@@ -417,11 +432,11 @@ struct GoogleOAuthServiceCard: View {
                 VButton(
                     label: createAppIsSubmitting ? "Creating..." : "Create",
                     style: .primary,
-                    isDisabled: createAppClientId.isEmpty || createAppClientSecret.isEmpty || createAppIsSubmitting
+                    isDisabled: createAppClientId.isEmpty || ((providerMeta?.requires_client_secret ?? 1) != 0 && createAppClientSecret.isEmpty) || createAppIsSubmitting
                 ) {
                     createAppIsSubmitting = true
                     Task {
-                        await store.createYourOwnOAuthApp(clientId: createAppClientId, clientSecret: createAppClientSecret)
+                        await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
                         createAppIsSubmitting = false
                         showCreateAppSheet = false
                     }
