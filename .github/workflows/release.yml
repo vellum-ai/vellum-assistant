@@ -2102,10 +2102,9 @@ jobs:
           # Fetch release notes from GitHub release
           RELEASE_BODY=$(gh release view "$VERSION_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
 
-          RELEASE_NOTES_SECTION=""
           RELEASE_SUMMARY=""
           if [ -n "$RELEASE_BODY" ]; then
-            # Extract highlights section for the summary
+            # Extract highlights bullets for the Slack summary
             HIGHLIGHTS=$(echo "$RELEASE_BODY" | awk '/^## Highlights/{f=1; next} /^(## |---$)/{f=0} f' | grep '^- ' || true)
 
             if [ -n "$HIGHLIGHTS" ]; then
@@ -2113,31 +2112,7 @@ jobs:
               RELEASE_SUMMARY=$(echo "$HIGHLIGHTS" | \
                 sed 's/\*\*\([^*]*\)\*\*/*\1*/g' | \
                 sed 's/\[\([^]]*\)\](\([^)]*\))/<\2|\1>/g')
-            else
-              # Fallback to counting items per section
-              features=$(echo "$RELEASE_BODY" | awk '/^## Features/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
-              fixes=$(echo "$RELEASE_BODY" | awk '/^## Fixes/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
-              infra=$(echo "$RELEASE_BODY" | awk '/^## Infrastructure/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
-
-              summary=""
-              [ "$features" -gt 0 ] 2>/dev/null && summary="${features} features"
-              [ "$fixes" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${fixes} fixes"
-              [ "$infra" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${infra} infra changes"
-
-              if [ -n "$summary" ]; then
-                RELEASE_SUMMARY="$summary"
-              fi
             fi
-
-            # Convert GitHub markdown to Slack mrkdwn, excluding Highlights section to avoid duplication
-            RELEASE_NOTES_SECTION=$(echo "$RELEASE_BODY" | \
-              awk '/^## Highlights/{skip=1; next} /^## [^H]/{skip=0} !skip' | \
-              sed 's/^## \(.*\)/*\1*/g' | \
-              sed 's/\*\*\([^*]*\)\*\*/*\1*/g' | \
-              sed 's/\[\([^]]*\)\](\([^)]*\))/<\2|\1>/g' | \
-              sed '/^---$/d' | \
-              sed '/^Download the DMG.*Applications folder\.$/d' | \
-              sed '/^Existing installations will auto-update via Sparkle\.$/d')
           fi
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${VERSION_TAG}"
@@ -2156,11 +2131,6 @@ jobs:
           # CI checks + metadata
           BODY=$(printf '%s\n\n%s' "$CI_LINE" "$META_LINE")
           BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
-
-          # Release notes body (if available)
-          if [ -n "$RELEASE_NOTES_SECTION" ]; then
-            BLOCKS=$(echo "$BLOCKS" | jq --arg notes "$RELEASE_NOTES_SECTION" '. + [{ type: "divider" }, { type: "section", text: { type: "mrkdwn", text: $notes } }]')
-          fi
 
           # Buttons
           VIEW_RUN=$(jq -n --arg url "$RUN_URL" --arg style "$STYLE" '{
