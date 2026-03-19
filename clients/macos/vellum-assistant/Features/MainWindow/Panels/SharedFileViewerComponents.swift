@@ -211,8 +211,33 @@ private struct PointerCursorOverlay: NSViewRepresentable {
 }
 
 private class PointerTrackingView: NSView {
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+    private var currentTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = currentTrackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        currentTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 }
 
