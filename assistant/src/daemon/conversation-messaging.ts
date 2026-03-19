@@ -16,6 +16,7 @@ import type {
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
   AttachmentUploadError,
+  getAttachmentById,
   linkAttachmentToMessage,
   uploadAttachment,
   validateAttachmentUpload,
@@ -362,8 +363,18 @@ export async function persistUserMessage(
     // Index user attachments in the attachments table for later retrieval.
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
-      if (!a.data) continue;
       try {
+        // If the attachment already exists in the store (e.g. file-backed
+        // attachments uploaded separately), link it directly without
+        // re-uploading. This handles the case where data is empty because
+        // the attachment content lives on disk.
+        if (a.id && getAttachmentById(a.id)) {
+          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          continue;
+        }
+
+        if (!a.data) continue;
+
         const validation = validateAttachmentUpload(a.filename, a.mimeType);
         if (!validation.ok) {
           log.warn(
