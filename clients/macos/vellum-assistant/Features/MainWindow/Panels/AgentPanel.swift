@@ -444,8 +444,8 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header row: back button + icon + title/description + tags + uninstall
-            HStack(alignment: .center, spacing: VSpacing.md) {
+            // Title row: back + icon + name + tag + delete
+            HStack(spacing: VSpacing.sm) {
                 VButton(
                     label: "Back",
                     iconOnly: VIcon.chevronLeft.rawValue,
@@ -457,95 +457,70 @@ struct AgentPanelContent: View {
                     }
                 }
 
-                // Large skill icon (48x48)
-                detailSkillIcon(skill.emoji)
+                skillIcon(skill.emoji)
 
-                // Title + description stacked
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    // Title line with tags
-                    HStack(spacing: VSpacing.sm) {
-                        Text(skill.name)
-                            .font(VFont.cardTitle)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
+                Text(skill.name)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
 
-                        // Source badge
-                        Text(sourceLabel(skill.source))
-                            .font(VFont.small)
-                            .foregroundColor(sourceBadgeColor(skill.source))
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(sourceBadgeColor(skill.source).opacity(0.15))
-                            )
+                VSkillTypePill(source: skill.source)
 
-                        // Provenance badge
-                        if let label = provenanceLabel(skill) {
-                            Text(label)
+                if skill.updateAvailable {
+                    Text("UPDATE")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.systemNegativeHover)
+                }
+
+                Spacer()
+
+                if skill.source == "managed" || skill.source == "clawhub" {
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        tooltip: "Uninstall skill"
+                    ) {
+                        skillToDelete = skill
+                    }
+                }
+            }
+
+            // Description
+            if !skill.description.isEmpty {
+                Text(skill.description)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                    .lineLimit(2)
+            }
+
+            // Meta info
+            HStack(spacing: VSpacing.lg) {
+                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
+                    skillMetaItem(icon: .tag, value: "v\(installedVersion)")
+                }
+
+                if skill.updateAvailable {
+                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
+                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
+                    } else {
+                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
+                    }
+                }
+
+                if let provenance = skill.provenance,
+                   provenance.kind == "third-party",
+                   let urlString = provenance.sourceUrl,
+                   let url = URL(string: urlString) {
+                    Link(destination: url) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.externalLink, size: 9)
+                            Text("View on \(provenance.provider ?? "source")")
                                 .font(VFont.small)
-                                .foregroundColor(provenanceBadgeColor(skill))
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(provenanceBadgeColor(skill).opacity(0.15))
-                                )
                         }
-
-                        if skill.updateAvailable {
-                            Text("UPDATE")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.systemNegativeHover)
-                        }
-
-                        Spacer()
-
-                        // Uninstall button for managed skills
-                        if skill.source == "managed" || skill.source == "clawhub" {
-                            VButton(label: "Uninstall", icon: VIcon.circleX.rawValue, style: .danger) {
-                                skillToDelete = skill
-                            }
-                        }
+                        .foregroundColor(VColor.contentTertiary)
                     }
-
-                    // Description on next line
-                    if !skill.description.isEmpty {
-                        Text(skill.description)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(2)
-                    }
-
-                    // Meta info
-                    HStack(spacing: VSpacing.lg) {
-                        if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                            skillMetaItem(icon: .tag, value: "v\(installedVersion)")
-                        }
-
-                        if skill.updateAvailable {
-                            if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                                skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
-                            } else {
-                                skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
-                            }
-                        }
-
-                        if let provenance = skill.provenance,
-                           provenance.kind == "third-party",
-                           let urlString = provenance.sourceUrl,
-                           let url = URL(string: urlString) {
-                            Link(destination: url) {
-                                HStack(spacing: VSpacing.xs) {
-                                    VIconView(.externalLink, size: 9)
-                                    Text("View on \(provenance.provider ?? "source")")
-                                        .font(VFont.small)
-                                }
-                                .foregroundColor(VColor.contentTertiary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -678,19 +653,6 @@ struct AgentPanelContent: View {
         }
         .font(VFont.small)
         .foregroundColor(color)
-    }
-
-    @ViewBuilder
-    private func detailSkillIcon(_ emoji: String?) -> some View {
-        if let emoji, !emoji.isEmpty {
-            Text(emoji)
-                .font(.system(size: 36))
-                .frame(width: 48, height: 48)
-        } else {
-            VIconView(.zap, size: 24)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(width: 48, height: 48)
-        }
     }
 
     @ViewBuilder
