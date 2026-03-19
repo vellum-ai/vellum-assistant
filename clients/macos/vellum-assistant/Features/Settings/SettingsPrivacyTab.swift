@@ -23,7 +23,15 @@ struct SettingsPrivacyTab: View {
 
     private var privacySection: some View {
         SettingsCard(title: "Privacy") {
-            HStack {
+            HStack(alignment: .top, spacing: 10) {
+                VToggle(isOn: Binding(
+                    get: { store.collectUsageData },
+                    set: { newValue in
+                        store.collectUsageData = newValue
+                        syncPrivacyConfig()
+                    }
+                ))
+                .padding(.top, 2)
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Share Analytics")
                         .font(VFont.body)
@@ -32,28 +40,11 @@ struct SettingsPrivacyTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
-                Spacer()
-                VToggle(isOn: Binding(
-                    get: { store.collectUsageData },
-                    set: { newValue in
-                        store.collectUsageData = newValue
-                        syncPrivacyConfig()
-                    }
-                ))
             }
 
             SettingsDivider()
 
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Share Diagnostics")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text("Send crash reports and performance metrics. Your conversations and personal data are never included.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                Spacer()
+            HStack(alignment: .top, spacing: 10) {
                 VToggle(isOn: Binding(
                     get: { store.sendDiagnostics },
                     set: { newValue in
@@ -66,6 +57,15 @@ struct SettingsPrivacyTab: View {
                         syncPrivacyConfig()
                     }
                 ))
+                .padding(.top, 2)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Share Diagnostics")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("Send crash reports and performance metrics. Your conversations and personal data are never included.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
             }
         }
     }

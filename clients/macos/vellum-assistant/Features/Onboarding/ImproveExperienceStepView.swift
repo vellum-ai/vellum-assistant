@@ -35,7 +35,9 @@ struct ImproveExperienceStepView: View {
                 // Privacy toggles card
                 VStack(spacing: VSpacing.lg) {
                     // Usage analytics toggle
-                    HStack {
+                    HStack(alignment: .top, spacing: 10) {
+                        VToggle(isOn: $collectUsageData)
+                            .padding(.top, 2)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Share Analytics")
                                 .font(VFont.body)
@@ -44,14 +46,14 @@ struct ImproveExperienceStepView: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
-                        Spacer()
-                        VToggle(isOn: $collectUsageData)
                     }
 
                     SettingsDivider()
 
                     // Diagnostics toggle
-                    HStack {
+                    HStack(alignment: .top, spacing: 10) {
+                        VToggle(isOn: $sendDiagnostics)
+                            .padding(.top, 2)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Share Diagnostics")
                                 .font(VFont.body)
@@ -60,8 +62,6 @@ struct ImproveExperienceStepView: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
-                        Spacer()
-                        VToggle(isOn: $sendDiagnostics)
                     }
                 }
                 .padding(VSpacing.lg)
