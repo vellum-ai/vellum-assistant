@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,6 +154,10 @@ function seedConversationRows(): {
   return { conversationId, conversationCreatedAt, conversationUpdatedAt };
 }
 
+function toConversationTimestamp(createdAtMs: number): string {
+  return new Date(createdAtMs).toISOString().replace(/:/g, "-");
+}
+
 describe("009-backfill-conversation-disk-view migration", () => {
   beforeEach(() => {
     resetTables();
@@ -208,5 +213,66 @@ describe("009-backfill-conversation-disk-view migration", () => {
     expect(readFileSync(join(attachmentsDir, "note.txt"), "utf-8")).toBe(
       "hello world",
     );
+  });
+
+  test("rebuilds stale legacy-named disk views in-place and stays idempotent", () => {
+    const { conversationId, conversationCreatedAt, conversationUpdatedAt } =
+      seedConversationRows();
+    const timestamp = toConversationTimestamp(conversationCreatedAt);
+    const expectedNewDirName = `${timestamp}_${conversationId}`;
+    const expectedNewDirPath = join(conversationsDir, expectedNewDirName);
+    const legacyDirPath = join(
+      conversationsDir,
+      `${conversationId}_${timestamp}`,
+    );
+    const metaPath = join(legacyDirPath, "meta.json");
+    const messagesPath = join(legacyDirPath, "messages.jsonl");
+    const attachmentsDir = join(legacyDirPath, "attachments");
+
+    mkdirSync(attachmentsDir, { recursive: true });
+    writeFileSync(
+      metaPath,
+      JSON.stringify(
+        {
+          id: conversationId,
+          title: "Backfill Test",
+          type: "standard",
+          channel: "desktop",
+          createdAt: new Date(conversationCreatedAt).toISOString(),
+          updatedAt: new Date(conversationUpdatedAt - 1000).toISOString(),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    writeFileSync(messagesPath, '{"role":"user","content":"stale line"}\n');
+    writeFileSync(join(attachmentsDir, "stale.txt"), "stale");
+
+    backfillConversationDiskViewMigration.run(workspaceDir);
+
+    expect(existsSync(expectedNewDirPath)).toBe(false);
+    expect(existsSync(legacyDirPath)).toBe(true);
+    expect(
+      JSON.parse(readFileSync(metaPath, "utf-8")).updatedAt,
+    ).toBe(new Date(conversationUpdatedAt).toISOString());
+    expect(readFileSync(messagesPath, "utf-8").trim().split("\n")).toHaveLength(
+      1,
+    );
+    expect(JSON.parse(readFileSync(messagesPath, "utf-8").trim())).toEqual({
+      role: "user",
+      ts: "2026-03-18T14:24:00.000Z",
+      content: "Hello from sqlite row",
+      attachments: ["note.txt"],
+    });
+    expect(readdirSync(attachmentsDir).sort()).toEqual(["note.txt"]);
+    expect(readFileSync(join(attachmentsDir, "note.txt"), "utf-8")).toBe(
+      "hello world",
+    );
+
+    const firstRunMessages = readFileSync(messagesPath, "utf-8");
+    backfillConversationDiskViewMigration.run(workspaceDir);
+
+    expect(readFileSync(messagesPath, "utf-8")).toBe(firstRunMessages);
+    expect(readdirSync(attachmentsDir).sort()).toEqual(["note.txt"]);
   });
 });
