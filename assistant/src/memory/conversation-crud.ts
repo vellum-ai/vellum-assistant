@@ -1317,7 +1317,7 @@ export function clearAll(): { conversations: number; messages: number } {
 
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
-  rawExec(
+  rawRun(
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
