@@ -112,7 +112,8 @@ struct MessageInspectorView: View {
                 Spacer()
             }
             .padding(VSpacing.lg)
-            .frame(width: callRailWidth, maxHeight: .infinity, alignment: .topLeading)
+            .frame(width: callRailWidth, alignment: .topLeading)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
 
             Divider()
 
@@ -188,7 +189,8 @@ struct MessageInspectorView: View {
             }
             .padding(VSpacing.md)
         }
-        .frame(width: callRailWidth, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: callRailWidth, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
     }
 
