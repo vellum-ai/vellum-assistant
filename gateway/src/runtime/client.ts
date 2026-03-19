@@ -310,38 +310,50 @@ export type UploadAttachmentResponse = {
   id: string;
 };
 
+/**
+ * Internal helper that fetches raw attachment content without interacting
+ * with the circuit breaker. Used by downloadAttachment's hydration path
+ * which already owns the breaker lifecycle for the compound operation.
+ */
+async function fetchAttachmentContentRaw(
+  config: GatewayConfig,
+  attachmentId: string,
+): Promise<Buffer> {
+  const url = `${
+    config.assistantRuntimeBaseUrl
+  }/v1/attachments/${encodeURIComponent(attachmentId)}/content`;
+
+  const response = await fetchImpl(url, {
+    method: "GET",
+    headers: runtimeServiceHeaders(config),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Attachment content download failed (${response.status}): ${body}`,
+    );
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 export async function downloadAttachmentContent(
   config: GatewayConfig,
   attachmentId: string,
 ): Promise<Buffer> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}/content`;
-
-  let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "GET",
-      headers: runtimeServiceHeaders(config),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    const buffer = await fetchAttachmentContentRaw(config, attachmentId);
+    cbOnSuccess();
+    return buffer;
   } catch (err) {
     cbOnFailure();
     throw err;
   }
-
-  if (!response.ok) {
-    const body = await response.text();
-    if (response.status >= 500) cbOnFailure();
-    else cbOnSuccess();
-    throw new Error(
-      `Attachment content download failed (${response.status}): ${body}`,
-    );
-  }
-
-  cbOnSuccess();
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }
 
 export async function downloadAttachment(
@@ -350,7 +362,9 @@ export async function downloadAttachment(
 ): Promise<HydratedAttachmentPayload> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}`;
+  const url = `${
+    config.assistantRuntimeBaseUrl
+  }/v1/attachments/${encodeURIComponent(attachmentId)}`;
 
   let response: Response;
   try {
@@ -375,15 +389,24 @@ export async function downloadAttachment(
 
   // Transparently hydrate file-backed attachments: fetch the binary content
   // from the dedicated /content endpoint and inline it as base64.
-  // Note: we defer cbOnSuccess() until after hydration so that a recurring
-  // pattern of metadata-200 + content-5xx correctly accumulates breaker
-  // failures instead of resetting the counter on every metadata success.
-  if (payload.fileBacked && !payload.data) {
-    const contentBuffer = await downloadAttachmentContent(config, attachmentId);
-    payload.data = contentBuffer.toString("base64");
+  // We use the raw helper (no nested circuit breaker) so the compound
+  // metadata+content operation is treated as a single breaker unit.
+  // If content fetch fails, cbOnFailure() fires for the whole operation.
+  if (payload.fileBacked && payload.data == null) {
+    try {
+      const contentBuffer = await fetchAttachmentContentRaw(
+        config,
+        attachmentId,
+      );
+      payload.data = contentBuffer.toString("base64");
+    } catch (err) {
+      cbOnFailure();
+      throw err;
+    }
   }
 
-  if (!payload.data) {
+  // Use == null to allow empty string (valid base64 for zero-byte attachments)
+  if (payload.data == null) {
     throw new Error(`Attachment ${attachmentId} has no data after hydration`);
   }
 
