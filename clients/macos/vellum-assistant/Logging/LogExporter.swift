@@ -282,6 +282,8 @@ enum LogExporter {
             var metadata: [String: Any] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
+                // device_id intentionally matches ~/.vellum/device.json UUID
+                // so log exports correlate with daemon Sentry events and telemetry.
                 "device_id": SentryDeviceInfo.deviceId,
             ]
             if !formData.name.isEmpty {
