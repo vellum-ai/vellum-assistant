@@ -556,7 +556,7 @@ sequenceDiagram
     Daemon->>DiskView: syncMessageToDisk(convId, msgId, createdAtMs)
     DiskView->>DiskView: flattenContentBlocks(content)
     DiskView->>FS: append JSONL record to messages.jsonl
-    DiskView->>FS: write attachment files to attachments/
+    DiskView->>FS: reference files already materialized in attachments/
 
     Note over CRUD,FS: Conversation update (CRUD layer)
     CRUD->>CRUD: UPDATE conversation row
@@ -580,7 +580,7 @@ Message content (stored as JSON `ContentBlock[]` in the DB) is flattened for the
 
 ### Attachment Projection
 
-When a message with attachments is synced, each attachment's binary content is decoded from the DB and written to the `attachments/` subdirectory using the original filename. Filename collisions are resolved by appending a numeric suffix (e.g., `photo-2.png`, `photo-3.png`). The resolved filenames are recorded in the JSONL record's `attachments` array.
+Attachments are materialized into `conversations/<conversation>/attachments/` as soon as they are linked to a message. During disk-view sync, the JSONL record reuses those filenames directly and only falls back to materializing legacy rows that have not been projected yet. Filename collisions are still resolved by appending a numeric suffix (e.g., `photo-2.png`, `photo-3.png`).
 
 ### Backfill Migration
 

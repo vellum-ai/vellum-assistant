@@ -81,6 +81,23 @@ const mockAttachments: Array<{
 let mockAttachmentIdCounter = 0;
 
 mock.module("../memory/attachments-store.js", () => ({
+  attachFileBackedAttachmentToMessage: (
+    _messageId: string,
+    _position: number,
+    filename: string,
+    mimeType: string,
+    _filePath: string,
+    sizeBytes: number,
+  ) => {
+    const att = {
+      id: `att-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes,
+    };
+    mockAttachments.push(att);
+    return att;
+  },
   uploadFileBackedAttachment: (
     filename: string,
     mimeType: string,

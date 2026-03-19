@@ -55,6 +55,11 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 mock.module("../permissions/types.js", () => ({
+  RiskLevel: {
+    Low: "low",
+    Medium: "medium",
+    High: "high",
+  },
   isAllowDecision: () => true,
 }));
 

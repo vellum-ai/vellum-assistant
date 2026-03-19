@@ -17,12 +17,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import {
   getAttachmentContent,
+  getFilePathForAttachment,
   getAttachmentMetadataForMessage,
 } from "./attachments-store.js";
 import { getMessageById } from "./conversation-crud.js";
@@ -219,8 +220,8 @@ export function resolveUniqueFilename(dir: string, filename: string): string {
 }
 
 /**
- * Write an attachment's content to the conversation's attachments/ subdirectory.
- * Returns the resolved filename (after collision handling), or null on failure.
+ * Ensure an attachment is present in the conversation's attachments/
+ * subdirectory and return the filename recorded in the disk view.
  */
 function writeAttachmentFile(
   conversationDirPath: string,
@@ -230,6 +231,15 @@ function writeAttachmentFile(
   try {
     const attachDir = join(conversationDirPath, "attachments");
     mkdirSync(attachDir, { recursive: true });
+
+    const existingPath = getFilePathForAttachment(attachmentId);
+    if (
+      existingPath &&
+      existsSync(existingPath) &&
+      dirname(existingPath) === attachDir
+    ) {
+      return basename(existingPath);
+    }
 
     const content = getAttachmentContent(attachmentId);
     if (!content) return null;
@@ -253,7 +263,8 @@ function writeAttachmentFile(
 /**
  * Read a message and its attachments from DB, flatten content, and append
  * a JSONL line to `messages.jsonl` in the conversation's disk-view directory.
- * Also copies attachment files to the `attachments/` subdirectory.
+ * Attachment filenames are recorded from the conversation's attachments/
+ * subdirectory, materializing legacy rows there only when needed.
  *
  * Requires `createdAtMs` of the conversation to resolve the directory path.
  */

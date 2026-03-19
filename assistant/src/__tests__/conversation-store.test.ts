@@ -564,7 +564,7 @@ describe("attachment reuse across conversation lifecycles", () => {
     expect(fetched!.dataBase64).toBe("JVBERA==");
   });
 
-  test("attachment can be linked to messages in different conversations", async () => {
+  test("re-linking an attachment across conversations creates a conversation-local row", async () => {
     const convA = createConversation("Conversation A");
     const convB = createConversation("Conversation B");
 
@@ -576,17 +576,17 @@ describe("attachment reuse across conversation lifecycles", () => {
     linkAttachmentToMessage(msgA.id, stored.id, 0);
     linkAttachmentToMessage(msgB.id, stored.id, 0);
 
-    // Both messages see the attachment
+    // Both messages see the attachment, but each conversation keeps its own row.
     const linkedA = getAttachmentsForMessage(msgA.id);
     expect(linkedA).toHaveLength(1);
     expect(linkedA[0].id).toBe(stored.id);
 
     const linkedB = getAttachmentsForMessage(msgB.id);
     expect(linkedB).toHaveLength(1);
-    expect(linkedB[0].id).toBe(stored.id);
+    expect(linkedB[0].id).not.toBe(stored.id);
   });
 
-  test("deleting conversation A does not orphan attachment reused in conversation B", async () => {
+  test("deleting conversation A does not remove the copied attachment in conversation B", async () => {
     const convA = createConversation("Conversation A");
     const convB = createConversation("Conversation B");
 
@@ -600,33 +600,33 @@ describe("attachment reuse across conversation lifecycles", () => {
     const stored = uploadAttachment("chart.png", "image/png", "AAAA");
     linkAttachmentToMessage(msgA.id, stored.id, 0);
     linkAttachmentToMessage(msgB.id, stored.id, 0);
+    const linkedB = getAttachmentsForMessage(msgB.id);
+    expect(linkedB).toHaveLength(1);
 
     // Delete conversation A's exchange
     deleteLastExchange(convA.id);
 
-    // Attachment survives because convB still references it
-    const fetched = getAttachmentById(stored.id);
+    // Conversation B keeps its own attachment row and file.
+    const fetched = getAttachmentById(linkedB[0].id);
     expect(fetched).not.toBeNull();
 
     // convB's message still has the attachment linked
-    const linkedB = getAttachmentsForMessage(msgB.id);
-    expect(linkedB).toHaveLength(1);
-    expect(linkedB[0].id).toBe(stored.id);
+    const linkedBAfterDelete = getAttachmentsForMessage(msgB.id);
+    expect(linkedBAfterDelete).toHaveLength(1);
+    expect(linkedBAfterDelete[0].id).toBe(linkedB[0].id);
   });
 
-  test("content-hash dedup works across conversations", async () => {
+  test("identical uploads remain distinct across conversations", async () => {
     const convA = createConversation("Conversation A");
     const convB = createConversation("Conversation B");
 
     await addMessage(convA.id, "user", "upload in A");
     await addMessage(convB.id, "user", "upload in B");
 
-    // Same content uploaded in two different conversation contexts
     const first = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
     const second = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
 
-    // Dedup returns the same attachment row
-    expect(second.id).toBe(first.id);
+    expect(second.id).not.toBe(first.id);
   });
 });
 
@@ -664,7 +664,7 @@ describe("no private-conversation attachment visibility boundary", () => {
     expect(fetched!.originalFilename).toBe("secret.pdf");
   });
 
-  test("attachment from private conversation can be linked to a standard conversation message", async () => {
+  test("attachment from a private conversation is copied when linked into a standard conversation", async () => {
     const privateConv = createConversation({
       title: "Private",
       conversationType: "private",
@@ -695,7 +695,7 @@ describe("no private-conversation attachment visibility boundary", () => {
 
     const linkedStandard = getAttachmentsForMessage(standardMsg.id);
     expect(linkedStandard).toHaveLength(1);
-    expect(linkedStandard[0].id).toBe(stored.id);
+    expect(linkedStandard[0].id).not.toBe(stored.id);
   });
 
   test("getAttachmentsForMessage returns private conversation attachments", async () => {
@@ -712,7 +712,7 @@ describe("no private-conversation attachment visibility boundary", () => {
     expect(linked[0].id).toBe(stored.id);
   });
 
-  test("content-hash dedup works across private and standard conversations", () => {
+  test("identical uploads remain distinct across private and standard conversations", () => {
     createConversation({ title: "Private", conversationType: "private" });
     createConversation({ title: "Standard", conversationType: "standard" });
 
@@ -728,8 +728,7 @@ describe("no private-conversation attachment visibility boundary", () => {
       "CROSSCONVERSATION",
     );
 
-    // Dedup returns the same row — no conversation-type isolation
-    expect(fromStandard.id).toBe(fromPrivate.id);
+    expect(fromStandard.id).not.toBe(fromPrivate.id);
   });
 
   test("clearAll removes attachments from both private and standard conversations", async () => {

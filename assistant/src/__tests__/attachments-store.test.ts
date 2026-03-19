@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,7 +52,7 @@ import {
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, rawGet, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawGet, rawRun, resetDb } from "../memory/db.js";
 
 initializeDb();
 
@@ -74,7 +74,7 @@ function resetTables() {
 }
 
 // ---------------------------------------------------------------------------
-// uploadAttachment — always writes to disk
+// uploadAttachment — stages until linked
 // ---------------------------------------------------------------------------
 
 describe("uploadAttachment", () => {
@@ -91,29 +91,24 @@ describe("uploadAttachment", () => {
     expect(stored.createdAt).toBeGreaterThan(0);
   });
 
-  test("always writes file to disk", () => {
+  test("keeps uploads staged until linked", () => {
     const stored = uploadAttachment("small.txt", "text/plain", "aGVsbG8=");
     const filePath = getFilePathForAttachment(stored.id);
 
-    expect(filePath).toBeTruthy();
-    expect(existsSync(filePath!)).toBe(true);
-
-    // The on-disk file should contain the decoded bytes
-    const content = readFileSync(filePath!);
-    expect(content.toString()).toBe("hello");
+    expect(filePath).toBeNull();
+    expect(getAttachmentContent(stored.id)?.toString()).toBe("hello");
   });
 
-  test("stores empty dataBase64 in DB row but hydrates on read", () => {
+  test("stores base64 in the DB row until linked", () => {
     const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
 
-    // The raw DB row stores empty dataBase64 since content is on disk
+    // Staged uploads keep the payload inline until they are attached to a message.
     const rawRow = rawGet<{ data_base64: string }>(
       "SELECT data_base64 FROM attachments WHERE id = ?",
       stored.id,
     );
-    expect(rawRow!.data_base64).toBe("");
+    expect(rawRow!.data_base64).toBe("dGVzdA==");
 
-    // But getAttachmentById hydrates from disk
     const row = getAttachmentById(stored.id, { hydrateFileData: true });
     expect(row).not.toBeNull();
     expect(row!.dataBase64).toBe("dGVzdA==");
@@ -141,7 +136,7 @@ describe("uploadAttachment", () => {
     expect(stored.sizeBytes).toBe(5);
   });
 
-  test("deduplicates by content hash", () => {
+  test("does not deduplicate identical uploads before linking", () => {
     const first = uploadAttachment(
       "photo.png",
       "image/png",
@@ -152,10 +147,10 @@ describe("uploadAttachment", () => {
       "image/png",
       "iVBORw0KGgoAAAANSUh",
     );
-    expect(second.id).toBe(first.id);
+    expect(second.id).not.toBe(first.id);
   });
 
-  test("deduplicates even when filenames differ", () => {
+  test("does not deduplicate identical content when filenames differ", () => {
     const first = uploadAttachment(
       "original.png",
       "image/png",
@@ -166,7 +161,7 @@ describe("uploadAttachment", () => {
       "image/png",
       "DUPECONTENT123",
     );
-    expect(second.id).toBe(first.id);
+    expect(second.id).not.toBe(first.id);
   });
 
   test("does not deduplicate different content", () => {
@@ -210,13 +205,13 @@ describe("uploadAttachment", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getAttachmentContent — always reads from disk
+// getAttachmentContent — staged inline or materialized on disk
 // ---------------------------------------------------------------------------
 
 describe("getAttachmentContent", () => {
   beforeEach(resetTables);
 
-  test("reads content from on-disk file", () => {
+  test("returns staged content before the attachment is linked", () => {
     const stored = uploadAttachment("hello.txt", "text/plain", "aGVsbG8=");
     const content = getAttachmentContent(stored.id);
 
@@ -229,8 +224,11 @@ describe("getAttachmentContent", () => {
     expect(content).toBeNull();
   });
 
-  test("returns null when on-disk file is missing (ENOENT)", () => {
+  test("returns null when a materialized on-disk file is missing (ENOENT)", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "File");
     const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
 
     // Remove the file to simulate ENOENT
@@ -282,10 +280,18 @@ describe("deleteAttachment", () => {
     expect(fetched).toBeNull();
   });
 
-  test("cleans up on-disk file when deleting", () => {
+  test("cleans up on-disk file when deleting", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "cleanup");
     const stored = uploadAttachment("cleanup.txt", "text/plain", "dGVzdA==");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
     expect(existsSync(filePath!)).toBe(true);
+
+    rawRun(
+      "DELETE FROM message_attachments WHERE attachment_id = ?",
+      stored.id,
+    );
 
     deleteAttachment(stored.id);
     expect(existsSync(filePath!)).toBe(false);
@@ -301,13 +307,9 @@ describe("deleteAttachment", () => {
     const msg1 = await addMessage(conv.id, "user", "First upload");
     const msg2 = await addMessage(conv.id, "user", "Duplicate upload");
 
-    // Dedup: both uploads return the same attachment row
     const first = uploadAttachment("photo.png", "image/png", "SHAREDCONTENT1");
-    const second = uploadAttachment("photo.png", "image/png", "SHAREDCONTENT1");
-    expect(second.id).toBe(first.id);
-
     linkAttachmentToMessage(msg1.id, first.id, 0);
-    linkAttachmentToMessage(msg2.id, second.id, 0);
+    linkAttachmentToMessage(msg2.id, first.id, 0);
 
     // Delete should return still_referenced and NOT remove the attachment row
     const result = deleteAttachment(first.id);
@@ -348,7 +350,6 @@ describe("getAttachmentsByIds", () => {
 
     const results = getAttachmentsByIds([a.id, b.id], { hydrateFileData: true });
     expect(results).toHaveLength(2);
-    // dataBase64 is hydrated from on-disk files
     expect(results[0].dataBase64).toBe("AAAA");
     expect(results[1].dataBase64).toBe("BBBB");
   });
@@ -379,8 +380,7 @@ describe("getAttachmentById", () => {
     expect(result).not.toBeNull();
     expect(result!.id).toBe(stored.id);
     expect(result!.originalFilename).toBe("report.pdf");
-    // dataBase64 is hydrated from on-disk file (round-trips via binary)
-    expect(result!.dataBase64).toBe("JVBE");
+    expect(result!.dataBase64).toBe("JVBER");
   });
 
   test("returns null for nonexistent ID", () => {
@@ -407,8 +407,8 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(linked).toHaveLength(1);
     expect(linked[0].id).toBe(stored.id);
     expect(linked[0].originalFilename).toBe("chart.png");
-    // dataBase64 is hydrated from on-disk file
     expect(linked[0].dataBase64).toBe("iVBORw0K");
+    expect(getFilePathForAttachment(stored.id)).toContain("/conversations/");
   });
 
   test("returns attachments in position order", async () => {
@@ -450,10 +450,18 @@ describe("deleteOrphanAttachments", () => {
     expect(removed).toBe(1);
   });
 
-  test("cleans up on-disk files when removing orphans", () => {
+  test("cleans up on-disk files when removing orphaned materialized attachments", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "Orphan me");
     const stored = uploadAttachment("orphan.txt", "text/plain", "ZGF0YQ==");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
     expect(existsSync(filePath!)).toBe(true);
+
+    rawRun(
+      "DELETE FROM message_attachments WHERE attachment_id = ?",
+      stored.id,
+    );
 
     deleteOrphanAttachments([stored.id]);
     expect(existsSync(filePath!)).toBe(false);
