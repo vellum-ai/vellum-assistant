@@ -23,7 +23,7 @@
           },
           "html": {
             "type": "string",
-            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via app_file_write."
+            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via file_write."
           },
           "pages": {
             "type": "object",
