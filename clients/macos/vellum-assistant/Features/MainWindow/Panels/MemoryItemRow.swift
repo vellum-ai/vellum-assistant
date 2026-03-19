@@ -22,12 +22,19 @@ struct MemoryItemRow: View {
                         Text(item.subject)
                             .font(VFont.bodyBold)
                             .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Spacer()
 
                         kindTag
 
                         if let scopeLabel = item.scopeLabel {
                             VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
                         }
+
+                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                            .accessibilityLabel("Delete memory")
                     }
 
                     Text(item.statement)
@@ -42,9 +49,6 @@ struct MemoryItemRow: View {
                 Text(item.relativeLastSeen)
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
-
-                VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
-                    .accessibilityLabel("Delete memory")
             }
             .padding(VSpacing.lg)
             .background(isHovered ? VColor.surfaceActive : Color.clear)
