@@ -378,7 +378,7 @@ export function getWorkspaceDir(): string {
 export function getWorkspaceDirDisplay(): string {
   const abs = getWorkspaceDir();
   const home = homedir();
-  if (abs.startsWith(home)) {
+  if (abs.startsWith(home + "/") || abs === home) {
     return "~" + abs.slice(home.length);
   }
   return abs;
