@@ -4,6 +4,7 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  saveAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
@@ -294,6 +295,23 @@ async function upgradeDocker(
   console.log("Waiting for assistant to become ready...");
   const ready = await waitForReady(entry.runtimeUrl);
   if (ready) {
+    // Update lockfile with new service group topology
+    const newDigests = await captureImageRefs(res);
+    const updatedEntry: AssistantEntry = {
+      ...entry,
+      serviceGroupVersion: versionTag,
+      containerInfo: {
+        assistantImage: imageTags.assistant,
+        gatewayImage: imageTags.gateway,
+        cesImage: imageTags["credential-executor"],
+        assistantDigest: newDigests?.assistant,
+        gatewayDigest: newDigests?.gateway,
+        cesDigest: newDigests?.["credential-executor"],
+        networkName: res.network,
+      },
+    };
+    saveAssistantEntry(updatedEntry);
+
     console.log(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
     );
@@ -318,6 +336,19 @@ async function upgradeDocker(
 
         const rollbackReady = await waitForReady(entry.runtimeUrl);
         if (rollbackReady) {
+          // Restore previous container info in lockfile after rollback
+          if (previousImageRefs) {
+            const rolledBackEntry: AssistantEntry = {
+              ...entry,
+              containerInfo: {
+                assistantImage: previousImageRefs.assistant,
+                gatewayImage: previousImageRefs.gateway,
+                cesImage: previousImageRefs["credential-executor"],
+                networkName: res.network,
+              },
+            };
+            saveAssistantEntry(rolledBackEntry);
+          }
           console.log(
             `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
           );
