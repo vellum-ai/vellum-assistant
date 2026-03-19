@@ -80,6 +80,10 @@ struct InferenceServiceCard: View {
         if draftMode == "managed" && !isLoggedIn {
             return false
         }
+        // A valid model must be selected to save.
+        if store.selectedModel.isEmpty {
+            return false
+        }
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = store.selectedModel != initialModel
@@ -211,17 +215,18 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let currentMask: String = {
+            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
+                return masked
+            }
+            return ""
+        }()
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
-                Text(masked)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentTertiary)
-            }
             SecureField(
-                isConnected ? "Enter a new key to replace the existing one" : "Enter your API key",
+                !currentMask.isEmpty ? currentMask : "Enter your API key",
                 text: $apiKeyText
             )
                 .vInputStyle()
