@@ -113,7 +113,6 @@ public struct VDropdown<T: Hashable>: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .accessibilityLabel(selectedLabel ?? placeholder)
-            .frame(maxWidth: maxWidth)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -121,5 +120,6 @@ public struct VDropdown<T: Hashable>: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
         }
+        .frame(maxWidth: maxWidth)
     }
 }
