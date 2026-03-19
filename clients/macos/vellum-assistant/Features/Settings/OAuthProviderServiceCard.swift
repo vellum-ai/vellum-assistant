@@ -460,7 +460,7 @@ struct OAuthProviderServiceCard: View {
     }
 
     private func formattedDate(_ timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000.0)
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
