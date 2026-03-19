@@ -349,6 +349,7 @@ struct ChatView: View {
             handleDrop(providers: providers)
         }
         .onKeyPress(.escape) {
+            guard isInteractionEnabled else { return .ignored }
             if isSearchActive {
                 dismissSearch()
                 return .handled
@@ -360,7 +361,7 @@ struct ChatView: View {
             return .ignored
         }
         .onKeyPress("f", phases: .down) { press in
-            guard press.modifiers == .command else { return .ignored }
+            guard isInteractionEnabled, press.modifiers == .command else { return .ignored }
             activateSearch()
             return .handled
         }
