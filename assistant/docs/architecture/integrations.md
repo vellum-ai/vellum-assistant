@@ -520,11 +520,11 @@ The conversation disk view projects conversation metadata, messages, and attachm
 
 ### Directory Layout
 
-Each conversation is projected to a directory named `{id}_{isoDate}`:
+Each conversation is projected to a directory named `{isoDate}_{id}`:
 
 ```
 ~/.vellum/workspace/conversations/
-  abc123_2025-01-15T10-30-00.000Z/
+  2025-01-15T10-30-00.000Z_abc123/
     meta.json             # Conversation metadata (id, title, type, channel, timestamps)
     messages.jsonl        # Flattened message log (one JSON object per line)
     attachments/          # Decoded attachment files (original filenames, collision-safe)

@@ -99,14 +99,14 @@ describe("getConversationDirName", () => {
     // 2026-03-18T14:23:00.000Z
     const ts = new Date("2026-03-18T14:23:00.000Z").getTime();
     const name = getConversationDirName("abc123", ts);
-    expect(name).toBe("abc123_2026-03-18T14-23-00.000Z");
+    expect(name).toBe("2026-03-18T14-23-00.000Z_abc123");
     // No colons in the name (safe for Windows/macOS/Linux)
     expect(name).not.toContain(":");
   });
 
   test("handles epoch zero", () => {
     const name = getConversationDirName("conv0", 0);
-    expect(name).toBe("conv0_1970-01-01T00-00-00.000Z");
+    expect(name).toBe("1970-01-01T00-00-00.000Z_conv0");
   });
 });
 
@@ -119,7 +119,7 @@ describe("getConversationDirPath", () => {
     const ts = Date.now();
     const dirPath = getConversationDirPath("test-id", ts);
     expect(dirPath.startsWith(conversationsDir)).toBe(true);
-    expect(dirPath).toContain("test-id_");
+    expect(dirPath).toContain("_test-id");
   });
 });
 

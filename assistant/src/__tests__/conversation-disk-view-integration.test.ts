@@ -124,6 +124,9 @@ describe("createConversation → disk view", () => {
 
     const dirPath = getConversationDirPath(conv.id, conv.createdAt);
     expect(existsSync(dirPath)).toBe(true);
+    expect(readdirSync(conversationsDir)).toEqual([
+      `${new Date(conv.createdAt).toISOString().replace(/:/g, "-")}_${conv.id}`,
+    ]);
 
     const metaPath = join(dirPath, "meta.json");
     expect(existsSync(metaPath)).toBe(true);

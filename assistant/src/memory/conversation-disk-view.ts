@@ -33,17 +33,20 @@ const log = getLogger("conversation-disk-view");
 // Directory helpers
 // ---------------------------------------------------------------------------
 
+function getConversationDirTimestamp(createdAtMs: number): string {
+  return new Date(createdAtMs).toISOString().replace(/:/g, "-");
+}
+
 /**
  * Build a filesystem-safe directory name for a conversation.
- * Format: `{id}_{isoDate}` where colons in the ISO date are replaced with
+ * Format: `{isoDate}_{id}` where colons in the ISO date are replaced with
  * hyphens so the name is valid on all platforms (Windows forbids colons).
  */
 export function getConversationDirName(
   id: string,
   createdAtMs: number,
 ): string {
-  const isoDate = new Date(createdAtMs).toISOString().replace(/:/g, "-");
-  return `${id}_${isoDate}`;
+  return `${getConversationDirTimestamp(createdAtMs)}_${id}`;
 }
 
 /**
