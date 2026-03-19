@@ -62,7 +62,11 @@ export async function executeScheduleList(
       );
     }
 
-    lines.push(`  Enabled: ${job.enabled}`, `  Message: ${job.message}`);
+    lines.push(
+      `  Enabled: ${job.enabled}`,
+      `  Quiet: ${job.quiet}`,
+      `  Message: ${job.message}`,
+    );
 
     if (!oneShot) {
       lines.push(`  Next run: ${formatLocalDate(job.nextRunAt)}`);
