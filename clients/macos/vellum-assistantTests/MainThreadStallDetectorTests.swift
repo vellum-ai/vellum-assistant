@@ -322,6 +322,25 @@ struct MainThreadStallDetectorTests {
 
     // MARK: - Content Safety
 
+    /// Recursively collects all keys from a JSON structure (dictionaries and arrays).
+    private func allKeys(in value: Any) -> Set<String> {
+        var keys = Set<String>()
+        switch value {
+        case let dict as [String: Any]:
+            for (key, val) in dict {
+                keys.insert(key)
+                keys.formUnion(allKeys(in: val))
+            }
+        case let array as [Any]:
+            for element in array {
+                keys.formUnion(allKeys(in: element))
+            }
+        default:
+            break
+        }
+        return keys
+    }
+
     @Test
     func hangContextJsonIsContentSafe() throws {
         let clock = MockClock()
@@ -350,11 +369,14 @@ struct MainThreadStallDetectorTests {
         #expect(json["pid"] != nil)
         #expect(json["appVersion"] != nil)
 
-        // Must NOT contain user-content keys.
-        let forbiddenKeys = ["messageText", "text", "toolInput", "toolOutput",
-                             "html", "surfaceHtml", "attachmentContent", "body"]
-        for key in forbiddenKeys {
-            #expect(json[key] == nil, "Hang context must not contain user-content key '\(key)'")
-        }
+        // Must NOT contain user-content keys — check recursively through all
+        // nested objects (e.g. recentDiagnosticEvents, transcriptSnapshots).
+        let forbiddenKeys: Set<String> = [
+            "messageText", "text", "toolInput", "toolOutput",
+            "html", "surfaceHtml", "attachmentContent", "body",
+        ]
+        let presentKeys = allKeys(in: json)
+        let violations = presentKeys.intersection(forbiddenKeys)
+        #expect(violations.isEmpty, "Hang context must not contain user-content keys: \(violations.sorted())")
     }
 }

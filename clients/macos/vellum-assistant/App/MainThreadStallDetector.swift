@@ -179,11 +179,16 @@ final class MainThreadStallDetector {
             let pid = ProcessInfo.processInfo.processIdentifier
             let sampleURL = hangContextWriter.outputDirectory
                 .appendingPathComponent("hang-sample.txt")
-            let success = sampleRunner.runSample(pid: pid, outputURL: sampleURL)
-            if success {
-                log.info("Process sample written to hang-sample.txt")
-            } else {
-                log.warning("Process sampling failed (non-fatal)")
+            // Run sampling off the detector queue to avoid blocking stall detection
+            // for the ~3s duration of /usr/bin/sample. stageTwoFired prevents re-entry.
+            let runner = sampleRunner
+            DispatchQueue.global(qos: .utility).async { [log] in
+                let success = runner.runSample(pid: pid, outputURL: sampleURL)
+                if success {
+                    log.info("Process sample written to hang-sample.txt")
+                } else {
+                    log.warning("Process sampling failed (non-fatal)")
+                }
             }
         }
     }

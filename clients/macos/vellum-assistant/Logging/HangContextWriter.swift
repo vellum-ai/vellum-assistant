@@ -34,6 +34,11 @@ final class HangContextWriter: @unchecked Sendable {
 
     // MARK: - Private
 
+    private let lock = NSLock()
+    private var writeGeneration: Int = 0
+    private var latestStallStartTime: Date?
+    private var latestStallDurationSeconds: Double = 0
+
     private let encoder: JSONEncoder
 
     // MARK: - Init
@@ -72,6 +77,12 @@ final class HangContextWriter: @unchecked Sendable {
         recentEvents: [ChatDiagnosticEvent] = [],
         transcriptSnapshots: [ChatTranscriptSnapshot] = []
     ) {
+        lock.lock()
+        writeGeneration += 1
+        latestStallStartTime = stallStartTime
+        latestStallDurationSeconds = stallDurationSeconds
+        lock.unlock()
+
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let pid = ProcessInfo.processInfo.processIdentifier
 
@@ -109,13 +120,26 @@ final class HangContextWriter: @unchecked Sendable {
         stallDurationSeconds: Double
     ) {
         guard let provider = diagnosticsProvider else { return }
+        lock.lock()
+        let capturedGeneration = writeGeneration
+        lock.unlock()
+
         Task.detached(priority: .utility) { [self] in
             let events = await provider.recentEvents()
             let snapshots = await provider.transcriptSnapshots()
             let sortedSnapshots = snapshots.values.sorted { $0.conversationId < $1.conversationId }
+
+            // If a newer write occurred (e.g. Stage 2) while we were awaiting
+            // diagnostics, use its duration so we don't overwrite with a stale value.
+            self.lock.lock()
+            let useLatest = self.writeGeneration > capturedGeneration
+            let actualStartTime = useLatest ? (self.latestStallStartTime ?? stallStartTime) : stallStartTime
+            let actualDuration = useLatest ? self.latestStallDurationSeconds : stallDurationSeconds
+            self.lock.unlock()
+
             self.writeHangContextSync(
-                stallStartTime: stallStartTime,
-                stallDurationSeconds: stallDurationSeconds,
+                stallStartTime: actualStartTime,
+                stallDurationSeconds: actualDuration,
                 recentEvents: events,
                 transcriptSnapshots: sortedSnapshots
             )
