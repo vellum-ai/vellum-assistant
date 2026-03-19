@@ -646,19 +646,19 @@ jobs:
         include:
           - service: assistant
             runs_on: ubuntu-latest-8-cores
-            image_name_secret: ASSISTANT_IMAGE_NAME
+            dockerhub_image_name: vellum-assistant
             context: .
             dockerfile: assistant/Dockerfile
             feature_flag_path: assistant/src/config/feature-flag-registry.json
           - service: gateway
             runs_on: ubuntu-latest
-            image_name_secret: GATEWAY_IMAGE_NAME
+            dockerhub_image_name: vellum-gateway
             context: gateway
             dockerfile: gateway/Dockerfile
             feature_flag_path: gateway/src/feature-flag-registry.json
           - service: credential-executor
             runs_on: ubuntu-latest
-            image_name_secret: CREDENTIAL_EXECUTOR_IMAGE_NAME
+            dockerhub_image_name: vellum-credential-executor
             context: .
             dockerfile: credential-executor/Dockerfile
             feature_flag_path: ""
@@ -682,9 +682,8 @@ jobs:
 
       - name: Compute Docker Hub tags
         id: tags
-        env:
-          IMAGE_NAME: ${{ secrets[matrix.image_name_secret] }}
         run: |
+          IMAGE_NAME="${{ matrix.dockerhub_image_name }}"
           IMAGE="vellumai/${IMAGE_NAME}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
