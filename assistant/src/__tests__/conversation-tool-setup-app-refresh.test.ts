@@ -228,6 +228,124 @@ describe("session-tool-setup app refresh side effects", () => {
     });
   });
 
+  // ── app_refresh ─────────────────────────────────────────────────────
+
+  describe("app_refresh", () => {
+    test("triggers refreshSurfacesForApp when result is not an error", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"id":"app-1"}',
+        isError: false,
+      });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_refresh", { app_id: "app-1" });
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][0]).toBe(ctx);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-1");
+    });
+
+    test("broadcasts app_files_changed with correct appId", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_refresh", { app_id: "app-42" });
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
+        type: "app_files_changed",
+        appId: "app-42",
+      });
+    });
+
+    test("calls updatePublishedAppDeployment", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        mock(() => {}),
+      );
+
+      await toolFn("app_refresh", { app_id: "app-publish" });
+
+      // updatePublishedAppDeployment is called with void (fire-and-forget),
+      // so just verify it was invoked.
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "app-publish",
+      );
+    });
+
+    test("skips side effects when result is an error", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: "Error: not found",
+        isError: true,
+      });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_refresh", { app_id: "app-err" });
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
+    });
+
+    test("skips side effects when app_id is missing", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_refresh", {});
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
   // ── app_file_edit ───────────────────────────────────────────────────
 
   describe("app_file_edit", () => {

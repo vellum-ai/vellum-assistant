@@ -168,6 +168,17 @@ registerHook(
   },
 );
 
+// Trigger compilation + surface refresh + broadcast when an app is refreshed.
+registerHook(
+  "app_refresh",
+  (_name, input, _result, { ctx, broadcastToAllClients }) => {
+    const appId = input.app_id as string | undefined;
+    if (appId) {
+      handleAppChange(ctx, appId, broadcastToAllClients);
+    }
+  },
+);
+
 // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
 // auto-refresh when the LLM mutates the task queue via tools
 registerHook(
