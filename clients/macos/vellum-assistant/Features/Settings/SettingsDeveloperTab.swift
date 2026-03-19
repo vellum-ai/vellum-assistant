@@ -575,17 +575,6 @@ struct SettingsDeveloperTab: View {
             SettingsCard(title: "Assistants") {
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
                     HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                            Text(displayLabel(for: assistant))
-                                .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.contentDefault)
-                            Text(displayNames[assistant.assistantId] != nil
-                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
-                                : assistant.home.displayLabel)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        Spacer()
                         if transitioningStates.contains(assistant.assistantId) {
                             ProgressView()
                                 .controlSize(.small)
@@ -597,6 +586,16 @@ struct SettingsDeveloperTab: View {
                             }
                         ))
                         .disabled(toggleDisabled(for: assistant))
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            Text(displayLabel(for: assistant))
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.contentDefault)
+                            Text(displayNames[assistant.assistantId] != nil
+                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
+                                : assistant.home.displayLabel)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
@@ -1025,7 +1024,10 @@ struct SettingsDeveloperTab: View {
                 }
             }
         )
-        return HStack {
+        return HStack(alignment: .top, spacing: VSpacing.sm) {
+            VToggle(isOn: flagBinding)
+                .accessibilityLabel(flag.label)
+                .padding(.top, 2)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack(spacing: VSpacing.xs) {
                     Text(flag.label)
@@ -1049,9 +1051,6 @@ struct SettingsDeveloperTab: View {
                            emphasis: .subtle)
                 }
             }
-            Spacer()
-            VToggle(isOn: flagBinding)
-                .accessibilityLabel(flag.label)
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
