@@ -57,6 +57,8 @@ import { materializeManagedToken } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
 import { buildLazyGetters, type ApiKeyRef } from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
+import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
+import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -324,10 +326,14 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
 
 let rpcConnected = false;
 
-function startHealthServer(port: number, signal: AbortSignal): ReturnType<typeof Bun.serve> {
+function startHealthServer(
+  port: number,
+  signal: AbortSignal,
+  credentialDeps: CredentialRouteDeps | null,
+): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {
         return new Response(
@@ -350,6 +356,13 @@ function startHealthServer(port: number, signal: AbortSignal): ReturnType<typeof
           },
         );
       }
+
+      // Credential CRUD routes (only if service token is configured)
+      if (credentialDeps) {
+        const credentialResponse = await handleCredentialRoute(req, credentialDeps);
+        if (credentialResponse) return credentialResponse;
+      }
+
       return new Response("Not Found", { status: 404 });
     },
   });
@@ -480,9 +493,29 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Set up credential CRUD routes if a service token is configured.
+  // The assistant and gateway use CES_SERVICE_TOKEN to authenticate
+  // credential management requests over HTTP.
+  const serviceToken = process.env["CES_SERVICE_TOKEN"] ?? "";
+  let credentialDeps: CredentialRouteDeps | null = null;
+
+  if (serviceToken) {
+    const assistantDataMount =
+      process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
+    const vellumRoot = join(assistantDataMount, ".vellum");
+    const backend = createLocalSecureKeyBackend(vellumRoot);
+    credentialDeps = { backend, serviceToken };
+    log("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
+  } else {
+    warn(
+      "CES_SERVICE_TOKEN not set — credential CRUD HTTP routes are disabled. " +
+        "Set CES_SERVICE_TOKEN to enable credential management over HTTP.",
+    );
+  }
+
   // Start health server on dedicated port
   const healthPort = getHealthPort();
-  const healthServer = startHealthServer(healthPort, controller.signal);
+  const healthServer = startHealthServer(healthPort, controller.signal, credentialDeps);
   log(`Health server listening on port ${healthPort}`);
 
   // Wait for exactly one assistant connection on the bootstrap socket
