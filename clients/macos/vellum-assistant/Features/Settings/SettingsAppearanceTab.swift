@@ -294,7 +294,7 @@ struct SettingsAppearanceTab: View {
 
                                 HStack(spacing: VSpacing.sm) {
                                     TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                                        .vInputStyle(maxWidth: .infinity)
+                                        .vInputStyle()
                                         .font(VFont.body)
                                         .foregroundColor(VColor.contentDefault)
                                         .onSubmit {

@@ -65,18 +65,18 @@ struct InputsGallerySection: View {
                     Divider().background(VColor.borderBase)
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Constrained width (default maxWidth: 400)")
+                        Text("Full width (default maxWidth: .infinity)")
                             .font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VTextField(placeholder: "Default max width...", text: $textFieldValue)
+                        VTextField(placeholder: "Fills available width...", text: $textFieldValue)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Full width (maxWidth: .infinity)")
+                        Text("Constrained width (maxWidth: 400)")
                             .font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTextField(
-                            placeholder: "Fills available width...",
+                            placeholder: "Settings card width...",
                             text: $textFieldValue,
-                            maxWidth: .infinity
+                            maxWidth: 400
                         )
                     }
                 }

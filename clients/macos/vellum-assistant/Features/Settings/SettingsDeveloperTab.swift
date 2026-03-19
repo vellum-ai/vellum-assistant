@@ -267,7 +267,7 @@ struct SettingsDeveloperTab: View {
         SettingsCard(title: "Platform URL") {
             HStack(spacing: VSpacing.sm) {
                 TextField("https://platform.vellum.ai", text: $platformUrlText)
-                    .vInputStyle(maxWidth: .infinity)
+                    .vInputStyle()
                     .font(VFont.body)
                     .foregroundColor(VColor.contentDefault)
                     .focused($isPlatformUrlFocused)

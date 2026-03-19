@@ -89,7 +89,7 @@ extension MemoryItemDetailSheet {
                 Text("Subject")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
-                VTextField(placeholder: "Brief topic or label", text: $editSubject, maxWidth: .infinity)
+                VTextField(placeholder: "Brief topic or label", text: $editSubject)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {

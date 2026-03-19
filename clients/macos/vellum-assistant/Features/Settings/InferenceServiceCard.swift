@@ -290,7 +290,8 @@ struct InferenceServiceCard: View {
                 selection: $draftProvider,
                 options: store.dynamicProviderIds.map { provider in
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
-                }
+                },
+                maxWidth: 400
             )
         }
     }
@@ -312,7 +313,7 @@ struct InferenceServiceCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             SecureField(placeholder, text: $apiKeyText)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .disabled(store.apiKeySaving)
@@ -347,7 +348,8 @@ struct InferenceServiceCard: View {
             selection: $draftModel,
             options: store.dynamicProviderModels("anthropic").map { model in
                 (label: model.displayName, value: model.id)
-            }
+            },
+            maxWidth: 400
         )
     }
 
@@ -359,7 +361,8 @@ struct InferenceServiceCard: View {
             selection: $draftModel,
             options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
-            }
+            },
+            maxWidth: 400
         )
     }
 

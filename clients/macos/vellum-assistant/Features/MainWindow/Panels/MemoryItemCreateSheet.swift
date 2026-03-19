@@ -32,7 +32,7 @@ struct MemoryItemCreateSheet: View {
                     Text("Subject")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                    VTextField(placeholder: "Brief topic or label", text: $subject, maxWidth: .infinity)
+                    VTextField(placeholder: "Brief topic or label", text: $subject)
                 }
 
                 // Statement

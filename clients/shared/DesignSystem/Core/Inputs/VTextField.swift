@@ -3,9 +3,9 @@ import SwiftUI
 /// A ViewModifier that applies the shared input chrome across text inputs.
 /// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
-    public var maxWidth: CGFloat = 400
+    public var maxWidth: CGFloat = .infinity
 
-    public init(maxWidth: CGFloat = 400) {
+    public init(maxWidth: CGFloat = .infinity) {
         self.maxWidth = maxWidth
     }
 
@@ -21,7 +21,7 @@ public struct VInputStyleModifier: ViewModifier {
 }
 
 extension View {
-    public func vInputStyle(maxWidth: CGFloat = 400) -> some View {
+    public func vInputStyle(maxWidth: CGFloat = .infinity) -> some View {
         modifier(VInputStyleModifier(maxWidth: maxWidth))
     }
 
@@ -64,11 +64,11 @@ public struct VTextField: View {
     public var leadingIcon: String? = nil
     public var trailingIcon: String? = nil
     public var onSubmit: (() -> Void)? = nil
-    public var maxWidth: CGFloat = 400
+    public var maxWidth: CGFloat = .infinity
 
     @FocusState private var isFocused: Bool
 
-    public init(placeholder: String, text: Binding<String>, leadingIcon: String? = nil, trailingIcon: String? = nil, onSubmit: (() -> Void)? = nil, maxWidth: CGFloat = 400) {
+    public init(placeholder: String, text: Binding<String>, leadingIcon: String? = nil, trailingIcon: String? = nil, onSubmit: (() -> Void)? = nil, maxWidth: CGFloat = .infinity) {
         self.placeholder = placeholder
         self._text = text
         self.leadingIcon = leadingIcon

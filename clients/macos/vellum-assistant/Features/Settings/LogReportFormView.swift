@@ -99,8 +99,7 @@ struct LogReportFormView: View {
             VTextField(
                 placeholder: "Your name",
                 text: $name,
-                leadingIcon: VIcon.user.rawValue,
-                maxWidth: .infinity
+                leadingIcon: VIcon.user.rawValue
             )
             .focused($focusedField, equals: .name)
         }
@@ -129,8 +128,7 @@ struct LogReportFormView: View {
             VTextField(
                 placeholder: "you@example.com",
                 text: $email,
-                leadingIcon: VIcon.mail.rawValue,
-                maxWidth: .infinity
+                leadingIcon: VIcon.mail.rawValue
             )
             .focused($focusedField, equals: .email)
         }
