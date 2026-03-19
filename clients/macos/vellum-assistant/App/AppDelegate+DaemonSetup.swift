@@ -225,22 +225,22 @@ extension AppDelegate {
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorShow(msg)
         }
         daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentEditorUpdate(msg)
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentSaveResponse(msg)
         }
         daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.handleDocumentLoadResponse(msg)
         }
