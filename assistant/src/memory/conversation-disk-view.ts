@@ -38,6 +38,13 @@ function getConversationDirTimestamp(createdAtMs: number): string {
   return new Date(createdAtMs).toISOString().replace(/:/g, "-");
 }
 
+function getLegacyConversationDirName(
+  id: string,
+  createdAtMs: number,
+): string {
+  return `${id}_${getConversationDirTimestamp(createdAtMs)}`;
+}
+
 /**
  * Build a filesystem-safe directory name for a conversation.
  * Format: `{isoDate}_{id}` where colons in the ISO date are replaced with
@@ -60,6 +67,26 @@ export function getConversationDirPath(
   return join(getConversationsDir(), getConversationDirName(id, createdAtMs));
 }
 
+function getLegacyConversationDirPath(
+  id: string,
+  createdAtMs: number,
+): string {
+  return join(
+    getConversationsDir(),
+    getLegacyConversationDirName(id, createdAtMs),
+  );
+}
+
+function resolveConversationDirPath(id: string, createdAtMs: number): string {
+  const dirPath = getConversationDirPath(id, createdAtMs);
+  if (existsSync(dirPath)) return dirPath;
+
+  const legacyDirPath = getLegacyConversationDirPath(id, createdAtMs);
+  if (existsSync(legacyDirPath)) return legacyDirPath;
+
+  return dirPath;
+}
+
 // ---------------------------------------------------------------------------
 // Write operations
 // ---------------------------------------------------------------------------
@@ -75,7 +102,7 @@ export function initConversationDir(conv: {
   originChannel: string | null;
 }): void {
   try {
-    const dirPath = getConversationDirPath(conv.id, conv.createdAt);
+    const dirPath = resolveConversationDirPath(conv.id, conv.createdAt);
     mkdirSync(dirPath, { recursive: true });
 
     const meta = {
@@ -111,7 +138,7 @@ export function updateMetaFile(conv: {
   originChannel: string | null;
 }): void {
   try {
-    const dirPath = getConversationDirPath(conv.id, conv.createdAt);
+    const dirPath = resolveConversationDirPath(conv.id, conv.createdAt);
 
     const meta = {
       id: conv.id,
@@ -286,7 +313,7 @@ export function syncMessageToDisk(
       return;
     }
 
-    const dirPath = getConversationDirPath(conversationId, createdAtMs);
+    const dirPath = resolveConversationDirPath(conversationId, createdAtMs);
     const { content, toolCalls, toolResults } = flattenContentBlocks(
       message.content,
     );
@@ -338,8 +365,13 @@ export function syncMessageToDisk(
  */
 export function removeConversationDir(id: string, createdAtMs: number): void {
   try {
-    const dirPath = getConversationDirPath(id, createdAtMs);
-    rmSync(dirPath, { recursive: true, force: true });
+    const dirPaths = new Set([
+      getConversationDirPath(id, createdAtMs),
+      getLegacyConversationDirPath(id, createdAtMs),
+    ]);
+    for (const dirPath of dirPaths) {
+      rmSync(dirPath, { recursive: true, force: true });
+    }
   } catch (err) {
     log.warn({ err, conversationId: id }, "Failed to remove conversation dir");
   }

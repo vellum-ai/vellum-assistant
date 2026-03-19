@@ -90,6 +90,10 @@ function resetTables() {
   db.run("DELETE FROM conversations");
 }
 
+function getLegacyConversationDirName(id: string, createdAtMs: number): string {
+  return `${id}_${new Date(createdAtMs).toISOString().replace(/:/g, "-")}`;
+}
+
 // ---------------------------------------------------------------------------
 // getConversationDirName
 // ---------------------------------------------------------------------------
@@ -213,6 +217,29 @@ describe("updateMetaFile", () => {
     expect(meta.updatedAt).toBe(new Date(updated).toISOString());
 
     rmSync(dirPath, { recursive: true, force: true });
+  });
+
+  test("reuses legacy directory names when the new directory does not exist", () => {
+    const created = Date.now();
+    const legacyDirName = getLegacyConversationDirName("conv-legacy", created);
+    const legacyDirPath = join(conversationsDir, legacyDirName);
+    mkdirSync(legacyDirPath, { recursive: true });
+
+    updateMetaFile({
+      id: "conv-legacy",
+      title: "Legacy",
+      createdAt: created,
+      updatedAt: created + 1234,
+      conversationType: "standard",
+      originChannel: "desktop",
+    });
+
+    expect(existsSync(join(legacyDirPath, "meta.json"))).toBe(true);
+    expect(existsSync(getConversationDirPath("conv-legacy", created))).toBe(
+      false,
+    );
+
+    rmSync(legacyDirPath, { recursive: true, force: true });
   });
 });
 
@@ -466,6 +493,37 @@ describe("syncMessageToDisk", () => {
 
     rmSync(dirPath, { recursive: true, force: true });
   });
+
+  test("appends to a legacy directory when that is the only existing path", async () => {
+    const conv = createConversation("Legacy Attach Test");
+    const createdAt = conv.createdAt;
+    const newDirPath = getConversationDirPath(conv.id, createdAt);
+    rmSync(newDirPath, { recursive: true, force: true });
+    const legacyDirPath = join(
+      conversationsDir,
+      getLegacyConversationDirName(conv.id, createdAt),
+    );
+    mkdirSync(legacyDirPath, { recursive: true });
+
+    const msg = await addMessage(conv.id, "user", "Legacy path", undefined, {
+      skipIndexing: true,
+    });
+
+    const att = uploadAttachment("legacy.png", "image/png", "iVBORw0K");
+    linkAttachmentToMessage(msg.id, att.id, 0);
+
+    syncMessageToDisk(conv.id, msg.id, createdAt);
+
+    expect(
+      existsSync(join(legacyDirPath, "messages.jsonl")),
+    ).toBe(true);
+    expect(existsSync(join(newDirPath, "messages.jsonl"))).toBe(false);
+    expect(existsSync(join(legacyDirPath, "attachments", "legacy.png"))).toBe(
+      true,
+    );
+
+    rmSync(legacyDirPath, { recursive: true, force: true });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -493,6 +551,22 @@ describe("removeConversationDir", () => {
   test("handles non-existent directory gracefully", () => {
     // Should not throw
     removeConversationDir("nonexistent", Date.now());
+  });
+
+  test("removes both new-format and legacy directories when both exist", () => {
+    const created = Date.now();
+    const newDirPath = getConversationDirPath("conv-both", created);
+    const legacyDirPath = join(
+      conversationsDir,
+      getLegacyConversationDirName("conv-both", created),
+    );
+    mkdirSync(newDirPath, { recursive: true });
+    mkdirSync(legacyDirPath, { recursive: true });
+
+    removeConversationDir("conv-both", created);
+
+    expect(existsSync(newDirPath)).toBe(false);
+    expect(existsSync(legacyDirPath)).toBe(false);
   });
 });
 

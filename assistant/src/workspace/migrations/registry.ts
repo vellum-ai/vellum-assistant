@@ -8,6 +8,7 @@ import { voiceTimeoutAndMaxStepsMigration } from "./008-voice-timeout-and-max-st
 import { backfillConversationDiskViewMigration } from "./009-backfill-conversation-disk-view.js";
 import { appDirRenameMigration } from "./010-app-dir-rename.js";
 import { backfillInstallationIdMigration } from "./011-backfill-installation-id.js";
+import { renameConversationDiskViewDirsMigration } from "./012-rename-conversation-disk-view-dirs.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -25,4 +26,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillConversationDiskViewMigration,
   appDirRenameMigration,
   backfillInstallationIdMigration,
+  renameConversationDiskViewDirsMigration,
 ];
