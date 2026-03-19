@@ -134,7 +134,7 @@ enum GalleryPage: Hashable {
 struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
-    @State private var expandedCategories: Set<ComponentGalleryCategory> = []
+    @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
