@@ -371,6 +371,39 @@ export function executeAppDelete(
 }
 
 // ---------------------------------------------------------------------------
+// app_refresh
+// ---------------------------------------------------------------------------
+
+export interface AppRefreshInput {
+  app_id: string;
+}
+
+export function executeAppRefresh(
+  input: AppRefreshInput,
+  store: AppStore,
+): ExecutorResult {
+  const app = store.getApp(input.app_id);
+  if (!app) {
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
+  }
+
+  // Empty update bumps updatedAt timestamp, triggering recompilation and
+  // surface refresh on the client side.
+  const updated = store.updateApp(input.app_id, {});
+  return {
+    content: JSON.stringify({
+      refreshed: true,
+      appId: updated.id,
+      name: updated.name,
+    }),
+    isError: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // app_file_list
 // ---------------------------------------------------------------------------
 

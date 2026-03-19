@@ -27,6 +27,7 @@ import * as appFileWrite from "./bundled-skills/app-builder/tools/app-file-write
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appQuery from "./bundled-skills/app-builder/tools/app-query.js";
+import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
 import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
 // ── browser ────────────────────────────────────────────────────────────────────
 import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
@@ -197,6 +198,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-query.ts", appQuery],
   ["app-builder:tools/app-update.ts", appUpdate],
   ["app-builder:tools/app-delete.ts", appDelete],
+  ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-file-list.ts", appFileList],
   ["app-builder:tools/app-file-read.ts", appFileRead],
   ["app-builder:tools/app-file-edit.ts", appFileEdit],

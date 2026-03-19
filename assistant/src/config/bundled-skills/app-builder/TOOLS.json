@@ -192,6 +192,28 @@
       "execution_target": "host"
     },
     {
+      "name": "app_refresh",
+      "description": "Trigger recompilation and surface refresh for an app after making file changes. Call this once after you finish editing app files with generic file tools.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to refresh"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app_id"]
+      },
+      "executor": "tools/app-refresh.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "app_file_list",
       "description": "List all files in an app. Returns a JSON array of file paths.",
       "category": "apps",
