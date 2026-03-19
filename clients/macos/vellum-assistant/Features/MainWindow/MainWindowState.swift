@@ -68,6 +68,7 @@ public final class MainWindowState: ObservableObject {
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
+    private var autoDismissTask: Task<Void, Never>?
 
     /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.conversation` selection or `nil` which defaults to chat).
@@ -264,19 +265,51 @@ public final class MainWindowState: ObservableObject {
     }
 
     /// Show a toast notification in the main window.
+    ///
+    /// Auto-dismiss behaviour (default 4 s) applies to `.success` toasts
+    /// that have no `primaryAction`. All other toasts require manual
+    /// dismissal unless an explicit `autoDismissDelay` is provided.
+    ///
     /// - Parameters:
+    ///   - autoDismissDelay: Seconds before auto-dismiss. Pass `nil` to
+    ///     require manual dismissal, or omit to use the default heuristic.
     ///   - onDismiss: Optional callback invoked when the toast is dismissed
-    ///     by the user (via the X button), as opposed to a primary action.
+    ///     by the user (via the X button) or by the auto-dismiss timer.
     /// - Returns: The unique ID of the displayed toast, useful for targeted dismissal.
     @discardableResult
-    func showToast(message: String, style: ToastInfo.Style, copyableDetail: String? = nil, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) -> UUID {
+    func showToast(message: String, style: ToastInfo.Style, copyableDetail: String? = nil, primaryAction: VToastAction? = nil, autoDismissDelay: TimeInterval? = .defaultForToast, onDismiss: (() -> Void)? = nil) -> UUID {
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+
         let toast = ToastInfo(message: message, style: style, copyableDetail: copyableDetail, primaryAction: primaryAction, onDismiss: onDismiss)
         toastInfo = toast
+
+        // Resolve the effective delay: the sentinel value means "use the
+        // default heuristic", an explicit nil means "never auto-dismiss",
+        // and any positive value is used as-is.
+        let effectiveDelay: TimeInterval?
+        if autoDismissDelay == .defaultForToast {
+            effectiveDelay = (style == .success && primaryAction == nil) ? 4 : nil
+        } else {
+            effectiveDelay = autoDismissDelay
+        }
+
+        if let delay = effectiveDelay {
+            let toastId = toast.id
+            autoDismissTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.dismissToast(id: toastId)
+            }
+        }
+
         return toast.id
     }
 
     /// Dismiss the currently displayed toast, invoking its onDismiss callback.
     func dismissToast() {
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
         let callback = toastInfo?.onDismiss
         toastInfo = nil
         callback?()
@@ -297,6 +330,14 @@ public final class MainWindowState: ObservableObject {
             selection = .panel(panel)
         }
     }
+}
+
+// MARK: - Toast auto-dismiss sentinel
+
+extension Optional where Wrapped == TimeInterval {
+    /// Sentinel that tells `showToast` to apply its default heuristic
+    /// (auto-dismiss `.success` toasts without a `primaryAction`).
+    static let defaultForToast: TimeInterval? = -.infinity
 }
 
 /// Data model for a toast notification displayed in the main window.
