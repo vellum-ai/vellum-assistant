@@ -140,7 +140,7 @@ public struct InlineTableWidget: View {
     private func resolveIconColor(_ token: String?) -> Color {
         switch token {
         case "success": return VColor.systemPositiveStrong
-        case "warning": return VColor.systemNegativeHover
+        case "warning": return VColor.systemMidStrong
         case "error": return VColor.systemNegativeStrong
         case "muted": return VColor.contentTertiary
         default: return VColor.contentDefault

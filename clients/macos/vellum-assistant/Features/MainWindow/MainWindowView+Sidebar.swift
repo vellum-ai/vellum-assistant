@@ -32,7 +32,7 @@ extension MainWindowView {
     func interactionDotColor(for conversation: ConversationModel) -> Color? {
         switch conversationManager.interactionState(for: conversation.id) {
         case .processing: return VColor.primaryBase
-        case .waitingForInput: return VColor.systemNegativeHover
+        case .waitingForInput: return VColor.systemMidStrong
         case .error: return VColor.systemNegativeStrong
         case .idle: return nil
         }

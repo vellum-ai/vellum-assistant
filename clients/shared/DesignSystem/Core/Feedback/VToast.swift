@@ -138,7 +138,7 @@ public struct VToast: View {
     private var accentBorder: Color {
         switch style {
         case .error: return VColor.systemNegativeStrong.opacity(0.4)
-        case .warning: return VColor.systemNegativeHover.opacity(0.4)
+        case .warning: return VColor.systemMidStrong.opacity(0.4)
         default: return VColor.borderBase
         }
     }
@@ -156,7 +156,7 @@ public struct VToast: View {
         switch style {
         case .info: return VColor.primaryBase
         case .success: return VColor.systemPositiveStrong
-        case .warning: return VColor.systemNegativeHover
+        case .warning: return VColor.systemMidStrong
         case .error: return VColor.systemNegativeStrong
         }
     }

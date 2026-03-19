@@ -307,7 +307,7 @@ struct TraceTimelineIOSView: View {
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundColor(VColor.systemMidStrong)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
@@ -343,7 +343,7 @@ struct TraceTimelineIOSView: View {
         switch status {
         case .active: return VColor.systemPositiveStrong
         case .completed: return VColor.systemPositiveStrong
-        case .cancelled: return VColor.systemNegativeHover
+        case .cancelled: return VColor.systemMidStrong
         case .handedOff: return VColor.systemPositiveWeak
         case .error: return VColor.systemNegativeStrong
         }
@@ -452,7 +452,7 @@ struct TraceTimelineIOSView: View {
     private func statusColor(for status: String?) -> Color {
         switch status {
         case "error": return VColor.systemNegativeStrong
-        case "warning": return VColor.systemNegativeHover
+        case "warning": return VColor.systemMidStrong
         case "success": return VColor.systemPositiveStrong
         default: return VColor.contentTertiary
         }

@@ -131,7 +131,7 @@ private struct TrustRuleRow: View {
     private func decisionColor(_ decision: String) -> Color {
         switch decision {
         case "allow": return VColor.systemPositiveStrong
-        case "ask": return VColor.systemNegativeHover
+        case "ask": return VColor.systemMidStrong
         default: return VColor.systemNegativeStrong
         }
     }

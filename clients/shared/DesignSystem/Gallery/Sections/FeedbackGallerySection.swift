@@ -41,7 +41,7 @@ struct FeedbackGallerySection: View {
                         }
                         VStack(spacing: VSpacing.xs) {
                             Text("Warning").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeHover)
+                            VBadge(style: .count(Int(badgeCount)), color: VColor.systemMidStrong)
                         }
                     }
 
@@ -63,7 +63,7 @@ struct FeedbackGallerySection: View {
                         VBadge(style: .label("New"), color: VColor.primaryBase)
                         VBadge(style: .label("Beta"), color: VColor.systemPositiveStrong)
                         VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
-                        VBadge(style: .label("Warn"), color: VColor.systemNegativeHover)
+                        VBadge(style: .label("Warn"), color: VColor.systemMidStrong)
                     }
 
                     // Icon label row
@@ -137,7 +137,7 @@ struct FeedbackGallerySection: View {
                     }
                     VStack(spacing: VSpacing.md) {
                         Text("Warning").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VLoadingIndicator(color: VColor.systemNegativeHover)
+                        VLoadingIndicator(color: VColor.systemMidStrong)
                     }
                 }
             }
