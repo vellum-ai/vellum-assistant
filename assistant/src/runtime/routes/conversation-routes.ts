@@ -1245,7 +1245,14 @@ async function generateLlmSuggestion(
     .slice(0, 50)
     .replace(/\s+\S*$/, "")
     .trim();
-  return wordTruncated.length >= 15 ? wordTruncated : null; // too short after truncation = bad suggestion
+  if (wordTruncated.length < 15) {
+    log.debug(
+      { rawLength: firstLine.length, truncatedLength: wordTruncated.length },
+      "Suggestion rejected: too short after word-boundary truncation",
+    );
+    return null;
+  }
+  return wordTruncated;
 }
 
 export async function handleGetSuggestion(
