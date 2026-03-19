@@ -665,7 +665,7 @@ struct MainWindowView: View {
                     ErrorToastOverlay(
                         errorManager: viewModel.errorManager,
                         hasAPIKey: windowState.hasAPIKey,
-                        isAuthenticated: authManager.isAuthenticated,
+                        needsInferenceApiKey: windowState.needsInferenceApiKey,
                         onOpenSettings: { windowState.selection = .panel(.settings) },
                         onRetryConversationError: { viewModel.retryAfterConversationError() },
                         onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
@@ -674,7 +674,7 @@ struct MainWindowView: View {
                         onRetryLastMessage: { viewModel.retryLastMessage() },
                         onDismissError: { viewModel.dismissError() }
                     )
-                } else if !windowState.hasAPIKey && authManager.isAuthenticated {
+                } else if windowState.needsInferenceApiKey {
                     ChatConversationErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
@@ -713,6 +713,7 @@ struct MainWindowView: View {
             // no UI to disable it, leaving panels stuck in split mode.
             isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+            windowState.refreshInferenceApiKeyStatus()
             selectedConversationId = conversationManager.activeConversationId
             // Initialize persistent conversation tracking on launch
             if let activeId = conversationManager.activeConversationId {
@@ -742,9 +743,11 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+            windowState.refreshInferenceApiKeyStatus()
         }
         .onReceive(daemonClient.$isConnected) { connected in
             windowState.refreshAPIKeyStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
+            windowState.refreshInferenceApiKeyStatus()
 
             // Fallback for fresh users with 0 conversations: dismiss skeleton after a
             // short delay once the daemon is connected. Only applies during initial load.
@@ -758,6 +761,7 @@ struct MainWindowView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: isAuthenticated)
+            windowState.refreshInferenceApiKeyStatus()
         }
         .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
             // Dismiss skeleton when conversations arrive from daemon
@@ -999,7 +1003,7 @@ struct MainWindowView: View {
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
-    let isAuthenticated: Bool
+    let needsInferenceApiKey: Bool
     let onOpenSettings: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -1010,7 +1014,7 @@ private struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if !hasAPIKey && isAuthenticated {
+            if needsInferenceApiKey {
                 ChatConversationErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
                     icon: .keyRound,
