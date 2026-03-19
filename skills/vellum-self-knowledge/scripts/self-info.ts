@@ -78,7 +78,7 @@ async function main(): Promise<void> {
       config = {
         model: "claude-opus-4-6",
         provider: "anthropic",
-        mode: "unknown",
+        mode: "your-own",
       };
     } else {
       config = JSON.parse(raw) as {
