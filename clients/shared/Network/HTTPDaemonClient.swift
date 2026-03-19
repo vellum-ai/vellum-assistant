@@ -122,23 +122,7 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let sourceChannel: String
     let transportMetadata: TransportMetadata
-
-    private static var defaultSourceChannel: String {
-        return "vellum"
-    }
-
-    /// Platform-derived default interface identifier.
-    private static var defaultInterface: String {
-        #if os(macOS)
-        return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
-    }
 
     // MARK: - SSE Parse Time Tracking
 
@@ -267,7 +251,6 @@ public final class HTTPTransport {
         if !conversationKey.isEmpty {
             locallyOwnedConversationIds.insert(conversationKey)
         }
-        self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
         // Register dispatchers for existing HTTP-transported message types
@@ -309,16 +292,12 @@ public final class HTTPTransport {
     enum Endpoint {
         case healthz
         case eventsAll  // SSE subscription for all events
-        case sendMessage
         case identity
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
         case model
         case settingsClient
-
-        // Attachments
-        case uploadAttachment
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -352,8 +331,6 @@ public final class HTTPTransport {
             return ("/healthz", nil)
         case .eventsAll:
             return ("/v1/events", nil)
-        case .sendMessage:
-            return ("/v1/messages", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .trustRulesManage:
@@ -371,9 +348,6 @@ public final class HTTPTransport {
             return ("/v1/model", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
-        // Attachments
-        case .uploadAttachment:
-            return ("/v1/attachments", nil)
         }
     }
 
@@ -388,8 +362,6 @@ public final class HTTPTransport {
             return ("\(prefix)/healthz/", nil)
         case .eventsAll:
             return ("\(prefix)/events/", nil)
-        case .sendMessage:
-            return ("\(prefix)/messages/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .trustRulesManage:
@@ -408,9 +380,6 @@ public final class HTTPTransport {
         // Settings
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
-        // Attachments
-        case .uploadAttachment:
-            return ("\(prefix)/attachments/", nil)
         }
     }
 
@@ -785,84 +754,29 @@ public final class HTTPTransport {
         log.debug("HTTPTransport: unhandled send message type \(String(describing: type(of: message)))")
     }
 
-    // MARK: - HTTP Endpoints
+    // MARK: - Message Sending (via MessageClient)
 
-    private enum AttachmentUploadResult {
-        case success(id: String)
-        case transientFailure
-        case terminalAuthFailure
-    }
-
-    /// Upload a single attachment and return its server-assigned ID.
-    private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
-        guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
-
-        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .private), mimeType=\(attachment.mimeType, privacy: .public)")
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "filename": attachment.filename,
-            "mimeType": attachment.mimeType,
-            "data": attachment.data
-        ]
-        if let filePath = attachment.filePath {
-            body["filePath"] = filePath
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return .transientFailure }
-
-            if http.statusCode == 200 || http.statusCode == 201 {
-                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                if let id = json?["id"] as? String {
-                    log.info("[send-pipeline] attachment upload success — id=\(id, privacy: .public)")
-                    return .success(id: id)
-                }
-                log.error("[send-pipeline] attachment upload response missing id")
-                return .transientFailure
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    return await uploadAttachment(attachment, isRetry: true)
-                case .terminalFailure:
-                    // handleAuthenticationFailureAsync already emitted .authenticationRequired
-                    return .terminalAuthFailure
-                case .transientFailure:
-                    return .transientFailure
-                }
-            } else {
-                log.error("[send-pipeline] attachment upload failed (\(http.statusCode))")
-                return .transientFailure
-            }
-        } catch {
-            log.error("[send-pipeline] attachment upload error: \(error.localizedDescription)")
-            return .transientFailure
-        }
-    }
-
-    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, automated: Bool? = nil, isRetry: Bool = false) async {
+    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, automated: Bool? = nil) async {
         locallyOwnedConversationIds.insert(conversationId)
 
+        let messageClient = MessageClient()
         let attachmentCount = attachments?.count ?? 0
-        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount), hasUploadedIds=\(uploadedAttachmentIds != nil), isRetry=\(isRetry)")
+        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount)")
 
-        // On retry, reuse already-uploaded attachment IDs to avoid duplicates
-        var attachmentIds: [String] = uploadedAttachmentIds ?? []
-
-        if attachmentIds.isEmpty, let attachments, !attachments.isEmpty {
+        // Upload attachments
+        var attachmentIds: [String] = []
+        if let attachments, !attachments.isEmpty {
             for attachment in attachments {
-                switch await uploadAttachment(attachment) {
+                let result = await messageClient.uploadAttachment(
+                    filename: attachment.filename,
+                    mimeType: attachment.mimeType,
+                    data: attachment.data,
+                    filePath: attachment.filePath
+                )
+                switch result {
                 case .success(let id):
                     attachmentIds.append(id)
                 case .terminalAuthFailure:
-                    // .authenticationRequired already emitted — don't overwrite with a generic error
                     return
                 case .transientFailure:
                     log.error("Failed to upload attachment: \(attachment.filename)")
@@ -879,115 +793,52 @@ public final class HTTPTransport {
             }
         }
 
-        if isRetry && !(uploadedAttachmentIds ?? []).isEmpty {
-            log.info("[send-pipeline] send retry reusing \(attachmentIds.count) previously uploaded attachment IDs")
-        }
+        // Send the message
+        let conversationType = privateConversationIds.contains(conversationId) ? "private" : nil
+        let sendResult = await messageClient.sendMessage(
+            content: content,
+            conversationKey: conversationId,
+            attachmentIds: attachmentIds,
+            conversationType: conversationType,
+            automated: automated
+        )
 
-        log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
+        switch sendResult {
+        case .success(let serverConvId):
+            // Learn the server's conversationId for this conversation's conversationKey.
+            if let serverConvId, serverConvId != conversationId {
+                self.serverToLocalConversationMap[serverConvId] = conversationId
+                self.locallyOwnedConversationIds.insert(serverConvId)
+                self.onConversationIdResolved?(conversationId, serverConvId)
 
-        guard let url = buildURL(for: .sendMessage) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationKey": conversationId,
-            "sourceChannel": sourceChannel,
-            "interface": Self.defaultInterface
-        ]
-        if let content, !content.isEmpty {
-            body["content"] = content
-        }
-        if !attachmentIds.isEmpty {
-            body["attachmentIds"] = attachmentIds
-        }
-        if privateConversationIds.contains(conversationId) {
-            body["conversationType"] = "private"
-        }
-        if automated == true {
-            body["automated"] = true
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Message sent successfully")
-                // Learn the server's conversationId for this conversation's conversationKey.
-                // For new conversations, the conversationId (used as conversationKey) differs from
-                // the server's internal conversationId. Store the mapping so parseSSEData
-                // can remap incoming events to the client's local conversation ID.
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let serverConvId = json["conversationId"] as? String,
-                   serverConvId != conversationId {
-                    self.serverToLocalConversationMap[serverConvId] = conversationId
-                    self.locallyOwnedConversationIds.insert(serverConvId)
-                    self.onConversationIdResolved?(conversationId, serverConvId)
-
-                    // Evict arbitrary entries when over cap to prevent unbounded growth.
-                    // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
-                    while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
-                        if let key = self.serverToLocalConversationMap.keys.first {
-                            self.serverToLocalConversationMap.removeValue(forKey: key)
-                        }
+                while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
+                    if let key = self.serverToLocalConversationMap.keys.first {
+                        self.serverToLocalConversationMap.removeValue(forKey: key)
                     }
+                }
 
-                    log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    // Reuse already-uploaded IDs to avoid duplicate uploads
-                    await sendMessage(content: content, conversationId: conversationId, uploadedAttachmentIds: attachmentIds, automated: automated, isRetry: true)
-                case .terminalFailure:
-                    // performRefresh() already emitted .authenticationRequired — don't overwrite it
-                    break
-                case .transientFailure:
-                    onMessage?(.conversationError(ConversationErrorMessage(
-                        conversationId: conversationId,
-                        code: .providerApi,
-                        userMessage: "Failed to send message — authentication error. Please try again.",
-                        retryable: true,
-                        failedMessageContent: content
-                    )))
-                }
-            } else if http.statusCode == 422,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let errorCategory = json["error"] as? String,
-                      errorCategory == "secret_blocked" {
-                // Route through .error(category: "secret_blocked") so ChatViewModel
-                // activates the "Send Anyway" UI. The backend now respects
-                // bypassSecretCheck, so resending won't loop.
-                let message = (json["message"] as? String) ?? "Message blocked — contains secrets"
-                log.warning("Message blocked by secret-ingress check")
-                onMessage?(.error(ErrorMessage(
-                    type: "error",
-                    message: message,
-                    category: "secret_blocked"
-                )))
-            } else {
-                let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-                log.error("Send message failed (\(http.statusCode)): \(errorBody)")
-                onMessage?(.conversationError(ConversationErrorMessage(
-                    conversationId: conversationId,
-                    code: .providerApi,
-                    userMessage: "Failed to send message (HTTP \(http.statusCode))",
-                    retryable: true,
-                    failedMessageContent: content
-                )))
+                log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
             }
-        } catch {
-            log.error("Send message error: \(error.localizedDescription)")
+        case .authRequired:
             onMessage?(.conversationError(ConversationErrorMessage(
                 conversationId: conversationId,
                 code: .providerApi,
-                userMessage: error.localizedDescription,
+                userMessage: "Failed to send message — authentication error. Please try again.",
+                retryable: true,
+                failedMessageContent: content
+            )))
+        case .secretBlocked(let message):
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: conversationId,
+                code: .providerApi,
+                userMessage: message,
+                retryable: false
+            )))
+        case .error(_, let message, _):
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: conversationId,
+                code: .providerApi,
+                userMessage: message,
                 retryable: true,
                 failedMessageContent: content
             )))
