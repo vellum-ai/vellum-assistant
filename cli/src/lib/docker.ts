@@ -588,7 +588,6 @@ export async function captureImageRefs(
   };
 
   const refs: Partial<Record<ServiceName, string>> = {};
-  let foundAny = false;
 
   for (const [service, container] of Object.entries(containerForService)) {
     try {
@@ -602,14 +601,19 @@ export async function captureImageRefs(
       ).trim();
       if (imageRef) {
         refs[service as ServiceName] = imageRef;
-        foundAny = true;
       }
     } catch {
       // Container doesn't exist or can't be inspected — skip
     }
   }
 
-  return foundAny ? (refs as Record<ServiceName, string>) : null;
+  const allServices: ServiceName[] = [
+    "assistant",
+    "credential-executor",
+    "gateway",
+  ];
+  const hasAll = allServices.every((s) => s in refs);
+  return hasAll ? (refs as Record<ServiceName, string>) : null;
 }
 
 /**
