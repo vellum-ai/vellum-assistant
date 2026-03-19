@@ -20,7 +20,7 @@ struct MemoryItemRow: View {
                 // Text content
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Header + timestamp group
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: VSpacing.sm) {
                             Text(item.subject)
                                 .font(VFont.bodyBold)
@@ -33,7 +33,7 @@ struct MemoryItemRow: View {
                             kindTag
 
                             if let scopeLabel = item.scopeLabel {
-                                VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                                VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
                             }
 
                             VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
@@ -93,7 +93,7 @@ struct MemoryItemRow: View {
         VBadge(
             label: memoryKind?.label ?? item.kind.capitalized,
             color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .rounded
+            shape: .pill
         )
     }
 }
