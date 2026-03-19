@@ -169,36 +169,12 @@ struct SettingsSoundsTab: View {
 
     /// Preview the default blip at the current volume, bypassing enabled checks.
     private func previewDefaultBlip() {
-        let blip = NSSound(named: "Tink") ?? NSSound()
-        blip.volume = soundManager.config.volume
-        blip.play()
+        soundManager.previewDefaultBlip()
     }
 
-    /// Preview the sound configured for a specific event. Loads the sound file
-    /// directly and plays it at the current volume, bypassing enabled checks.
+    /// Preview the sound configured for a specific event, delegating to
+    /// SoundManager which uses the instance-aware sounds directory.
     private func previewSound(for event: SoundEvent, eventConfig: SoundEventConfig) {
-        guard let filename = eventConfig.sound, !filename.isEmpty else {
-            previewDefaultBlip()
-            return
-        }
-
-        // Try to locate the sound file by scanning available sounds for a match.
-        // availableSounds() reads from SoundManager's resolved sounds directory.
-        let available = soundManager.availableSounds()
-        guard available.contains(where: { $0.filename == filename }) else {
-            previewDefaultBlip()
-            return
-        }
-
-        // The sound file exists in the sounds directory. Load via the default
-        // URL helper — for standard setups this resolves to the same directory.
-        let dirURL = SoundManager.defaultSoundsDirectoryURL()
-        let fileURL = dirURL.appendingPathComponent(filename)
-        if let sound = NSSound(contentsOf: fileURL, byReference: true) {
-            sound.volume = soundManager.config.volume
-            sound.play()
-        } else {
-            previewDefaultBlip()
-        }
+        soundManager.previewSound(for: event)
     }
 }

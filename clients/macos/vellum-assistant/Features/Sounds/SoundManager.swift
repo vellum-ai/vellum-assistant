@@ -155,6 +155,37 @@ final class SoundManager {
         sound.play()
     }
 
+    /// Preview the sound configured for a specific event at the current volume,
+    /// bypassing enabled checks. Uses the instance-aware `soundsDirectoryURL` so
+    /// previews resolve correctly for non-default assistant instances.
+    func previewSound(for event: SoundEvent) {
+        let eventConfig = config.config(for: event)
+        guard let filename = eventConfig.sound, !filename.isEmpty else {
+            previewDefaultBlip()
+            return
+        }
+
+        let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            previewDefaultBlip()
+            return
+        }
+
+        if let sound = NSSound(contentsOf: fileURL, byReference: true) {
+            sound.volume = config.volume
+            sound.play()
+        } else {
+            previewDefaultBlip()
+        }
+    }
+
+    /// Preview the default blip at the current volume, bypassing enabled checks.
+    func previewDefaultBlip() {
+        let blip = NSSound(named: "Tink") ?? NSSound()
+        blip.volume = config.volume
+        blip.play()
+    }
+
     /// Returns the default blip sound (macOS system sound "Tink").
     private func defaultBlipSound() -> NSSound {
         if let cached = soundCache["__default_blip__"] {

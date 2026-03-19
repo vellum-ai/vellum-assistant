@@ -2238,11 +2238,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
         .removeDuplicates()
         // Track previous state to detect transitions that trigger sounds.
-        // isFirstEmission prevents sounds from firing on initial subscription
+        // .dropFirst() prevents sounds from firing on initial subscription
         // (e.g. a conversation that loads in an error state).
-        .scan((previous: ConversationInteractionState?.none, current: ConversationInteractionState.idle, isFirstEmission: true)) { accumulated, newState in
-            (previous: accumulated.current, current: newState, isFirstEmission: false)
+        .scan((previous: ConversationInteractionState?.none, current: ConversationInteractionState.idle)) { accumulated, newState in
+            (previous: accumulated.current, current: newState)
         }
+        .dropFirst()
         .sink { [weak self] transition in
             guard let self else { return }
             let state = transition.current
@@ -2254,8 +2255,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
             // Play sounds on discrete state transitions. The .removeDuplicates()
             // upstream ensures these only fire once per transition, not on every
-            // streaming delta. Skip the first emission to avoid sounds on initial load.
-            guard !transition.isFirstEmission else { return }
+            // streaming delta.
             let previous = transition.previous
             switch state {
             case .idle where previous == .processing:
