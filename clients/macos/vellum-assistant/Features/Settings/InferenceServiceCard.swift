@@ -15,7 +15,6 @@ import VellumAssistantShared
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @Binding var apiKeyText: String
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
@@ -32,10 +31,8 @@ struct InferenceServiceCard: View {
 
     // MARK: - Feature Flag
 
-    private static let customInferenceProviderFlagKey = "feature_flags.custom-inference-provider.enabled"
-
     private var isCustomProviderEnabled: Bool {
-        assistantFeatureFlagStore.isEnabled(Self.customInferenceProviderFlagKey)
+        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
     }
 
     // MARK: - Provider Helpers
