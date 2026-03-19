@@ -52,7 +52,7 @@ export class AcpAgentProcess {
 
     this.proc = spawn(this.config.command, this.config.args, {
       cwd,
-      stdio: ["pipe", "pipe", "inherit"],
+      stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...this.config.env },
     });
 
@@ -67,6 +67,14 @@ export class AcpAgentProcess {
       (agent) => this.clientFactory(agent),
       stream,
     );
+
+    // Capture stderr so agent crash details appear in logs
+    this.proc.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text) {
+        log.error({ agentId: this.agentId, stderr: text }, "ACP agent stderr");
+      }
+    });
 
     // Handle process exit
     this.proc.on("exit", (code) => {

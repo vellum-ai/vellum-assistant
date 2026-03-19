@@ -54,6 +54,24 @@
       "execution_target": "host"
     },
     {
+      "name": "acp_update_adapter",
+      "description": "Update the globally-installed claude-agent-acp adapter to the latest version. Only call this after the user has confirmed they want to update. After updating, retry the acp_spawn call.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/acp-update-adapter.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "acp_abort",
       "description": "Abort a running ACP session by ID. This kills the agent process and removes the session.",
       "category": "orchestration",
