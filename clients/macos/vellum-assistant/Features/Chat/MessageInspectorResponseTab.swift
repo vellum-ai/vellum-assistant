@@ -13,14 +13,14 @@ struct MessageInspectorResponseTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 if model.hasNormalizedSections {
-                    responseMetadataCard(showResponseMode: true)
+                    responseMetadataCard
 
                     ForEach(model.sections) { section in
                         responseSectionCard(for: section)
                     }
                 } else {
-                    if model.stopReason != nil {
-                        responseMetadataCard(showResponseMode: false)
+                    if model.responseModeLabel != nil {
+                        responseMetadataCard
                     }
 
                     fallbackCard
@@ -33,7 +33,7 @@ struct MessageInspectorResponseTab: View {
         .background(VColor.surfaceBase)
     }
 
-    private func responseMetadataCard(showResponseMode: Bool) -> some View {
+    private var responseMetadataCard: some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Response metadata")
@@ -41,12 +41,8 @@ struct MessageInspectorResponseTab: View {
                     .foregroundColor(VColor.contentDefault)
 
                 HStack(alignment: .top, spacing: VSpacing.xs) {
-                    if showResponseMode {
-                        metadataChip(model.responseModeLabel)
-                    }
-
-                    if let stopReason = model.stopReason {
-                        metadataChip("Stop reason: \(stopReason)")
+                    if let responseModeLabel = model.responseModeLabel {
+                        metadataChip(responseModeLabel)
                     }
                 }
             }
@@ -212,8 +208,7 @@ struct MessageInspectorResponseTab: View {
 
 struct MessageInspectorResponseTabModel: Equatable {
     let sections: [MessageInspectorResponseSectionModel]
-    let responseModeLabel: String
-    let stopReason: String?
+    let responseModeLabel: String?
     let fallbackMessage: String?
 
     init(entry: LLMRequestLogEntry) {
@@ -222,10 +217,7 @@ struct MessageInspectorResponseTabModel: Equatable {
             MessageInspectorResponseSectionModel(index: index, section: section)
         }
 
-        stopReason = entry.summary?.stopReason
-        responseModeLabel = (entry.summary?.responseToolCallCount ?? 0) > 0 || sections.contains(where: { $0.isToolCallLike })
-            ? "Tool-calling response"
-            : "Text-only response"
+        responseModeLabel = Self.deriveResponseModeLabel(summary: entry.summary, sections: sections)
         fallbackMessage = sections.isEmpty
             ? "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload."
             : nil
@@ -233,6 +225,29 @@ struct MessageInspectorResponseTabModel: Equatable {
 
     var hasNormalizedSections: Bool {
         !sections.isEmpty
+    }
+
+    private static func deriveResponseModeLabel(
+        summary: LLMCallSummary?,
+        sections: [MessageInspectorResponseSectionModel]
+    ) -> String? {
+        if let responseToolCallCount = summary?.responseToolCallCount {
+            return responseToolCallCount > 0 ? "Tool-calling response" : "Text-only response"
+        }
+
+        if let stopReason = summary?.stopReason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            if ["tool_calls", "tool_use", "function_call", "function_response"].contains(stopReason) {
+                return "Tool-calling response"
+            }
+
+            return "Text-only response"
+        }
+
+        if sections.contains(where: { $0.isToolCallLike }) {
+            return "Tool-calling response"
+        }
+
+        return sections.isEmpty ? nil : "Text-only response"
     }
 }
 
@@ -252,6 +267,10 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
     let presentationKind: PresentationKind
     let isToolCallLike: Bool
 
+    var showsRawPayloadHint: Bool {
+        presentationKind == .toolCall
+    }
+
     init(index: Int, section: LLMContextSection) {
         id = index
         toolName = section.toolName
@@ -265,7 +284,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             presentationKind = .toolCall
             isToolCallLike = true
             kindLabel = "Tool call"
-            let preview = section.text ?? Self.previewText(for: section.data)
+            let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
             let copySource = preview ?? title
             copyText = copySource
@@ -273,7 +292,7 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             presentationKind = .other
             isToolCallLike = true
             kindLabel = section.kind == .functionResponse ? "Function response" : "Tool result"
-            let preview = section.text ?? Self.previewText(for: section.data)
+            let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
             copyText = preview ?? title
         case .assistant, .message, .text, .output, .completion, .reasoning, .markdown, .code, .json:
@@ -290,10 +309,6 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             bodyText = preview
             copyText = bodyText ?? title
         }
-    }
-
-    var showsRawPayloadHint: Bool {
-        presentationKind == .toolCall
     }
 
     private static func previewText(for data: AnyCodable?) -> String? {

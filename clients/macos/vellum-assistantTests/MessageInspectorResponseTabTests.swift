@@ -41,11 +41,27 @@ final class MessageInspectorResponseTabTests: XCTestCase {
                         kind: .functionCall,
                         label: "Response tool call 1",
                         role: "assistant",
-                        text: "{\"query\":\"docs\",\"limit\":3}",
+                        text: "truncated arguments preview",
                         toolName: "search_web",
                         data: AnyCodable([
                             "query": "docs",
-                            "limit": 3
+                            "limit": 3,
+                            "filters": [
+                                "lang": "en"
+                            ]
+                        ])
+                    ),
+                    LLMContextSection(
+                        kind: .functionResponse,
+                        label: "Response tool result 1",
+                        role: "assistant",
+                        text: "truncated result preview",
+                        toolName: "search_web",
+                        data: AnyCodable([
+                            "results": [
+                                "docs",
+                                "reference"
+                            ]
                         ])
                     )
                 ]
@@ -54,8 +70,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
         XCTAssertTrue(model.hasNormalizedSections)
         XCTAssertEqual(model.responseModeLabel, "Tool-calling response")
-        XCTAssertEqual(model.stopReason, "tool_calls")
-        XCTAssertEqual(model.sections.count, 2)
+        XCTAssertEqual(model.sections.count, 3)
 
         XCTAssertEqual(model.sections[0].presentationKind, .assistantText)
         XCTAssertEqual(model.sections[0].title, "Assistant response")
@@ -65,10 +80,29 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections[1].presentationKind, .toolCall)
         XCTAssertEqual(model.sections[1].toolName, "search_web")
         XCTAssertEqual(model.sections[1].kindLabel, "Tool call")
-        XCTAssertTrue(model.sections[1].bodyText?.contains("\"query\"") ?? false)
-        XCTAssertTrue(model.sections[1].bodyText?.contains("\"docs\"") ?? false)
+        XCTAssertEqual(model.sections[1].bodyText, """
+        {
+          "filters" : {
+            "lang" : "en"
+          },
+          "limit" : 3,
+          "query" : "docs"
+        }
+        """)
         XCTAssertEqual(model.sections[1].copyText, model.sections[1].bodyText)
         XCTAssertTrue(model.sections[1].showsRawPayloadHint)
+
+        XCTAssertEqual(model.sections[2].presentationKind, .other)
+        XCTAssertEqual(model.sections[2].kindLabel, "Function response")
+        XCTAssertEqual(model.sections[2].bodyText, """
+        {
+          "results" : [
+            "docs",
+            "reference"
+          ]
+        }
+        """)
+        XCTAssertEqual(model.sections[2].copyText, model.sections[2].bodyText)
     }
 
     func testResponseTabModelFallsBackWithoutNormalizedSections() {
@@ -84,7 +118,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
         XCTAssertFalse(model.hasNormalizedSections)
         XCTAssertTrue(model.sections.isEmpty)
-        XCTAssertEqual(model.stopReason, "end_turn")
+        XCTAssertEqual(model.responseModeLabel, "Text-only response")
         XCTAssertEqual(model.fallbackMessage, "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload.")
     }
 

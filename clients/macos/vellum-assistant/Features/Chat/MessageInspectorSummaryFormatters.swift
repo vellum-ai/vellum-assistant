@@ -31,7 +31,6 @@ struct MessageInspectorOverviewContent: Equatable {
             .init(label: "Provider", value: MessageInspectorSummaryFormatters.displayProvider(summary.provider)),
             .init(label: "Model", value: MessageInspectorSummaryFormatters.displayText(summary.model)),
             .init(label: "Created", value: MessageInspectorSummaryFormatters.formattedCreatedAt(entry.createdAt)),
-            .init(label: "Stop reason", value: MessageInspectorSummaryFormatters.displayStopReason(summary.stopReason)),
         ]
 
         usageRows = [
@@ -78,7 +77,7 @@ enum MessageInspectorSummaryFormatters {
     }
 
     static func displayProvider(_ provider: String?) -> String {
-        guard let provider = displayText(provider).nilIfEmpty else {
+        guard let provider = provider?.trimmingCharacters(in: .whitespacesAndNewlines), !provider.isEmpty else {
             return missingValue
         }
 
@@ -92,14 +91,6 @@ enum MessageInspectorSummaryFormatters {
         default:
             return provider
         }
-    }
-
-    static func displayStopReason(_ stopReason: String?) -> String {
-        guard let stopReason = displayText(stopReason).nilIfEmpty else {
-            return missingValue
-        }
-
-        return humanizedIdentifier(stopReason)
     }
 
     static func displayText(_ value: String?) -> String {
@@ -148,22 +139,9 @@ enum MessageInspectorSummaryFormatters {
             .formatted(date: .abbreviated, time: .shortened)
     }
 
-    static func humanizedIdentifier(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "_", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .capitalized
-    }
-
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter
     }()
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
 }

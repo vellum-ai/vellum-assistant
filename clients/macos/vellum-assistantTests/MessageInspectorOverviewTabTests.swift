@@ -38,11 +38,10 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
 
         let content = MessageInspectorOverviewContent(entry: entry)
 
-        XCTAssertEqual(content.identityRows.map(\.label), ["Provider", "Model", "Created", "Stop reason"])
+        XCTAssertEqual(content.identityRows.map(\.label), ["Provider", "Model", "Created"])
         XCTAssertEqual(content.identityRows.map(\.value)[0], "OpenAI")
         XCTAssertEqual(content.identityRows.map(\.value)[1], "gpt-4.1")
         XCTAssertTrue(content.identityRows.map(\.value)[2].contains("1970"))
-        XCTAssertEqual(content.identityRows.map(\.value)[3], "Tool Calls")
 
         XCTAssertEqual(content.usageRows.map(\.label), ["Input tokens", "Output tokens", "Cache tokens", "Request messages", "Tool count"])
         XCTAssertEqual(content.usageRows.map(\.value), ["321", "54", "Unavailable", "2", "2"])
@@ -84,7 +83,6 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         let content = MessageInspectorOverviewContent(entry: entry)
 
         XCTAssertEqual(content.identityRows.map(\.value)[0], "Anthropic")
-        XCTAssertEqual(content.identityRows.map(\.value)[3], "Tool Use")
         XCTAssertEqual(content.usageRows.map(\.value), ["410", "73", "Created 200, Read 80", "2", "1"])
         XCTAssertEqual(content.responsePreview, "I found the changelog.")
         XCTAssertEqual(content.toolCallNames, "fetch_page")
@@ -124,7 +122,6 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         let content = MessageInspectorOverviewContent(entry: entry)
 
         XCTAssertEqual(content.identityRows.map(\.value)[0], "Gemini")
-        XCTAssertEqual(content.identityRows.map(\.value)[3], "Stop")
         XCTAssertEqual(content.usageRows.map(\.value), ["120", "34", "Unavailable", "2", "1"])
         XCTAssertEqual(content.responsePreview, "Here is a concise summary.")
         XCTAssertEqual(content.toolCallNames, "save_note")

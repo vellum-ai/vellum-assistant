@@ -16,7 +16,7 @@ struct MessageInspectorOverviewTab: View {
                 } else {
                     metadataCard(
                         title: "Normalized metadata",
-                        subtitle: "Provider, model, timestamps, stop reason, and usage counts.",
+                        subtitle: "Provider, model, timestamps, and usage counts.",
                         rows: content.identityRows
                     )
 
