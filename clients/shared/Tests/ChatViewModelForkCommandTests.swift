@@ -37,6 +37,17 @@ final class ChatViewModelForkCommandTests: XCTestCase {
         XCTAssertTrue(daemonClient.sentMessages.isEmpty)
     }
 
+    func testExactForkWithoutHandlerShowsLocalErrorAndNeverSendsUpstream() {
+        viewModel.inputText = "/fork"
+
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.inputText, "")
+        XCTAssertEqual(viewModel.errorText, "Send a message before forking this conversation.")
+        XCTAssertTrue(viewModel.messages.isEmpty)
+        XCTAssertTrue(daemonClient.sentMessages.isEmpty)
+    }
+
     func testForkWithArgumentsStaysOnNormalSendPath() {
         var forkCount = 0
         viewModel.onFork = { forkCount += 1 }

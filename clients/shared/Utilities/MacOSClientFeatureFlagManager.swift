@@ -33,7 +33,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         // When an explicit environment is provided (e.g. tests/previews),
         // skip UserDefaults to maintain isolation and determinism.
         if !isExplicitEnvironment {
-            let defaults = UserDefaults.standard
+            let defaults = SharedUserDefaults.standard
             for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(userDefaultsPrefix) {
                 let name = String(key.dropFirst(userDefaultsPrefix.count))
                 guard !name.isEmpty else { continue }
@@ -99,7 +99,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         defer { lock.unlock() }
         let normalized = Self.normalize(key)
         overrides[normalized] = enabled
-        UserDefaults.standard.set(enabled, forKey: userDefaultsPrefix + normalized)
+        SharedUserDefaults.standard.set(enabled, forKey: userDefaultsPrefix + normalized)
     }
 
     public func removeOverride(_ key: String) {
@@ -107,7 +107,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         defer { lock.unlock() }
         let normalized = Self.normalize(key)
         overrides.removeValue(forKey: normalized)
-        UserDefaults.standard.removeObject(forKey: userDefaultsPrefix + normalized)
+        SharedUserDefaults.standard.removeObject(forKey: userDefaultsPrefix + normalized)
     }
 
     /// Load VELLUM_FLAG_* entries from a `.env` file and apply them as overrides.
