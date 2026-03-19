@@ -182,5 +182,17 @@ async function resolvePlatformConnectionId(
     );
   }
 
+  if (connections.length > 1 && !account) {
+    log.warn(
+      {
+        provider,
+        count: connections.length,
+        selectedId: connections[0].id,
+      },
+      "Multiple active platform connections found; using the most recently created. " +
+        "Pass an account option to select a specific connection.",
+    );
+  }
+
   return connections[0].id;
 }
