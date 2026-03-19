@@ -1419,6 +1419,43 @@ private struct MessageCellView: View, Equatable {
     }
 
     @ViewBuilder
+    private func commandListView(for message: ChatMessage, nextDecidedConfirmation: ToolConfirmationData? = nil) -> some View {
+        if let commandEntries = CommandListBubble.parsedEntries(from: message.text) {
+            CommandListBubble(commands: commandEntries)
+        } else {
+            var fallbackMessage = message
+            fallbackMessage.commandList = nil
+            ChatBubble(
+                message: fallbackMessage,
+                decidedConfirmation: nextDecidedConfirmation,
+                onSurfaceAction: onSurfaceAction,
+                onDismissDocumentWidget: { surfaceId in
+                    onDismissDocumentWidget?(surfaceId)
+                },
+                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                onReportMessage: onReportMessage,
+                showInspectButton: showInspectButton,
+                onInspectMessage: onInspectMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
+                onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
+                mediaEmbedSettings: mediaEmbedSettings,
+                resolveHttpPort: resolveHttpPort,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                activeConfirmationRequestId: activePendingRequestId,
+                onRetryFailedMessage: onRetryFailedMessage,
+                onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
+                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
+                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
+                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
+                activeSurfaceId: activeSurfaceId
+            )
+        }
+    }
+
+    @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
         RunningIndicator(
             label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
@@ -1503,7 +1540,7 @@ private struct MessageCellView: View, Equatable {
             modelListView(for: message)
                 .id(message.id)
         } else if message.commandList != nil {
-            CommandListBubble(platform: .macos)
+            commandListView(for: message, nextDecidedConfirmation: nil)
                 .id(message.id)
         } else if let guardianDecision = message.guardianDecision {
             GuardianDecisionBubble(
@@ -1520,7 +1557,6 @@ private struct MessageCellView: View, Equatable {
                       conf.state != .pending else { return nil }
                 return conf
             }()
-
 
             ChatBubble(
                 message: message,

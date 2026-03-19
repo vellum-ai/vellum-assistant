@@ -309,51 +309,67 @@ struct ChatContentView: View {
                 removal: .opacity
             ))
         } else if message.commandList != nil {
-            CommandListBubble(platform: .ios)
+            commandListBubble(message: message, index: index, messages: messages)
                 .id(message.id)
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
                     removal: .opacity
                 ))
         } else {
-            let isLastAssistant = message.role == .assistant
-                && !message.isStreaming
-                && (index == messages.count - 1
-                    || (index == messages.count - 2
-                        && messages[messages.count - 1].confirmation != nil
-                        && messages[messages.count - 1].confirmation?.state != .pending))
-                && !viewModel.isSending
-                && !viewModel.isThinking
-            MessageBubbleView(
-                message: message,
-                onConfirmationResponse: { requestId, decision in
-                    viewModel.respondToConfirmation(requestId: requestId, decision: decision)
-                },
-                onSurfaceAction: { surfaceId, actionId, data in
-                    viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
-                },
-                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
-                onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
-                    viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
-                },
-                onGuardianAction: { requestId, action in
-                    viewModel.submitGuardianDecision(requestId: requestId, action: action)
-                },
-                onSurfaceRefetch: { surfaceId, conversationId in
-                    viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
-                },
-                onRetryConversationError: message.isError && index == messages.count - 1 ? { viewModel.retryAfterConversationError() } : nil
-            )
-            .id(message.id)
-            .transition(.asymmetric(
-                insertion: .move(edge: .bottom).combined(with: .opacity),
-                removal: .opacity
-            ))
+            regularMessageBubble(message: message, index: index, messages: messages)
+                .id(message.id)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .opacity
+                ))
+        }
+    }
 
-            // Inline media embeds (images, videos)
-            if !message.text.isEmpty && !message.isStreaming {
-                MessageMediaEmbedsView(message: message)
-            }
+    @ViewBuilder
+    private func commandListBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
+        if let parsedEntries = CommandListBubble.parsedEntries(from: message.text) {
+            CommandListBubble(commands: parsedEntries)
+        } else {
+            var fallbackMessage = message
+            fallbackMessage.commandList = nil
+            regularMessageBubble(message: fallbackMessage, index: index, messages: messages)
+        }
+    }
+
+    @ViewBuilder
+    private func regularMessageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
+        let isLastAssistant = message.role == .assistant
+            && !message.isStreaming
+            && (index == messages.count - 1
+                || (index == messages.count - 2
+                    && messages[messages.count - 1].confirmation != nil
+                    && messages[messages.count - 1].confirmation?.state != .pending))
+            && !viewModel.isSending
+            && !viewModel.isThinking
+        MessageBubbleView(
+            message: message,
+            onConfirmationResponse: { requestId, decision in
+                viewModel.respondToConfirmation(requestId: requestId, decision: decision)
+            },
+            onSurfaceAction: { surfaceId, actionId, data in
+                viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
+            },
+            onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
+            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+            },
+            onGuardianAction: { requestId, action in
+                viewModel.submitGuardianDecision(requestId: requestId, action: action)
+            },
+            onSurfaceRefetch: { surfaceId, conversationId in
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
+            },
+            onRetryConversationError: message.isError && index == messages.count - 1 ? { viewModel.retryAfterConversationError() } : nil
+        )
+
+        // Inline media embeds (images, videos)
+        if !message.text.isEmpty && !message.isStreaming {
+            MessageMediaEmbedsView(message: message)
         }
     }
 
