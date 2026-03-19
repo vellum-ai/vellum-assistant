@@ -6,12 +6,17 @@ public struct CommandListBubble: View {
         let description: String
     }
 
-    private let commands: [CommandEntry] = [
-        CommandEntry(id: "/commands", description: "Show this list"),
-        CommandEntry(id: "/models", description: "List all available models"),
-    ]
+    private let platform: ChatSlashCommandPlatform
 
-    public init() {}
+    private var commands: [CommandEntry] {
+        ChatSlashCommandCatalog.commands(for: platform, surface: .helpBubble).map {
+            CommandEntry(id: $0.slashName, description: $0.description)
+        }
+    }
+
+    public init(platform: ChatSlashCommandPlatform) {
+        self.platform = platform
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {

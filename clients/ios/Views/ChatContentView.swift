@@ -309,7 +309,7 @@ struct ChatContentView: View {
                 removal: .opacity
             ))
         } else if message.commandList != nil {
-            CommandListBubble()
+            CommandListBubble(platform: .ios)
                 .id(message.id)
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
