@@ -32,6 +32,10 @@ struct InferenceServiceCard: View {
     @State private var initialProvider: String = ""
     /// Guards against provider-change side-effects during initial load.
     @State private var didInitialSync = false
+    /// Set `true` right before an external store sync updates `draftProvider`,
+    /// so `onChange(of: draftProvider)` can distinguish daemon-driven updates
+    /// from user-initiated picks and skip the model/key reset.
+    @State private var isSyncingProviderFromStore = false
 
     // MARK: - Feature Flag
 
@@ -198,6 +202,9 @@ struct InferenceServiceCard: View {
             // Sync draft & baseline when the daemon reports a provider
             // update. Also refresh the model baseline so hasChanges does
             // not flag a stale diff against the old provider's model.
+            // Flag the update so onChange(of: draftProvider) skips the
+            // model/key reset that is only appropriate for user picks.
+            isSyncingProviderFromStore = true
             draftProvider = newValue
             initialProvider = newValue
             draftModel = store.selectedModel
@@ -212,10 +219,13 @@ struct InferenceServiceCard: View {
             // Only reset the model and API key text for user-initiated
             // provider changes. Skip during initial load (onAppear sets
             // draftProvider before didInitialSync is true) and during
-            // external store syncs (onChange of store.selectedInferenceProvider
-            // updates both draftProvider and initialProvider together, so
-            // they will match).
-            guard didInitialSync, newProvider != initialProvider else { return }
+            // external store syncs (which set isSyncingProviderFromStore
+            // before updating draftProvider).
+            if isSyncingProviderFromStore {
+                isSyncingProviderFromStore = false
+                return
+            }
+            guard didInitialSync else { return }
             if isCustomProviderEnabled {
                 let defaultModel = store.dynamicProviderDefaultModel(newProvider)
                 let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
