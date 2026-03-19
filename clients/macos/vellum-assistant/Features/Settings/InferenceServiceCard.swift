@@ -295,9 +295,10 @@ struct InferenceServiceCard: View {
         }
 
         // Persist provider if changed and flag is on
-        if isCustomProviderEnabled && draftProvider != initialProvider {
-            store.setInferenceProvider(draftProvider)
-            initialProvider = draftProvider
+        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        if isCustomProviderEnabled && persistProvider != initialProvider {
+            store.setInferenceProvider(persistProvider)
+            initialProvider = persistProvider
         }
 
         // Persist API key if entered and in your-own mode.
