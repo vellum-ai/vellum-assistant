@@ -145,9 +145,9 @@ struct ComposerView: View {
             }
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
-            if enabled {
+            if enabled, !hasPendingConfirmation {
                 composerFocus = true
-            } else {
+            } else if !enabled {
                 composerFocus = false
                 showSlashMenu = false
                 suppressSlashReopen = false
