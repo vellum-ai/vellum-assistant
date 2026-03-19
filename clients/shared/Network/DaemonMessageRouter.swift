@@ -24,7 +24,7 @@ extension DaemonClient {
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
-                    self.httpTransport?.isUpdateInProgress = false
+                    self.httpTransport?.setUpdateInProgress(false)
                 }
             }
             if let newFingerprint = status.keyFingerprint {
@@ -111,14 +111,14 @@ extension DaemonClient {
             // Allow 2x the expected downtime before expiring the suppression,
             // so auto-wake can recover if the update process crashes.
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
-            self.httpTransport?.isUpdateInProgress = true
+            self.httpTransport?.setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
             onServiceGroupUpdateStarting?(msg)
         case .serviceGroupUpdateComplete(let msg):
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
-            self.httpTransport?.isUpdateInProgress = false
+            self.httpTransport?.setUpdateInProgress(false)
             log.info("Service group update complete — version: \(msg.installedVersion, privacy: .public), success: \(msg.success)")
             onServiceGroupUpdateComplete?(msg)
         case .trustRulesListResponse:
