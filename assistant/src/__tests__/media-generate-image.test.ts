@@ -77,84 +77,6 @@ mock.module("../providers/managed-proxy/context.js", () => ({
   resolveManagedProxyContext: async () => mockManagedProxyContext,
 }));
 
-let mockAttachments: Array<{
-  id: string;
-  assistantId: string;
-  originalFilename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  createdAt: number;
-  dataBase64: string;
-}> = [];
-
-mock.module("../memory/attachments-store.js", () => ({
-  getAttachmentsByIds: (_assistantId: string, _ids: string[]) =>
-    mockAttachments,
-  getAttachmentContent: (id: string) => {
-    const att = mockAttachments.find((a) => a.id === id);
-    if (!att) return null;
-    return Buffer.from(att.dataBase64, "base64");
-  },
-}));
-
-mock.module("../memory/db.js", () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          get: () => ({ assistantId: "test-assistant" }),
-        }),
-      }),
-    }),
-  }),
-}));
-
-mock.module("../memory/schema.js", () => ({
-  conversationKeys: {
-    assistantId: "assistantId",
-    conversationId: "conversationId",
-  },
-}));
-
-mock.module("drizzle-orm", () => ({
-  eq: () => true,
-}));
-
-mock.module("../memory/conversation-crud.js", () => ({
-  setConversationOriginChannelIfUnset: () => {},
-  updateConversationContextWindow: () => {},
-  deleteMessageById: () => {},
-  updateConversationTitle: () => {},
-  updateConversationUsage: () => {},
-  addMessage: () => ({ id: "mock-msg-id" }),
-  getMessages: () => [],
-  getConversation: () => ({
-    id: "conv-1",
-    contextSummary: null,
-    contextCompactedMessageCount: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalEstimatedCost: 0,
-    title: null,
-  }),
-  provenanceFromTrustContext: () => ({
-    source: "user",
-    trustContext: undefined,
-  }),
-  getConversationOriginInterface: () => null,
-  getConversationOriginChannel: () => null,
-  getConversationType: () => "standard",
-}));
-
-mock.module("../daemon/media-visibility-policy.js", () => ({
-  isAttachmentVisible: () => true,
-}));
-
-mock.module("../tools/assets/search.js", () => ({
-  getAttachmentSourceConversations: () => [],
-}));
-
 // Import after mocking
 import { run } from "../config/bundled-skills/image-studio/tools/media-generate-image.js";
 
@@ -183,7 +105,6 @@ beforeEach(() => {
     resolvedModel: "gemini-3.1-flash-image-preview",
   };
   mockGenerateError = null;
-  mockAttachments = [];
   lastGenerateCredentials = null;
   mockManagedBaseUrl = undefined;
   mockManagedProxyContext = {
@@ -307,28 +228,6 @@ describe("image-studio skill script wrapper", () => {
     expect(result.content).toContain("Mock error: API failure");
   });
 
-  test("passes attachment data as sourceImages for edit mode", async () => {
-    mockAttachments = [
-      {
-        id: "att-1",
-        assistantId: "test-assistant",
-        originalFilename: "photo.jpg",
-        mimeType: "image/jpeg",
-        sizeBytes: 1000,
-        kind: "image",
-        createdAt: Date.now(),
-        dataBase64: "attachment-data",
-      },
-    ];
-
-    const result = await run(
-      { prompt: "remove bg", mode: "edit", attachment_ids: ["att-1"] },
-      fakeContext,
-    );
-
-    expect(result.isError).toBe(false);
-  });
-
   test("reads source images from file paths on disk", async () => {
     // Write a temp image file inside the workspace (fakeContext.workingDir = /tmp)
     const tmpPath = join("/tmp", "test-source-image.png");
@@ -423,10 +322,11 @@ describe("image-studio TOOLS.json manifest", () => {
     expect(schema.properties.prompt.type).toBe("string");
   });
 
-  test("input schema has optional mode, attachment_ids, model, variants", () => {
+  test("input schema has optional mode, source_paths, model, variants", () => {
     const props = manifest.tools[0].input_schema.properties;
     expect(props.mode.enum).toEqual(["generate", "edit"]);
-    expect(props.attachment_ids.type).toBe("array");
+    expect(props.source_paths.type).toBe("array");
+    expect(props.attachment_ids).toBeUndefined();
     expect(props.model.enum).toEqual([
       "gemini-3.1-flash-image-preview",
       "gemini-3-pro-image-preview",
