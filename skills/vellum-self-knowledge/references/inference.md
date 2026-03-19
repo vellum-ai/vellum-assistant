@@ -2,11 +2,7 @@
 
 ## Current Model Identity
 
-To determine what model and provider you are currently running as, run the self-info script:
-
-```bash
-bun run {baseDir}/scripts/self-info.ts
-```
+To determine what model and provider you are currently running as, run the self-info script command shown in SKILL.md above.
 
 The script returns JSON with the current model ID, display name, provider, and provider display name. **Always run this script when asked about your model identity** rather than guessing — the config can change mid-session via the model switcher in the UI.
 
