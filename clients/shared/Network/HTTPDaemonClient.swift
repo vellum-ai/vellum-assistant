@@ -356,9 +356,6 @@ public final class HTTPTransport {
         case hostCuResult
 
         // Misc
-        case channelVerificationSessions
-        case channelVerificationSessionsResend
-        case channelVerificationSessionsRevoke
         case registerDeviceToken
 
     }
@@ -503,12 +500,6 @@ public final class HTTPTransport {
         case .hostCuResult:
             return ("/v1/host-cu-result", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("/v1/channel-verification-sessions", nil)
-        case .channelVerificationSessionsResend:
-            return ("/v1/channel-verification-sessions/resend", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
         }
@@ -634,12 +625,6 @@ public final class HTTPTransport {
         case .hostCuResult:
             return ("\(prefix)/host-cu-result/", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("\(prefix)/channel-verification-sessions/", nil)
-        case .channelVerificationSessionsResend:
-            return ("\(prefix)/channel-verification-sessions/resend/", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
         }

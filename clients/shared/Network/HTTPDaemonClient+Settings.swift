@@ -71,19 +71,6 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
                 return true
             }
-            if let msg = message as? ChannelVerificationSessionRequestMessage {
-                switch msg.action {
-                case "cancel_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel", channel: msg.channel) }
-                case "revoke":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke", channel: msg.channel) }
-                case "resend_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend", channel: msg.channel) }
-                default:
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session", channel: msg.channel) }
-                }
-                return true
-            }
             // --- Workspace Files (legacy HTTP) ---
             if message is WorkspaceFilesListRequestMessage {
                 Task { await self.sendGenericPost(.workspaceFiles, method: "GET", label: "workspace_files_list") }
@@ -184,7 +171,7 @@ extension HTTPTransport {
     /// HTTP route handlers return plain JSON without the `type` discriminant
     /// that `ServerMessage` decoding requires. This method injects the
     /// `messageType` string before decoding so the existing callback handlers
-    /// (e.g. `onChannelVerificationSessionResponse`, `onTelegramConfigResponse`)
+    /// (e.g. `onTelegramConfigResponse`)
     /// fire as expected.
     func sendEncodablePostAndDispatch<T: Encodable>(
         _ endpoint: Endpoint,

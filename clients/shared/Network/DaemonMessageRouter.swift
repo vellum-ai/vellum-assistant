@@ -157,8 +157,8 @@ extension DaemonClient {
             onPlatformConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
-        case .channelVerificationSessionResponse(let msg):
-            onChannelVerificationSessionResponse?(msg)
+        case .channelVerificationSessionResponse:
+            break // Handled by SettingsClient via GatewayHTTPClient.
         case .telegramConfigResponse(let msg):
             onTelegramConfigResponse?(msg)
         case .modelInfo(let msg):

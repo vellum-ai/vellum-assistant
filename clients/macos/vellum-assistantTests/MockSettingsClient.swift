@@ -16,6 +16,7 @@ final class MockSettingsClient: SettingsClientProtocol {
     var fetchEmbeddingConfigCallCount = 0
     var setEmbeddingConfigCalls: [(provider: String, model: String?)] = []
     var fetchChannelVerificationStatusCalls: [String] = []
+    var sendChannelVerificationSessionCalls: [(action: String, channel: String?, conversationId: String?, rebind: Bool?, destination: String?, originConversationId: String?, purpose: String?, contactChannelId: String?)] = []
 
     // MARK: - Configurable Responses
 
@@ -29,6 +30,7 @@ final class MockSettingsClient: SettingsClientProtocol {
     var setTelegramConfigResponse: TelegramConfigResponseMessage?
     var setSlackWebhookConfigResponse: Bool = true
     var channelVerificationResponses: [String: ChannelVerificationSessionResponseMessage] = [:]
+    var sendChannelVerificationSessionResponse: ChannelVerificationSessionResponseMessage?
 
     // MARK: - Protocol Methods
 
@@ -80,5 +82,23 @@ final class MockSettingsClient: SettingsClientProtocol {
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage? {
         fetchChannelVerificationStatusCalls.append(channel)
         return channelVerificationResponses[channel]
+    }
+
+    func sendChannelVerificationSession(
+        action: String,
+        channel: String?,
+        conversationId: String?,
+        rebind: Bool?,
+        destination: String?,
+        originConversationId: String?,
+        purpose: String?,
+        contactChannelId: String?
+    ) async -> ChannelVerificationSessionResponseMessage? {
+        sendChannelVerificationSessionCalls.append((
+            action: action, channel: channel, conversationId: conversationId,
+            rebind: rebind, destination: destination, originConversationId: originConversationId,
+            purpose: purpose, contactChannelId: contactChannelId
+        ))
+        return sendChannelVerificationSessionResponse
     }
 }
