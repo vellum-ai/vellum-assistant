@@ -233,6 +233,10 @@ struct FeedbackGallerySection: View {
                             VCopyButton(text: "Compact copy", size: .compact)
                         }
                         VStack(spacing: VSpacing.xs) {
+                            Text("Inline (18×18)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VCopyButton(text: "Inline copy", size: .inline)
+                        }
+                        VStack(spacing: VSpacing.xs) {
                             Text("Custom frame (20pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VCopyButton(text: "Small frame", iconSize: 20)
                         }
