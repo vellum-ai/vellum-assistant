@@ -221,26 +221,18 @@ struct MessageInspectorView: View {
             )
 
             if isExpanded {
-                GeometryReader { proxy in
-                    // Constrain both panes to the visible row width so very wide
-                    // request JSON cannot push the sibling response pane offscreen.
-                    let columnWidth = max((proxy.size.width - VSpacing.lg) / 2, 0)
+                HStack(alignment: .top, spacing: VSpacing.lg) {
+                    jsonSection(
+                        title: "Request",
+                        formattedText: formattedJSON["\(entry.id)-request"] ?? ""
+                    )
 
-                    HStack(alignment: .top, spacing: VSpacing.lg) {
-                        jsonSection(
-                            title: "Request",
-                            formattedText: formattedJSON["\(entry.id)-request"] ?? ""
-                        )
-                        .frame(width: columnWidth, alignment: .topLeading)
-
-                        jsonSection(
-                            title: "Response",
-                            formattedText: formattedJSON["\(entry.id)-response"] ?? ""
-                        )
-                        .frame(width: columnWidth, alignment: .topLeading)
-                    }
-                    .frame(width: proxy.size.width, alignment: .leading)
+                    jsonSection(
+                        title: "Response",
+                        formattedText: formattedJSON["\(entry.id)-response"] ?? ""
+                    )
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(
                     minHeight: payloadViewportHeight + payloadSectionChromeHeight,
                     alignment: .topLeading
