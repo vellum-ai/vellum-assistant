@@ -621,9 +621,11 @@ struct MessageListView: View {
         log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
         paginationTask = Task {
             defer {
-                isPaginationInFlight = false
                 if !Task.isCancelled {
+                    isPaginationInFlight = false
                     paginationTask = nil
+                } else if paginationTask == nil {
+                    isPaginationInFlight = false
                 }
             }
             let hadMore = await loadPreviousMessagePage?() ?? false
