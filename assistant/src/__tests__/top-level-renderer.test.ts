@@ -123,4 +123,26 @@ describe("renderWorkspaceTopLevelContext", () => {
     expect(result).toContain("Directories: ");
     expect(result).toContain("Files: a.txt, b.txt");
   });
+
+  test("renders current conversation and attachment paths when provided", () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/sandbox",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot, {
+      currentConversationPath: "conversations/conv-1_2026-03-19T12-00-00.000Z/",
+      currentConversationAttachmentsPath:
+        "conversations/conv-1_2026-03-19T12-00-00.000Z/attachments/",
+    });
+
+    expect(result).toContain(
+      "Current conversation folder: conversations/conv-1_2026-03-19T12-00-00.000Z/",
+    );
+    expect(result).toContain(
+      "Attachment files: conversations/conv-1_2026-03-19T12-00-00.000Z/attachments/",
+    );
+  });
 });
