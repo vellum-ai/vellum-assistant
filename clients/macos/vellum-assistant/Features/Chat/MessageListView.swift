@@ -2019,15 +2019,50 @@ private struct PaginationSentinelMinYKey: PreferenceKey {
 /// paths so expansion/streaming guards stop once the tail anchor re-enters
 /// the viewport.
 enum MessageListBottomAnchorPolicy {
+    /// Distinguishes why a bottom-anchor check passed or failed, so callers
+    /// can handle missing geometry differently from a genuine scroll drift.
+    enum VerificationOutcome: Equatable {
+        /// The anchor is within tolerance of the viewport bottom — no action needed.
+        case anchored
+        /// The anchor has drifted below the viewport and should be re-pinned.
+        case needsRepin
+        /// One or both geometry inputs are non-finite (e.g. `.infinity`, `.nan`),
+        /// meaning the layout has not been measured yet or is in a transient state.
+        case geometryUnavailable
+    }
+
     static let repinTolerance: CGFloat = 2
 
+    /// Evaluates the bottom-anchor position against the viewport and returns
+    /// a structured outcome describing the result.
+    static func verify(
+        anchorMinY: CGFloat,
+        viewportHeight: CGFloat,
+        tolerance: CGFloat = repinTolerance
+    ) -> VerificationOutcome {
+        guard anchorMinY.isFinite, viewportHeight.isFinite else {
+            return .geometryUnavailable
+        }
+        if anchorMinY > viewportHeight + tolerance {
+            return .needsRepin
+        }
+        return .anchored
+    }
+
+    /// Returns `true` when the anchor needs re-pinning OR geometry is unavailable.
+    /// Existing call sites rely on this collapsing `geometryUnavailable` into `true`,
+    /// preserving current behavior until callers adopt `verify(...)` directly.
     static func needsRepin(
         anchorMinY: CGFloat,
         viewportHeight: CGFloat,
         tolerance: CGFloat = repinTolerance
     ) -> Bool {
-        guard anchorMinY.isFinite, viewportHeight.isFinite else { return true }
-        return anchorMinY > viewportHeight + tolerance
+        switch verify(anchorMinY: anchorMinY, viewportHeight: viewportHeight, tolerance: tolerance) {
+        case .anchored:
+            return false
+        case .needsRepin, .geometryUnavailable:
+            return true
+        }
     }
 }
 
