@@ -59,7 +59,7 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
       // syncMessageToDisk calls below don't produce duplicates.
       const messagesPath = join(dirPath, "messages.jsonl");
       if (existsSync(messagesPath)) {
-        rmSync(messagesPath);
+        rmSync(messagesPath, { force: true });
       }
       const attachDir = join(dirPath, "attachments");
       if (existsSync(attachDir)) {
