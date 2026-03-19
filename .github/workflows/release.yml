@@ -51,12 +51,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -67,7 +61,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
@@ -79,7 +72,7 @@ jobs:
           context: .
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -192,6 +185,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        continue-on-error: true
         working-directory: /tmp/digests
         run: |
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
@@ -264,12 +258,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -280,7 +268,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
@@ -291,7 +278,7 @@ jobs:
         with:
           context: gateway
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -342,12 +329,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -358,7 +339,6 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub=vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -367,7 +347,7 @@ jobs:
           context: .
           file: credential-executor/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -480,6 +460,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        continue-on-error: true
         working-directory: /tmp/digests
         run: |
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
@@ -614,6 +595,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        continue-on-error: true
         working-directory: /tmp/digests
         run: |
           IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
