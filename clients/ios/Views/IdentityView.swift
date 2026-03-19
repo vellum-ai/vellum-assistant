@@ -86,7 +86,7 @@ final class IdentityViewModel {
             let key = "identity-intro-\(UUID().uuidString)"
             var result = ""
             do {
-                let stream = GatewayHTTPClient.sendBtwMessage(
+                let stream = BtwClient().sendMessage(
                     content: "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else.",
                     conversationKey: key
                 )

@@ -207,97 +207,23 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
-    // MARK: - BTW Side-Chain
-
-    /// Send a /btw side-chain question and stream the response text.
-    /// Returns an AsyncThrowingStream that yields text deltas from SSE `btw_text_delta` events.
-    /// Handles 401 authentication retry for non-managed connections.
-    public static func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
-        return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor in
-                do {
-                    try await _streamBtw(content: content, conversationKey: conversationKey, continuation: continuation, isRetry: false)
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { @Sendable _ in task.cancel() }
-        }
-    }
-
-    /// Internal helper that performs the actual BTW streaming request.
-    private static func _streamBtw(
-        content: String,
-        conversationKey: String,
-        continuation: AsyncThrowingStream<String, Error>.Continuation,
-        isRetry: Bool
-    ) async throws {
+    /// Performs an authenticated streaming POST request against the gateway.
+    ///
+    /// Returns an async byte stream suitable for SSE or other streaming transports
+    /// that need `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Pre-serialized request body data.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: "assistants/{assistantId}/btw", params: nil, method: "POST", timeout: 120, connection: connection)
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-
-        let body: [String: String] = [
-            "conversationKey": conversationKey,
-            "content": content,
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-
-        if http.statusCode == 401 && !isRetry && !connection.isManaged {
-            // Collect response body for auth refresh
-            var bodyChunks: [UInt8] = []
-            for try await byte in bytes {
-                bodyChunks.append(byte)
-            }
-            if await refreshBearerCredentials(connection: connection) {
-                try await _streamBtw(content: content, conversationKey: conversationKey, continuation: continuation, isRetry: true)
-                return
-            }
-            throw URLError(.userAuthenticationRequired, userInfo: [
-                NSLocalizedDescriptionKey: "Authentication failed — please try again."
-            ])
-        }
-
-        guard http.statusCode == 200 else {
-            throw URLError(.badServerResponse, userInfo: [
-                NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"
-            ])
-        }
-
-        var currentEventType: String?
-        for try await line in bytes.lines {
-            if Task.isCancelled { break }
-
-            if line.hasPrefix("event: ") {
-                currentEventType = String(line.dropFirst(7))
-            } else if line.hasPrefix("data: ") {
-                let jsonString = String(line.dropFirst(6))
-                if let data = jsonString.data(using: .utf8),
-                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    if currentEventType == "btw_error" {
-                        let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
-                        throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: errorMessage
-                        ])
-                    }
-                    if let text = parsed["text"] as? String {
-                        continuation.yield(text)
-                    }
-                    if currentEventType == "btw_complete" {
-                        break
-                    }
-                }
-                currentEventType = nil
-            } else if line.isEmpty {
-                currentEventType = nil
-            }
-        }
-        continuation.finish()
+        request.httpBody = body
+        return try await URLSession.shared.bytes(for: request)
     }
 
     // MARK: - Internals

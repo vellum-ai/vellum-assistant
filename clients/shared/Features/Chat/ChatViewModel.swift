@@ -1350,7 +1350,7 @@ public final class ChatViewModel: ObservableObject {
         btwTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let stream = GatewayHTTPClient.sendBtwMessage(
+                let stream = BtwClient().sendMessage(
                     content: question,
                     conversationKey: self.conversationId ?? ""
                 )
@@ -1392,7 +1392,7 @@ public final class ChatViewModel: ObservableObject {
             let key = "greeting"
             var result = ""
             do {
-                let stream = GatewayHTTPClient.sendBtwMessage(
+                let stream = BtwClient().sendMessage(
                     content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
                     conversationKey: key
                 )
