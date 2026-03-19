@@ -34,6 +34,7 @@ struct SettingsPrivacyTab: View {
                 label: "Share Analytics",
                 helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
             )
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             SettingsDivider()
 
@@ -53,6 +54,7 @@ struct SettingsPrivacyTab: View {
                 label: "Share Diagnostics",
                 helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
             )
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

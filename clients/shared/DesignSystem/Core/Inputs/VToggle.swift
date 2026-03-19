@@ -63,7 +63,6 @@ public struct VToggle: View {
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
-                Spacer(minLength: 0)
             }
         }
     }
