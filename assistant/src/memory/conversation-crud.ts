@@ -952,6 +952,13 @@ export async function addMessage(
       throw err;
     }
   }
+
+  // Mark the conversation dirty for delayed memory reduction. This runs
+  // after the insert transaction succeeds so the reducer knows which
+  // conversations have unprocessed messages. The helper preserves the
+  // earliest unreduced boundary (no-op when already dirty).
+  markConversationMemoryDirty(conversationId, messageId);
+
   const message = {
     id: messageId,
     conversationId,
@@ -1402,6 +1409,28 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   deleteOrphanAttachments(candidateAttachmentIds);
 
   return result;
+}
+
+/**
+ * Mark a conversation as having unreduced messages starting from the given
+ * message. Sets `memoryDirtyTailSinceMessageId` only when it is currently
+ * null so the earliest unreduced boundary is preserved across multiple
+ * messages — later messages must not clobber the original dirty marker.
+ */
+export function markConversationMemoryDirty(
+  conversationId: string,
+  messageId: string,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ memoryDirtyTailSinceMessageId: messageId })
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        isNull(conversations.memoryDirtyTailSinceMessageId),
+      ),
+    )
+    .run();
 }
 
 export function setConversationOriginChannelIfUnset(
