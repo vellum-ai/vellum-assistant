@@ -16,9 +16,8 @@ public struct ConversationDetailClient: ConversationDetailClientProtocol {
 
     public func fetchConversation(conversationId: String) async -> ConversationListResponseItem? {
         do {
-            let encodedConversationId = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/conversations/\(encodedConversationId)",
+                path: "assistants/{assistantId}/conversations/\(conversationId)",
                 timeout: 15
             )
             guard response.isSuccess else {
