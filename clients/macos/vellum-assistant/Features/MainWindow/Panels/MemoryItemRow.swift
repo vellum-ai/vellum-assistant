@@ -7,9 +7,16 @@ struct MemoryItemRow: View {
     let onDelete: () -> Void
     @State private var isHovered = false
 
+    private var memoryKind: MemoryKind? {
+        MemoryKind(rawValue: item.kind)
+    }
+
     var body: some View {
         Button(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
+                // Kind icon
+                kindIcon
+
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(spacing: VSpacing.sm) {
                         Text(item.subject)
@@ -19,7 +26,7 @@ struct MemoryItemRow: View {
                         kindTag
 
                         if let scopeLabel = item.scopeLabel {
-                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
                         }
                     }
 
@@ -46,8 +53,10 @@ struct MemoryItemRow: View {
                     .stroke(VColor.borderDisabled, lineWidth: 2)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
@@ -55,14 +64,28 @@ struct MemoryItemRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    // MARK: - Kind Icon
+
+    @ViewBuilder
+    private var kindIcon: some View {
+        if let kind = memoryKind, let icon = VIcon(rawValue: kind.icon) {
+            VIconView(icon, size: 20)
+                .foregroundColor(kind.color)
+                .frame(width: 40, height: 40)
+        } else {
+            VIconView(.brain, size: 20)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 40, height: 40)
+        }
+    }
+
     // MARK: - Kind Tag
 
     private var kindTag: some View {
-        let memoryKind = MemoryKind(rawValue: item.kind)
-        return VBadge(
+        VBadge(
             label: memoryKind?.label ?? item.kind.capitalized,
             color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .rounded
+            shape: .pill
         )
     }
 }
