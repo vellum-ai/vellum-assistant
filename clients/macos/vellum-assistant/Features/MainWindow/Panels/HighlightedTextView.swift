@@ -139,35 +139,27 @@ struct HighlightedTextView: View {
     // MARK: - Read-Only Mode
 
     /// Read-only view for editable files. Clicking the code content area
-    /// (not the search bar or gutter) enters edit mode. Uses `VCodeView`'s
-    /// `onContentClick` callback so the click target is scoped to the
-    /// NSTextView content, preserving text selection and child controls.
+    /// (not the search bar or gutter) enters edit mode.
     private var editableReadOnlyView: some View {
+        readOnlyCodeView(onContentClick: { isActivelyEditing = true })
+    }
+
+    /// Read-only view for non-editable files.
+    private var readOnlyView: some View {
+        readOnlyCodeView()
+    }
+
+    /// Shared read-only `VCodeView` builder. Passes `SyntaxTheme.highlightNS`
+    /// as the pluggable syntax highlighter and keeps `highlightVersion` and
+    /// `cachedLineCount` in sync when the text changes.
+    private func readOnlyCodeView(onContentClick: (() -> Void)? = nil) -> some View {
         VCodeView(
             text: text,
             highlighter: { text, paragraphStyle in
                 SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
             },
             highlightVersion: highlightVersion,
-            onContentClick: {
-                isActivelyEditing = true
-            }
-        )
-        .onChange(of: text) { _, _ in
-            highlightVersion &+= 1
-            cachedLineCount = VCodeView.countLines(in: text)
-        }
-    }
-
-    /// Read-only view using `VCodeView` from the design system. Passes
-    /// `SyntaxTheme.highlightNS` as the pluggable syntax highlighter.
-    private var readOnlyView: some View {
-        VCodeView(
-            text: text,
-            highlighter: { text, paragraphStyle in
-                SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
-            },
-            highlightVersion: highlightVersion
+            onContentClick: onContentClick
         )
         .onChange(of: text) { _, _ in
             highlightVersion &+= 1

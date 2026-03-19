@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -26,13 +25,8 @@ private enum JSONNode: Identifiable {
     /// suitable for copying to the pasteboard.
     var serializedValue: String {
         switch self {
-        case .object(_, let entries):
-            let obj = entries.reduce(into: [String: Any]()) { dict, entry in
-                dict[entry.key] = entry.value.toFoundation()
-            }
-            return Self.prettyPrint(obj)
-        case .array(_, let elements):
-            return Self.prettyPrint(elements.map { $0.toFoundation() })
+        case .object, .array:
+            return Self.prettyPrint(toFoundation())
         case .string(_, let value):
             return value
         case .number(_, let value):
@@ -271,6 +265,15 @@ struct JSONTreeView: View {
 
 /// Renders a single node in the JSON tree, handling both containers and primitives.
 private struct JSONNodeRow: View {
+    /// Points of horizontal indentation added per nesting depth level.
+    static let indentPerDepth: CGFloat = 20
+    /// Width reserved for the disclosure chevron so primitives align with container labels.
+    static let chevronPlaceholderWidth: CGFloat = 12
+    /// Size (points) of the disclosure chevron icon.
+    static let chevronIconSize: CGFloat = 9
+    /// Horizontal spacing between inline elements within a row.
+    static let inlineSpacing: CGFloat = 4
+
     let node: JSONNode
     let key: String?
     let depth: Int
@@ -340,9 +343,9 @@ private struct JSONNodeRow: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Spacer().frame(width: CGFloat(depth) * 20)
-                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                    HStack(spacing: Self.inlineSpacing) {
+                        Spacer().frame(width: CGFloat(depth) * Self.indentPerDepth)
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: Self.chevronIconSize)
                             .foregroundColor(VColor.contentSecondary)
                             .animation(VAnimation.fast, value: isExpanded)
                         keyLabel
@@ -374,9 +377,9 @@ private struct JSONNodeRow: View {
     @ViewBuilder
     private func primitiveRow<V: View>(@ViewBuilder value: () -> V) -> some View {
         NodeCopyWrapper(node: node) {
-            HStack(spacing: 4) {
-                Spacer().frame(width: CGFloat(depth) * 20)
-                Spacer().frame(width: 12)
+            HStack(spacing: Self.inlineSpacing) {
+                Spacer().frame(width: CGFloat(depth) * Self.indentPerDepth)
+                Spacer().frame(width: Self.chevronPlaceholderWidth)
                 keyLabel
                 value()
             }
@@ -426,10 +429,7 @@ private struct NodeCopyWrapper<Content: View>: View {
         }
         .contextMenu {
             Button("Copy Value") {
-                #if os(macOS)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(node.serializedValue, forType: .string)
-                #endif
+                VCopyButton.copyToPasteboard(node.serializedValue)
             }
         }
     }

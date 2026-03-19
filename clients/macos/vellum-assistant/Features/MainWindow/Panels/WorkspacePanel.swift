@@ -763,10 +763,7 @@ private struct WorkspaceFileViewer: View {
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
                     },
-                    isActivelyEditing: Binding(
-                        get: { state.isActivelyEditing },
-                        set: { state.isActivelyEditing = $0 }
-                    ),
+                    isActivelyEditing: $state.isActivelyEditing,
                     fileIdentity: detail.path
                 )
             } else {
@@ -788,43 +785,50 @@ private struct WorkspaceFileViewer: View {
             }
 
             if isText && !readOnly && state.isActivelyEditing {
-                Divider().background(VColor.borderBase)
-                HStack {
-                    Spacer()
-                    HStack(spacing: VSpacing.xs) {
-                        VButton(
-                            label: "Discard",
-                            style: .ghost,
-                            size: .compact,
-                            isDisabled: state.isSaving
-                        ) {
-                            state.editableContent = state.originalContent
-                            state.isDirty = false
-                            state.isActivelyEditing = false
-                        }
-                        if state.isSaving {
-                            VBusyIndicator(size: 8)
-                        }
-                        VButton(
-                            label: "Save",
-                            style: .primary,
-                            size: .compact,
-                            isDisabled: state.isSaving || !state.isDirty
-                        ) {
-                            Task {
-                                await saveFile(path: detail.path)
-                                if !state.isDirty {
-                                    state.isActivelyEditing = false
-                                }
+                editFooter(filePath: detail.path)
+            }
+        }
+    }
+
+    /// Save/Discard footer shown at the bottom of the file viewer during editing.
+    private func editFooter(filePath: String) -> some View {
+        VStack(spacing: 0) {
+            Divider().background(VColor.borderBase)
+            HStack {
+                Spacer()
+                HStack(spacing: VSpacing.xs) {
+                    VButton(
+                        label: "Discard",
+                        style: .ghost,
+                        size: .compact,
+                        isDisabled: state.isSaving
+                    ) {
+                        state.editableContent = state.originalContent
+                        state.isDirty = false
+                        state.isActivelyEditing = false
+                    }
+                    if state.isSaving {
+                        VBusyIndicator(size: 8)
+                    }
+                    VButton(
+                        label: "Save",
+                        style: .primary,
+                        size: .compact,
+                        isDisabled: state.isSaving || !state.isDirty
+                    ) {
+                        Task {
+                            await saveFile(path: filePath)
+                            if !state.isDirty {
+                                state.isActivelyEditing = false
                             }
                         }
-                        .keyboardShortcut("s", modifiers: .command)
                     }
+                    .keyboardShortcut("s", modifiers: .command)
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(VColor.surfaceOverlay)
             }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surfaceOverlay)
         }
     }
 

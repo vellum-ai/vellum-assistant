@@ -71,12 +71,7 @@ public struct VCopyButton: View {
     // MARK: - Private
 
     private func copyToClipboard() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = text
-        #endif
+        Self.copyToPasteboard(text)
 
         copied = true
         resetTask?.cancel()
@@ -85,5 +80,17 @@ public struct VCopyButton: View {
             guard !Task.isCancelled else { return }
             copied = false
         }
+    }
+
+    /// Copies a string to the system pasteboard. Shared utility so callers
+    /// outside `VCopyButton` (e.g. context menus) don't duplicate the
+    /// platform-conditional pasteboard logic.
+    public static func copyToPasteboard(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = text
+        #endif
     }
 }

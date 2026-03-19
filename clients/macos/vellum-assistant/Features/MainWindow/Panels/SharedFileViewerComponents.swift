@@ -4,6 +4,8 @@ import VellumAssistantShared
 
 // MARK: - File View Mode
 
+/// The display mode for file content: raw source text, rendered preview
+/// (Markdown), or structured tree (JSON).
 enum FileViewMode: String, Hashable {
     case source
     case preview
@@ -42,7 +44,14 @@ func fileIcon(for mimeType: String) -> VIcon {
 
 // MARK: - File Content View
 
+/// Displays file content with a header bar, view mode segmented control,
+/// and a floating hover overlay for common actions (Edit, Copy,
+/// Expand/Collapse). Supports source, preview (Markdown), and tree
+/// (JSON) modes.
 struct FileContentView: View {
+    /// Frame size (points) for icon-only buttons in the hover overlay.
+    private static let overlayIconSize: CGFloat = 28
+
     let fileName: String
     let mimeType: String
     @Binding var content: String
@@ -166,7 +175,7 @@ struct FileContentView: View {
                     label: "Edit",
                     iconOnly: VIcon.pencil.rawValue,
                     style: .ghost,
-                    iconSize: 28,
+                    iconSize: Self.overlayIconSize,
                     tooltip: "Edit"
                 ) {
                     isActivelyEditing = true
@@ -178,7 +187,7 @@ struct FileContentView: View {
                     label: isTreeExpanded ? "Collapse All" : "Expand All",
                     iconOnly: (isTreeExpanded ? VIcon.minimize : VIcon.maximize).rawValue,
                     style: .ghost,
-                    iconSize: 28,
+                    iconSize: Self.overlayIconSize,
                     tooltip: isTreeExpanded ? "Collapse All" : "Expand All"
                 ) {
                     if isTreeExpanded {
@@ -190,7 +199,7 @@ struct FileContentView: View {
                 }
             }
 
-            VCopyButton(text: content, iconSize: 28, accessibilityHint: "Copy all")
+            VCopyButton(text: content, iconSize: Self.overlayIconSize, accessibilityHint: "Copy all")
         }
         .padding(VSpacing.xs)
         .background(
@@ -204,7 +213,8 @@ struct FileContentView: View {
 
 // MARK: - File Content Header Bar
 
-/// Header bar showing file icon and name for file content viewers.
+/// Header bar showing a file icon, name, and optional trailing content
+/// (e.g. a segmented control or read-only badge).
 struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
     let fileName: String
