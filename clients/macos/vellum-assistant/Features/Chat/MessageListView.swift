@@ -67,6 +67,12 @@ extension EnvironmentValues {
     /// When true, the AnchorMinYKey preference handler re-pins to bottom
     /// on every frame — used during content expansion while bottom-pinned.
     var isPinningDuringExpansion: Bool = false
+    /// Wall-clock time when `isPinningDuringExpansion` was set.  The preference
+    /// handler checks this inline to auto-clear the flag after 250ms.
+    /// This avoids relying on a `Task { @MainActor }` which can't execute
+    /// while the main thread is busy servicing layout — causing an infinite
+    /// scrollTo ↔ layout loop that freezes the app.
+    var expansionPinStartTime: CFAbsoluteTime = 0
 }
 
 struct MessageListView: View {
@@ -830,15 +836,11 @@ struct MessageListView: View {
                     }
                     // When pinned to bottom, continuously re-pin on every frame
                     // of the expansion animation via the AnchorMinYKey handler.
+                    // The handler auto-expires the flag after 250ms via an inline
+                    // wall-clock check — no Task needed (avoids the deadlock where
+                    // a @MainActor task can't run while layout is looping).
                     scrollTracking.isPinningDuringExpansion = true
-                    expandSuppressionTask = Task { @MainActor in
-                        // Clear after the animation settles (VAnimation.fast ≈ 0.15s + buffer).
-                        try? await Task.sleep(nanoseconds: 250_000_000)
-                        guard !Task.isCancelled else { return }
-                        scrollTracking.isPinningDuringExpansion = false
-                        // Refresh avatar position now that layout has settled.
-                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
-                    }
+                    scrollTracking.expansionPinStartTime = CFAbsoluteTimeGetCurrent()
                 } else {
                     // When scrolled away from bottom, suppress auto-scroll so the
                     // expansion doesn't yank the viewport to the bottom.
@@ -897,8 +899,19 @@ struct MessageListView: View {
                 // on every frame so the viewport follows the growing content.
                 // Gate on isNearBottom so that if the user scrolls away during
                 // the pinning window, we stop fighting their scroll.
+                //
+                // The flag auto-expires after 250ms via inline wall-clock check.
+                // A Task { @MainActor } can't clear it because the main thread
+                // is occupied servicing layout — without the inline timeout this
+                // becomes an infinite scrollTo ↔ layout loop.
                 if scrollTracking.isPinningDuringExpansion && isNearBottom {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    let elapsed = CFAbsoluteTimeGetCurrent() - scrollTracking.expansionPinStartTime
+                    if elapsed > 0.25 {
+                        scrollTracking.isPinningDuringExpansion = false
+                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
+                    } else {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
