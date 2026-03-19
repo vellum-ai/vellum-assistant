@@ -244,14 +244,16 @@ struct AssistantBackupsSection: View {
 
     private func selectAndRestoreLocalBackup() {
         clearMessages()
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "vbundle") ?? .data]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
         panel.begin { result in
-            guard result == .OK, let url = panel.url else { return }
             Task { @MainActor in
+                guard result == .OK, let url = panel.url else { return }
+
                 // Use NSAlert instead of SwiftUI .alert — SwiftUI alerts on
                 // inner views are swallowed when the parent has its own .alert
                 // modifiers (SettingsDeveloperTab has several).
