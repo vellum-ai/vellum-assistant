@@ -27,10 +27,6 @@ final class OnboardingState {
     var currentStep: Int = 0
     var assistantName: String = "Velly"
     var chosenKey: ActivationKey = .fn
-    var speechGranted: Bool = false
-    var accessibilityGranted: Bool = false
-    var screenGranted: Bool = false
-    var skipPermissionChecks: Bool = false
 
     /// Whether the user explicitly skipped login during onboarding.
     var skippedAuth: Bool = false
@@ -73,7 +69,6 @@ final class OnboardingState {
         }
     }
     var hasHatched: Bool = false
-    var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
 
     /// When false, step changes are not written to UserDefaults (used by auth gate).
@@ -95,26 +90,6 @@ final class OnboardingState {
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
-
-    var anyPermissionDenied: Bool {
-        !speechGranted || !accessibilityGranted || !screenGranted
-    }
-
-    /// Continuous crack progress (0.0–1.0) derived from step and permission state.
-    var crackProgress: CGFloat {
-        switch currentStep {
-        case 0: return hasHatched ? 0.15 : 0.0
-        case 1: return 0.20
-        case 2: return 0.25
-        case 3: return 0.35
-        case 4: return 0.60
-        case 5: return speechGranted ? 0.70 : 0.65
-        case 6: return accessibilityGranted ? 0.80 : 0.70
-        case 7: return screenGranted ? 0.95 : 0.85
-        case 8: return 1.0
-        default: return 1.0
-        }
-    }
 
     /// Restore onboarding progress from a previous session (e.g. after macOS
     /// kills the app when toggling screen-recording permission).
@@ -139,7 +114,6 @@ final class OnboardingState {
                 chosenKey = key
             }
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
-            interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
         }
@@ -163,7 +137,6 @@ final class OnboardingState {
         UserDefaults.standard.set(assistantName, forKey: "onboarding.name")
         UserDefaults.standard.set(chosenKey.rawValue, forKey: "onboarding.key")
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
-        UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
         UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
         UserDefaults.standard.set(skippedAPIKeyEntry, forKey: "onboarding.skippedAPIKeyEntry")
