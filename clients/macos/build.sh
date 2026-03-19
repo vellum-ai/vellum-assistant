@@ -694,6 +694,10 @@ FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registr
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
+PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
+if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
+    cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
+fi
 # Generate character-components.json for pre-daemon avatar rendering
 CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
 if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then

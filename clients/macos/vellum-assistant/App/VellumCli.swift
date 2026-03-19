@@ -80,16 +80,16 @@ final class VellumCli {
 
     /// Maps provider identifiers (matching `APIKeyManager` keys) to the
     /// environment variable name expected by the CLI / remote startup script.
-    /// Must stay in sync with `PROVIDER_ENV_VAR_NAMES` in
-    /// `cli/src/lib/constants.ts` and `PROVIDER_ENV_VARS` in
-    /// `assistant/src/security/secure-keys.ts`.
-    nonisolated static let providerEnvVars: [String: String] = [
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "gemini": "GEMINI_API_KEY",
-        "fireworks": "FIREWORKS_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-    ]
+    /// Loaded from the shared registry at `meta/provider-env-vars.json` — the
+    /// single source of truth also consumed by the CLI and assistant runtime.
+    nonisolated static let providerEnvVars: [String: String] =
+        loadProviderEnvVarRegistry()?.providers ?? [
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "fireworks": "FIREWORKS_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        ]
 
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.

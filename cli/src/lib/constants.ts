@@ -1,3 +1,5 @@
+import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json";
+
 /**
  * Canonical internal assistant ID used as the default/fallback across the CLI
  * and daemon. Mirrors `DAEMON_INTERNAL_ASSISTANT_ID` from
@@ -17,17 +19,12 @@ export const DEFAULT_QDRANT_PORT = 6333;
 
 /**
  * Environment variable names for provider API keys, keyed by provider ID.
- * Must stay in sync with `PROVIDER_ENV_VARS` in
- * `assistant/src/security/secure-keys.ts` and `providerEnvVars` in
- * `clients/macos/vellum-assistant/App/VellumCli.swift`.
+ * Loaded from the shared registry at `meta/provider-env-vars.json` — the
+ * single source of truth also consumed by the assistant runtime and the
+ * macOS client.
  */
-export const PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  fireworks: "FIREWORKS_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-};
+export const PROVIDER_ENV_VAR_NAMES: Record<string, string> =
+  providerEnvVarsRegistry.providers;
 
 export const VALID_REMOTE_HOSTS = [
   "local",

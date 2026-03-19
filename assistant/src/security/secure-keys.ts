@@ -16,6 +16,7 @@ import type {
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
 
+import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json" with { type: "json" };
 import { getLogger } from "../util/logger.js";
 import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import {
@@ -164,18 +165,14 @@ export async function deleteSecureKeyAsync(
 // ---------------------------------------------------------------------------
 
 /**
- * Env var names keyed by provider. The convention is `<PROVIDER>_API_KEY`.
- * Ollama is intentionally omitted — it doesn't require an API key.
+ * Env var names keyed by provider. Loaded from the shared registry at
+ * `meta/provider-env-vars.json` — the single source of truth also consumed
+ * by the CLI and the macOS client.
+ * Ollama is intentionally omitted from the registry — it doesn't require
+ * an API key.
  */
-const PROVIDER_ENV_VARS: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  fireworks: "FIREWORKS_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  brave: "BRAVE_API_KEY",
-  perplexity: "PERPLEXITY_API_KEY",
-};
+const PROVIDER_ENV_VARS: Record<string, string> =
+  providerEnvVarsRegistry.providers;
 
 /**
  * Retrieve a provider API key, checking secure storage first and falling
