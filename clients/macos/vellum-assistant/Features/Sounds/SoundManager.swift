@@ -125,6 +125,18 @@ final class SoundManager {
             }
 
             let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
+
+            // Guard against path traversal: ensure the resolved path stays within the sounds directory.
+            let resolvedPath = fileURL.standardizedFileURL.path
+            let safeDirPath = soundsDirectoryURL.standardizedFileURL.path
+            guard resolvedPath.hasPrefix(safeDirPath + "/") || resolvedPath == safeDirPath else {
+                log.warning("Sound filename '\(filename)' resolves outside the sounds directory, ignoring")
+                sound = defaultBlipSound()
+                sound.volume = config.volume
+                sound.play()
+                return
+            }
+
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 log.warning("Sound file not found at '\(fileURL.path)', falling back to default")
                 sound = defaultBlipSound()
