@@ -488,8 +488,6 @@ export function serviceDockerRunArgs(opts: {
         res.assistantContainer,
         `--network=${res.network}`,
         "-v",
-        `${res.dataVolume}:/data`,
-        "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,

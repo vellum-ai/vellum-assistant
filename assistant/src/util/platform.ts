@@ -434,13 +434,15 @@ export function ensureDataDir(): void {
   const wsData = join(workspace, "data");
   const containerized = getIsContainerized();
   const dirs = [
-    // Root-level dirs (runtime / protected)
+    // Root-level dirs (runtime)
     root,
-    join(root, "protected"),
+    // protected, signals, hooks are local-only — skip in containerized mode
+    // (credentials via CES HTTP API, trust via gateway API, no IPC signals)
+    ...(containerized
+      ? []
+      : [join(root, "protected"), join(root, "signals"), join(root, "hooks")]),
     // Workspace dirs
     workspace,
-    // Hooks are a local-only concept — skip in containerized mode
-    ...(containerized ? [] : [join(root, "hooks")]),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),

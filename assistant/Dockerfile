@@ -68,18 +68,17 @@ RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Set up data directory
-RUN mkdir -p /home/assistant/.vellum /data && \
-    chown -R assistant:assistant /home/assistant/.vellum /data && \
-    chmod a+rwx /data
+# Set up assistant home directory for local state (device.json, etc.)
+RUN mkdir -p /home/assistant/.vellum && \
+    chown -R assistant:assistant /home/assistant/.vellum
 
 # Update PATH for assistant user
-ENV PATH="/home/assistant/.bun/bin:/data/bin:${PATH}"
+ENV PATH="/home/assistant/.bun/bin:${PATH}"
 
-# Configure package managers to use /data
-ENV BUN_INSTALL="/data/.bun"
+# Configure package managers to use assistant home
+ENV BUN_INSTALL="/home/assistant/.bun"
 ENV PATH="${BUN_INSTALL}/bin:${PATH}"
-ENV PYTHONUSERBASE="/data/.python"
+ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
@@ -90,7 +89,6 @@ USER assistant
 EXPOSE 3001
 
 ENV RUNTIME_HTTP_PORT=3001
-ENV BASE_DATA_DIR=/data
 ENV IS_CONTAINERIZED=true
 
 # Copy from builder
