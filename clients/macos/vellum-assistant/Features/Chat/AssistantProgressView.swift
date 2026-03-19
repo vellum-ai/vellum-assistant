@@ -378,6 +378,7 @@ struct AssistantProgressView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(GeometryReader { geo in
             Color.clear
                 .onAppear { hideInlineChips = geo.size.width < 350 }
