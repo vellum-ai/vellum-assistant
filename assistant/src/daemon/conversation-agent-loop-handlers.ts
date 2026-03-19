@@ -642,12 +642,21 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    await addMessage(
+    const toolResultMsg = await addMessage(
       deps.ctx.conversationId,
       "user",
       JSON.stringify(toolResultBlocks),
       toolResultMetadata,
     );
+    // Sync tool-result user message to disk view
+    const convForToolResult = getConversation(deps.ctx.conversationId);
+    if (convForToolResult) {
+      syncMessageToDisk(
+        deps.ctx.conversationId,
+        toolResultMsg.id,
+        convForToolResult.createdAt,
+      );
+    }
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
     }

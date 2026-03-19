@@ -35,12 +35,14 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getConversationMemoryScopeId,
   getConversationType,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
@@ -1137,6 +1139,21 @@ export class DaemonServer {
           log.warn(
             { err, conversationId },
             "Failed to set origin interface (best-effort)",
+          );
+        }
+      }
+
+      // Rewrite meta.json so the on-disk metadata reflects the origin channel
+      if (serverTurnCtx || serverInterfaceCtx) {
+        try {
+          const convForMeta = getConversation(conversationId);
+          if (convForMeta) {
+            updateMetaFile(convForMeta);
+          }
+        } catch (err) {
+          log.warn(
+            { err, conversationId },
+            "Failed to update disk meta (best-effort)",
           );
         }
       }

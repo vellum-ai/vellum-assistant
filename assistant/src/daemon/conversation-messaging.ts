@@ -28,7 +28,10 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import {
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../memory/conversation-disk-view.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -354,6 +357,14 @@ export async function persistUserMessage(
         ctx.conversationId,
         turnIfCtx.userMessageInterface,
       );
+    }
+
+    // Rewrite meta.json so the on-disk metadata reflects the origin channel
+    if (turnCtx || turnIfCtx) {
+      const convForMeta = getConversation(ctx.conversationId);
+      if (convForMeta) {
+        updateMetaFile(convForMeta);
+      }
     }
 
     if (!persistedUserMessage.id) {
