@@ -1204,6 +1204,10 @@ struct MessageListView: View {
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
                 highlightedMessageId = nil
+                // Cancel any active pin session to prevent the coordinator's
+                // sessionTask from calling scrollTo on a stale ScrollViewProxy.
+                bottomPinCoordinator.cancelActiveSession(reason: .conversationSwitch)
+                bottomPinCoordinator.onPinRequested = nil
             }
             .onChange(of: isSending) {
                 if isSending {
