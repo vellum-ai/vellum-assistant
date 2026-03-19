@@ -154,6 +154,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Guards `.appOpen` sound so it fires only once per app session,
+    /// even if `proceedToApp()` is called again after assistant switches
+    /// or re-authentication flows.
+    private var hasPlayedAppOpenSound = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     // MARK: - App Menu Name Patching
@@ -370,8 +375,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         applyThemePreference()
         registerBundledFonts()
         AvatarAppearanceManager.shared.start()
-        SoundManager.shared.start()
-        RandomSoundTimer.shared.start()
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
@@ -476,7 +479,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupAutoUpdate()
 
         SoundManager.shared.start()
-        SoundManager.shared.play(.appOpen)
+        RandomSoundTimer.shared.start()
+        if !hasPlayedAppOpenSound {
+            hasPlayedAppOpenSound = true
+            SoundManager.shared.play(.appOpen)
+        }
 
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
@@ -584,7 +591,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         pulseTimer?.invalidate()
         pulseTimer = nil
         voiceInput?.stop()
-        SoundManager.shared.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
