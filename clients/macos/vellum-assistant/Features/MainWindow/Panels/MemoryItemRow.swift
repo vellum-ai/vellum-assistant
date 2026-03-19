@@ -19,30 +19,31 @@ struct MemoryItemRow: View {
 
                 // Text content
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Header: subject + badges + actions on same line
-                    HStack(spacing: VSpacing.sm) {
-                        Text(item.subject)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                    // Header + timestamp group
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(item.subject)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                        Spacer()
+                            Spacer()
 
-                        kindTag
+                            kindTag
 
-                        if let scopeLabel = item.scopeLabel {
-                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                            if let scopeLabel = item.scopeLabel {
+                                VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                            }
+
+                            VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                                .accessibilityLabel("Delete memory")
                         }
 
-                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
-                            .accessibilityLabel("Delete memory")
+                        Text(item.relativeLastSeen)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
                     }
-
-                    // Timestamp
-                    Text(item.relativeLastSeen)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
 
                     // Description — fixed 2-line height for uniform cards
                     Text(item.statement)
