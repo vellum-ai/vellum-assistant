@@ -496,6 +496,13 @@ public struct VCodeSearchBar: View {
         .onChange(of: searchQuery) { _, _ in
             currentMatchIndex = 0
         }
+        .onChange(of: matchCount) { _, newCount in
+            // Clamp currentMatchIndex when matches change (e.g. text edits reduce
+            // match count) to avoid stale display like "5 of 2".
+            if currentMatchIndex >= newCount {
+                currentMatchIndex = max(newCount - 1, 0)
+            }
+        }
     }
 
     private func goToPreviousMatch() {
