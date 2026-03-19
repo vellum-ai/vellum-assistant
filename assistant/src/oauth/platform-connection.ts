@@ -1,3 +1,4 @@
+import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError } from "../util/errors.js";
 import type {
   OAuthConnection,
@@ -24,9 +25,7 @@ export interface PlatformOAuthConnectionOptions {
   providerKey: string;
   externalId: string;
   accountInfo: string | null;
-  assistantId: string;
-  platformBaseUrl: string;
-  apiKey: string;
+  client: VellumPlatformClient;
   /** Platform-side connection ID used in the proxy URL path. */
   connectionId: string;
 }
@@ -37,20 +36,13 @@ export class PlatformOAuthConnection implements OAuthConnection {
   readonly externalId: string;
   readonly accountInfo: string | null;
 
-  private readonly assistantId: string;
-  private readonly platformBaseUrl: string;
-  private readonly apiKey: string;
+  private readonly client: VellumPlatformClient;
   private readonly connectionId: string;
 
   constructor(options: PlatformOAuthConnectionOptions) {
-    const missing: string[] = [];
-    if (!options.platformBaseUrl) missing.push("platform base URL");
-    if (!options.apiKey) missing.push("assistant API key");
-    if (!options.assistantId) missing.push("assistant ID");
-    if (!options.connectionId) missing.push("connection ID");
-    if (missing.length > 0) {
+    if (!options.connectionId) {
       throw new BackendError(
-        `Platform-managed connection for "${options.providerKey}" cannot be created: missing ${missing.join(", ")}. ` +
+        `Platform-managed connection for "${options.providerKey}" cannot be created: missing connection ID. ` +
           `Log in to the Vellum platform or switch to using your own OAuth app.`,
       );
     }
@@ -59,14 +51,12 @@ export class PlatformOAuthConnection implements OAuthConnection {
     this.providerKey = options.providerKey;
     this.externalId = options.externalId;
     this.accountInfo = options.accountInfo;
-    this.assistantId = options.assistantId;
-    this.platformBaseUrl = options.platformBaseUrl.replace(/\/+$/, "");
-    this.apiKey = options.apiKey;
+    this.client = options.client;
     this.connectionId = options.connectionId;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
-    const proxyUrl = `${this.platformBaseUrl}/v1/assistants/${this.assistantId}/external-provider-proxy/${this.connectionId}/`;
+    const proxyPath = `/v1/assistants/${this.client.platformAssistantId}/external-provider-proxy/${this.connectionId}/`;
 
     const body: Record<string, unknown> = {
       request: {
@@ -79,10 +69,9 @@ export class PlatformOAuthConnection implements OAuthConnection {
       },
     };
 
-    const response = await fetch(proxyUrl, {
+    const response = await this.client.fetch(proxyPath, {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${this.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
