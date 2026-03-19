@@ -102,6 +102,37 @@ final class SoundManager {
         }
     }
 
+    // MARK: - Sound Resolution
+
+    /// Validates a custom sound filename (extension check + path traversal guard) and returns
+    /// the resolved file URL if it passes. Returns `nil` if the filename has an unsupported
+    /// extension, attempts path traversal outside the sounds directory, or does not exist on disk.
+    private func resolveCustomSoundURL(filename: String) -> URL? {
+        // Validate the file extension is supported.
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard supportedSoundExtensions.contains(ext) else {
+            log.warning("Unsupported sound file extension '\(ext)' for '\(filename)', rejecting")
+            return nil
+        }
+
+        let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
+
+        // Guard against path traversal: ensure the resolved path stays within the sounds directory.
+        let resolvedPath = fileURL.standardizedFileURL.path
+        let safeDirPath = soundsDirectoryURL.standardizedFileURL.path
+        guard resolvedPath.hasPrefix(safeDirPath + "/") || resolvedPath == safeDirPath else {
+            log.warning("Sound filename '\(filename)' resolves outside the sounds directory, ignoring")
+            return nil
+        }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            log.warning("Sound file not found at '\(fileURL.path)'")
+            return nil
+        }
+
+        return fileURL
+    }
+
     // MARK: - Playback
 
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
@@ -114,31 +145,7 @@ final class SoundManager {
         let sound: NSSound
 
         if let filename = eventConfig.sound {
-            // Validate the file extension is supported.
-            let ext = (filename as NSString).pathExtension.lowercased()
-            guard supportedSoundExtensions.contains(ext) else {
-                log.warning("Unsupported sound file extension '\(ext)' for '\(filename)', falling back to default")
-                sound = defaultBlipSound()
-                sound.volume = config.volume
-                sound.play()
-                return
-            }
-
-            let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
-
-            // Guard against path traversal: ensure the resolved path stays within the sounds directory.
-            let resolvedPath = fileURL.standardizedFileURL.path
-            let safeDirPath = soundsDirectoryURL.standardizedFileURL.path
-            guard resolvedPath.hasPrefix(safeDirPath + "/") || resolvedPath == safeDirPath else {
-                log.warning("Sound filename '\(filename)' resolves outside the sounds directory, ignoring")
-                sound = defaultBlipSound()
-                sound.volume = config.volume
-                sound.play()
-                return
-            }
-
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                log.warning("Sound file not found at '\(fileURL.path)', falling back to default")
+            guard let fileURL = resolveCustomSoundURL(filename: filename) else {
                 sound = defaultBlipSound()
                 sound.volume = config.volume
                 sound.play()
@@ -177,8 +184,7 @@ final class SoundManager {
             return
         }
 
-        let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard let fileURL = resolveCustomSoundURL(filename: filename) else {
             previewDefaultBlip()
             return
         }
