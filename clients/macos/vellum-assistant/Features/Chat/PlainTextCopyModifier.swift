@@ -68,6 +68,7 @@ final class PasteboardSanitizer {
         guard let plainText = pb.string(forType: .string) else { return }
         pb.clearContents()
         pb.setString(plainText, forType: .string)
+        lastChangeCount = pb.changeCount
     }
 }
 
