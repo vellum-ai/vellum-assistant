@@ -1860,16 +1860,6 @@ public typealias ModelInfoMessage = ModelInfo
 
 // MARK: - Vercel API Config Messages
 
-/// Sent to get/set/delete the Vercel API token.
-/// Backed by generated `VercelApiConfigRequest`.
-public typealias VercelApiConfigRequestMessage = VercelApiConfigRequest
-
-extension VercelApiConfigRequest {
-    public init(action: String, apiToken: String? = nil) {
-        self.init(type: "vercel_api_config", action: action, apiToken: apiToken)
-    }
-}
-
 /// Response from Vercel API config operations.
 /// Backed by generated `VercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = VercelApiConfigResponse

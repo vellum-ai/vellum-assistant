@@ -24,8 +24,6 @@ final class SharingState {
     var pendingPublish: (html: String, title: String?, appId: String?)?
     /// Timer for polling credential availability during setup flow.
     var credentialPollTimer: Timer?
-    /// Stashed handler so onDisappear can restore it when polling is active.
-    var previousVercelHandler: ((VercelApiConfigResponseMessage) -> Void)?
     /// Cancellable task that auto-dismisses publishError after a delay.
     var errorDismissTask: Task<Void, Never>?
 }

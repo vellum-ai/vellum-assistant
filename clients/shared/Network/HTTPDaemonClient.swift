@@ -333,7 +333,6 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsVercelConfig
         case integrationsIngressConfig
 
         // Suggestion
@@ -475,8 +474,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/oauth/start", nil)
-        case .integrationsVercelConfig:
-            return ("/v1/integrations/vercel/config", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
         // Suggestion
@@ -600,8 +597,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/oauth/start/", nil)
-        case .integrationsVercelConfig:
-            return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
         // Suggestion

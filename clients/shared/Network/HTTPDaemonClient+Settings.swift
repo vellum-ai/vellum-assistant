@@ -67,10 +67,6 @@ extension HTTPTransport {
             }
             // platform_config does not have HTTP routes yet;
             // it continues to use SSE message handlers and is not dispatched here.
-            if let msg = message as? VercelApiConfigRequestMessage {
-                Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
-                return true
-            }
             // --- Workspace Files (legacy HTTP) ---
             if message is WorkspaceFilesListRequestMessage {
                 Task { await self.sendGenericPost(.workspaceFiles, method: "GET", label: "workspace_files_list") }

@@ -7,6 +7,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     // MARK: - Spy State
 
     var fetchVercelConfigCallCount = 0
+    var saveVercelConfigCalls: [String] = []
+    var deleteVercelConfigCallCount = 0
     var fetchModelInfoCallCount = 0
     var setModelCalls: [(model: String, provider: String?)] = []
     var setImageGenModelCalls: [String] = []
@@ -21,6 +23,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     // MARK: - Configurable Responses
 
     var vercelConfigResponse: VercelApiConfigResponseMessage?
+    var saveVercelConfigResponse: VercelApiConfigResponseMessage?
+    var deleteVercelConfigResponse: VercelApiConfigResponseMessage?
     var modelInfoResponse: ModelInfoMessage?
     var setModelResponse: ModelInfoMessage?
     var setImageGenModelResponse: ModelInfoMessage?
@@ -37,6 +41,16 @@ final class MockSettingsClient: SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage? {
         fetchVercelConfigCallCount += 1
         return vercelConfigResponse
+    }
+
+    func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage? {
+        saveVercelConfigCalls.append(apiToken)
+        return saveVercelConfigResponse
+    }
+
+    func deleteVercelConfig() async -> VercelApiConfigResponseMessage? {
+        deleteVercelConfigCallCount += 1
+        return deleteVercelConfigResponse
     }
 
     func fetchModelInfo() async -> ModelInfoMessage? {

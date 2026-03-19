@@ -513,12 +513,6 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
 
-        // Wire up Vercel API config response
-        daemonClient?.onVercelApiConfigResponse = { [weak self] response in
-            guard let self else { return }
-            self.applyVercelConfigResponse(response)
-        }
-
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
         daemonClient?.$latestModelInfo
@@ -925,18 +919,16 @@ public final class SettingsStore: ObservableObject {
     func saveVercelKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
-        } catch {
-            log.error("Failed to send Vercel API config set: \(error)")
+        Task {
+            guard let response = await settingsClient.saveVercelConfig(apiToken: trimmed) else { return }
+            self.applyVercelConfigResponse(response)
         }
     }
 
     func clearVercelKey() {
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "delete")
-        } catch {
-            log.error("Failed to send Vercel API config delete: \(error)")
+        Task {
+            guard let response = await settingsClient.deleteVercelConfig() else { return }
+            self.applyVercelConfigResponse(response)
         }
     }
 
@@ -945,6 +937,13 @@ public final class SettingsStore: ObservableObject {
             guard let response = await settingsClient.fetchVercelConfig() else { return }
             self.applyVercelConfigResponse(response)
         }
+    }
+
+    /// Fetches and applies the current Vercel config, returning whether a token is present.
+    func checkVercelKeyPresent() async -> Bool {
+        guard let response = await settingsClient.fetchVercelConfig() else { return false }
+        applyVercelConfigResponse(response)
+        return response.success && response.hasToken
     }
 
     private func applyVercelConfigResponse(_ response: VercelApiConfigResponseMessage) {
