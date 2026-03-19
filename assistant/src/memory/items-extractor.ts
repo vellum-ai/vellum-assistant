@@ -145,8 +145,13 @@ function buildExtractionSystemPrompt(
   messageRole: string,
 ): string {
   // Inject identity context so extracted memories use real names instead of
-  // generic "User ..." labels.
-  const identityContext = buildCoreIdentityContext();
+  // generic "User ..." labels. We truncate to a budget to prevent oversized
+  // prompts when SOUL.md / IDENTITY.md / USER.md are large — exceeding the
+  // provider context window would silently degrade extraction quality.
+  const rawIdentityContext = buildCoreIdentityContext();
+  const identityContext = rawIdentityContext
+    ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
+    : null;
 
   let prompt = "";
   if (identityContext) {
