@@ -15,8 +15,8 @@
  * Base URL: `CES_CREDENTIAL_URL` env var (e.g. `http://ces-container:8090`).
  */
 
-import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import { getLogger } from "../util/logger.js";
+import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 
 const log = getLogger("ces-credential-client");
 
