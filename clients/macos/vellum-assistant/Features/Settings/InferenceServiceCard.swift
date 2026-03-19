@@ -95,7 +95,8 @@ struct InferenceServiceCard: View {
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = draftModel != initialModel
-        let providerChanged = isCustomProviderEnabled && draftProvider != initialProvider
+        let effectiveDraftProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        let providerChanged = isCustomProviderEnabled && effectiveDraftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
     }
 
@@ -400,6 +401,11 @@ struct InferenceServiceCard: View {
         if isCustomProviderEnabled && (persistProvider != initialProvider || modeChanged) {
             store.setInferenceProvider(persistProvider)
             initialProvider = persistProvider
+        }
+        // Normalize draftProvider to match what was persisted so hasChanges
+        // (which compares draftProvider against initialProvider) stays in sync.
+        if isCustomProviderEnabled && draftProvider != persistProvider {
+            draftProvider = persistProvider
         }
 
         // Persist API key if entered and in your-own mode.
