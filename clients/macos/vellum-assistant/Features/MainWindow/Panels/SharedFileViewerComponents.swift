@@ -22,13 +22,6 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     return [.source]
 }
 
-/// Returns the preferred default view mode for a file based on its name and MIME type.
-/// Unlike `availableViewModes`, this picks the single best initial mode rather than listing all options.
-func defaultViewMode(for fileName: String, mimeType: String) -> FileViewMode {
-    let modes = availableViewModes(for: fileName, mimeType: mimeType)
-    return modes.first ?? .source
-}
-
 func viewModeLabel(_ mode: FileViewMode) -> String {
     switch mode {
     case .source: return "Source"
@@ -150,6 +143,14 @@ struct FileContentView: View {
         }
         .onAppear { syncViewMode() }
         .onChange(of: mimeType) { syncViewMode() }
+        // Keyboard shortcut: Cmd+E to enter edit mode (source view only)
+        .background {
+            if isEditable && viewMode == .source && !isActivelyEditing {
+                Button("") { isActivelyEditing = true }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .hidden()
+            }
+        }
     }
 
     // MARK: - Hover Overlay
