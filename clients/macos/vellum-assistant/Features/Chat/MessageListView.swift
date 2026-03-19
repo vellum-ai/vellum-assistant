@@ -494,6 +494,7 @@ struct MessageListView: View {
                                    entryAnimationEnabled: shouldPlayTailEntryAnimation)
                     .frame(width: ConversationAvatarFollower.avatarSize,
                            height: ConversationAvatarFollower.avatarSize)
+                    .modifier(AvatarGlowModifier(isActive: isSending))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, VSpacing.xl)
                     .frame(maxWidth: VSpacing.chatColumnMaxWidth)
@@ -508,6 +509,7 @@ struct MessageListView: View {
             } else {
                 HStack {
                     VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                        .modifier(AvatarGlowModifier(isActive: isSending))
                     Spacer()
                 }
                 .padding(.horizontal, VSpacing.xl)
@@ -1772,6 +1774,43 @@ enum MessageListBottomAnchorPolicy {
     ) -> Bool {
         guard anchorMinY.isFinite, viewportHeight.isFinite else { return true }
         return anchorMinY > viewportHeight + tolerance
+    }
+}
+
+// MARK: - Avatar Glow
+
+/// Pulsing glow effect applied to the conversation tail avatar while the
+/// assistant is generating a response, making the "still working" state
+/// visible near the content area.
+private struct AvatarGlowModifier: ViewModifier {
+    let isActive: Bool
+
+    @State private var glowIntensity: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: VColor.primaryActive.opacity(glowIntensity), radius: 6 + glowIntensity * 16, x: 0, y: 0)
+            .shadow(color: VColor.primaryActive.opacity(glowIntensity * 0.5), radius: 2 + glowIntensity * 6, x: 0, y: 0)
+            .onChange(of: isActive) {
+                if isActive {
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        glowIntensity = 0.5
+                    }
+                } else {
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        glowIntensity = 0
+                    }
+                }
+            }
+            .onAppear {
+                if isActive {
+                    DispatchQueue.main.async {
+                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                            glowIntensity = 0.5
+                        }
+                    }
+                }
+            }
     }
 }
 
