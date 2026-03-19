@@ -10,6 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -20,7 +21,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import type { WorkspaceMigration } from "./types.js";
 

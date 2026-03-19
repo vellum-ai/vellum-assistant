@@ -222,7 +222,6 @@ render(<App />, document.getElementById('app')!);
     store.writeAppFile(app.id, "src/main.tsx", mainTsx);
 
     // Compile src/ → dist/
-    const { join } = await import("node:path");
     const appDir = getAppDirPath(app.id);
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
