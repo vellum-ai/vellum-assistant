@@ -1,14 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
+import { resolveConversationDirectoryPaths } from "../../memory/conversation-directories.js";
 import {
   initConversationDir,
   syncMessageToDisk,
   updateMetaFile,
 } from "../../memory/conversation-disk-view.js";
-import { resolveConversationDirectoryPaths } from "../../memory/conversation-directories.js";
 import { getDb } from "../../memory/db.js";
 import { conversations, messages } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
@@ -22,7 +28,11 @@ function hasExpectedDiskViewArtifacts(
   const metaPath = join(dirPath, "meta.json");
   const messagesPath = join(dirPath, "messages.jsonl");
   const attachDir = join(dirPath, "attachments");
-  if (!existsSync(metaPath) || !existsSync(messagesPath) || !existsSync(attachDir))
+  if (
+    !existsSync(metaPath) ||
+    !existsSync(messagesPath) ||
+    !existsSync(attachDir)
+  )
     return false;
 
   try {
@@ -63,8 +73,11 @@ export function rebuildConversationDiskViewFromDb(): void {
   let processed = 0;
 
   for (const conv of allConversations) {
-    const { canonicalDirPath, legacyDirPath, resolvedDirPath: dirPath } =
-      resolveConversationDirectoryPaths(conv.id, conv.createdAt);
+    const {
+      canonicalDirPath,
+      legacyDirPath,
+      resolvedDirPath: dirPath,
+    } = resolveConversationDirectoryPaths(conv.id, conv.createdAt);
     const metaPath = join(dirPath, "meta.json");
     const messagesPath = join(dirPath, "messages.jsonl");
     const attachDir = join(dirPath, "attachments");
@@ -115,7 +128,11 @@ export function rebuildConversationDiskViewFromDb(): void {
     // idempotency check won't skip a conversation with incomplete messages
     // if the migration is interrupted mid-loop.
     updateMetaFile(conv);
-    convergeDualConversationDirsToCanonical(conv, canonicalDirPath, legacyDirPath);
+    convergeDualConversationDirsToCanonical(
+      conv,
+      canonicalDirPath,
+      legacyDirPath,
+    );
 
     processed++;
     if (processed % 50 === 0) {
