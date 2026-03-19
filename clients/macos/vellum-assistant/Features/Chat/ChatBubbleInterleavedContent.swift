@@ -76,7 +76,7 @@ extension ChatBubble {
     }
 
     /// Whether this message has meaningful interleaved content (multiple block types).
-    private static func computeHasInterleavedContent(_ contentOrder: [ContentBlockRef]) -> Bool {
+    static func computeHasInterleavedContent(_ contentOrder: [ContentBlockRef]) -> Bool {
         // Use interleaved path when contentOrder has more than one distinct block type
         guard contentOrder.count > 1 else { return false }
         var hasTextBlock = false
