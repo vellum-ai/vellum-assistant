@@ -343,6 +343,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model:PUT", scopes: ["settings.write"] },
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
 
+  // Embedding config
+  { endpoint: "config/embeddings:GET", scopes: ["settings.read"] },
+  { endpoint: "config/embeddings:PUT", scopes: ["settings.write"] },
+
   // Conversation management
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
