@@ -9,7 +9,7 @@ import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import {
-  extractMediaBlocks,
+  extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
 import { memorySegments } from "./schema.js";
@@ -71,16 +71,18 @@ export async function indexMessageNow(
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
   // Check if the message has any image blocks before probing the backend.
-  // extractMediaBlocks is synchronous and cheap, while
-  // selectedBackendSupportsMultimodal requires async key resolution that
-  // would add unnecessary latency for text-only messages.
-  const candidateMediaBlocks = extractMediaBlocks(input.content).filter(
+  // extractMediaBlockMeta is synchronous and lightweight — it detects image
+  // blocks without decoding base64 data into Buffers, avoiding CPU/memory
+  // overhead for messages on non-multimodal backends.
+  // selectedBackendSupportsMultimodal requires async key resolution, so we
+  // skip it entirely for text-only messages.
+  const candidateMediaMeta = extractMediaBlockMeta(input.content).filter(
     (b) => b.type === "image",
   );
   const mediaBlocks =
-    candidateMediaBlocks.length > 0 &&
+    candidateMediaMeta.length > 0 &&
     (await selectedBackendSupportsMultimodal(getConfig()))
-      ? candidateMediaBlocks
+      ? candidateMediaMeta
       : [];
 
   // Wrap all segment inserts and job enqueues in a single transaction so they
