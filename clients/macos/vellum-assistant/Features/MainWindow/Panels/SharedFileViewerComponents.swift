@@ -6,7 +6,6 @@ import VellumAssistantShared
 enum FileViewMode: String, Hashable {
     case source
     case preview
-    case tree
 }
 
 func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode] {
@@ -29,7 +28,6 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     switch mode {
     case .source: return "Source"
     case .preview: return "Preview"
-    case .tree: return "Preview"
     }
 }
 
@@ -106,9 +104,6 @@ struct FileContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .preview:
                 MarkdownPreviewView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .tree:
-                JSONTreeView(content: content)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }

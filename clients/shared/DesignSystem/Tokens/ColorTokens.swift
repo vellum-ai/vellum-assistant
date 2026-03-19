@@ -340,7 +340,7 @@ public enum VColor {
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
-    // Syntax highlighting — adaptive tokens shared by SyntaxTheme and JSONTreeView.
+    // Syntax highlighting — adaptive tokens shared by SyntaxTheme and HighlightedTextView.
     // Light values are high-contrast for light surfaces; dark values are softer pastels.
     public static let syntaxString = adaptiveColor(
         light: Color(.sRGB, red: 0.72, green: 0.19, blue: 0.10),
