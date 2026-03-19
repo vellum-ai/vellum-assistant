@@ -45,6 +45,7 @@ import {
 } from "../memory/conversation-attention-store.js";
 import {
   type ConversationRow,
+  forkConversation as forkConversationInStore,
   getConversation,
   getDisplayMetaForConversations,
 } from "../memory/conversation-crud.js";
@@ -125,7 +126,10 @@ import {
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
-import { conversationManagementRouteDefinitions } from "./routes/conversation-management-routes.js";
+import {
+  conversationManagementRouteDefinitions,
+  type ConversationManagementDeps,
+} from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
@@ -830,6 +834,57 @@ export class RuntimeHttpServer {
     };
   }
 
+  private buildConversationDetailResponse(conversationId: string) {
+    const conversation = getConversation(conversationId);
+    if (!conversation) {
+      return null;
+    }
+
+    const bindings = externalConversationStore.getBindingsForConversations([
+      conversation.id,
+    ]);
+    const attentionStates = getAttentionStateByConversationIds([conversation.id]);
+    const parentCache = new Map<string, ConversationRow | null>();
+
+    return {
+      conversation: this.serializeConversationSummary({
+        conversation,
+        binding: bindings.get(conversation.id),
+        attentionState: attentionStates.get(conversation.id),
+        parentCache,
+      }),
+    };
+  }
+
+  private getConversationManagementRouteDeps():
+    | ConversationManagementDeps
+    | null {
+    if (!this.conversationManagementDeps) {
+      return null;
+    }
+
+    return {
+      ...this.conversationManagementDeps,
+      forkConversation:
+        this.conversationManagementDeps.forkConversation ??
+        (async ({ conversationId, throughMessageId }) => {
+          const forkedConversation = forkConversationInStore({
+            conversationId,
+            throughMessageId,
+          });
+          const detail = this.buildConversationDetailResponse(
+            forkedConversation.id,
+          );
+          if (!detail) {
+            throw new Error(
+              `Forked conversation ${forkedConversation.id} could not be loaded`,
+            );
+          }
+          return detail.conversation;
+        }),
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Declarative route table
   // ---------------------------------------------------------------------------
@@ -845,6 +900,8 @@ export class RuntimeHttpServer {
    */
   private buildRouteTable(): RouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    const conversationManagementDeps =
+      this.getConversationManagementRouteDeps();
 
     return [
       ...pairingRouteDefinitions({
@@ -957,10 +1014,8 @@ export class RuntimeHttpServer {
       },
       ...conversationAttentionRouteDefinitions(),
 
-      ...(this.conversationManagementDeps
-        ? conversationManagementRouteDefinitions(
-            this.conversationManagementDeps,
-          )
+      ...(conversationManagementDeps
+        ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
 
       {
@@ -1050,30 +1105,15 @@ export class RuntimeHttpServer {
         endpoint: "conversations/:id",
         method: "GET",
         handler: ({ params }) => {
-          const conversation = getConversation(params.id);
-          if (!conversation) {
+          const detail = this.buildConversationDetailResponse(params.id);
+          if (!detail) {
             return httpError(
               "NOT_FOUND",
               `Conversation ${params.id} not found`,
               404,
             );
           }
-          const bindings =
-            externalConversationStore.getBindingsForConversations([
-              conversation.id,
-            ]);
-          const attentionStates = getAttentionStateByConversationIds([
-            conversation.id,
-          ]);
-          const parentCache = new Map<string, ConversationRow | null>();
-          return Response.json({
-            conversation: this.serializeConversationSummary({
-              conversation,
-              binding: bindings.get(conversation.id),
-              attentionState: attentionStates.get(conversation.id),
-              parentCache,
-            }),
-          });
+          return Response.json(detail);
         },
       },
 
