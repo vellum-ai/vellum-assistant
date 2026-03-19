@@ -93,6 +93,7 @@ struct MarkdownSegmentView: View {
                 }
             }
         }
+        .plainTextCopy()
     }
 
     // MARK: - Segment Grouping
