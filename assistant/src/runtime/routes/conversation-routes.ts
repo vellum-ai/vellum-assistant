@@ -1209,6 +1209,7 @@ async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
 ): Promise<string | null> {
+  const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
@@ -1224,11 +1225,20 @@ async function generateLlmSuggestion(
   const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
   const stripped = raw.replace(/^["']+|["']+$/g, "");
 
-  if (!stripped) return null;
+  if (!stripped) {
+    log.debug("Suggestion rejected: empty LLM response");
+    return null;
+  }
 
   // Take first line only, then enforce the length cap
   const firstLine = stripped.split("\n")[0].trim();
-  if (!firstLine) return null;
+  if (!firstLine) {
+    log.debug(
+      { rawLength: stripped.length },
+      "Suggestion rejected: empty after first-line extraction",
+    );
+    return null;
+  }
   if (firstLine.length <= 50) return firstLine;
   // Truncate at last word boundary within 50 chars
   const wordTruncated = firstLine
@@ -1362,8 +1372,16 @@ export async function handleGetSuggestion(
         }
       } catch (err) {
         suggestionInFlight.delete(msg.id);
-        log.warn({ err }, "LLM suggestion failed");
+        log.warn(
+          { err, conversationKey, messageId: msg.id },
+          "LLM suggestion failed",
+        );
       }
+    } else {
+      log.debug(
+        { conversationKey, messageId: msg.id },
+        "Suggestion skipped: no provider available",
+      );
     }
 
     return Response.json({
