@@ -355,9 +355,6 @@ public final class HTTPTransport {
         // Host CU Proxy
         case hostCuResult
 
-        // BTW side-chain
-        case btw
-
         // Misc
         case channelVerificationSessions
         case channelVerificationSessionsResend
@@ -505,9 +502,6 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("/v1/host-cu-result", nil)
-        // BTW side-chain
-        case .btw:
-            return ("/v1/btw", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -639,9 +633,6 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("\(prefix)/host-cu-result/", nil)
-        // BTW side-chain
-        case .btw:
-            return ("\(prefix)/btw/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
@@ -1190,117 +1181,6 @@ public final class HTTPTransport {
         }
     }
 
-    /// Send a /btw side-chain question and stream the response text.
-    /// Returns an AsyncThrowingStream that yields text deltas from SSE `btw_text_delta` events.
-    /// Throws on `btw_error` events and handles 401 authentication retry.
-    func sendBtwMessage(content: String, conversationKey: String, isRetry: Bool = false) -> AsyncThrowingStream<String, Error> {
-        return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-
-                guard let url = self.buildURL(for: .btw) else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                request.timeoutInterval = 120
-                self.applyAuth(&request)
-
-                let body: [String: Any] = [
-                    "conversationKey": conversationKey,
-                    "content": content,
-                ]
-
-                do {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let http = response as? HTTPURLResponse else {
-                        throw URLError(.badServerResponse)
-                    }
-
-                    if http.statusCode == 401 && !isRetry {
-                        // Collect response body for auth refresh
-                        var bodyChunks: [UInt8] = []
-                        for try await byte in bytes {
-                            bodyChunks.append(byte)
-                        }
-                        let responseData = Data(bodyChunks)
-                        let refreshResult = await self.handleAuthenticationFailureAsync(responseData: responseData)
-                        switch refreshResult {
-                        case .success:
-                            // Retry with refreshed auth — pipe the retry stream into this continuation
-                            let retryStream = self.sendBtwMessage(content: content, conversationKey: conversationKey, isRetry: true)
-                            do {
-                                for try await text in retryStream {
-                                    if Task.isCancelled { break }
-                                    continuation.yield(text)
-                                }
-                                continuation.finish()
-                            } catch {
-                                continuation.finish(throwing: error)
-                            }
-                            return
-                        case .terminalFailure:
-                            continuation.finish()
-                            return
-                        case .transientFailure:
-                            throw URLError(.userAuthenticationRequired, userInfo: [
-                                NSLocalizedDescriptionKey: "Authentication failed — please try again."
-                            ])
-                        }
-                    }
-
-                    guard http.statusCode == 200 else {
-                        throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"
-                        ])
-                    }
-
-                    var currentEventType: String?
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-
-                        if line.hasPrefix("event: ") {
-                            currentEventType = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            let jsonString = String(line.dropFirst(6))
-                            if let data = jsonString.data(using: .utf8),
-                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                if currentEventType == "btw_error" {
-                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
-                                    throw URLError(.badServerResponse, userInfo: [
-                                        NSLocalizedDescriptionKey: errorMessage
-                                    ])
-                                }
-                                if let text = parsed["text"] as? String {
-                                    continuation.yield(text)
-                                }
-                                if currentEventType == "btw_complete" {
-                                    break
-                                }
-                            }
-                            currentEventType = nil
-                        } else if line.isEmpty {
-                            currentEventType = nil
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
 
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.

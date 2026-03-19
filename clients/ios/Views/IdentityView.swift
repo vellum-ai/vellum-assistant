@@ -71,14 +71,14 @@ final class IdentityViewModel {
 
     var identityClient: IdentityClientProtocol = IdentityClient()
 
-    func fetchIdentity(client: any DaemonClientProtocol) async {
+    func fetchIdentity() async {
         isLoading = true
         identity = await identityClient.fetchRemoteIdentity()
         isLoading = false
-        generateIntro(client: client)
+        generateIntro()
     }
 
-    func generateIntro(client: any DaemonClientProtocol) {
+    func generateIntro() {
         introTask?.cancel()
         introText = nil
         introTask = Task { @MainActor [weak self] in
@@ -86,7 +86,7 @@ final class IdentityViewModel {
             let key = "identity-intro-\(UUID().uuidString)"
             var result = ""
             do {
-                let stream = client.sendBtwMessage(
+                let stream = GatewayHTTPClient.sendBtwMessage(
                     content: "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else.",
                     conversationKey: key
                 )
@@ -136,7 +136,7 @@ struct IdentityView: View {
             if let daemonClient = clientProvider.client as? DaemonClient {
                 viewModel.setUp(daemonClient: daemonClient)
             }
-            await viewModel.fetchIdentity(client: clientProvider.client)
+            await viewModel.fetchIdentity()
         }
     }
 
@@ -275,7 +275,7 @@ struct IdentityView: View {
             if let memoriesStore = viewModel.memoriesStore {
                 await memoriesStore.loadItems()
             }
-            await viewModel.fetchIdentity(client: clientProvider.client)
+            await viewModel.fetchIdentity()
         }
     }
 

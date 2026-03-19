@@ -61,17 +61,11 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
-    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
 extension DaemonClientProtocol {
     public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
         try send(signal)
-    }
-
-    /// Default no-op implementation for clients that don't support btw side-chain.
-    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish() }
     }
 }
 
@@ -704,90 +698,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             throw SendError.notConnected
         }
         try await httpTransport.sendConversationUnread(signal)
-    }
-
-    // MARK: - BTW Side-Chain
-
-    /// Send a /btw side-chain question and stream the response text.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
-        if let httpTransport {
-            return httpTransport.sendBtwMessage(content: content, conversationKey: conversationKey)
-        }
-
-        // Local daemon path — stream SSE from the daemon's /v1/btw endpoint.
-        return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-
-                guard var request = self.buildLocalRequest(
-                    target: .daemon,
-                    path: "v1/btw",
-                    method: "POST",
-                    timeout: 120
-                ) else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-
-                let body: [String: String] = [
-                    "conversationKey": conversationKey,
-                    "content": content,
-                ]
-
-                do {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
-                        ])
-                    }
-
-                    var currentEventType: String?
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-
-                        if line.hasPrefix("event: ") {
-                            currentEventType = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            let jsonString = String(line.dropFirst(6))
-                            if let data = jsonString.data(using: .utf8),
-                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                if currentEventType == "btw_error" {
-                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
-                                    throw URLError(.badServerResponse, userInfo: [
-                                        NSLocalizedDescriptionKey: errorMessage
-                                    ])
-                                }
-                                if let text = parsed["text"] as? String {
-                                    continuation.yield(text)
-                                }
-                                if currentEventType == "btw_complete" {
-                                    break
-                                }
-                            }
-                            currentEventType = nil
-                        } else if line.isEmpty {
-                            currentEventType = nil
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { @Sendable _ in task.cancel() }
-        }
     }
 
     // MARK: - Queue Management
