@@ -20,7 +20,6 @@ final class PasteboardSanitizer {
 
     private var eventMonitor: Any?
     private var refCount = 0
-    private var lastChangeCount: Int = NSPasteboard.general.changeCount
 
     private init() {}
 
@@ -30,13 +29,14 @@ final class PasteboardSanitizer {
     func install() {
         refCount += 1
         guard eventMonitor == nil else { return }
-        lastChangeCount = NSPasteboard.general.changeCount
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.modifierFlags.contains(.command),
                event.charactersIgnoringModifiers == "c" {
+                // Snapshot the change count before SwiftUI processes the copy
+                let preEventCount = NSPasteboard.general.changeCount
                 // Delay to let SwiftUI's text selection copy complete first
                 DispatchQueue.main.async {
-                    self?.sanitizePasteboard()
+                    self?.sanitizePasteboard(preEventCount: preEventCount)
                 }
             }
             return event
@@ -56,11 +56,14 @@ final class PasteboardSanitizer {
         }
     }
 
-    private func sanitizePasteboard() {
+    /// Strips RTF/HTML from the pasteboard if a copy actually occurred
+    /// during this Cmd+C event. Compares against the pre-event change
+    /// count to avoid corrupting clipboard content from other apps.
+    private func sanitizePasteboard(preEventCount: Int) {
         let pb = NSPasteboard.general
-        // Only act if the pasteboard changed (a copy actually happened)
-        guard pb.changeCount != lastChangeCount else { return }
-        lastChangeCount = pb.changeCount
+        // Only act if the pasteboard changed since the key event fired,
+        // confirming that this Cmd+C actually produced a new copy
+        guard pb.changeCount > preEventCount else { return }
 
         // Only strip if RTF or HTML is present (rich text copy from text selection)
         guard pb.data(forType: .rtf) != nil || pb.data(forType: .html) != nil else { return }
@@ -68,7 +71,6 @@ final class PasteboardSanitizer {
         guard let plainText = pb.string(forType: .string) else { return }
         pb.clearContents()
         pb.setString(plainText, forType: .string)
-        lastChangeCount = pb.changeCount
     }
 }
 
