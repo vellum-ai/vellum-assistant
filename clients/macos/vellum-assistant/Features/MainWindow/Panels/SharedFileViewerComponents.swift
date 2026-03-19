@@ -61,7 +61,10 @@ struct FileContentView: View {
                 fileName: fileName
             ) {
                 if isEditable && !isActivelyEditing {
-                    Button(action: { isActivelyEditing = true }) {
+                    Button(action: {
+                        viewMode = .source
+                        isActivelyEditing = true
+                    }) {
                         VIconView(.pencil, size: 10)
                             .foregroundColor(VColor.contentSecondary)
                     }
