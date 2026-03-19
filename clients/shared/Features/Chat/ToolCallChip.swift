@@ -298,7 +298,11 @@ public struct ToolCallChip: View {
             cachedInputFull = nil
         }
         .onChange(of: toolCall.result) {
-            cachedResultLineCount = nil
+            if isExpanded, let result = toolCall.result {
+                cachedResultLineCount = Self.countLines(in: result)
+            } else {
+                cachedResultLineCount = nil
+            }
         }
     }
 }
