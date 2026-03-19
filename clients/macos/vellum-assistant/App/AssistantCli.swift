@@ -173,6 +173,14 @@ final class AssistantCli {
             throw CLIError.daemonStartupFailed(Self.parseDaemonStartupError(from: stderr))
         }
 
+        // The CLI can exit 0 even when the daemon had a startup failure
+        // (e.g. it logged a warning and continued). Check stderr for the
+        // DAEMON_ERROR sentinel so these failures still surface.
+        if let startupError = Self.parseDaemonStartupErrorIfPresent(from: stderr) {
+            log.error("CLI hatch exited 0 but daemon reported startup error [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
+            throw CLIError.daemonStartupFailed(startupError)
+        }
+
         log.info("CLI hatch completed successfully")
     }
 
@@ -588,6 +596,25 @@ final class AssistantCli {
         // Fallback for old daemon binaries that don't emit DAEMON_ERROR.
         let fallbackMessage = String(stderr.suffix(500))
         return DaemonStartupError(category: "UNKNOWN", message: fallbackMessage, detail: nil)
+    }
+
+    /// Parse a `DaemonStartupError` from stderr only if the `DAEMON_ERROR:`
+    /// sentinel is present. Returns `nil` when no marker is found — used for
+    /// the exit-0 path where we don't want to fabricate an UNKNOWN error.
+    private static func parseDaemonStartupErrorIfPresent(from stderr: String) -> DaemonStartupError? {
+        let lines = stderr.components(separatedBy: .newlines)
+        guard let markerLine = lines.last(where: { $0.hasPrefix("DAEMON_ERROR:") }) else {
+            return nil
+        }
+        let jsonString = String(markerLine.dropFirst("DAEMON_ERROR:".count))
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let category = json["error"] as? String ?? "UNKNOWN"
+        let message = json["message"] as? String ?? "Unknown startup error"
+        let detail = json["detail"] as? String
+        return DaemonStartupError(category: category, message: message, detail: detail)
     }
 
     /// Send SIGTERM to a process identified by a PID file. Does not wait for
