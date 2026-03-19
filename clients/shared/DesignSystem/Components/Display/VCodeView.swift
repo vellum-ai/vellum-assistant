@@ -353,7 +353,7 @@ struct VCodeTextView: NSViewRepresentable {
             let capturedText = text
             let capturedPS = paragraphStyle
             highlightTask = Task.detached(priority: .userInitiated) {
-                let highlighted = highlighter(capturedText, capturedPS)
+                nonisolated(unsafe) let highlighted = highlighter(capturedText, capturedPS)
                 await MainActor.run { [weak self] in
                     guard !Task.isCancelled else { return }
                     guard let storage = textView.textStorage else { return }
