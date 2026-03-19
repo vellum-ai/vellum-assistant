@@ -337,7 +337,12 @@ export async function retireDocker(name: string): Promise<void> {
   } catch {
     // network may not exist
   }
-  for (const vol of [res.dataVolume, res.socketVolume, res.workspaceVolume, res.cesSecurityVolume]) {
+  for (const vol of [
+    res.dataVolume,
+    res.socketVolume,
+    res.workspaceVolume,
+    res.cesSecurityVolume,
+  ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
     } catch {
@@ -594,7 +599,11 @@ export async function stopContainers(
 export async function sleepContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
-  for (const container of [res.cesContainer, res.gatewayContainer, res.assistantContainer]) {
+  for (const container of [
+    res.cesContainer,
+    res.gatewayContainer,
+    res.assistantContainer,
+  ]) {
     try {
       await exec("docker", ["stop", container]);
     } catch {
@@ -607,7 +616,11 @@ export async function sleepContainers(
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
-  for (const container of [res.assistantContainer, res.gatewayContainer, res.cesContainer]) {
+  for (const container of [
+    res.assistantContainer,
+    res.gatewayContainer,
+    res.cesContainer,
+  ]) {
     await exec("docker", ["start", container]);
   }
 }
@@ -895,6 +908,8 @@ export async function hatchDocker(
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
+    const imageDigests = await captureImageRefs(res);
+
     const runtimeUrl = `http://localhost:${gatewayPort}`;
     const dockerEntry: AssistantEntry = {
       assistantId: instanceName,
@@ -903,6 +918,16 @@ export async function hatchDocker(
       species,
       hatchedAt: new Date().toISOString(),
       volume: res.dataVolume,
+      serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
+      containerInfo: {
+        assistantImage: imageTags.assistant,
+        gatewayImage: imageTags.gateway,
+        cesImage: imageTags["credential-executor"],
+        assistantDigest: imageDigests?.assistant,
+        gatewayDigest: imageDigests?.gateway,
+        cesDigest: imageDigests?.["credential-executor"],
+        networkName: res.network,
+      },
     };
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);
