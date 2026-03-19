@@ -551,13 +551,10 @@ struct AgentPanelContent: View {
 
             // Two-pane file browser — identical to WorkspacePanel layout
             HStack(spacing: 0) {
-                // Left: file tree sidebar (matches WorkspaceTreeSidebar)
+                // Left: file tree sidebar (matches WorkspaceTreeSidebar — no background)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
-
-                // Separator (workspace uses 6pt resize handle; we use a 1pt divider)
-                Divider()
 
                 // Right: file content viewer (matches WorkspaceFileViewer)
                 Group {
