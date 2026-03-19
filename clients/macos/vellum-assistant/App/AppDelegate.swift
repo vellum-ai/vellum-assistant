@@ -200,6 +200,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             appMenuPatchDelegate?.patchTitles(menu: appMenu)
         }
 
+        // Capture outside @Sendable closures to avoid main-actor isolation warning.
+        let appName = AppDelegate.appName
+
         // Patch the menu bar title right when the user clicks the menu bar.
         if appMenuTrackingObserver == nil {
             appMenuTrackingObserver = NotificationCenter.default.addObserver(
@@ -207,8 +210,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: NSApp.mainMenu,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }
@@ -221,8 +224,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: nil,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }

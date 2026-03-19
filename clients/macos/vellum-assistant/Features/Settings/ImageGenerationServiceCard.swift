@@ -66,7 +66,7 @@ struct ImageGenerationServiceCard: View {
                             .font(VFont.inputLabel)
                             .foregroundColor(VColor.contentSecondary)
                         SecureField("Enter your API key", text: $apiKeyText)
-                            .vInputStyle()
+                            .vInputStyle(maxWidth: 400)
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
 
@@ -140,7 +140,8 @@ struct ImageGenerationServiceCard: View {
                 selection: $draftModel,
                 options: SettingsStore.availableImageGenModels.map { model in
                     (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
-                }
+                },
+                maxWidth: 400
             )
         }
     }

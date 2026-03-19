@@ -195,7 +195,8 @@ struct WebSearchServiceCard: View {
                 selection: $draftProvider,
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
-                }
+                },
+                maxWidth: 400
             )
         }
     }
@@ -211,7 +212,7 @@ struct WebSearchServiceCard: View {
                 "Enter your API key",
                 text: isPerplexity ? $perplexityKeyText : $braveKeyText
             )
-            .vInputStyle()
+            .vInputStyle(maxWidth: 400)
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
 

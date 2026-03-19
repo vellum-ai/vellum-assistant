@@ -3,7 +3,11 @@ import SwiftUI
 /// A ViewModifier that applies the shared input chrome across text inputs.
 /// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
-    public init() {}
+    public var maxWidth: CGFloat = .infinity
+
+    public init(maxWidth: CGFloat = .infinity) {
+        self.maxWidth = maxWidth
+    }
 
     public func body(content: Content) -> some View {
         content
@@ -12,12 +16,13 @@ public struct VInputStyleModifier: ViewModifier {
             .padding(.vertical, VSpacing.xs)
             .frame(height: 32)
             .vInputChrome()
+            .frame(maxWidth: maxWidth)
     }
 }
 
 extension View {
-    public func vInputStyle() -> some View {
-        modifier(VInputStyleModifier())
+    public func vInputStyle(maxWidth: CGFloat = .infinity) -> some View {
+        modifier(VInputStyleModifier(maxWidth: maxWidth))
     }
 
     public func vInputChrome(isFocused: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
@@ -59,15 +64,17 @@ public struct VTextField: View {
     public var leadingIcon: String? = nil
     public var trailingIcon: String? = nil
     public var onSubmit: (() -> Void)? = nil
+    public var maxWidth: CGFloat = .infinity
 
     @FocusState private var isFocused: Bool
 
-    public init(placeholder: String, text: Binding<String>, leadingIcon: String? = nil, trailingIcon: String? = nil, onSubmit: (() -> Void)? = nil) {
+    public init(placeholder: String, text: Binding<String>, leadingIcon: String? = nil, trailingIcon: String? = nil, onSubmit: (() -> Void)? = nil, maxWidth: CGFloat = .infinity) {
         self.placeholder = placeholder
         self._text = text
         self.leadingIcon = leadingIcon
         self.trailingIcon = trailingIcon
         self.onSubmit = onSubmit
+        self.maxWidth = maxWidth
     }
 
     public var body: some View {
@@ -97,5 +104,6 @@ public struct VTextField: View {
         .padding(.vertical, VSpacing.xs)
         .frame(height: 32)
         .vInputChrome(isFocused: isFocused)
+        .frame(maxWidth: maxWidth)
     }
 }

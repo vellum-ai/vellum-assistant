@@ -572,6 +572,28 @@ export async function stopContainers(
   await removeContainer(res.assistantContainer);
 }
 
+/** Stop containers without removing them (preserves state for `docker start`). */
+export async function sleepContainers(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<void> {
+  for (const container of [res.cesContainer, res.gatewayContainer, res.assistantContainer]) {
+    try {
+      await exec("docker", ["stop", container]);
+    } catch {
+      // container may not exist or already stopped
+    }
+  }
+}
+
+/** Start existing stopped containers. */
+export async function wakeContainers(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<void> {
+  for (const container of [res.assistantContainer, res.gatewayContainer, res.cesContainer]) {
+    await exec("docker", ["start", container]);
+  }
+}
+
 /**
  * Capture the current image references for running service containers.
  * Returns a complete record of service → immutable image ID (sha256 digest)

@@ -258,7 +258,8 @@ struct VoiceSettingsView: View {
             VDropdown(
                 placeholder: "Select timeout\u{2026}",
                 selection: $conversationTimeoutSeconds,
-                options: timeoutOptions
+                options: timeoutOptions,
+                maxWidth: 400
             )
             .accessibilityLabel("Conversation timeout duration")
         }
@@ -292,7 +293,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.contentSecondary)
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .vInputStyle()
+                        .vInputStyle(maxWidth: 400)
                         .font(VFont.body)
                         .foregroundColor(VColor.contentDefault)
 
