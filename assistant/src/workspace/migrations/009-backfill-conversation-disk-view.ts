@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
@@ -54,6 +54,17 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
 
       // Create dir + meta.json (initConversationDir sets updatedAt = createdAt)
       initConversationDir(conv);
+
+      // Clear stale data from any previous interrupted run so the append-only
+      // syncMessageToDisk calls below don't produce duplicates.
+      const messagesPath = join(dirPath, "messages.jsonl");
+      if (existsSync(messagesPath)) {
+        rmSync(messagesPath);
+      }
+      const attachDir = join(dirPath, "attachments");
+      if (existsSync(attachDir)) {
+        rmSync(attachDir, { recursive: true, force: true });
+      }
 
       // Query all messages for this conversation and sync each to disk
       const convMessages = db
