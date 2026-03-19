@@ -1347,7 +1347,7 @@ struct MessageListView: View {
                     // If not near bottom or anchor is set, preserve viewport.
                 }
             }
-            .onChange(of: conversationId) {
+            .onChange(of: conversationId) { oldConversationId, _ in
                 // Keep the underlying NSScrollView instance stable across conversation
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
@@ -1377,7 +1377,9 @@ struct MessageListView: View {
                 // hasFreshAnchorMeasurement from becoming true.
                 anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
-                if let oldConvId = conversationId {
+                // Reset the OLD conversation's scroll-loop guard state so it
+                // doesn't leak into future sessions for that conversation.
+                if let oldConvId = oldConversationId {
                     scrollLoopGuard.reset(conversationId: oldConvId.uuidString)
                 }
                 lastHandledContainerWidth = containerWidth
