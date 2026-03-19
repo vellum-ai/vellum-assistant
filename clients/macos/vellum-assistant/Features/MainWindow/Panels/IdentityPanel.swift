@@ -18,6 +18,7 @@ struct IdentityPanel: View {
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
+    @State private var isIdentityMinimized: Bool = false
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapActive: Bool {
@@ -53,59 +54,89 @@ struct IdentityPanel: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Compact identity overlay card
-                VStack(spacing: 0) {
-                    // Intro heading
-                    Text(introText ?? "I'm \(assistantDisplayName)!")
-                        .font(.system(size: 22, weight: .regular, design: .rounded))
-                        .foregroundColor(VColor.contentDefault)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, VSpacing.md)
+                // Compact identity overlay card / minimized avatar
+                if isIdentityMinimized {
+                    // Minimized: small circular avatar button
+                    Button {
+                        withAnimation(VAnimation.snappy) {
+                            isIdentityMinimized = false
+                        }
+                    } label: {
+                        VAvatarImage(image: appearance.fullAvatarImage, size: 36, showBorder: false)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .background(VColor.surfaceBase)
+                    .clipShape(Circle())
+                    .vShadow(VShadow.sm)
+                    .padding(VSpacing.lg)
+                    .transition(.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity))
+                    .accessibilityLabel("Show identity card")
+                } else {
+                    // Full identity card
+                    VStack(spacing: 0) {
+                        // Intro heading
+                        Text(introText ?? "I'm \(assistantDisplayName)!")
+                            .font(.system(size: 22, weight: .regular, design: .rounded))
+                            .foregroundColor(VColor.contentDefault)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, VSpacing.md)
+                            .padding(.horizontal, VSpacing.sm)
+
+                        Spacer().frame(minHeight: VSpacing.xs)
+
+                        // Avatar
+                        Group {
+                            if let body = appearance.characterBodyShape,
+                               let eyes = appearance.characterEyeStyle,
+                               let color = appearance.characterColor {
+                                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
+                                                   entryAnimationEnabled: true)
+                                    .frame(width: avatarSize, height: avatarSize)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            } else {
+                                VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                        }
+
+                        Spacer().frame(minHeight: VSpacing.xs)
+
+                        // Divider
+                        Divider().background(VColor.surfaceOverlay)
+
+                        // Role + Hatched date
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
+                            if let role, !role.isEmpty {
+                                identityInfoRow(label: "Role", value: role)
+                            }
+                            if let date = metadata?.createdAt {
+                                identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
-
-                    Spacer().frame(minHeight: VSpacing.xs)
-
-                    // Avatar
-                    Group {
-                        if let body = appearance.characterBodyShape,
-                           let eyes = appearance.characterEyeStyle,
-                           let color = appearance.characterColor {
-                            AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
-                                               entryAnimationEnabled: true)
-                                .frame(width: avatarSize, height: avatarSize)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        } else {
-                            VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
+                        .padding(.vertical, VSpacing.sm)
                     }
-
-                    Spacer().frame(minHeight: VSpacing.xs)
-
-                    // Divider
-                    Divider().background(VColor.surfaceOverlay)
-
-                    // Role + Hatched date
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-                        if let role, !role.isEmpty {
-                            identityInfoRow(label: "Role", value: role)
+                    .frame(width: cardWidth, height: cardHeight)
+                    .background(VColor.surfaceBase)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .vShadow(VShadow.md)
+                    .overlay(alignment: .topTrailing) {
+                        VButton(label: "Minimize", iconOnly: VIcon.chevronUp.rawValue, style: .ghost) {
+                            withAnimation(VAnimation.snappy) {
+                                isIdentityMinimized = true
+                            }
                         }
-                        if let date = metadata?.createdAt {
-                            identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
-                        }
+                        .padding(VSpacing.xs)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.sm)
+                    .padding(VSpacing.lg)
+                    .transition(.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity))
                 }
-                .frame(width: cardWidth, height: cardHeight)
-                .background(VColor.surfaceBase)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .vShadow(VShadow.md)
-                .padding(VSpacing.lg)
             }
+            .animation(VAnimation.snappy, value: isIdentityMinimized)
             .overlay {
                 VColor.auxBlack.opacity(viewingFilePath != nil ? 0.4 : 0)
                     .ignoresSafeArea()
