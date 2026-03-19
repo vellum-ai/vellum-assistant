@@ -287,7 +287,7 @@
       "key": "feature_flags.inline-skill-commands.enabled",
       "label": "Inline Skill Command Expansion",
       "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
-      "defaultEnabled": false
+      "defaultEnabled": true
     }
   ]
 }
