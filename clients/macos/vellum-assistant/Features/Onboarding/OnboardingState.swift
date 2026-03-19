@@ -123,6 +123,18 @@ final class OnboardingState {
         if currentStep > maxStep {
             currentStep = maxStep
         }
+
+        // Opt in to usage data and diagnostics by default for new users.
+        // Also check legacy keys so we don't override an existing opt-out from
+        // users who haven't yet been migrated by syncPrivacyConfig().
+        if UserDefaults.standard.object(forKey: "collectUsageData") == nil
+            && UserDefaults.standard.object(forKey: "collectUsageDataEnabled") == nil {
+            UserDefaults.standard.set(true, forKey: "collectUsageData")
+        }
+        if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil
+            && UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
+            UserDefaults.standard.set(true, forKey: "sendDiagnostics")
+        }
     }
 
     func advance(by steps: Int = 1) {
