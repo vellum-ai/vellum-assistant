@@ -265,11 +265,10 @@ struct ChatView: View {
                             containerWidth: containerWidth
                         )
 
-                        let composerMessages: [ChatMessage] = {
-                            let all = messages.filter { !$0.isSubagentNotification }
-                            guard displayedMessageCount < all.count else { return all }
-                            return Array(all.suffix(displayedMessageCount))
-                        }()
+                        let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
+                            from: messages,
+                            displayedMessageCount: displayedMessageCount
+                        )
 
                         ComposerSection(
                             inputText: $inputText,
