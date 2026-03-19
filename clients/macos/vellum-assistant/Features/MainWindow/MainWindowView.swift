@@ -632,10 +632,12 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 conversationManager.markActiveConversationSeenIfNeeded()
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
                 isInFullscreen = true
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
                 isInFullscreen = false
             }
     }
