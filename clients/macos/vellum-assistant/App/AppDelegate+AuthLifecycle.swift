@@ -307,7 +307,6 @@ extension AppDelegate {
                 hasSetupDaemon = false
                 UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
                 showAuthWindow(reusingWindow: detachedWindow)
-                authManager.errorMessage = nil
             }
         }
     }
