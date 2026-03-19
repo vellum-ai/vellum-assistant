@@ -95,7 +95,7 @@ struct TrustRulesSection: View {
             switch decision {
             case "allow": return (VColor.systemPositiveStrong, "Allow")
             case "deny": return (VColor.systemNegativeStrong, "Deny")
-            default: return (VColor.systemNegativeHover, "Ask")
+            default: return (VColor.systemMidStrong, "Ask")
             }
         }()
         Text(label)

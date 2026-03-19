@@ -464,7 +464,7 @@ struct ConversationListView: View {
                         } label: {
                             Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
-                        .tint(VColor.systemNegativeHover)
+                        .tint(VColor.systemMidStrong)
                     }
                     .swipeActions(edge: .leading) {
                         Button {
@@ -594,7 +594,7 @@ struct ConversationListView: View {
                     } label: {
                         Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
-                    .tint(VColor.systemNegativeHover)
+                    .tint(VColor.systemMidStrong)
                 }
                 .swipeActions(edge: .leading) {
                     Button {
@@ -629,7 +629,7 @@ struct ConversationListView: View {
                             } label: {
                                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
-                            .tint(VColor.systemNegativeHover)
+                            .tint(VColor.systemMidStrong)
                         }
                         .swipeActions(edge: .leading) {
                             Button {
@@ -655,7 +655,7 @@ struct ConversationListView: View {
                                 .accessibilityLabel("Pinned")
                         }
                         if scheduleGroupHasUnread(group) {
-                            VBadge(style: .dot, color: VColor.systemNegativeHover)
+                            VBadge(style: .dot, color: VColor.systemMidStrong)
                                 .accessibilityLabel("Unread")
                         }
                         Text("\(group.conversations.count)")
@@ -695,7 +695,7 @@ struct ConversationListView: View {
                         .accessibilityLabel("Pinned")
                 }
                 if store.isConnectedMode && conversation.hasUnseenLatestAssistantMessage {
-                    VBadge(style: .dot, color: VColor.systemNegativeHover)
+                    VBadge(style: .dot, color: VColor.systemMidStrong)
                         .accessibilityLabel("Unread")
                 }
                 Spacer()
