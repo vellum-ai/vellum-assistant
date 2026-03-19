@@ -20,6 +20,7 @@ final class MainThreadStallDetector {
 
     private let queue = DispatchQueue(label: "com.vellum.stall-detector", qos: .utility)
     private var timer: DispatchSourceTimer?
+    private var probeInFlight = false
 
     private init() {}
 
@@ -35,11 +36,18 @@ final class MainThreadStallDetector {
     }
 
     private func ping() {
-        let scheduled = CFAbsoluteTimeGetCurrent()
+        guard !probeInFlight else { return }
+        probeInFlight = true
+        let scheduledNanos = DispatchTime.now().uptimeNanoseconds
         DispatchQueue.main.async { [weak self] in
-            let delay = CFAbsoluteTimeGetCurrent() - scheduled
+            guard let self else { return }
+            self.queue.async {
+                self.probeInFlight = false
+            }
+            let delayNanos = DispatchTime.now().uptimeNanoseconds - scheduledNanos
+            let delay = Double(delayNanos) / 1_000_000_000
             if delay > 1.0 {
-                self?.log.warning("Main thread stall detected: \(String(format: "%.1f", delay))s delay")
+                self.log.warning("Main thread stall detected: \(String(format: "%.1f", delay))s delay")
             }
         }
     }
