@@ -140,6 +140,11 @@ struct ComponentGalleryView: View {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    private var allExpanded: Bool {
+        let expandable = ComponentGalleryCategory.allCases.filter { !$0.components.isEmpty }
+        return expandable.allSatisfy { expandedCategories.contains($0) }
+    }
+
     private func isExpanded(_ category: ComponentGalleryCategory) -> Binding<Bool> {
         Binding(
             get: { isSearching || expandedCategories.contains(category) },
@@ -173,9 +178,25 @@ struct ComponentGalleryView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                VSearchBar(placeholder: "Filter components...", text: $searchText)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
+                HStack {
+                    VSearchBar(placeholder: "Filter components...", text: $searchText)
+
+                    Button(action: {
+                        let expandable = Set(ComponentGalleryCategory.allCases.filter { !$0.components.isEmpty })
+                        if allExpanded {
+                            expandedCategories.subtract(expandable)
+                        } else {
+                            expandedCategories.formUnion(expandable)
+                        }
+                    }) {
+                        VIconView(allExpanded ? .chevronUp : .chevronDown, size: 14)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(allExpanded ? "Collapse all" : "Expand all")
+                }
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
 
                 List(selection: $selectedPage) {
                     ForEach(filteredCategories, id: \.category) { item in
