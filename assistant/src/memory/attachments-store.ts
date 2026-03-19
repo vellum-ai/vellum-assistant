@@ -525,6 +525,16 @@ export function getAttachmentsByIds(
       .where(eq(attachments.id, id))
       .get();
     if (row) {
+      // File-backed attachments store data on disk with dataBase64 = "".
+      // Hydrate base64 from disk so callers get actual content.
+      let dataBase64 = row.dataBase64;
+      if (!dataBase64 && row.filePath) {
+        try {
+          dataBase64 = readFileSync(row.filePath).toString("base64");
+        } catch {
+          dataBase64 = "";
+        }
+      }
       results.push({
         id: row.id,
         originalFilename: row.originalFilename,
@@ -532,7 +542,7 @@ export function getAttachmentsByIds(
         sizeBytes: row.sizeBytes,
         kind: row.kind,
         thumbnailBase64: row.thumbnailBase64,
-        dataBase64: row.dataBase64,
+        dataBase64,
         createdAt: row.createdAt,
       });
     }
