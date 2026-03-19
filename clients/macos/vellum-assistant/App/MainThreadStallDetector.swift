@@ -45,6 +45,10 @@ final class MainThreadStallDetector {
     /// Process runner for `/usr/bin/sample`. Tests inject a mock.
     var sampleRunner: SampleRunner = DefaultSampleRunner()
 
+    /// Queue used to dispatch sampling off the detector queue. Production uses
+    /// a global utility queue; tests inject a serial queue they can drain.
+    var samplingQueue: DispatchQueue = .global(qos: .utility)
+
     /// Queue used to dispatch probes. Production uses `DispatchQueue.main`;
     /// tests inject a suspended or separate queue to simulate a blocked main thread.
     var probeTargetQueue: DispatchQueue = .main
@@ -182,7 +186,7 @@ final class MainThreadStallDetector {
             // Run sampling off the detector queue to avoid blocking stall detection
             // for the ~3s duration of /usr/bin/sample. stageTwoFired prevents re-entry.
             let runner = sampleRunner
-            DispatchQueue.global(qos: .utility).async { [log] in
+            samplingQueue.async { [log] in
                 let success = runner.runSample(pid: pid, outputURL: sampleURL)
                 if success {
                     log.info("Process sample written to hang-sample.txt")
