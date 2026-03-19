@@ -19,10 +19,6 @@ struct MessageInspectorResponseTab: View {
                         responseSectionCard(for: section)
                     }
                 } else {
-                    if model.responseModeLabel != nil {
-                        responseMetadataCard
-                    }
-
                     fallbackCard
                 }
             }
@@ -41,6 +37,10 @@ struct MessageInspectorResponseTab: View {
                     .foregroundColor(VColor.contentDefault)
 
                 HStack(alignment: .top, spacing: VSpacing.xs) {
+                    if let stopReason = model.responseStopReason {
+                        metadataChip("Stop reason: \(stopReason)")
+                    }
+
                     if let responseModeLabel = model.responseModeLabel {
                         metadataChip(responseModeLabel)
                     }
@@ -209,6 +209,7 @@ struct MessageInspectorResponseTab: View {
 struct MessageInspectorResponseTabModel: Equatable {
     let sections: [MessageInspectorResponseSectionModel]
     let responseModeLabel: String?
+    let responseStopReason: String?
     let fallbackMessage: String?
 
     init(entry: LLMRequestLogEntry) {
@@ -217,7 +218,14 @@ struct MessageInspectorResponseTabModel: Equatable {
             MessageInspectorResponseSectionModel(index: index, section: section)
         }
 
-        responseModeLabel = Self.deriveResponseModeLabel(summary: entry.summary, sections: sections)
+        if sections.isEmpty {
+            responseModeLabel = nil
+            responseStopReason = nil
+        } else {
+            responseModeLabel = Self.deriveResponseModeLabel(summary: entry.summary, sections: sections)
+            responseStopReason = Self.deriveStopReasonLabel(summary: entry.summary)
+        }
+
         fallbackMessage = sections.isEmpty
             ? "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload."
             : nil
@@ -248,6 +256,15 @@ struct MessageInspectorResponseTabModel: Equatable {
         }
 
         return sections.isEmpty ? nil : "Text-only response"
+    }
+
+    private static func deriveStopReasonLabel(summary: LLMCallSummary?) -> String? {
+        guard let stopReason = summary?.stopReason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !stopReason.isEmpty else {
+            return nil
+        }
+
+        return stopReason
     }
 }
 
