@@ -690,6 +690,10 @@ struct MainWindowView: View {
     }
 
     private func handleCoreLayoutAppear() {
+        // Sync fullscreen state for windows restored into fullscreen by macOS state restoration.
+        if let window = NSApp.windows.first(where: { $0 is TitleBarZoomableWindow }) {
+            isInFullscreen = window.styleMask.contains(.fullScreen)
+        }
         // Reset stale chat-dock state for users upgrading from older versions.
         // Without this, isAppChatOpen could remain persisted as true with
         // no UI to disable it, leaving panels stuck in split mode.
