@@ -10,6 +10,37 @@ extension Notification.Name {
     static let activateChatSearch = Notification.Name("activateChatSearch")
 }
 
+/// Delegate installed on the app submenu to patch the menu bar title to
+/// "Vellum" right before macOS renders it.  SwiftUI resets the title from
+/// the bundle display name, so we override it in `menuWillOpen`.
+final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
+    let bundleDisplayName: String
+
+    init(bundleDisplayName: String) {
+        self.bundleDisplayName = bundleDisplayName
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        patchTitles(menu: menu)
+    }
+
+    func patchTitles(menu: NSMenu) {
+        // Patch the parent menu item title (the bold text in the menu bar).
+        if let mainMenu = NSApp.mainMenu,
+           let appMenuItem = mainMenu.items.first,
+           appMenuItem.title != "Vellum" {
+            appMenuItem.title = "Vellum"
+        }
+        if menu.title != "Vellum" {
+            menu.title = "Vellum"
+        }
+        // Patch any remaining items that still contain the bundle name.
+        for item in menu.items where item.title.contains(bundleDisplayName) {
+            item.title = item.title.replacingOccurrences(of: bundleDisplayName, with: "Vellum")
+        }
+    }
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar

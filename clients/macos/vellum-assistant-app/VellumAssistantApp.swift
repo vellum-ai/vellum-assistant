@@ -44,6 +44,28 @@ struct VellumAssistantApp: App {
                     }
                 }
             }
+            // Replace the auto-generated Hide/Quit items so they always
+            // say "Vellum" instead of the bundle display name (which may
+            // be a custom dock label like the assistant's name).
+            CommandGroup(replacing: .appVisibility) {
+                Button("Hide Vellum") {
+                    NSApp.hide(nil)
+                }
+                .keyboardShortcut("h", modifiers: .command)
+                Button("Hide Others") {
+                    NSApp.hideOtherApplications(nil)
+                }
+                .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Show All") {
+                    NSApp.unhideAllApplications(nil)
+                }
+            }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit Vellum") {
+                    NSApp.terminate(nil)
+                }
+                .keyboardShortcut("q", modifiers: .command)
+            }
             // Replace the default Settings menu item (which opens the SwiftUI
             // Settings scene window) with one that opens the in-app panel.
             CommandGroup(replacing: .appSettings) {
