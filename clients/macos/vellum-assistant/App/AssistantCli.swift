@@ -278,52 +278,13 @@ final class AssistantCli {
         log.info("CLI retire completed successfully")
     }
 
-    /// Non-destructive stop: kills the daemon process via the CLI without
-    /// deleting ~/.vellum or deregistering the assistant.
+    /// Non-destructive stop: sends SIGTERM to the daemon and gateway processes
+    /// without waiting for them to exit. This is intentionally fire-and-forget
+    /// so that applicationWillTerminate returns instantly (no beach-ball).
+    /// Orphaned processes are cleaned up on next launch via `detectOrphanedProcesses`.
     func stop(name: String? = nil) {
-        guard let binaryURL = cliBinaryURL else {
-            log.info("No bundled CLI binary found — skipping stop (dev mode)")
-            // Still try to clean up via PID file in dev mode
-            killViaPIDFile()
-            killGatewayViaPIDFile()
-            return
-        }
-
-        log.info("Running stop via CLI at \(binaryURL.path, privacy: .public)")
-
-        // stop must be synchronous (called from applicationWillTerminate)
-        let proc = Process()
-        proc.executableURL = binaryURL
-        var sleepArgs = ["sleep"]
-        if let name, !name.isEmpty {
-            sleepArgs.append(name)
-        }
-        proc.arguments = sleepArgs
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-
-        let fullEnv = ProcessInfo.processInfo.environment
-        proc.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "TMPDIR": fullEnv["TMPDIR"] ?? NSTemporaryDirectory(),
-        ]
-
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            log.info("CLI stop completed with exit code \(proc.terminationStatus)")
-            if proc.terminationStatus != 0 {
-                log.warning("CLI stop exited non-zero (\(proc.terminationStatus)) — falling back to PID-based kill")
-                killViaPIDFile()
-                killGatewayViaPIDFile()
-            }
-        } catch {
-            log.error("CLI stop failed: \(error.localizedDescription)")
-            // Fallback: kill via PID file directly
-            killViaPIDFile()
-            killGatewayViaPIDFile()
-        }
+        signalViaPIDFile(pidFileURL, label: "daemon")
+        signalViaPIDFile(gatewayPidFileURL, label: "gateway")
     }
 
 
@@ -629,47 +590,14 @@ final class AssistantCli {
         return DaemonStartupError(category: "UNKNOWN", message: fallbackMessage, detail: nil)
     }
 
-    /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
-    private func killGatewayViaPIDFile() {
-        guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else { return }
-        let pidData: Data
-        do {
-            pidData = try Data(contentsOf: gatewayPidFileURL)
-        } catch {
-            return
-        }
-        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString),
-              kill(pid, 0) == 0 else {
-            return
-        }
-
-        log.info("Killing gateway via PID file (pid \(pid))")
-        kill(pid, SIGTERM)
-
-        let deadline = Date().addingTimeInterval(2.0)
-        while kill(pid, 0) == 0 && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        if kill(pid, 0) == 0 {
-            kill(pid, SIGKILL)
-        }
-
-        do {
-            try FileManager.default.removeItem(at: gatewayPidFileURL)
-        } catch {
-            log.error("Failed to remove gateway PID file: \(error)")
-        }
-    }
-
-    /// Kill the daemon directly via PID file — fallback when CLI binary is unavailable.
-    private func killViaPIDFile() {
+    /// Send SIGTERM to a process identified by a PID file. Does not wait for
+    /// the process to exit — the next launch will clean up any stragglers.
+    private func signalViaPIDFile(_ pidFileURL: URL, label: String) {
+        guard FileManager.default.fileExists(atPath: pidFileURL.path) else { return }
         let pidData: Data
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .public): \(error)")
             return
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -678,23 +606,8 @@ final class AssistantCli {
             return
         }
 
-        log.info("Killing daemon via PID file (pid \(pid))")
+        log.info("Sending SIGTERM to \(label, privacy: .public) (pid \(pid))")
         kill(pid, SIGTERM)
-
-        let deadline = Date().addingTimeInterval(2.0)
-        while kill(pid, 0) == 0 && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        if kill(pid, 0) == 0 {
-            kill(pid, SIGKILL)
-        }
-
-        do {
-            try FileManager.default.removeItem(at: pidFileURL)
-        } catch {
-            log.error("Failed to remove PID file at \(self.pidFileURL.path): \(error)")
-        }
     }
 
     /// Run a CLI command and return (stdout, stderr, exit code).
