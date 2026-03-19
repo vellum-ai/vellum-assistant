@@ -87,7 +87,6 @@ function resolveLogDir(config: LogFileConfig): string | undefined {
         // Config has a host-specific path that can't be created inside the
         // container (e.g. /Users/…). Fall back to the default log directory.
         const fallback = join(getLogPath(), "..");
-        // eslint-disable-next-line no-console
         console.warn(
           `[logger] Configured logFile.dir "${config.dir}" cannot be created ` +
             `in container (${(err as Error).message}). Falling back to "${fallback}".`,
