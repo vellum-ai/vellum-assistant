@@ -119,11 +119,36 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
 /// A normalized section inside the request or response payload.
 public struct LLMContextSection: Codable, Sendable, Equatable {
     public let kind: LLMContextSectionKind
-    public let title: String?
-    public let content: AnyCodable?
+    public let label: String
+    public let role: String?
+    public let text: String?
+    public let toolName: String?
+    public let data: AnyCodable?
     public let language: String?
     public let collapsedByDefault: Bool?
 
+    public init(
+        kind: LLMContextSectionKind,
+        label: String,
+        role: String? = nil,
+        text: String? = nil,
+        toolName: String? = nil,
+        data: AnyCodable? = nil,
+        language: String? = nil,
+        collapsedByDefault: Bool? = nil
+    ) {
+        self.kind = kind
+        self.label = label
+        self.role = role
+        self.text = text
+        self.toolName = toolName
+        self.data = data
+        self.language = language
+        self.collapsedByDefault = collapsedByDefault
+    }
+
+    /// Compatibility initializer for existing Apple-client call sites that still construct sections
+    /// with the older title/content shape.
     public init(
         kind: LLMContextSectionKind,
         title: String? = nil,
@@ -131,41 +156,100 @@ public struct LLMContextSection: Codable, Sendable, Equatable {
         language: String? = nil,
         collapsedByDefault: Bool? = nil
     ) {
-        self.kind = kind
-        self.title = title
-        self.content = content
-        self.language = language
-        self.collapsedByDefault = collapsedByDefault
+        self.init(
+            kind: kind,
+            label: title ?? Self.defaultLabel(for: kind),
+            role: nil,
+            text: content?.value as? String,
+            toolName: nil,
+            data: (content?.value as? String) == nil ? content : nil,
+            language: language,
+            collapsedByDefault: collapsedByDefault
+        )
     }
 
-    /// String form of the section content when the payload uses text.
+    /// Compatibility alias for older call sites while the Apple clients finish migrating.
+    public var title: String? {
+        label
+    }
+
+    /// Compatibility alias that prefers structured data when available.
+    public var content: AnyCodable? {
+        data ?? text.map(AnyCodable.init)
+    }
+
+    /// String form of the normalized text field, with a fallback for string-backed data.
     public var stringContent: String? {
-        content?.value as? String
+        text ?? (data?.value as? String)
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: LLMContextCodingKey.self)
         let kindRaw = container.decodeString(for: ["kind", "type", "role"]) ?? "unknown"
         kind = LLMContextSectionKind(rawValue: kindRaw)
-        title = container.decodeString(for: ["title", "label", "name", "heading"])
-        content = container.decodeAnyCodable(for: ["content", "text", "value", "body", "payload", "data"])
+        label = container.decodeString(for: ["label", "title", "name", "heading"])
+            ?? Self.defaultLabel(for: kind)
+        role = container.decodeString(for: ["role"])
+        toolName = container.decodeString(for: ["toolName", "tool_name"])
         language = container.decodeString(for: ["language", "syntax", "format"])
         collapsedByDefault = container.decodeBool(for: ["collapsedByDefault", "collapsed"])
+
+        let legacyContent = container.decodeAnyCodable(for: ["content", "body", "value", "payload"])
+        if let explicitText = container.decodeString(for: ["text"]) {
+            text = explicitText
+        } else if let legacyString = legacyContent?.value as? String {
+            text = legacyString
+        } else {
+            text = nil
+        }
+
+        data = container.decodeAnyCodable(for: ["data"])
+            ?? ((legacyContent?.value as? String) == nil ? legacyContent : nil)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: LLMContextCodingKey.self)
         try container.encode(kind, forKey: LLMContextCodingKey.key("kind"))
-        try container.encodeIfPresent(title, forKey: "title")
-        try container.encodeIfPresent(content, forKey: "content")
+        try container.encode(label, forKey: LLMContextCodingKey.key("label"))
+        try container.encodeIfPresent(role, forKey: "role")
+        try container.encodeIfPresent(text, forKey: "text")
+        try container.encodeIfPresent(toolName, forKey: "toolName")
+        try container.encodeIfPresent(data, forKey: "data")
         try container.encodeIfPresent(language, forKey: "language")
         try container.encodeIfPresent(collapsedByDefault, forKey: "collapsedByDefault")
+    }
+
+    private static func defaultLabel(for kind: LLMContextSectionKind) -> String {
+        switch kind {
+        case .system:
+            return "System prompt"
+        case .message:
+            return "Message"
+        case .toolDefinitions:
+            return "Available tools"
+        case .toolUse:
+            return "Tool use"
+        case .toolResult:
+            return "Tool result"
+        case .functionCall:
+            return "Function call"
+        case .functionResponse:
+            return "Function response"
+        default:
+            return "Section"
+        }
     }
 }
 
 /// Section kind values returned by the normalized LLM context response.
 public enum LLMContextSectionKind: Sendable, Codable, Equatable, CustomStringConvertible {
     case system
+    case message
+    case toolDefinitions
+    case toolUse
+    case toolResult
+    case functionCall
+    case functionResponse
     case user
     case assistant
     case tool
@@ -187,6 +271,12 @@ public enum LLMContextSectionKind: Sendable, Codable, Equatable, CustomStringCon
     public var rawValue: String {
         switch self {
         case .system: return "system"
+        case .message: return "message"
+        case .toolDefinitions: return "tool_definitions"
+        case .toolUse: return "tool_use"
+        case .toolResult: return "tool_result"
+        case .functionCall: return "function_call"
+        case .functionResponse: return "function_response"
         case .user: return "user"
         case .assistant: return "assistant"
         case .tool: return "tool"
@@ -215,6 +305,18 @@ public enum LLMContextSectionKind: Sendable, Codable, Equatable, CustomStringCon
         switch rawValue.lowercased() {
         case "system":
             self = .system
+        case "message":
+            self = .message
+        case "tool_definitions":
+            self = .toolDefinitions
+        case "tool_use":
+            self = .toolUse
+        case "tool_result":
+            self = .toolResult
+        case "function_call":
+            self = .functionCall
+        case "function_response":
+            self = .functionResponse
         case "user":
             self = .user
         case "assistant":

@@ -218,19 +218,12 @@ struct MessageInspectorResponseTabModel: Equatable {
 
     init(entry: LLMRequestLogEntry) {
         let responseSections = entry.responseSections ?? []
-        let toolNames = Self.extractResponseToolNames(from: entry.responsePayload)
-        let stopReason = Self.extractStopReason(from: entry.responsePayload)
-
         sections = responseSections.enumerated().map { index, section in
-            MessageInspectorResponseSectionModel(
-                index: index,
-                section: section,
-                toolName: toolNames[safe: index]
-            )
+            MessageInspectorResponseSectionModel(index: index, section: section)
         }
 
-        self.stopReason = stopReason
-        responseModeLabel = sections.contains(where: { $0.isToolCallLike })
+        stopReason = entry.summary?.stopReason
+        responseModeLabel = (entry.summary?.responseToolCallCount ?? 0) > 0 || sections.contains(where: { $0.isToolCallLike })
             ? "Tool-calling response"
             : "Text-only response"
         fallbackMessage = sections.isEmpty
@@ -240,130 +233,6 @@ struct MessageInspectorResponseTabModel: Equatable {
 
     var hasNormalizedSections: Bool {
         !sections.isEmpty
-    }
-
-    private static func extractStopReason(from payload: AnyCodable) -> String? {
-        guard let root = payload.value else { return nil }
-
-        if let records = jsonRecords(from: root) {
-            if let reason = stopReason(in: records) {
-                return reason
-            }
-        }
-
-        return nil
-    }
-
-    private static func extractResponseToolNames(from payload: AnyCodable) -> [String] {
-        guard let root = payload.value else { return [] }
-        guard let records = jsonRecords(from: root) else { return [] }
-
-        if let openAiChoices = records["choices"] as? [Any] {
-            return openAiChoices.flatMap { choice -> [String] in
-                guard let choiceRecord = choice as? [String: Any] else { return [] }
-                let message = choiceRecord["message"] as? [String: Any]
-                let toolCalls = message?["tool_calls"] as? [Any]
-                return toolCalls?.compactMap { toolCall in
-                    guard
-                        let toolCallRecord = toolCall as? [String: Any],
-                        let function = toolCallRecord["function"] as? [String: Any],
-                        let toolName = function["name"] as? String,
-                        !toolName.isEmpty
-                    else {
-                        return nil
-                    }
-                    return toolName
-                } ?? []
-            }
-        }
-
-        if let content = records["content"] as? [Any] {
-            return content.compactMap { block in
-                guard
-                    let blockRecord = block as? [String: Any],
-                    let type = blockRecord["type"] as? String,
-                    type == "tool_use",
-                    let toolName = blockRecord["name"] as? String,
-                    !toolName.isEmpty
-                else {
-                    return nil
-                }
-                return toolName
-            }
-        }
-
-        if let functionCalls = records["functionCalls"] as? [Any] {
-            return functionCalls.compactMap { call in
-                guard
-                    let callRecord = call as? [String: Any],
-                    let toolName = callRecord["name"] as? String,
-                    !toolName.isEmpty
-                else {
-                    return nil
-                }
-                return toolName
-            }
-        }
-
-        if let candidates = records["candidates"] as? [Any] {
-            return candidates.compactMap { candidate in
-                guard let candidateRecord = candidate as? [String: Any] else { return nil }
-                if let functionCalls = candidateRecord["functionCalls"] as? [Any] {
-                    return functionCalls.compactMap { call in
-                        guard
-                            let callRecord = call as? [String: Any],
-                            let toolName = callRecord["name"] as? String,
-                            !toolName.isEmpty
-                        else {
-                            return nil
-                        }
-                        return toolName
-                    }
-                    .first
-                }
-                return nil
-            }
-            .compactMap { $0 }
-        }
-
-        return []
-    }
-
-    private static func stopReason(in record: [String: Any]) -> String? {
-        if let finishReason = record["finishReason"] as? String, !finishReason.isEmpty {
-            return finishReason
-        }
-
-        if let stopReason = record["stop_reason"] as? String, !stopReason.isEmpty {
-            return stopReason
-        }
-
-        if let choices = record["choices"] as? [Any] {
-            for choice in choices {
-                guard let choiceRecord = choice as? [String: Any] else { continue }
-                if let finishReason = choiceRecord["finish_reason"] as? String, !finishReason.isEmpty {
-                    return finishReason
-                }
-                if let finishReason = choiceRecord["finishReason"] as? String, !finishReason.isEmpty {
-                    return finishReason
-                }
-            }
-        }
-
-        if let candidates = record["candidates"] as? [Any] {
-            for candidate in candidates {
-                guard let candidateRecord = candidate as? [String: Any] else { continue }
-                if let finishReason = candidateRecord["finishReason"] as? String, !finishReason.isEmpty {
-                    return finishReason
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private static func jsonRecords(from root: Any) -> [String: Any]? {
-        root as? [String: Any]
     }
 }
 
@@ -383,42 +252,42 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
     let presentationKind: PresentationKind
     let isToolCallLike: Bool
 
-    init(index: Int, section: LLMContextSection, toolName: String?) {
+    init(index: Int, section: LLMContextSection) {
         id = index
-        self.toolName = toolName
+        toolName = section.toolName
 
-        let rawKind = section.kind.rawValue.lowercased()
-        let displayTitle = section.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = section.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = "Section \(index + 1)"
-        title = displayTitle?.isEmpty == false ? displayTitle! : fallbackTitle
+        title = displayTitle.isEmpty ? fallbackTitle : displayTitle
 
-        switch rawKind {
-        case "tool", "tool_use", "function_call":
+        switch section.kind {
+        case .tool, .toolUse, .functionCall:
             presentationKind = .toolCall
             isToolCallLike = true
             kindLabel = "Tool call"
-            let preview = Self.previewText(for: section.content)
+            let preview = section.text ?? Self.previewText(for: section.data)
             bodyText = preview
-            let copySource = preview ?? section.stringContent ?? title
+            let copySource = preview ?? title
             copyText = copySource
-        case "tool_result":
+        case .toolResult, .functionResponse:
             presentationKind = .other
             isToolCallLike = true
-            kindLabel = "Tool result"
-            let preview = Self.previewText(for: section.content)
+            kindLabel = section.kind == .functionResponse ? "Function response" : "Tool result"
+            let preview = section.text ?? Self.previewText(for: section.data)
             bodyText = preview
-            copyText = preview ?? section.stringContent ?? title
-        case "assistant", "message", "text", "output", "completion", "reasoning", "markdown", "code", "json":
+            copyText = preview ?? title
+        case .assistant, .message, .text, .output, .completion, .reasoning, .markdown, .code, .json:
             presentationKind = .assistantText
             isToolCallLike = false
             kindLabel = "Assistant text"
-            bodyText = section.stringContent ?? Self.previewText(for: section.content)
+            bodyText = section.text ?? Self.previewText(for: section.data)
             copyText = bodyText ?? title
         default:
-            presentationKind = section.stringContent == nil ? .other : .assistantText
+            let preview = section.text ?? Self.previewText(for: section.data)
+            presentationKind = preview == nil ? .other : .assistantText
             isToolCallLike = false
             kindLabel = section.kind.rawValue
-            bodyText = section.stringContent ?? Self.previewText(for: section.content)
+            bodyText = preview
             copyText = bodyText ?? title
         }
     }
@@ -427,8 +296,8 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         presentationKind == .toolCall
     }
 
-    private static func previewText(for content: AnyCodable?) -> String? {
-        guard let value = content?.value else { return nil }
+    private static func previewText(for data: AnyCodable?) -> String? {
+        guard let value = data?.value else { return nil }
 
         if let string = value as? String {
             return string
@@ -460,11 +329,5 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
         }
 
         return nil
-    }
-}
-
-private extension Collection {
-    subscript(safe index: Index) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }

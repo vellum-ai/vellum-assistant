@@ -19,7 +19,7 @@ final class MessageInspectorPromptTabTests: XCTestCase {
                     content: AnyCodable("You are helpful")
                 ),
                 LLMContextSection(
-                    kind: .unknown("tool_definitions"),
+                    kind: .toolDefinitions,
                     title: "Available tools",
                     content: AnyCodable([
                         "tools": [

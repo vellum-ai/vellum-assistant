@@ -4,21 +4,21 @@ import XCTest
 @testable import VellumAssistantShared
 
 final class MessageInspectorResponseTabTests: XCTestCase {
-    func testResponseTabModelSeparatesAssistantTextAndToolCalls() {
+    func testResponseTabModelUsesNormalizedResponseSectionsAndSummaryFields() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
                 responsePayload: AnyCodable([
                     "choices": [
                         [
-                            "finish_reason": "tool_calls",
+                            "finish_reason": "stop",
                             "message": [
                                 "role": "assistant",
-                                "content": "Hello there!",
+                                "content": "Raw payload should not win",
                                 "tool_calls": [
                                     [
                                         "function": [
-                                            "name": "search_web",
-                                            "arguments": "{\"query\":\"docs\",\"limit\":3}"
+                                            "name": "wrong_tool_name",
+                                            "arguments": "{\"query\":\"wrong\"}"
                                         ]
                                     ]
                                 ]
@@ -26,21 +26,27 @@ final class MessageInspectorResponseTabTests: XCTestCase {
                         ]
                     ]
                 ]),
+                summary: LLMCallSummary(
+                    stopReason: "tool_calls",
+                    responseToolCallCount: 1
+                ),
                 responseSections: [
                     LLMContextSection(
-                        kind: .unknown("message"),
-                        title: "Assistant response",
-                        content: AnyCodable("Hello there!"),
-                        language: "text"
+                        kind: .message,
+                        label: "Assistant response",
+                        role: "assistant",
+                        text: "Hello there!"
                     ),
                     LLMContextSection(
-                        kind: .unknown("function_call"),
-                        title: "Response tool call 1",
-                        content: AnyCodable([
+                        kind: .functionCall,
+                        label: "Response tool call 1",
+                        role: "assistant",
+                        text: "{\"query\":\"docs\",\"limit\":3}",
+                        toolName: "search_web",
+                        data: AnyCodable([
                             "query": "docs",
                             "limit": 3
-                        ]),
-                        language: "json"
+                        ])
                     )
                 ]
             )
@@ -69,8 +75,9 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
                 responsePayload: AnyCodable([
-                    "stop_reason": "end_turn"
+                    "stop_reason": "tool_use"
                 ]),
+                summary: LLMCallSummary(stopReason: "end_turn"),
                 responseSections: nil
             )
         )
@@ -83,6 +90,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
     private func makeEntry(
         responsePayload: AnyCodable,
+        summary: LLMCallSummary? = nil,
         responseSections: [LLMContextSection]?
     ) -> LLMRequestLogEntry {
         LLMRequestLogEntry(
@@ -90,7 +98,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
             requestPayload: AnyCodable(["type": "request"]),
             responsePayload: responsePayload,
             createdAt: 1_000,
-            summary: nil,
+            summary: summary,
             requestSections: nil,
             responseSections: responseSections
         )
