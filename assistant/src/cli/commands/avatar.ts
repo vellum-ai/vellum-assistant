@@ -323,7 +323,7 @@ Examples:
       }
 
       const width = parseInt(opts.width, 10);
-      if (width < 1) {
+      if (!Number.isFinite(width) || width < 1) {
         log.error(
           `Invalid width: "${opts.width}". Must be a positive integer.`,
         );
