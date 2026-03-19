@@ -86,7 +86,8 @@ export function normalizeLlmContextPayloads(
   }
 
   if (requestCandidate) {
-    return requestCandidate as LlmContextNormalizationResult;
+    const { summary, requestSections, responseSections } = requestCandidate;
+    return { summary, requestSections, responseSections };
   }
 
   if (responseCandidate) {
@@ -123,6 +124,7 @@ function normalizeOpenAiRequestPayload(
 
   const requestToolNames = extractOpenAiRequestToolNames(request.tools);
   const hasOpenAiSignal =
+    hasOpenAiModelPrefix(asString(request.model)) ||
     requestToolNames.length > 0 ||
     asString(request.tool_choice) !== undefined ||
     (request.parallel_tool_calls !== undefined &&
@@ -291,6 +293,7 @@ function normalizeAnthropicRequestPayload(
     }),
   );
   const hasAnthropicSignal =
+    hasAnthropicModelPrefix(asString(request.model)) ||
     request.system !== undefined ||
     requestToolNames.length > 0 ||
     isAnthropicToolChoice(request.tool_choice) ||
@@ -1169,6 +1172,16 @@ function normalizeCompatibleRequestPayload(
     case "gemini":
       return normalizeGeminiRequestPayload(requestPayload);
   }
+}
+
+function hasOpenAiModelPrefix(model: string | undefined): boolean {
+  if (!model) return false;
+  return /^(gpt-|chatgpt-|ft:|o[13](-|$))/.test(model);
+}
+
+function hasAnthropicModelPrefix(model: string | undefined): boolean {
+  if (!model) return false;
+  return model.startsWith("claude-");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
