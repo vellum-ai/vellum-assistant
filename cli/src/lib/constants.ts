@@ -15,6 +15,20 @@ export const DEFAULT_DAEMON_PORT = 7821;
 export const DEFAULT_GATEWAY_PORT = 7830;
 export const DEFAULT_QDRANT_PORT = 6333;
 
+/**
+ * Environment variable names for provider API keys, keyed by provider ID.
+ * Must stay in sync with `PROVIDER_ENV_VARS` in
+ * `assistant/src/security/secure-keys.ts` and `providerEnvVars` in
+ * `clients/macos/vellum-assistant/App/VellumCli.swift`.
+ */
+export const PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
 export const VALID_REMOTE_HOSTS = [
   "local",
   "gcp",

@@ -11,7 +11,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { DEFAULT_GATEWAY_PORT } from "./constants";
+import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
@@ -478,7 +478,10 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         "RUNTIME_HTTP_HOST=0.0.0.0",
       ];
-      for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+      for (const envVar of [
+        ...Object.values(PROVIDER_ENV_VAR_NAMES),
+        "VELLUM_PLATFORM_URL",
+      ]) {
         if (process.env[envVar]) {
           args.push("-e", `${envVar}=${process.env[envVar]}`);
         }
