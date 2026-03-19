@@ -88,8 +88,14 @@ enum MessageInspectorSummaryFormatters {
             return "Anthropic"
         case "gemini":
             return "Gemini"
+        case "openrouter":
+            return "OpenRouter"
+        case "fireworks":
+            return "Fireworks"
+        case "ollama":
+            return "Ollama"
         default:
-            return provider
+            return titleCasedProviderLabel(provider)
         }
     }
 
@@ -137,6 +143,23 @@ enum MessageInspectorSummaryFormatters {
     static func formattedCreatedAt(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
             .formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private static func titleCasedProviderLabel(_ provider: String) -> String {
+        let separators = CharacterSet(charactersIn: "-_")
+        let parts = provider
+            .lowercased()
+            .components(separatedBy: separators)
+            .filter { !$0.isEmpty }
+
+        guard !parts.isEmpty else {
+            return provider.capitalized
+        }
+
+        return parts.map { part in
+            part.prefix(1).uppercased() + part.dropFirst()
+        }
+        .joined(separator: " ")
     }
 
     private static let numberFormatter: NumberFormatter = {
