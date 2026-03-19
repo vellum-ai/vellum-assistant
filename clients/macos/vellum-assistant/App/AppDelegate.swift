@@ -169,6 +169,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// macOS renders them.
     private var appMenuPatchDelegate: AppMenuPatchDelegate?
     private var appMenuTrackingObserver: NSObjectProtocol?
+    private var appMenuActivationObserver: NSObjectProtocol?
 
     public func applicationWillFinishLaunching(_ notification: Notification) {
         // Ensure the macOS app menu consistently says "Vellum" (Hide Vellum,
@@ -212,7 +213,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
-        // Apply immediately.
+        // Patch when the app becomes active (reopen from Dock, Cmd+Tab, etc.)
+        // so the title is correct before the user clicks the menu.
+        if appMenuActivationObserver == nil {
+            appMenuActivationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
+                    item.title = AppDelegate.appName
+                }
+            }
+        }
+
+        // Apply immediately, and again after a short delay to catch SwiftUI
+        // resetting the title after applicationDidFinishLaunching returns.
+        applyMenuBarTitlePatch()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyMenuBarTitlePatch()
+        }
+    }
+
+    private func applyMenuBarTitlePatch() {
         if let item = NSApp.mainMenu?.items.first, item.title != Self.appName {
             item.title = Self.appName
         }
