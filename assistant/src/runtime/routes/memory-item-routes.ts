@@ -370,7 +370,14 @@ export async function handleCreateMemoryItem(
     .where(eq(memoryItems.id, id))
     .get();
 
-  return Response.json({ item: insertedRow }, { status: 201 });
+  // Enrich with scopeLabel for API consistency
+  const titleMap = buildConversationTitleMap(db, [scopeId]);
+  const scopeLabel = resolveScopeLabel(scopeId, titleMap);
+
+  return Response.json(
+    { item: { ...insertedRow, scopeLabel } },
+    { status: 201 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +504,18 @@ export async function handleUpdateMemoryItem(
     .where(eq(memoryItems.id, id))
     .get();
 
-  return Response.json({ item: updatedRow });
+  // Enrich with scopeLabel for API consistency
+  const patchTitleMap = buildConversationTitleMap(db, [
+    updatedRow?.scopeId ?? existing.scopeId,
+  ]);
+  const patchScopeLabel = resolveScopeLabel(
+    updatedRow?.scopeId ?? existing.scopeId,
+    patchTitleMap,
+  );
+
+  return Response.json({
+    item: { ...updatedRow, scopeLabel: patchScopeLabel },
+  });
 }
 
 // ---------------------------------------------------------------------------
