@@ -23,6 +23,7 @@ import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -187,7 +188,8 @@ export class UsageTelemetryReporter {
         ),
       ];
 
-      const assistantId = getExternalAssistantId() ?? "self";
+      const assistantId =
+        getExternalAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID;
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
       const payload = {
