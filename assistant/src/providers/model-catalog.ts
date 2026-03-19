@@ -32,6 +32,15 @@ export const PROVIDER_MODEL_CATALOG: Record<string, CatalogModel[]> = {
   ],
 };
 
+/** API key management URLs for inference providers (omit providers that don't require keys). */
+export const INFERENCE_PROVIDER_API_KEY_URLS: Record<string, string> = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  gemini: "https://aistudio.google.com/apikey",
+  fireworks: "https://fireworks.ai/account/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+};
+
 /** Display names for inference providers */
 export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
@@ -47,6 +56,7 @@ export interface ProviderCatalogEntry {
   displayName: string;
   models: CatalogModel[];
   defaultModel: string;
+  apiKeyUrl?: string;
 }
 
 /** Build the full provider catalog with metadata for each inference provider. */
@@ -56,6 +66,7 @@ export function getFullProviderCatalog(): ProviderCatalogEntry[] {
     displayName: INFERENCE_PROVIDER_DISPLAY_NAMES[id] ?? id,
     models,
     defaultModel: models[0]?.id ?? "",
+    apiKeyUrl: INFERENCE_PROVIDER_API_KEY_URLS[id],
   }));
 }
 
