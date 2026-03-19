@@ -32,7 +32,7 @@ import {
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles } from "../memory/app-store.js";
+import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import {
   addMessage,
   deleteMessageById,
@@ -176,11 +176,9 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   browser_scroll: "Browser",
   browser_wait: "Browser",
   app_create: "Create App",
-  app_update: "Update App",
+  app_refresh: "Refresh App",
   skill_load: "Load Skill",
   skill_execute: "Run Skill Tool",
-  app_file_edit: "Edit App File",
-  app_file_write: "Write App File",
 };
 
 type GitServiceInitializer = {
@@ -607,6 +605,7 @@ export async function runAgentLoopImpl(
           if (app) {
             activeSurface.appId = app.id;
             activeSurface.appName = app.name;
+            activeSurface.appDirName = resolveAppDir(app.id).dirName;
             activeSurface.appSchemaJson = app.schemaJson;
             activeSurface.appFiles = listAppFiles(app.id);
             if (app.pages && Object.keys(app.pages).length > 0) {

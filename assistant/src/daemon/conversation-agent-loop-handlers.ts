@@ -179,7 +179,7 @@ export function emitLlmCallStartedIfNeeded(
 // tool_input_delta streams accumulated JSON as tools run. For non-app
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
-const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
+const APP_TOOL_NAMES = new Set(["app_create"]);
 
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
@@ -197,11 +197,9 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   browser_scroll: "browser",
   browser_wait: "browser",
   app_create: "app",
-  app_update: "app",
+  app_refresh: "app refresh",
   skill_load: "skill",
   skill_execute: "skill",
-  app_file_edit: "app file",
-  app_file_write: "app file",
 };
 
 function friendlyToolName(name: string): string {
