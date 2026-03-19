@@ -1,5 +1,4 @@
 import { avatarRenameMigration } from "./001-avatar-rename.js";
-import { backfillInstallationIdMigration } from "./002-backfill-installation-id.js";
 import { seedDeviceIdMigration } from "./003-seed-device-id.js";
 import { extractCollectUsageDataMigration } from "./004-extract-collect-usage-data.js";
 import { addSendDiagnosticsMigration } from "./005-add-send-diagnostics.js";
@@ -8,6 +7,7 @@ import { webSearchProviderRenameMigration } from "./007-web-search-provider-rena
 import { voiceTimeoutAndMaxStepsMigration } from "./008-voice-timeout-and-max-steps.js";
 import { backfillConversationDiskViewMigration } from "./009-backfill-conversation-disk-view.js";
 import { appDirRenameMigration } from "./010-app-dir-rename.js";
+import { backfillInstallationIdMigration } from "./011-backfill-installation-id.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -16,7 +16,6 @@ import type { WorkspaceMigration } from "./types.js";
  */
 export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   avatarRenameMigration,
-  backfillInstallationIdMigration,
   seedDeviceIdMigration,
   extractCollectUsageDataMigration,
   addSendDiagnosticsMigration,
@@ -25,4 +24,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   voiceTimeoutAndMaxStepsMigration,
   backfillConversationDiskViewMigration,
   appDirRenameMigration,
+  backfillInstallationIdMigration,
 ];
