@@ -10,17 +10,82 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var selectedProvider: String = "anthropic"
+    @State private var selectedModel: String = "claude-opus-4-6"
     @FocusState private var keyFieldFocused: Bool
 
+    // MARK: - Feature Flag
+
+    private var isCustomProviderEnabled: Bool {
+        let config = WorkspaceConfigIO.read()
+        guard let featureFlags = config["feature_flags"] as? [String: Any],
+              let customProvider = featureFlags["custom-inference-provider"] as? [String: Any],
+              let enabled = customProvider["enabled"] as? Bool else {
+            return false  // default is false per the registry
+        }
+        return enabled
+    }
+
+    // MARK: - Provider Catalog
+
+    private var providerCatalog: [ProviderCatalogEntry] {
+        return [
+            ProviderCatalogEntry(id: "anthropic", displayName: "Anthropic", models: [
+                CatalogModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
+                CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+                CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
+            ], defaultModel: "claude-opus-4-6", apiKeyUrl: "https://console.anthropic.com/settings/keys"),
+            ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
+                CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
+                CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
+                CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
+            ], defaultModel: "gpt-5.4", apiKeyUrl: "https://platform.openai.com/api-keys"),
+            ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
+                CatalogModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
+                CatalogModel(id: "gemini-3-pro", displayName: "Gemini 3 Pro"),
+            ], defaultModel: "gemini-3-flash", apiKeyUrl: "https://aistudio.google.com/apikey"),
+            ProviderCatalogEntry(id: "ollama", displayName: "Ollama", models: [
+                CatalogModel(id: "llama3.2", displayName: "Llama 3.2"),
+                CatalogModel(id: "mistral", displayName: "Mistral"),
+            ], defaultModel: "llama3.2"),
+            ProviderCatalogEntry(id: "fireworks", displayName: "Fireworks", models: [
+                CatalogModel(id: "accounts/fireworks/models/kimi-k2p5", displayName: "Kimi K2.5"),
+            ], defaultModel: "accounts/fireworks/models/kimi-k2p5", apiKeyUrl: "https://fireworks.ai/account/api-keys"),
+            ProviderCatalogEntry(id: "openrouter", displayName: "OpenRouter", models: [
+                CatalogModel(id: "x-ai/grok-4", displayName: "Grok 4"),
+                CatalogModel(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
+            ], defaultModel: "x-ai/grok-4", apiKeyUrl: "https://openrouter.ai/keys"),
+        ]
+    }
+
+    // MARK: - Provider Helpers
+
+    private var currentProviderEntry: ProviderCatalogEntry? {
+        providerCatalog.first { $0.id == selectedProvider }
+    }
+
+    private var providerDisplayName: String {
+        currentProviderEntry?.displayName ?? selectedProvider
+    }
+
+    private var providerRequiresKey: Bool {
+        selectedProvider != "ollama"
+    }
+
+    // MARK: - Body
+
     var body: some View {
-        Text("Anthropic API Key")
+        Text(isCustomProviderEnabled ? "Connect a Model Provider" : "Anthropic API Key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Since you skipped creating an account,\nwe\u{2019}ll need your Anthropic API key.")
+        Text(isCustomProviderEnabled
+            ? "Since you skipped creating an account,\nyou\u{2019}ll need to bring your own API key\nfor a model provider."
+            : "Since you skipped creating an account,\nwe\u{2019}ll need your Anthropic API key.")
             .font(VFont.buttonLarge)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
@@ -30,22 +95,51 @@ struct APIKeyEntryStepView: View {
 
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
-                apiKeyField
+                if isCustomProviderEnabled {
+                    providerPicker
 
-                OnboardingButton(
-                    title: "Continue",
-                    style: .primary,
-                    disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ) {
-                    saveAndHatch()
-                }
+                    if providerRequiresKey {
+                        apiKeyField
+                    }
 
-                OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
-                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
-                }
+                    modelPicker
 
-                OnboardingButton(title: "Back", style: .ghost) {
-                    goBack()
+                    OnboardingButton(
+                        title: "Continue",
+                        style: .primary,
+                        disabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
+                        saveAndHatch()
+                    }
+
+                    if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
+                       let url = URL(string: apiKeyUrl) {
+                        OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+
+                    OnboardingButton(title: "Back", style: .ghost) {
+                        goBack()
+                    }
+                } else {
+                    apiKeyField
+
+                    OnboardingButton(
+                        title: "Continue",
+                        style: .primary,
+                        disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
+                        saveAndHatch()
+                    }
+
+                    OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
+                        NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
+                    }
+
+                    OnboardingButton(title: "Back", style: .ghost) {
+                        goBack()
+                    }
                 }
             }
         }
@@ -53,9 +147,16 @@ struct APIKeyEntryStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existingKey = APIKeyManager.getKey(for: "anthropic") {
-                apiKey = existingKey
-                hasExistingKey = true
+            if isCustomProviderEnabled {
+                if let existingKey = APIKeyManager.getKey(for: selectedProvider) {
+                    apiKey = existingKey
+                    hasExistingKey = true
+                }
+            } else {
+                if let existingKey = APIKeyManager.getKey(for: "anthropic") {
+                    apiKey = existingKey
+                    hasExistingKey = true
+                }
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -67,6 +168,48 @@ struct APIKeyEntryStepView: View {
                 keyFieldFocused = true
             }
         }
+        .onChange(of: selectedProvider) { _, newProvider in
+            if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
+                selectedModel = entry.defaultModel
+            }
+            apiKey = ""
+        }
+    }
+
+    // MARK: - Provider Picker
+
+    private var providerPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Provider")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            Picker("", selection: $selectedProvider) {
+                ForEach(providerCatalog, id: \.id) { entry in
+                    Text(entry.displayName).tag(entry.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Model Picker
+
+    private var modelPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Model")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            Picker("", selection: $selectedModel) {
+                ForEach(currentProviderEntry?.models ?? [], id: \.id) { model in
+                    Text(model.displayName).tag(model.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - API Key Field
@@ -91,7 +234,12 @@ struct APIKeyEntryStepView: View {
                         }
                     }
             } else {
-                SecureField("sk-ant-\u{2026}", text: $apiKey)
+                SecureField(
+                    isCustomProviderEnabled
+                        ? (selectedProvider == "anthropic" ? "sk-ant-\u{2026}" : "Enter your \(providerDisplayName) API key")
+                        : "sk-ant-\u{2026}",
+                    text: $apiKey
+                )
                     .textFieldStyle(.plain)
                     .font(.system(size: 16, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.contentDefault)
@@ -128,16 +276,34 @@ struct APIKeyEntryStepView: View {
     }
 
     private func saveAndHatch() {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "anthropic")
+        if isCustomProviderEnabled {
+            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !providerRequiresKey || !trimmed.isEmpty else { return }
+            if providerRequiresKey {
+                APIKeyManager.setKey(trimmed, for: selectedProvider)
+            }
+            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
+            // Persist provider + model
+            let existingConfig = WorkspaceConfigIO.read()
+            var services = existingConfig["services"] as? [String: Any] ?? [:]
+            var inference = services["inference"] as? [String: Any] ?? [:]
+            inference["provider"] = selectedProvider
+            inference["model"] = selectedModel
+            services["inference"] = inference
+            try? WorkspaceConfigIO.merge(["services": services])
+            state.advance()
+        } else {
+            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            APIKeyManager.setKey(trimmed, for: "anthropic")
 
-        // Set service modes to "your-own" for any services that don't already
-        // have a mode configured (first-time BYOK onboarding).
-        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
+            // Set service modes to "your-own" for any services that don't already
+            // have a mode configured (first-time BYOK onboarding).
+            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
 
-        saveModelToConfig("claude-opus-4-6")
-        state.advance()
+            saveModelToConfig("claude-opus-4-6")
+            state.advance()
+        }
     }
 
     private func saveModelToConfig(_ model: String) {
