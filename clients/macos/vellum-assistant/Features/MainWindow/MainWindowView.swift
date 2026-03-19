@@ -505,7 +505,6 @@ struct MainWindowView: View {
             }
         }
         .padding(.leading, trafficLightPadding)
-        .animation(VAnimation.standard, value: isInFullscreen)
         .padding(.trailing, VSpacing.lg)
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
@@ -632,11 +631,11 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 conversationManager.markActiveConversationSeenIfNeeded()
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { notification in
                 guard notification.object is TitleBarZoomableWindow else { return }
                 isInFullscreen = true
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { notification in
                 guard notification.object is TitleBarZoomableWindow else { return }
                 isInFullscreen = false
             }
