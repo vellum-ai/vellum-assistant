@@ -58,6 +58,18 @@ describe("resolveSlash /commands interface-aware help", () => {
     ]);
   });
 
+  test("renders explicit cli command help without /pair", async () => {
+    const lines = await resolveCommandsLines(
+      makeSlashContext({ userMessageInterface: "cli" }),
+    );
+    expect(lines).toEqual([
+      "/commands — List all available commands",
+      "/models — List all available models",
+      "/status — Show conversation status and context usage",
+      "/btw — Ask a side question while the assistant is working",
+    ]);
+  });
+
   test("keeps legacy fallback help when no interface is provided", async () => {
     const lines = await resolveCommandsLines(makeSlashContext());
     expect(lines).toEqual([
@@ -105,6 +117,18 @@ describe("resolveSlash command contract", () => {
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") {
       throw new Error("Expected /pair on iOS to resolve to kind=unknown");
+    }
+    expect(result.message).toContain("only available in the macOS desktop app");
+  });
+
+  test("keeps /pair rejected for explicit non-macOS interfaces", async () => {
+    const result = await resolveSlash(
+      "/pair",
+      makeSlashContext({ userMessageInterface: "cli" }),
+    );
+    expect(result.kind).toBe("unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("Expected /pair on cli to resolve to kind=unknown");
     }
     expect(result.message).toContain("only available in the macOS desktop app");
   });

@@ -126,7 +126,7 @@ public enum ChatSlashCommandCatalog {
             selectionBehavior: .autoSend,
             pickerPlatforms: [.macos],
             helpBubblePlatforms: [.macos],
-            sendPathPlatforms: [.macos]
+            sendPathPlatforms: allPlatforms
         ),
     ]
 
@@ -187,7 +187,7 @@ public enum ChatSlashCommandCatalog {
         forRawInput rawInput: String,
         platform: ChatSlashCommandPlatform?
     ) -> ChatSlashCommandDescriptor? {
-        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("/") else {
             return nil
         }
@@ -196,7 +196,7 @@ public enum ChatSlashCommandCatalog {
             if let platform, !descriptor.isVisible(on: platform, surface: .sendPath) {
                 return false
             }
-            let slashName = descriptor.slashName.lowercased()
+            let slashName = descriptor.slashName
             switch descriptor.sendPathMatchRule {
             case .exact:
                 return trimmed == slashName

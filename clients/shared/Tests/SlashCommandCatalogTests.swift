@@ -27,6 +27,14 @@ final class SlashCommandCatalogTests: XCTestCase {
         XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw"])
     }
 
+    func testIOSPickerOmitsPairingCommand() {
+        let commands = ChatSlashCommandCatalog.commands(
+            for: .ios,
+            surface: .picker
+        ).map(\.slashName)
+        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw"])
+    }
+
     func testStatusDescriptionMatchesConversationCopy() {
         let status = ChatSlashCommandCatalog.commands(
             for: .macos,
@@ -114,16 +122,50 @@ final class SlashCommandCatalogTests: XCTestCase {
         ))
     }
 
-    func testPairIsMacOSOnlyOnSendPath() {
-        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
-            "/pair",
+    func testSendPathRecognitionIsCaseSensitiveAndLowercaseOnly() {
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/COMMANDS",
             platform: .macos,
             surface: .sendPath
         ))
         XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/MODELS",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/STATUS",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/PAIR",
+            platform: .macos,
+            surface: .sendPath
+        ))
+        XCTAssertFalse(ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            "/BTW follow up",
+            platform: .macos,
+            surface: .sendPath
+        ))
+    }
+
+    func testPairIsAvailableOnIOSSendPathButHiddenFromDiscoverySurfaces() {
+        XCTAssertTrue(ChatSlashCommandCatalog.isRecognizedSlashCommand(
             "/pair",
             platform: .ios,
             surface: .sendPath
+        ))
+
+        XCTAssertNil(ChatSlashCommandCatalog.descriptor(
+            forRawInput: "/pair",
+            platform: .ios,
+            surface: .picker
+        ))
+        XCTAssertNil(ChatSlashCommandCatalog.descriptor(
+            forRawInput: "/pair",
+            platform: .ios,
+            surface: .helpBubble
         ))
     }
 

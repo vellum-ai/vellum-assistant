@@ -136,7 +136,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     fallbackLines.push("/status — Show conversation status and context usage");
   }
 
-  if (!context) return fallbackLines;
+  if (!context?.userMessageInterface) return fallbackLines;
 
   if (context.userMessageInterface === "macos") {
     return [
@@ -157,7 +157,12 @@ function resolveCommandsList(context?: SlashContext): string[] {
     ];
   }
 
-  return fallbackLines;
+  return [
+    "/commands — List all available commands",
+    "/models — List all available models",
+    "/status — Show conversation status and context usage",
+    "/btw — Ask a side question while the assistant is working",
+  ];
 }
 
 /**

@@ -126,6 +126,28 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         }
     }
 
+    func testSendPathMatchingRequiresExactLowercaseCommands() {
+        viewModel.activeSurfaceId = "surface-1"
+        viewModel.isChatDockedToSide = false
+
+        let mixedCaseForms = [
+            "/COMMANDS",
+            "/MODELS",
+            "/STATUS",
+            "/PAIR",
+            "/BTW follow up",
+        ]
+
+        for command in mixedCaseForms {
+            viewModel.isWorkspaceRefinementInFlight = false
+            viewModel.inputText = command
+            viewModel.sendMessage()
+
+            XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
+            XCTAssertEqual(viewModel.messages.count, 0)
+        }
+    }
+
     func testUnknownSlashCommandsUseWorkspaceRefinementWhenSurfaceIsActive() {
         viewModel.activeSurfaceId = "surface-1"
         viewModel.isChatDockedToSide = false
