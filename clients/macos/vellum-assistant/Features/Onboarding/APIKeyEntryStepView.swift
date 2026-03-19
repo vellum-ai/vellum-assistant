@@ -90,8 +90,6 @@ struct APIKeyEntryStepView: View {
                 if isCustomProviderEnabled {
                     providerPicker
 
-                    modelPicker
-
                     if providerRequiresKey {
                         apiKeyField
                     }
@@ -185,65 +183,45 @@ struct APIKeyEntryStepView: View {
         }
     }
 
-    // MARK: - Model Picker
-
-    private var modelPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Model")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            VDropdown(
-                placeholder: "Select a model\u{2026}",
-                selection: $state.selectedModel,
-                options: (currentProviderEntry?.models ?? []).map { model in
-                    (label: model.displayName, value: model.id)
-                }
-            )
-        }
-    }
-
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        Group {
-            if hasExistingKey && !isEditing {
-                Text(maskedKey)
-                    .font(.system(size: 16, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                    .onTapGesture {
-                        isEditing = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            keyFieldFocused = true
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            Group {
+                if hasExistingKey && !isEditing {
+                    Text(maskedKey)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(height: 32)
+                        .vInputChrome()
+                        .onTapGesture {
+                            isEditing = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                keyFieldFocused = true
+                            }
                         }
-                    }
-            } else {
-                SecureField(
-                    currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
-                    text: $apiKey
-                )
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.borderBase, lineWidth: 1)
+                } else {
+                    SecureField(
+                        currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
+                        text: $apiKey
                     )
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
                     .focused($keyFieldFocused)
                     .onSubmit {
                         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         saveAndHatch()
                     }
+                }
             }
+            .frame(maxWidth: 400)
         }
     }
 
