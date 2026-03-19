@@ -117,7 +117,8 @@ struct MemoriesPanel: View {
                 placeholder: "Status",
                 selection: $statusFilter,
                 options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) },
-                maxWidth: 130
+                maxWidth: 130,
+                icon: .circleCheck
             )
             .onChange(of: statusFilter) {
                 store.statusFilter = statusFilter.apiValue
@@ -128,7 +129,8 @@ struct MemoriesPanel: View {
                 placeholder: "Sort",
                 selection: $sortOption,
                 options: MemorySortOption.allCases.map { ($0.rawValue, $0) },
-                maxWidth: 130
+                maxWidth: 130,
+                icon: .list
             )
             .onChange(of: sortOption) {
                 store.sortField = sortOption.sortField
