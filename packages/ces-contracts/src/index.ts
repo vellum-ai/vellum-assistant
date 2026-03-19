@@ -145,3 +145,4 @@ export * from "./handles.js";
 export * from "./grants.js";
 export * from "./rpc.js";
 export * from "./rendering.js";
+export * from "./trust-rules.js";
