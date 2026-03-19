@@ -23,38 +23,22 @@ struct SettingsPrivacyTab: View {
 
     private var privacySection: some View {
         SettingsCard(title: "Privacy") {
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Share Analytics")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text("Send anonymous product usage data. Your conversations and personal data are never included.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                Spacer()
-                VToggle(isOn: Binding(
+            VToggle(
+                isOn: Binding(
                     get: { store.collectUsageData },
                     set: { newValue in
                         store.collectUsageData = newValue
                         syncPrivacyConfig()
                     }
-                ))
-            }
+                ),
+                label: "Share Analytics",
+                helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
+            )
 
             SettingsDivider()
 
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Share Diagnostics")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text("Send crash reports and performance metrics. Your conversations and personal data are never included.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                Spacer()
-                VToggle(isOn: Binding(
+            VToggle(
+                isOn: Binding(
                     get: { store.sendDiagnostics },
                     set: { newValue in
                         store.sendDiagnostics = newValue
@@ -65,8 +49,10 @@ struct SettingsPrivacyTab: View {
                         }
                         syncPrivacyConfig()
                     }
-                ))
-            }
+                ),
+                label: "Share Diagnostics",
+                helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
+            )
         }
     }
 
