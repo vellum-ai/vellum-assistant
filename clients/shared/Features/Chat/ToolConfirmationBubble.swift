@@ -199,30 +199,24 @@ public struct ToolConfirmationBubble: View {
     private var pendingContent: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Description text (full width)
-            Text(confirmation.humanDescription)
-                .font(VFont.bodyBold)
-                .foregroundColor(VColor.contentDefault)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Action buttons (right-aligned)
-            HStack(spacing: VSpacing.sm) {
-                Spacer()
-
-                allowSplitButton
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
-                    )
-
-                VButton(label: "Deny", style: .danger, size: .compact) {
-                    markCommandExplanationSeen()
-                    onDeny()
+            // Adaptive layout: horizontal when there's room, vertical when narrow
+            ViewThatFits(in: .horizontal) {
+                // Wide: description + buttons on same row
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    confirmationDescription
+                        .frame(minWidth: 200)
+                    Spacer(minLength: VSpacing.md)
+                    confirmationActions
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
-                )
+
+                // Narrow: description on top, buttons right-aligned below
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    confirmationDescription
+                    HStack {
+                        Spacer()
+                        confirmationActions
+                    }
+                }
             }
 
             // First-time educational banner for command confirmations
@@ -453,6 +447,32 @@ public struct ToolConfirmationBubble: View {
                (hasAllow10m && primary != "allow_10m") ||
                (hasAllowConversation && primary != "allow_conversation") ||
                hasAlwaysAllow
+    }
+
+    private var confirmationDescription: some View {
+        Text(confirmation.humanDescription)
+            .font(VFont.bodyBold)
+            .foregroundColor(VColor.contentDefault)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var confirmationActions: some View {
+        HStack(spacing: VSpacing.sm) {
+            allowSplitButton
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                )
+
+            VButton(label: "Deny", style: .danger, size: .compact) {
+                markCommandExplanationSeen()
+                onDeny()
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+            )
+        }
     }
 
     @ViewBuilder
