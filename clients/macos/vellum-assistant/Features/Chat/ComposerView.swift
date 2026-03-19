@@ -529,6 +529,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Cancel")
 
                     // Accept: stop dictation and keep transcribed text
                     VButton(
@@ -541,6 +542,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Send")
                 }
             }
         }
@@ -582,6 +584,7 @@ VStreamingWaveform(
                         action: { manager.toggleListening() }
                     )
                     .disabled(manager.state == .processing)
+                    .vTooltip(manager.state == .listening ? "Mute" : "Unmute")
 
                     VButton(
                         label: "End voice mode",
@@ -590,6 +593,7 @@ VStreamingWaveform(
                         iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }
                     )
+                    .vTooltip("Cancel Live Voice")
                 }
             }
             .padding(.vertical, VSpacing.md)
