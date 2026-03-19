@@ -692,6 +692,36 @@ struct MessageListView: View {
         }
     }
 
+    /// Captures a point-in-time transcript snapshot into `ChatDiagnosticsStore`.
+    /// Called from scroll-geometry preference handlers so that `DebugStateWriter`
+    /// and `HangContextWriter` always have recent transcript state available.
+    private func updateTranscriptSnapshot() {
+        guard let convId = conversationId else { return }
+        let msgs = messages
+        let totalToolCalls = msgs.reduce(0) { $0 + $1.toolCalls.count }
+        ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
+            conversationId: convId.uuidString,
+            capturedAt: Date(),
+            messageCount: msgs.count,
+            toolCallCount: totalToolCalls,
+            isPinnedToBottom: isNearBottom,
+            isUserScrolling: hasReceivedScrollEvent,
+            scrollOffsetY: Double(anchorTracker.lastMinY),
+            contentHeight: nil,
+            viewportHeight: Double(scrollViewportHeight),
+            isNearBottom: isNearBottom,
+            hasReceivedScrollEvent: hasReceivedScrollEvent,
+            isPaginationInFlight: isPaginationInFlight,
+            suppressionReason: isSuppressingBottomScroll ? "bottomScrollSuppressed" : nil,
+            anchorMessageId: anchorMessageId?.uuidString,
+            highlightedMessageId: highlightedMessageId?.uuidString,
+            anchorMinY: Double(anchorTracker.lastMinY),
+            tailAnchorY: Double(scrollTracking.lastTailAnchorY),
+            scrollViewportHeight: Double(scrollViewportHeight),
+            containerWidth: Double(containerWidth)
+        ))
+    }
+
     /// Routes an automatic bottom-follow request through the coordinator.
     /// The coordinator decides whether to suppress (user is detached), coalesce
     /// (duplicate request within an active session), or start a new bounded
@@ -1039,6 +1069,7 @@ struct MessageListView: View {
                 recordScrollLoopEvent(.anchorPreferenceChange)
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                updateTranscriptSnapshot()
                 // Geometry tracking only — no per-frame scrollTo calls here.
                 // All bottom-follow work is handled by the ChatBottomPinCoordinator
                 // via bounded staged retries, not inline on every anchor change.
