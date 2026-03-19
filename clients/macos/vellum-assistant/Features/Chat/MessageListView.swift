@@ -1142,16 +1142,34 @@ struct MessageListView: View {
                     newValue: minY,
                     previous: anchorTracker.lastMinY
                 )
-                guard case .accept(let accepted) = decision else { return }
-                os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
-                recordScrollLoopEvent(.anchorPreferenceChange)
-                anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
-                if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
-                scheduleTranscriptSnapshot()
-                // Geometry tracking only — no per-frame scrollTo calls here.
-                // All bottom-follow work is handled by the ChatBottomPinCoordinator
-                // via bounded staged retries, not inline on every anchor change.
-                os_signpost(.end, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
+                switch decision {
+                case .rejectNonFinite:
+                    // The anchor was deallocated by the LazyVStack (no child reports
+                    // a finite value, so the preference reduces to its .infinity default).
+                    // Mark the anchor as off-screen so the "Scroll to latest" button can appear.
+                    // Also reset lastMinY to .infinity so the button condition
+                    // (!isNearBottom && !isVisible && lastMinY > viewportHeight + 20) is satisfied.
+                    // .infinity is safe: updateViewport() guards isFinite, evaluate() treats
+                    // it as a skip for the dead-zone check, and verify() returns .geometryUnavailable.
+                    if anchorTracker.isVisible {
+                        anchorTracker.isVisible = false
+                        log.debug("Anchor preference non-finite — marking anchor invisible (deallocated by LazyVStack)")
+                    }
+                    anchorTracker.lastMinY = .infinity
+                    return
+                case .rejectDeadZone:
+                    return
+                case .accept(let accepted):
+                    os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
+                    recordScrollLoopEvent(.anchorPreferenceChange)
+                    anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
+                    if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                    scheduleTranscriptSnapshot()
+                    // Geometry tracking only — no per-frame scrollTo calls here.
+                    // All bottom-follow work is handled by the ChatBottomPinCoordinator
+                    // via bounded staged retries, not inline on every anchor change.
+                    os_signpost(.end, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
+                }
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
