@@ -35,9 +35,14 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
         if menu.title != name {
             menu.title = name
         }
-        // Patch any remaining items that still contain the bundle name.
-        for item in menu.items where item.title.contains(bundleDisplayName) {
-            item.title = item.title.replacingOccurrences(of: bundleDisplayName, with: name)
+        // Patch only the system-generated app-name items (About, Hide, Quit).
+        // A blanket replacingOccurrences would break if the bundle name were
+        // a common word like "All" or "Settings".
+        let prefixes = ["About ", "Hide ", "Quit "]
+        for item in menu.items {
+            for prefix in prefixes where item.title == "\(prefix)\(bundleDisplayName)" {
+                item.title = "\(prefix)\(name)"
+            }
         }
     }
 }

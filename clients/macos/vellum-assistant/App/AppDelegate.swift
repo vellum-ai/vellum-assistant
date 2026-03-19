@@ -562,6 +562,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if let observer = avatarChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = appMenuTrackingObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appMenuActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         statusIconCancellable?.cancel()
         conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
