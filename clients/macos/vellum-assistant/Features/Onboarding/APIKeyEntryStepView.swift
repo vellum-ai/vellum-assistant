@@ -16,13 +16,7 @@ struct APIKeyEntryStepView: View {
     // MARK: - Feature Flag
 
     private var isCustomProviderEnabled: Bool {
-        let config = WorkspaceConfigIO.read()
-        guard let featureFlags = config["feature_flags"] as? [String: Any],
-              let customProvider = featureFlags["custom-inference-provider"] as? [String: Any],
-              let enabled = customProvider["enabled"] as? Bool else {
-            return false  // default is false per the registry
-        }
-        return enabled
+        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
     }
 
     // MARK: - Provider Catalog

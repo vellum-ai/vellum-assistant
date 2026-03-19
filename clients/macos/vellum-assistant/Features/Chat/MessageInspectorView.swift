@@ -11,8 +11,8 @@ struct MessageInspectorView: View {
     let onBack: () -> Void
 
     private let llmContextClient: any LLMContextClientProtocol = LLMContextClient()
-    private let inspectorPaneMinHeight: CGFloat = 420
-    private let inspectorPaneChromeHeight: CGFloat = 44
+    private let payloadViewportHeight: CGFloat = 560
+    private let payloadSectionChromeHeight: CGFloat = 44
 
     @State private var response: LLMContextResponse?
     @State private var isLoading = true
@@ -89,9 +89,11 @@ struct MessageInspectorView: View {
                         .foregroundColor(VColor.contentSecondary)
                 }
 
-                Text(shortMessageId)
+                Text(messageId)
                     .font(VFont.monoSmall)
                     .foregroundColor(VColor.contentTertiary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         }
@@ -240,7 +242,7 @@ struct MessageInspectorView: View {
                     .frame(width: proxy.size.width, alignment: .leading)
                 }
                 .frame(
-                    minHeight: inspectorPaneMinHeight + inspectorPaneChromeHeight,
+                    minHeight: payloadViewportHeight + payloadSectionChromeHeight,
                     alignment: .topLeading
                 )
                 .padding(VSpacing.md)
@@ -282,19 +284,23 @@ struct MessageInspectorView: View {
                 .accessibilityLabel("Copy \(title)")
             }
 
-            ScrollView([.horizontal, .vertical]) {
-                Text(verbatim: formattedText)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            GeometryReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    Text(verbatim: formattedText)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentDefault)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.sm)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .frame(
+                            minWidth: proxy.size.width,
+                            minHeight: proxy.size.height,
+                            alignment: .topLeading
+                        )
+                }
             }
-            .frame(
-                maxWidth: .infinity,
-                minHeight: inspectorPaneMinHeight,
-                alignment: .topLeading
-            )
+            .frame(maxWidth: .infinity)
+            .frame(height: payloadViewportHeight)
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
@@ -306,13 +312,6 @@ struct MessageInspectorView: View {
     }
 
     // MARK: - Helpers
-
-    private var shortMessageId: String {
-        if messageId.count > 12 {
-            return String(messageId.prefix(12)) + "..."
-        }
-        return messageId
-    }
 
     private var skeletonColumn: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {

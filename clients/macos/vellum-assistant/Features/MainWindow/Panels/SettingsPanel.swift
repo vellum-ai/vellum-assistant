@@ -381,7 +381,6 @@ struct SettingsPanel: View {
             InferenceServiceCard(
                 store: store,
                 authManager: authManager,
-                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 apiKeyText: $apiKeyText,
                 showToast: showToast
             )

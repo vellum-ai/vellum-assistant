@@ -15,7 +15,6 @@ import VellumAssistantShared
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @Binding var apiKeyText: String
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
@@ -32,10 +31,8 @@ struct InferenceServiceCard: View {
 
     // MARK: - Feature Flag
 
-    private static let customInferenceProviderFlagKey = "feature_flags.custom-inference-provider.enabled"
-
     private var isCustomProviderEnabled: Bool {
-        assistantFeatureFlagStore.isEnabled(Self.customInferenceProviderFlagKey)
+        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
     }
 
     // MARK: - Provider Helpers
@@ -81,6 +78,10 @@ struct InferenceServiceCard: View {
     private var hasChanges: Bool {
         // In managed mode when not logged in, there is nothing actionable to save.
         if draftMode == "managed" && !isLoggedIn {
+            return false
+        }
+        // A valid model must be selected to save.
+        if store.selectedModel.isEmpty {
             return false
         }
         let modeChanged = draftMode != store.inferenceMode
@@ -214,17 +215,18 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let currentMask: String = {
+            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
+                return masked
+            }
+            return ""
+        }()
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
-                Text(masked)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentTertiary)
-            }
             SecureField(
-                isConnected ? "Enter a new key to replace the existing one" : "Enter your API key",
+                !currentMask.isEmpty ? currentMask : "Enter your API key",
                 text: $apiKeyText
             )
                 .vInputStyle()

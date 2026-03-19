@@ -27,8 +27,8 @@
     },
     {
       "id": "custom-inference-provider",
-      "scope": "assistant",
-      "key": "feature_flags.custom-inference-provider.enabled",
+      "scope": "macos",
+      "key": "custom_inference_provider_enabled",
       "label": "Custom Inference Provider",
       "description": "Allow selecting a specific LLM provider and model for inference in Your Own mode",
       "defaultEnabled": false
