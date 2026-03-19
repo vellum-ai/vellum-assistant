@@ -375,9 +375,9 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
 
-    // Top-level: installation_id, app_version, and events array (no turn_events key)
+    // Top-level: installation_id, assistant_version, and events array (no turn_events key)
     expect(body.installation_id).toBe("test-device-id");
-    expect(body.app_version).toBe("1.2.3-test");
+    expect(body.assistant_version).toBe("1.2.3-test");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
     expect(body.turn_events).toBeUndefined();

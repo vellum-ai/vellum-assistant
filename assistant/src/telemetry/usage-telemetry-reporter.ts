@@ -195,7 +195,7 @@ export class UsageTelemetryReporter {
       const payload = {
         device_id: getDeviceId(),
         assistant_id: assistantId,
-        app_version: APP_VERSION,
+        assistant_version: APP_VERSION,
         ...(organizationId ? { organization_id: organizationId } : {}),
         ...(userId ? { user_id: userId } : {}),
         events: typedEvents,
