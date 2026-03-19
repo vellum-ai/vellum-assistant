@@ -24,7 +24,7 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
         patchTitles(menu: menu)
     }
 
-    func patchTitles(menu: NSMenu) {
+    @MainActor func patchTitles(menu: NSMenu) {
         let name = AppDelegate.appName
         // Patch the parent menu item title (the bold text in the menu bar).
         if let mainMenu = NSApp.mainMenu,
