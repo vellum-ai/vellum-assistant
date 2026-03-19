@@ -38,6 +38,7 @@ import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  listCanonicalGuardianRequests,
   listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
@@ -110,17 +111,28 @@ function collectCanonicalGuardianRequestHintIds(
  * confirmation directly without syncing canonical status). This sweep
  * catches those stragglers so they don't get falsely matched by the
  * guardian reply router on subsequent messages.
+ *
+ * Only expires requests *sourced from* (not merely delivered to) this
+ * conversation. Delivered requests may still have live pending interactions
+ * in their source conversation. Additionally skips requests that still
+ * have a live in-memory pending interaction.
+ *
+ * Uses `listCanonicalGuardianRequests` (not `listPendingRequestsByConversationScope`)
+ * so that time-expired requests (past their `expiresAt`) are also caught
+ * instead of being silently filtered out.
  */
-function expireOrphanedCanonicalRequests(
-  conversationId: string,
-  sourceChannel: string,
-): void {
-  const orphaned = listPendingRequestsByConversationScope(
+function expireOrphanedCanonicalRequests(conversationId: string): void {
+  const sourceScoped = listCanonicalGuardianRequests({
     conversationId,
-    sourceChannel,
-  ).filter((r) => r.kind === "tool_approval");
+    status: "pending",
+    kind: "tool_approval",
+  });
 
-  for (const req of orphaned) {
+  for (const req of sourceScoped) {
+    // Skip requests that still have a live in-memory pending interaction —
+    // they are not orphaned.
+    if (pendingInteractions.get(req.id)) continue;
+
     resolveCanonicalGuardianRequest(req.id, "pending", {
       status: "expired",
     });
@@ -978,7 +990,7 @@ export async function handleSendMessage(
 
     // Expire any orphaned canonical requests that survived without a
     // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+    expireOrphanedCanonicalRequests(mapping.conversationId);
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },
@@ -1018,7 +1030,7 @@ export async function handleSendMessage(
 
   // Expire any orphaned canonical requests that survived without a
   // matching in-memory pending interaction (e.g. prompter timeouts).
-  expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+  expireOrphanedCanonicalRequests(mapping.conversationId);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({

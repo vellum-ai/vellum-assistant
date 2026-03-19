@@ -170,6 +170,12 @@ export function emitLlmCallStartedIfNeeded(
   );
 }
 
+// ── Client Payload Size Caps ─────────────────────────────────────────
+// tool_input_delta streams accumulated JSON as tools run. For non-app
+// tools the client discards it (extractCodePreview only handles app tools),
+// so we skip forwarding entirely to avoid transport/decode overhead.
+const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
+
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
@@ -388,6 +394,10 @@ export function handleInputJsonDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
+  // Only forward input deltas for app tools — the client only uses this
+  // stream for app_create/app_update code previews. Non-app tools would
+  // send large cumulative JSON on every delta with no benefit.
+  if (!APP_TOOL_NAMES.has(event.toolName)) return;
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
