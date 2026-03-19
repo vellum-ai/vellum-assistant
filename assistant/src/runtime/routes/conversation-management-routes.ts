@@ -20,6 +20,7 @@ import {
   PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
+import { updateConversationTitle } from "../../memory/conversation-crud.js";
 import {
   getOrCreateConversation,
   resolveConversationId,
@@ -73,24 +74,36 @@ export function conversationManagementRouteDefinitions(
       method: "POST",
       policyKey: "conversations",
       handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          conversationKey?: string;
-          conversationType?: string;
-        };
+        let body: { conversationKey?: string; conversationType?: string } = {};
+        try {
+          body = (await req.json()) as typeof body;
+        } catch {
+          // Empty or malformed body — fall through with defaults.
+        }
         const conversationKey = body.conversationKey ?? crypto.randomUUID();
-        const conversationType =
+        const requestedType =
           body.conversationType === "private" ? "private" : "standard";
-        const { conversationId, created } = getOrCreateConversation(
-          conversationKey,
-          { conversationType },
-        );
+        const result = getOrCreateConversation(conversationKey, {
+          conversationType: requestedType,
+        });
+        if (result.created) {
+          updateConversationTitle(result.conversationId, "New Conversation");
+        }
         log.info(
-          { conversationId, conversationKey, created },
+          {
+            conversationId: result.conversationId,
+            conversationKey,
+            created: result.created,
+          },
           "Created conversation via POST",
         );
         return Response.json(
-          { id: conversationId, conversationKey, conversationType },
-          { status: created ? 201 : 200 },
+          {
+            id: result.conversationId,
+            conversationKey,
+            conversationType: result.conversationType,
+          },
+          { status: result.created ? 201 : 200 },
         );
       },
     },
