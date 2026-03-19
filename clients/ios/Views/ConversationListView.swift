@@ -29,6 +29,19 @@ func sortConversationsForDisplay(
     }
 }
 
+func applyConversationSelectionRequest(
+    _ request: ConversationSelectionRequest,
+    horizontalSizeClass: UserInterfaceSizeClass?,
+    navigationPath: inout [UUID],
+    selectedConversationId: inout UUID?
+) {
+    if horizontalSizeClass == .regular {
+        selectedConversationId = request.conversationLocalId
+    } else {
+        navigationPath = [request.conversationLocalId]
+    }
+}
+
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
@@ -168,22 +181,41 @@ struct ConversationListView: View {
     }
 
     var body: some View {
-        if store.isLoadingInitialConversations {
-            loadingView
-        } else if horizontalSizeClass == .regular {
-            NavigationSplitView {
-                conversationList
-            } detail: {
-                detailView
-            }
-        } else {
-            NavigationStack(path: $navigationPath) {
-                conversationList
-                    .navigationDestination(for: UUID.self) { conversationLocalId in
-                        conversationDetailContent(for: conversationLocalId)
-                    }
+        Group {
+            if store.isLoadingInitialConversations {
+                loadingView
+            } else if horizontalSizeClass == .regular {
+                NavigationSplitView {
+                    conversationList
+                } detail: {
+                    detailView
+                }
+            } else {
+                NavigationStack(path: $navigationPath) {
+                    conversationList
+                        .navigationDestination(for: UUID.self) { conversationLocalId in
+                            conversationDetailContent(for: conversationLocalId)
+                        }
+                }
             }
         }
+        .onAppear {
+            applyPendingSelectionRequestIfNeeded()
+        }
+        .onChange(of: store.selectionRequest?.id) { _, _ in
+            applyPendingSelectionRequestIfNeeded()
+        }
+    }
+
+    private func applyPendingSelectionRequestIfNeeded() {
+        guard let request = store.selectionRequest else { return }
+        applyConversationSelectionRequest(
+            request,
+            horizontalSizeClass: horizontalSizeClass,
+            navigationPath: &navigationPath,
+            selectedConversationId: &selectedConversationId
+        )
+        store.consumeSelectionRequest(id: request.id)
     }
 
     private var loadingView: some View {
