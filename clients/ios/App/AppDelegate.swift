@@ -167,8 +167,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func sendDeviceTokenToDaemon(_ token: String) async throws {
         guard clientProvider.client.isConnected else { return }
-        // Send a RegisterDeviceTokenMessage to the daemon so it can route notifications
-        try clientProvider.client.send(RegisterDeviceTokenMessage(token: token, platform: "ios"))
+        let settingsClient = SettingsClient()
+        _ = await settingsClient.registerDeviceToken(token: token, platform: "ios")
     }
 
     // MARK: - v4 Pairing Migration

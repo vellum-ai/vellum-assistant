@@ -103,27 +103,20 @@ extension AppDelegate {
             }
         }
 
-        // Data request: JS -> Swift -> daemon
+        // Data request: JS -> Swift -> gateway -> daemon
         surfaceManager.onDataRequest = { [weak self] surfaceId, callId, method, appId, recordId, data in
             guard let self else { return }
             let codableData = data?.mapValues { AnyCodable($0) }
-            do {
-                try self.daemonClient.send(AppDataRequestMessage(
-                    surfaceId: surfaceId,
-                    callId: callId,
-                    method: method,
-                    appId: appId,
-                    recordId: recordId,
-                    data: codableData
-                ))
-            } catch {
-                log.error("Failed to send app data request (method: \(method), appId: \(appId)): \(error)")
+            Task {
+                if let response = await self.appsClient.fetchAppData(
+                    appId: appId, method: method, recordId: recordId,
+                    data: codableData, surfaceId: surfaceId, callId: callId
+                ) {
+                    self.surfaceManager.resolveDataResponse(surfaceId: surfaceId, response: response)
+                } else {
+                    log.error("Failed to fetch app data (method: \(method), appId: \(appId))")
+                }
             }
-        }
-
-        // Data response: daemon -> Swift -> JS
-        daemonClient.onAppDataResponse = { [weak self] msg in
-            self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
         }
 
         // Link open: JS -> Swift -> gateway

@@ -33,6 +33,13 @@ public protocol SettingsClientProtocol {
         purpose: String?,
         contactChannelId: String?
     ) async -> ChannelVerificationSessionResponseMessage?
+
+    func updateVoiceConfig(_ config: VoiceConfigUpdateRequest) async -> Bool
+    func startOAuthConnect(_ request: OAuthConnectStartRequest) async -> Bool
+    func registerDeviceToken(token: String, platform: String) async -> Bool
+    func fetchIngressConfig() async -> IngressConfigResponseMessage?
+    func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage?
+    func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -378,6 +385,131 @@ public struct SettingsClient: SettingsClientProtocol {
         if let channel { syntheticJSON["channel"] = channel }
         guard let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON) else { return nil }
         return try? JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: syntheticData)
+    }
+
+    // MARK: - Voice, OAuth, Device Token, Ingress, Suggestion
+
+    public func updateVoiceConfig(_ config: VoiceConfigUpdateRequest) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(config)
+            let response = try await GatewayHTTPClient.put(
+                path: "assistants/{assistantId}/settings/voice",
+                body: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("updateVoiceConfig failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("updateVoiceConfig error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func startOAuthConnect(_ request: OAuthConnectStartRequest) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(request)
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/oauth/start",
+                body: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("startOAuthConnect failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("startOAuthConnect error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func registerDeviceToken(token: String, platform: String) async -> Bool {
+        do {
+            let body: [String: Any] = [
+                "type": "register_device_token",
+                "token": token,
+                "platform": platform
+            ]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/device-token",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("registerDeviceToken failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("registerDeviceToken error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func fetchIngressConfig() async -> IngressConfigResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/integrations/ingress/config",
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchIngressConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("ingress_config_response", into: response.data)
+            return try JSONDecoder().decode(IngressConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("fetchIngressConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage? {
+        do {
+            var body: [String: Any] = ["action": "set"]
+            if let publicBaseUrl { body["publicBaseUrl"] = publicBaseUrl }
+            if let enabled { body["enabled"] = enabled }
+            let response = try await GatewayHTTPClient.put(
+                path: "assistants/{assistantId}/integrations/ingress/config",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("updateIngressConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("ingress_config_response", into: response.data)
+            return try JSONDecoder().decode(IngressConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("updateIngressConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/suggestion",
+                params: ["conversationKey": conversationId],
+                timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("fetchSuggestion failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            var json = (try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]) ?? [:]
+            json["type"] = "suggestion_response"
+            json["requestId"] = requestId
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            return try JSONDecoder().decode(SuggestionResponseMessage.self, from: enriched)
+        } catch {
+            log.error("fetchSuggestion error: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Helpers

@@ -2694,14 +2694,12 @@ public final class ChatViewModel: ObservableObject {
         let requestId = UUID().uuidString
         pendingSuggestionRequestId = requestId
 
-        do {
-            try daemonClient.send(SuggestionRequestMessage(
-                conversationId: conversationId,
-                requestId: requestId
-            ))
-        } catch {
-            log.error("Failed to send suggestion_request: \(error.localizedDescription)")
+        Task {
+            let settingsClient = SettingsClient()
+            let response = await settingsClient.fetchSuggestion(conversationId: conversationId, requestId: requestId)
+            guard pendingSuggestionRequestId == requestId else { return }
             pendingSuggestionRequestId = nil
+            suggestion = response?.suggestion
         }
     }
 

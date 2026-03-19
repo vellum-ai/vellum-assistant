@@ -314,35 +314,10 @@ public final class HTTPTransport {
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
-        // Apps
-        case appData(id: String)
-        case appsSignBundle
-        case appsSigningIdentity
         // Subagents
         case subagentMessage(id: String)
         case model
-
-        // Settings
-        case settingsVoice
         case settingsClient
-
-        // Diagnostics
-        case dictation
-
-        // Tools
-        case tools
-        case toolsSimulatePermission
-
-        // Integrations
-        case integrationsOAuthStart
-        case integrationsIngressConfig
-
-        // Suggestion
-        case suggestion
-
-        // Workspace Files (legacy HTTP)
-        case workspaceFiles
-        case workspaceFilesRead
 
         // Attachments
         case uploadAttachment
@@ -355,10 +330,6 @@ public final class HTTPTransport {
 
         // Host CU Proxy
         case hostCuResult
-
-        // Misc
-        case registerDeviceToken
-
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -407,46 +378,14 @@ public final class HTTPTransport {
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
-        // Apps
-        case .appData(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/data", nil)
-        case .appsSignBundle:
-            return ("/v1/apps/sign-bundle", nil)
-        case .appsSigningIdentity:
-            return ("/v1/apps/signing-identity", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
         case .model:
             return ("/v1/model", nil)
-        // Settings
-        case .settingsVoice:
-            return ("/v1/settings/voice", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
-        // Diagnostics
-        case .dictation:
-            return ("/v1/dictation", nil)
-        // Tools
-        case .tools:
-            return ("/v1/tools", nil)
-        case .toolsSimulatePermission:
-            return ("/v1/tools/simulate-permission", nil)
-        // Integrations
-        case .integrationsOAuthStart:
-            return ("/v1/oauth/start", nil)
-        case .integrationsIngressConfig:
-            return ("/v1/integrations/ingress/config", nil)
-        // Suggestion
-        case .suggestion:
-            return ("/v1/suggestion", nil)
-        // Workspace Files (legacy HTTP)
-        case .workspaceFiles:
-            return ("/v1/workspace-files", nil)
-        case .workspaceFilesRead:
-            return ("/v1/workspace-files/read", nil)
         // Attachments
         case .uploadAttachment:
             return ("/v1/attachments", nil)
@@ -459,9 +398,6 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("/v1/host-cu-result", nil)
-        // Misc
-        case .registerDeviceToken:
-            return ("/v1/device-token", nil)
         }
     }
 
@@ -491,14 +427,6 @@ public final class HTTPTransport {
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
-        // Apps
-        case .appData(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/data/", nil)
-        case .appsSignBundle:
-            return ("\(prefix)/apps/sign-bundle/", nil)
-        case .appsSigningIdentity:
-            return ("\(prefix)/apps/signing-identity/", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -506,31 +434,8 @@ public final class HTTPTransport {
         case .model:
             return ("\(prefix)/model/", nil)
         // Settings
-        case .settingsVoice:
-            return ("\(prefix)/settings/voice/", nil)
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
-        // Diagnostics
-        case .dictation:
-            return ("\(prefix)/dictation/", nil)
-        // Tools
-        case .tools:
-            return ("\(prefix)/tools/", nil)
-        case .toolsSimulatePermission:
-            return ("\(prefix)/tools/simulate-permission/", nil)
-        // Integrations
-        case .integrationsOAuthStart:
-            return ("\(prefix)/oauth/start/", nil)
-        case .integrationsIngressConfig:
-            return ("\(prefix)/integrations/ingress/config/", nil)
-        // Suggestion
-        case .suggestion:
-            return ("\(prefix)/suggestion/", nil)
-        // Workspace Files (legacy HTTP)
-        case .workspaceFiles:
-            return ("\(prefix)/workspace-files/", nil)
-        case .workspaceFilesRead:
-            return ("\(prefix)/workspace-files/read/", nil)
         // Attachments
         case .uploadAttachment:
             return ("\(prefix)/attachments/", nil)
@@ -543,9 +448,6 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("\(prefix)/host-cu-result/", nil)
-        // Misc
-        case .registerDeviceToken:
-            return ("\(prefix)/device-token/", nil)
         }
     }
 
