@@ -316,6 +316,17 @@ jobs:
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure GCP Artifact Registry repository exists
+        run: |
+          LOCATION="${{ secrets.GCP_REGISTRY_HOST }}"
+          LOCATION="${LOCATION%-docker.pkg.dev}"
+          gcloud artifacts repositories create \
+            "${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" \
+            --repository-format=docker \
+            --location="$LOCATION" \
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            2>/dev/null || true
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
