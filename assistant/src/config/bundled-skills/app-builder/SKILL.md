@@ -18,6 +18,40 @@ You are an expert app builder and visual designer. When the user asks you to cre
 
 **Design quality is delegated to the `frontend-design` skill.** That skill defines your aesthetic principles: typography, color strategy, motion, spatial composition, and visual detail. Follow it completely for every build. This skill (app-builder) handles the technical infrastructure: sandbox constraints, data bridge, widget API, app lifecycle, and interaction patterns.
 
+## Filesystem Layout
+
+Apps live under `~/.vellum/workspace/data/apps/`. Each app has a slug-based layout:
+
+```
+~/.vellum/workspace/data/apps/
+  <slug>.json          # App metadata
+  <slug>/              # App directory (contains all app files)
+    index.html         # Main page (entry point rendered in WebView)
+    pages/             # Additional pages
+    records/           # Data records (one JSON file per record)
+    src/               # Source files (multifile TSX apps, formatVersion: 2)
+    dist/              # Compiled output (multifile TSX apps)
+  <slug>.preview       # Preview image (auto-generated)
+```
+
+### Metadata JSON (`<slug>.json`)
+
+Fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`.
+
+**Important:** `htmlDefinition` and `pages` are NOT stored in the metadata JSON — they live as separate files inside the app directory (`index.html` and `pages/`).
+
+### Records
+
+Each record is a JSON file at `<slug>/records/<uuid>.json` with shape:
+
+```json
+{ "id": "<uuid>", "appId": "<app-id>", "data": { ... }, "createdAt": "...", "updatedAt": "..." }
+```
+
+### Multifile TSX Apps
+
+For `formatVersion: 2` apps, source files live under `src/` and compiled output under `dist/`. The build system compiles TSX → JS automatically when `app_refresh` is called.
+
 ## Workflow
 
 ### 1. Gather Requirements
@@ -44,7 +78,7 @@ You are an expert app builder and visual designer. When the user asks you to cre
 
 **Only ask questions when the request is genuinely ambiguous** - e.g., "build me an app" with no indication of what kind. Even then, prefer building something impressive based on context clues over asking a battery of questions.
 
-**When in doubt, build something impressive** and let the user refine with `app_update`. The first impression matters most - a beautiful app with the wrong shade of blue is easy to fix. A correct but ugly app is hard to come back from.
+**When in doubt, build something impressive** and let the user refine. The first impression matters most - a beautiful app with the wrong shade of blue is easy to fix. A correct but ugly app is hard to come back from.
 
 **There are no "quick" builds.** Every app, regardless of complexity, gets the full design treatment. A 3-field form and a 20-section dashboard get the same design care. The only difference is scope, not quality.
 
@@ -149,27 +183,27 @@ useEffect(() => {
 }, []);
 ```
 
-**File workflow:** Use `app_file_write` for each source file. Each write automatically triggers a recompile of the project.
+**File workflow:** Use `file_write` for each source file. After writing all files, call `app_refresh` once to compile and refresh the UI.
 
 **Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly - esbuild resolves them at build time. No CDN imports. Note: `lucide` is the vanilla JS icon library (not `lucide-react`). Use its `createElement` or `createIcons` API, or manually inline SVG - do not import JSX icon components.
 
-**Example - creating a multi-file project:**
+**Example - creating a multi-file project** (assuming app slug is `project-tracker`):
 
 ```
-app_file_write(app_id, "src/index.html", `<!DOCTYPE html>
+file_write("~/.vellum/workspace/data/apps/project-tracker/src/index.html", `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Tracker</title></head>
 <body><div id="app"></div></body>
 </html>`)
 
-app_file_write(app_id, "src/main.tsx", `import { render } from 'preact';
+file_write("~/.vellum/workspace/data/apps/project-tracker/src/main.tsx", `import { render } from 'preact';
 import { App } from './components/App';
 import './styles.css';
 
 render(<App />, document.getElementById('app')!);`)
 
-app_file_write(app_id, "src/components/App.tsx", `import { FunctionComponent } from 'preact';
+file_write("~/.vellum/workspace/data/apps/project-tracker/src/components/App.tsx", `import { FunctionComponent } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { Header } from './Header';
 
@@ -188,7 +222,7 @@ export const App: FunctionComponent = () => {
   );
 };`)
 
-app_file_write(app_id, "src/components/Header.tsx", `import { FunctionComponent } from 'preact';
+file_write("~/.vellum/workspace/data/apps/project-tracker/src/components/Header.tsx", `import { FunctionComponent } from 'preact';
 
 interface HeaderProps {
   title: string;
@@ -202,9 +236,12 @@ export const Header: FunctionComponent<HeaderProps> = ({ title, count }) => (
   </header>
 );`)
 
-app_file_write(app_id, "src/styles.css", `.app { padding: var(--v-spacing-lg); }
+file_write("~/.vellum/workspace/data/apps/project-tracker/src/styles.css", `.app { padding: var(--v-spacing-lg); }
 .header { display: flex; justify-content: space-between; align-items: center; }
 .badge { background: var(--v-accent); color: white; padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`)
+
+# After all files are written, compile and refresh:
+app_refresh(app_id)
 ```
 
 **Technical constraints (multi-file):**
@@ -480,7 +517,7 @@ Call `app_create` with:
 - `name`: Short descriptive name
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
-- `html`: (optional) Complete HTML document as string for `index.html`. If omitted, a minimal scaffold is created - you can then write `index.html` and other files via `app_file_write`.
+- `html`: (optional) Complete HTML document as string for `index.html`. If omitted, a minimal scaffold is created - you can then write `index.html` and other files via `file_write`.
 - `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat
 - `preview`: Always include - `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3 key-value pills)
 
@@ -493,12 +530,14 @@ The app is NOT opened in a workspace panel automatically - users open it via the
 ### 6. Handle Iteration
 <!-- feature:app-builder-multifile:alt:end -->
 
-When the user requests changes, prefer **`app_file_edit`** over rewriting the entire file.
+When the user requests changes, prefer **`file_edit`** over rewriting the entire file.
 
-- **`app_file_edit`** - preferred for targeted changes (styles, bugs, features). Provide `app_id`, `path`, `old_string`, `new_string`.
-- **`app_file_write`** - use when creating new files or when changes are so extensive a full rewrite is cleaner.
-- **`app_update`** - metadata only: `name`, `description`, `schema_json`. Not for code changes.
-- Always include a **`status`** parameter describing what you're doing.
+- **`file_edit`** - preferred for targeted changes (styles, bugs, features). Provide the full file path (e.g. `~/.vellum/workspace/data/apps/<slug>/src/components/App.tsx`).
+- **`file_write`** - for creating new files or full rewrites.
+- **`app_refresh`** - call ONCE after all file changes are complete to trigger compilation and surface refresh.
+- For metadata changes (`name`, `description`, `schemaJson`, etc.), edit the `<slug>.json` file directly with `file_edit`, then call `app_refresh`.
+
+After making all file changes, call `app_refresh(app_id)` once to compile and refresh the UI. Do NOT call it after every individual file edit — batch your changes first.
 
 Apps can have multiple files (`styles.css`, `app.js`, etc.). Link from `index.html` with standard tags.
 
