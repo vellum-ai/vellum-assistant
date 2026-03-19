@@ -77,7 +77,6 @@ final class WorkspaceBrowserState {
             originalContent = content
             isDirty = false
             isSaving = false
-            isLoadingFile = false
 
             // Sync view mode using MIME type from the response, respecting
             // the user's saved preference that was already applied above.
@@ -88,10 +87,11 @@ final class WorkspaceBrowserState {
                 }
             }
 
-            // Set selectedFileDetail last so the view never sees
-            // inconsistent state (e.g. empty editableContent with a
-            // non-nil detail that triggers JSONTreeView rendering).
+            // Set selectedFileDetail before clearing isLoadingFile so the
+            // view transitions directly from the loading spinner to file
+            // content, never briefly falling through to the empty state.
             selectedFileDetail = detail
+            isLoadingFile = false
         }
         fileLoadTask = task
     }

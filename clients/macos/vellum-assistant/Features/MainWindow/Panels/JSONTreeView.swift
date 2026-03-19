@@ -185,11 +185,9 @@ struct JSONTreeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: content) {
-            guard !content.isEmpty else {
-                root = nil
-                return
-            }
-            let result = parseJSON(content)
+            let result = content.isEmpty
+                ? .success(.object(id: "$", entries: []))
+                : parseJSON(content)
             root = result
             expandedPaths = []
             if case .success(let node) = result {
