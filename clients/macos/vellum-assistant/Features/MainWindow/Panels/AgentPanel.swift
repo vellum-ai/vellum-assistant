@@ -533,7 +533,7 @@ struct AgentPanelContent: View {
                     .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
-                // Right: file content viewer (rounded card like workspace)
+                // Right: file content viewer (matching WorkspaceFileViewer)
                 Group {
                     if let selectedPath = expandedFilePath,
                        let filesResponse = skillsManager.selectedSkillFiles,
@@ -546,6 +546,16 @@ struct AgentPanelContent: View {
                             content: .constant(content),
                             viewMode: $skillFileViewMode
                         )
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .fill(VColor.surfaceBase)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.borderBase, lineWidth: 1)
+                        )
+                        .padding(VSpacing.md)
                     } else {
                         VEmptyState(
                             title: hasViewableFiles ? "Select a file to view" : "No viewable files",
