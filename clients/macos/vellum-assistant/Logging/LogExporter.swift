@@ -907,6 +907,7 @@ enum LogExporter {
             "windowZoomLevel",
             "collectUsageData",
             "sendDiagnostics",
+            "ttsVoiceId",
         ]
 
         let boolKeys = [
