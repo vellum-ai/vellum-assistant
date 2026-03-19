@@ -116,7 +116,8 @@ struct MessageListView: View {
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
-    var onRetryConversationError: (() -> Void)?
+    /// Receives the error message's ID so the handler can validate the retry target.
+    var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Credits Exhausted (inline banner)
@@ -1371,7 +1372,8 @@ private struct MessageCellView: View, Equatable {
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
-    var onRetryConversationError: (() -> Void)?
+    /// Receives the error message's ID so the handler can validate the retry target.
+    var onRetryConversationError: ((UUID) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
@@ -1525,7 +1527,7 @@ private struct MessageCellView: View, Equatable {
                 onTemporaryAllow: onTemporaryAllow,
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
-                onRetryConversationError: message.isError ? onRetryConversationError : nil,
+                onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,

@@ -218,7 +218,7 @@ struct ChatContentView: View {
                 onSurfaceRefetch: { surfaceId, conversationId in
                     viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
                 },
-                onRetryConversationError: message.isError ? { viewModel.retryAfterConversationError() } : nil
+                onRetryConversationError: message.isError ? { viewModel.retryAfterConversationError(messageId: message.id) } : nil
             )
             .id(message.id)
             .transition(.asymmetric(

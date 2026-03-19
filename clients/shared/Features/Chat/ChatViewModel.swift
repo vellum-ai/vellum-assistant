@@ -2201,7 +2201,23 @@ public final class ChatViewModel: ObservableObject {
     /// Retry the last message after a conversation error, if the error is retryable.
     /// The error may live on the view model (toast path) or on the last inline error
     /// message (inline card path, where `conversationError` was already cleared).
-    public func retryAfterConversationError() {
+    ///
+    /// When `messageId` is provided (inline card path), the method validates that no
+    /// successful messages follow the target error — preventing the retry button on
+    /// an older error card from regenerating a newer, perfectly good response.
+    public func retryAfterConversationError(messageId: UUID? = nil) {
+        // When a specific message triggered the retry, validate that it is still
+        // at the tail of the conversation so the retry targets the correct turn.
+        if let messageId {
+            guard let targetIndex = messages.firstIndex(where: { $0.id == messageId }) else { return }
+            let target = messages[targetIndex]
+            guard target.isError else { return }
+            // Bail if any non-error messages follow — the conversation has moved on.
+            let hasSuccessfulFollowup = messages.suffix(from: messages.index(after: targetIndex))
+                .contains(where: { !$0.isError })
+            if hasSuccessfulFollowup { return }
+        }
+
         let error = conversationError ?? messages.last(where: { $0.isError })?.conversationError
         guard let error, error.isRetryable else { return }
         guard conversationId != nil else { return }

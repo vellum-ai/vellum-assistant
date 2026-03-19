@@ -702,8 +702,8 @@ struct ActiveChatViewWrapper: View {
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
             },
-            onRetryConversationError: {
-                viewModel.retryAfterConversationError()
+            onRetryConversationError: { messageId in
+                viewModel.retryAfterConversationError(messageId: messageId)
             },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,

@@ -55,7 +55,8 @@ struct ChatView: View {
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
-    var onRetryConversationError: (() -> Void)?
+    /// Receives the error message's ID so the handler can validate the retry target.
+    var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
