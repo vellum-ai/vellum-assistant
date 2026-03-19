@@ -6,8 +6,9 @@ import { seedProviders } from "./oauth-store.js";
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, managedServiceConfigKey) are
- * overwritten on subsequent startups — user-customizable
+ * pingUrl, managedServiceConfigKey) and display metadata (displayName,
+ * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
+ * are overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy, baseUrl) are only
  * written on initial insert and preserved across restarts.
  *
@@ -34,6 +35,11 @@ const PROVIDER_SEED_DATA: Record<
     extraParams?: Record<string, string>;
     callbackTransport?: string;
     managedServiceConfigKey?: string;
+    displayName: string;
+    description: string;
+    dashboardUrl: string | null;
+    clientIdPlaceholder: string | null;
+    requiresClientSecret?: boolean;
   }
 > = {
   "integration:google": {
@@ -43,6 +49,10 @@ const PROVIDER_SEED_DATA: Record<
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    displayName: "Google",
+    description: "Gmail, Calendar, and Contacts",
+    dashboardUrl: "https://console.cloud.google.com/apis/credentials",
+    clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     defaultScopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.modify",
@@ -71,6 +81,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://slack.com/api/oauth.v2.access",
     pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
+    displayName: "Slack",
+    description: "Workspace messaging",
+    dashboardUrl: "https://api.slack.com/apps",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "channels:read",
       "channels:history",
@@ -104,6 +118,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.notion.com/v1/oauth/token",
     pingUrl: "https://api.notion.com/v1/users/me",
     baseUrl: "https://api.notion.com",
+    displayName: "Notion",
+    description: "Pages and databases",
+    dashboardUrl: "https://www.notion.so/my-integrations",
+    clientIdPlaceholder: null,
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -121,6 +139,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.x.com/2/oauth2/token",
     pingUrl: "https://api.x.com/2/users/me",
     baseUrl: "https://api.x.com",
+    displayName: "Twitter",
+    description: "Posts and direct messages",
+    dashboardUrl: "https://developer.twitter.com/en/portal/dashboard",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "tweet.read",
       "tweet.write",
@@ -142,6 +164,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://github.com/login/oauth/access_token",
     pingUrl: "https://api.github.com/user",
     baseUrl: "https://api.github.com",
+    displayName: "GitHub",
+    description: "Repositories and issues",
+    dashboardUrl: "https://github.com/settings/developers",
+    clientIdPlaceholder: null,
     defaultScopes: ["repo", "read:user", "notifications"],
     scopePolicy: {
       allowAdditionalScopes: true,
@@ -162,6 +188,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.linear.app/oauth/token",
     pingUrl: "https://api.linear.app/graphql",
     baseUrl: "https://api.linear.app",
+    displayName: "Linear",
+    description: "Issues and projects",
+    dashboardUrl: "https://linear.app/settings/api",
+    clientIdPlaceholder: null,
     defaultScopes: ["read", "write", "issues:create"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -178,6 +208,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://accounts.spotify.com/api/token",
     pingUrl: "https://api.spotify.com/v1/me",
     baseUrl: "https://api.spotify.com/v1",
+    displayName: "Spotify",
+    description: "Music and playlists",
+    dashboardUrl: "https://developer.spotify.com/dashboard",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -204,6 +238,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://todoist.com/oauth/access_token",
     pingUrl: "https://api.todoist.com/rest/v2/projects",
     baseUrl: "https://api.todoist.com/rest/v2",
+    displayName: "Todoist",
+    description: "Tasks and projects",
+    dashboardUrl: "https://developer.todoist.com/appconsole.html",
+    clientIdPlaceholder: null,
     defaultScopes: ["data:read_write"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -219,6 +257,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://discord.com/api/v10/oauth2/token",
     pingUrl: "https://discord.com/api/v10/users/@me",
     baseUrl: "https://discord.com/api/v10",
+    displayName: "Discord",
+    description: "Servers and messages",
+    dashboardUrl: "https://discord.com/developers/applications",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "identify",
       "guilds",
@@ -239,6 +281,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.dropboxapi.com/oauth2/token",
     pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
     baseUrl: "https://api.dropboxapi.com/2",
+    displayName: "Dropbox",
+    description: "Files and folders",
+    dashboardUrl: "https://www.dropbox.com/developers/apps",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "files.metadata.read",
       "files.content.read",
@@ -260,6 +306,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://app.asana.com/-/oauth_token",
     pingUrl: "https://app.asana.com/api/1.0/users/me",
     baseUrl: "https://app.asana.com/api/1.0",
+    displayName: "Asana",
+    description: "Tasks and projects",
+    dashboardUrl: "https://app.asana.com/0/my-apps",
+    clientIdPlaceholder: null,
     defaultScopes: ["default"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -275,6 +325,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://airtable.com/oauth2/v1/token",
     pingUrl: "https://api.airtable.com/v0/meta/whoami",
     baseUrl: "https://api.airtable.com/v0",
+    displayName: "Airtable",
+    description: "Bases and records",
+    dashboardUrl: "https://airtable.com/create/tokens",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "data.records:read",
       "data.records:write",
@@ -295,6 +349,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.hubapi.com/oauth/v1/token",
     pingUrl: "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
     baseUrl: "https://api.hubapi.com",
+    displayName: "HubSpot",
+    description: "CRM contacts and deals",
+    dashboardUrl: "https://developers.hubspot.com/",
+    clientIdPlaceholder: null,
     defaultScopes: [
       "crm.objects.contacts.read",
       "crm.objects.contacts.write",
@@ -319,6 +377,10 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "https://api.figma.com/v1/oauth/token",
     pingUrl: "https://api.figma.com/v1/me",
     baseUrl: "https://api.figma.com/v1",
+    displayName: "Figma",
+    description: "Design files and comments",
+    dashboardUrl: "https://www.figma.com/developers/apps",
+    clientIdPlaceholder: null,
     defaultScopes: ["files:read", "file_comments:write"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -338,6 +400,11 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: "urn:manual-token",
     pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
+    displayName: "Slack Channel",
+    description: "Channel bot token",
+    dashboardUrl: null,
+    clientIdPlaceholder: null,
+    requiresClientSecret: false,
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -351,6 +418,11 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "urn:manual-token",
     tokenUrl: "urn:manual-token",
     baseUrl: "https://api.telegram.org",
+    displayName: "Telegram",
+    description: "Bot messaging",
+    dashboardUrl: null,
+    clientIdPlaceholder: null,
+    requiresClientSecret: false,
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,
