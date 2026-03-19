@@ -76,6 +76,7 @@ struct SettingsDeveloperTab: View {
     @State private var isSentryEnabled: Bool = true
 
     @State private var featureFlagSearchText: String = ""
+    @State private var featureFlagScopeFilter: String = "all"
 
     @State private var platformUrlText: String = ""
     @FocusState private var isPlatformUrlFocused: Bool
@@ -897,19 +898,37 @@ struct SettingsDeveloperTab: View {
     }
 
     private var filteredUnifiedFlags: [UnifiedFeatureFlag] {
-        if featureFlagSearchText.isEmpty {
-            return unifiedFlags
+        var flags = unifiedFlags
+        if featureFlagScopeFilter == "assistant" {
+            flags = flags.filter { $0.scope == .assistant }
+        } else if featureFlagScopeFilter == "macos" {
+            flags = flags.filter { $0.scope == .macos }
         }
-        return unifiedFlags.filter { flag in
-            flag.label.localizedCaseInsensitiveContains(featureFlagSearchText) ||
-            flag.description.localizedCaseInsensitiveContains(featureFlagSearchText) ||
-            flag.key.localizedCaseInsensitiveContains(featureFlagSearchText)
+        if !featureFlagSearchText.isEmpty {
+            flags = flags.filter { flag in
+                flag.label.localizedCaseInsensitiveContains(featureFlagSearchText) ||
+                flag.description.localizedCaseInsensitiveContains(featureFlagSearchText) ||
+                flag.key.localizedCaseInsensitiveContains(featureFlagSearchText)
+            }
         }
+        return flags
     }
 
     private var featureFlagSection: some View {
         SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and macOS app.") {
-            VSearchBar(placeholder: "Search flags...", text: $featureFlagSearchText)
+            HStack(spacing: VSpacing.sm) {
+                VSearchBar(placeholder: "Search flags...", text: $featureFlagSearchText)
+                VDropdown(
+                    placeholder: "All",
+                    selection: $featureFlagScopeFilter,
+                    options: [
+                        (label: "All", value: "all"),
+                        (label: "Assistant", value: "assistant"),
+                        (label: "macOS", value: "macos")
+                    ],
+                    maxWidth: 130
+                )
+            }
 
             if isLoadingAssistantFlags {
                 HStack {
@@ -934,8 +953,8 @@ struct SettingsDeveloperTab: View {
                 Text("No feature flags available.")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
-            } else if filteredUnifiedFlags.isEmpty && !featureFlagSearchText.isEmpty {
-                Text("No flags matching \"\(featureFlagSearchText)\"")
+            } else if filteredUnifiedFlags.isEmpty && (!featureFlagSearchText.isEmpty || featureFlagScopeFilter != "all") {
+                Text("No matching flags.")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
             } else {
