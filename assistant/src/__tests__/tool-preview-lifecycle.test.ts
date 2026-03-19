@@ -382,7 +382,7 @@ describe("tool preview lifecycle", () => {
 
       const toolUseId = "toolu_full_lifecycle";
       // Use an app tool so input_json_delta is forwarded to the client
-      const toolName = "app_update";
+      const toolName = "app_create";
 
       // 1. Preview start
       handleToolUsePreviewStart(state, deps, {
