@@ -169,7 +169,12 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const now = new Date();
   const timeContext = `Current time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`;
 
-  const identityContext = buildCoreIdentityContext();
+  // Truncate identity context to prevent oversized prompts when SOUL.md /
+  // IDENTITY.md / USER.md are large.
+  const rawIdentityContext = buildCoreIdentityContext();
+  const identityContext = rawIdentityContext
+    ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
+    : null;
 
   const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app.
 
