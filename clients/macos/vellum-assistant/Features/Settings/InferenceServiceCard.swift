@@ -137,10 +137,28 @@ struct InferenceServiceCard: View {
             initialModel = store.selectedModel
             draftProvider = store.selectedInferenceProvider
             initialProvider = store.selectedInferenceProvider
+
+            // If the user logged out while on another tab, the persisted
+            // inference mode may still be "managed". Reset both the draft
+            // and the persisted mode so the daemon doesn't attempt managed-
+            // proxy routing while unauthenticated.
+            if !isLoggedIn && draftMode == "managed" {
+                draftMode = "your-own"
+                store.setInferenceMode("your-own")
+            }
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            // When the user logs out while this card is mounted, reset
+            // both the draft and the persisted mode so the daemon doesn't
+            // attempt managed-proxy routing while unauthenticated.
+            if !isAuthenticated && draftMode == "managed" {
+                draftMode = "your-own"
+                store.setInferenceMode("your-own")
+            }
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
             draftProvider = newValue
