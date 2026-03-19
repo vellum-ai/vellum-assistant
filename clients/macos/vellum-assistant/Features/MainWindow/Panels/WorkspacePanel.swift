@@ -66,7 +66,6 @@ final class WorkspaceBrowserState {
         let task = Task {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
-            selectedFileDetail = detail
             let raw = detail?.content ?? ""
             let isJSON = ext == "json"
                 || detail?.mimeType.lowercased().hasPrefix("application/json") == true
@@ -88,6 +87,11 @@ final class WorkspaceBrowserState {
                     viewMode = modes.first ?? .source
                 }
             }
+
+            // Set selectedFileDetail last so the view never sees
+            // inconsistent state (e.g. empty editableContent with a
+            // non-nil detail that triggers JSONTreeView rendering).
+            selectedFileDetail = detail
         }
         fileLoadTask = task
     }
