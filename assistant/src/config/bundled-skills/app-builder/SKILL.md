@@ -553,7 +553,7 @@ window.vellum.sendAction('level_complete', { level: 5, score: 2400 });
 
 ### Silent hooks
 
-Silent hooks accumulate state without interrupting the user. The state is automatically included as context when the next reactive hook fires or the user sends a message.
+Silent hooks accumulate state without interrupting the user. The state is automatically included as context when the next reactive hook fires.
 
 ```javascript
 // User navigates to a new tab — no response needed, but assistant should know
