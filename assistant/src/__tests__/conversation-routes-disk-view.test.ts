@@ -10,6 +10,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createAssistantMessage } from "../agent/message-types.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { persistUserMessage } from "../daemon/conversation-messaging.js";
+import {
+  addMessage,
+  getConversation,
+  provenanceFromTrustContext,
+} from "../memory/conversation-crud.js";
+import {
+  getConversationDirPath,
+  syncMessageToDisk,
+} from "../memory/conversation-disk-view.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation as getOrCreateConversationMapping,
+} from "../memory/conversation-key-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import type { AuthContext } from "../runtime/auth/types.js";
+import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "conversation-routes-disk-view-test-")),
 );
@@ -62,27 +83,6 @@ mock.module("../config/loader.js", () => ({
     },
   }),
 }));
-
-import { createAssistantMessage } from "../agent/message-types.js";
-import type { Conversation } from "../daemon/conversation.js";
-import { persistUserMessage } from "../daemon/conversation-messaging.js";
-import {
-  addMessage,
-  getConversation,
-  provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
-import {
-  getOrCreateConversation as getOrCreateConversationMapping,
-  getConversationByKey,
-} from "../memory/conversation-key-store.js";
-import {
-  getConversationDirPath,
-  syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import type { AuthContext } from "../runtime/auth/types.js";
-import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
-import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 
 initializeDb();
 
@@ -337,13 +337,13 @@ function getOrCreateFakeConversation(conversationId: string): Conversation {
 }
 
 async function waitFor<T>(
-  getter: () => T | null,
+  getter: () => T | undefined,
   timeoutMs = 3000,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = getter();
-    if (value !== null) return value;
+    if (value !== undefined) return value;
     await Bun.sleep(20);
   }
   throw new Error("Timed out waiting for expected disk-view output");
@@ -422,13 +422,13 @@ describe("conversationKey send path disk-view regression", () => {
     expect(existsSync(metaPath)).toBe(true);
 
     const lines = await waitFor(() => {
-      if (!existsSync(messagesPath)) return null;
+      if (!existsSync(messagesPath)) return undefined;
       const raw = readFileSync(messagesPath, "utf-8").trim();
-      if (!raw) return null;
+      if (!raw) return undefined;
       const parsed = raw
         .split("\n")
         .map((line) => JSON.parse(line) as { role: string; content?: string });
-      return parsed.length >= 2 ? parsed : null;
+      return parsed.length >= 2 ? parsed : undefined;
     });
 
     expect(lines[0]?.role).toBe("user");
