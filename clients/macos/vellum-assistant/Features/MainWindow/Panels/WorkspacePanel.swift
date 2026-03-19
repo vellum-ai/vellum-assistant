@@ -813,7 +813,9 @@ private struct WorkspaceFileViewer: View {
                         ) {
                             Task {
                                 await saveFile(path: detail.path)
-                                state.isActivelyEditing = false
+                                if !state.isDirty {
+                                    state.isActivelyEditing = false
+                                }
                             }
                         }
                         .keyboardShortcut("s", modifiers: .command)

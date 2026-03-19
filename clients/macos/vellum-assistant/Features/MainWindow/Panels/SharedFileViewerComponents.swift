@@ -65,7 +65,6 @@ struct FileContentView: View {
     /// directories).
     var fileIdentity: String? = nil
     @State private var isContentHovered = false
-    @State private var isOverlayHovered = false
     @State private var expandAllTrigger = 0
     @State private var collapseAllTrigger = 0
     @State private var isTreeExpanded = false
@@ -138,6 +137,7 @@ struct FileContentView: View {
         }
         .onChange(of: viewMode) { _, newMode in
             if newMode != .source { isActivelyEditing = false }
+            if newMode != .tree { isTreeExpanded = false }
             let modes = availableViewModes(for: fileName, mimeType: mimeType)
             guard modes.count > 1 else { return }
             let preference = newMode == .source ? "source" : "preview"
@@ -196,28 +196,8 @@ struct FileContentView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay.opacity(0.9))
         )
-        .onHover { hovering in
-            // Use NSCursor.push()/pop() to force the pointing-hand cursor.
-            // SwiftUI's .pointerStyle/.pointerCursor() and NSViewRepresentable
-            // cursor-rect approaches are all overridden by NSTextView's own
-            // cursor tracking when the overlay sits above a VCodeView. The
-            // application cursor stack (push/pop) operates at a higher level
-            // and is not subject to cursor-rect priority ordering.
-            if hovering {
-                NSCursor.pointingHand.push()
-                isOverlayHovered = true
-            } else if isOverlayHovered {
-                NSCursor.pop()
-                isOverlayHovered = false
-            }
-        }
-        .onDisappear {
-            if isOverlayHovered {
-                NSCursor.pop()
-                isOverlayHovered = false
-            }
-        }
-        .padding(VSpacing.sm)
+        .padding(.top, VSpacing.sm)
+        .padding(.trailing, VSpacing.md)
     }
 }
 
