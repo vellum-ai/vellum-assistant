@@ -494,7 +494,8 @@ struct AgentPanelContent: View {
             fileName: file.path,
             mimeType: file.mimeType,
             content: .constant(content),
-            viewMode: $skillFileViewMode
+            viewMode: $skillFileViewMode,
+            isActivelyEditing: .constant(false)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)
