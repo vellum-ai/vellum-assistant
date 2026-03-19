@@ -20,7 +20,8 @@ function extensionFromMime(mimeType: string): string {
     "audio/x-m4a": "m4a",
     "audio/flac": "flac",
   };
-  return map[mimeType] ?? "audio";
+  const base = mimeType.split(";")[0].trim().toLowerCase();
+  return map[base] ?? "audio";
 }
 
 export class OpenAIWhisperProvider implements SpeechToTextProvider {
