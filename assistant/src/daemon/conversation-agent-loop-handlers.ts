@@ -760,6 +760,7 @@ export function handleUsage(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
+  const providerName = event.actualProvider ?? deps.ctx.provider.name;
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
@@ -776,7 +777,7 @@ export function handleUsage(
         JSON.stringify(event.rawRequest),
         JSON.stringify(event.rawResponse),
         undefined,
-        deps.ctx.provider.name,
+        providerName,
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -787,12 +788,12 @@ export function handleUsage(
 
   deps.ctx.traceEmitter.emit(
     "llm_call_finished",
-    `LLM call to ${deps.ctx.provider.name} finished`,
+    `LLM call to ${providerName} finished`,
     {
       requestId: deps.reqId,
       status: "success",
       attributes: {
-        provider: deps.ctx.provider.name,
+        provider: providerName,
         model: event.model,
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,

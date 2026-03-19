@@ -607,7 +607,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("LLM request log persistence", () => {
-    test("record request log forwards the runtime provider", async () => {
+    test("record request log prefers the actual provider from failover", async () => {
       const events: ServerMessage[] = [];
       const rawRequest = {
         model: "gpt-4.1",
@@ -643,6 +643,7 @@ describe("session-agent-loop", () => {
           inputTokens: 12,
           outputTokens: 3,
           model: "gpt-4.1-2026-03-01",
+          actualProvider: "fireworks",
           providerDurationMs: 45,
           rawRequest,
           rawResponse,
@@ -684,8 +685,78 @@ describe("session-agent-loop", () => {
         JSON.stringify(rawRequest),
         JSON.stringify(rawResponse),
         undefined,
-        "openrouter",
+        "fireworks",
       ]);
+    });
+
+    test("record request log falls back to the runtime provider when no actual provider is supplied", async () => {
+      const rawRequest = {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      const rawResponse = {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hi there.",
+            },
+          },
+        ],
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-4.1-2026-03-01",
+          providerDurationMs: 45,
+          rawRequest,
+          rawResponse,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openrouter",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        undefined,
+        string,
+      ];
+      expect(call[4]).toBe("openrouter");
     });
   });
 

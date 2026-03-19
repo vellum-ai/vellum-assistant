@@ -133,7 +133,10 @@ export class FailoverProvider implements Provider {
           );
           health.unhealthySince = null;
         }
-        return response;
+        return {
+          ...response,
+          actualProvider: response.actualProvider ?? provider.name,
+        };
       } catch (error) {
         lastError = error;
 
