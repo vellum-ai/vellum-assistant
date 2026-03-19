@@ -397,7 +397,9 @@ export function handleListMessages(
         msgAttachments = linked.map((a) => {
           const isFileBacked = fileBackedIds.has(a.id);
           if (a.mimeType.startsWith("image/")) {
-            const full = attachmentsStore.getAttachmentById(a.id);
+            const full = attachmentsStore.getAttachmentById(a.id, {
+              hydrateFileData: true,
+            });
             return {
               id: a.id,
               filename: a.originalFilename,
