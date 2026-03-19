@@ -14,7 +14,15 @@ import { v4 as uuid } from "uuid";
 import { getLogger } from "../util/logger.js";
 import { getRootDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
+import type {
+  AcceptStarterBundleResult,
+  StarterBundleRule,
+  TrustStoreBackend,
+} from "./trust-store-interface.js";
 import type { PolicyContext, TrustRule } from "./types.js";
+
+export type { AcceptStarterBundleResult, StarterBundleRule } from "./trust-store-interface.js";
+export type { TrustStoreBackend } from "./trust-store-interface.js";
 
 const log = getLogger("trust-store");
 
@@ -592,15 +600,6 @@ export function clearCache(): void {
 // once, reducing prompt noise in strict mode while keeping the action
 // explicitly opt-in.
 
-export interface StarterBundleRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  scope: string;
-  decision: "allow";
-  priority: number;
-}
-
 /**
  * Returns the starter bundle rule definitions.  These cover read-only and
  * information-gathering tools that never mutate the filesystem or execute
@@ -670,12 +669,6 @@ export function isStarterBundleAccepted(): boolean {
   return cachedStarterBundleAccepted === true;
 }
 
-export interface AcceptStarterBundleResult {
-  accepted: boolean;
-  rulesAdded: number;
-  alreadyAccepted: boolean;
-}
-
 /**
  * Seed the trust store with the starter bundle rules.
  *
@@ -719,4 +712,38 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   log.info({ rulesAdded: added }, "Starter approval bundle accepted");
 
   return { accepted: true, rulesAdded: added, alreadyAccepted: false };
+}
+
+// ─── Backend interface ──────────────────────────────────────────────────────
+
+/**
+ * File-based trust store backend. Wraps the module-level functions into a
+ * `TrustStoreBackend` so callers can program against the interface.
+ */
+const fileTrustStoreBackend: TrustStoreBackend = {
+  getAllRules,
+  findHighestPriorityRule,
+  findMatchingRule,
+  findDenyRule,
+  addRule,
+  updateRule,
+  removeRule,
+  clearAllRules,
+  acceptStarterBundle,
+  isStarterBundleAccepted,
+  onRulesChanged,
+  clearCache,
+  patternMatchesCandidate,
+  getStarterBundleRules,
+};
+
+/**
+ * Returns the active trust store backend.
+ *
+ * Currently always returns the file-based implementation. A future PR will
+ * add a gateway-backed backend for containerized deployments and switch
+ * based on `getIsContainerized()`.
+ */
+export function getTrustStore(): TrustStoreBackend {
+  return fileTrustStoreBackend;
 }
