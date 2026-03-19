@@ -60,6 +60,7 @@ struct GoogleOAuthServiceCard: View {
             onSave: { save() },
             onReset: nil,
             showReset: false,
+            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 managedBody
             },

@@ -96,6 +96,7 @@ struct WebSearchServiceCard: View {
             },
             showReset: draftMode == "your-own" && needsAPIKey
                 && (isPerplexity ? store.hasPerplexityKey : store.hasBraveKey),
+            hideButtons: draftMode == "managed" && (store.inferenceMode == "your-own" || !isLoggedIn),
             managedContent: {
                 if store.inferenceMode == "your-own" {
                     managedUnavailableMessage
