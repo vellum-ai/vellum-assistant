@@ -1029,8 +1029,7 @@ export function resolveSkillSelector(
   const catalog = loadSkillCatalog(workspaceSkillsDir);
   if (catalog.length === 0) {
     return {
-      error:
-        "No skills are available. Configure ~/.vellum/workspace/skills/SKILLS.md or add skill directories.",
+      error: `No skills are available. Configure ${getWorkspaceDirDisplay()}/skills/SKILLS.md or add skill directories.`,
       errorCode: "empty_catalog",
     };
   }
