@@ -40,7 +40,6 @@ enum APIKeyManager {
     static let allSyncableProviders = [
         "anthropic",
         "brave",
-        "elevenlabs",
         "fireworks",
         "gemini",
         "openai",
@@ -53,6 +52,7 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
+        if getKey(for: "elevenlabs") != nil { return true }
         return false
     }
 
@@ -66,6 +66,8 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             migrateProviderFromUserDefaults(provider)
         }
+        // ElevenLabs is stored locally only (not synced to daemon)
+        migrateProviderFromUserDefaults("elevenlabs")
     }
 
     /// Migrate a single provider's key from UserDefaults to credential storage.
