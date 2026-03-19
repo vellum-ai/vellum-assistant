@@ -559,10 +559,9 @@ export async function runDaemon(): Promise<void> {
           server.getConversationForMessages(conversationId),
         assistantEventHub,
         resolveAttachments: (attachmentIds) => {
-          const resolved = attachmentsStore.getAttachmentsByIds(
-            attachmentIds,
-            { hydrateFileData: true },
-          );
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          });
           const sourcePaths =
             attachmentsStore.getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
@@ -660,10 +659,9 @@ export async function runDaemon(): Promise<void> {
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
       resolveAttachments: (attachmentIds) => {
-        const resolved = attachmentsStore.getAttachmentsByIds(
-          attachmentIds,
-          { hydrateFileData: true },
-        );
+        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          hydrateFileData: true,
+        });
         const sourcePaths =
           attachmentsStore.getSourcePathsForAttachments(attachmentIds);
         return resolved.map((a) => ({

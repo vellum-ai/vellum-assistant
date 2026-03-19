@@ -120,7 +120,7 @@ async function splitAudio(
 async function resolveSource(
   input: Record<string, unknown>,
 ): Promise<
-  | { inputPath: string; isVideo: boolean; tempFile: string | null }
+  | { inputPath: string; isVideo: boolean }
   | ToolExecutionResult
 > {
   const filePath = input.file_path as string | undefined;
@@ -146,7 +146,7 @@ async function resolveSource(
       isError: true,
     };
   }
-  return { inputPath: filePath, isVideo, tempFile: null };
+  return { inputPath: filePath, isVideo };
 }
 
 /** Convert source to 16kHz mono WAV for consistent processing. */
@@ -408,7 +408,7 @@ export async function run(
   const source = await resolveSource(input);
   if ("isError" in source) return source;
 
-  const { inputPath, isVideo, tempFile } = source;
+  const { inputPath, isVideo } = source;
   let wavPath: string | null = null;
 
   try {
@@ -433,13 +433,6 @@ export async function run(
       isError: true,
     };
   } finally {
-    if (tempFile) {
-      try {
-        await unlink(tempFile);
-      } catch {
-        /* ignore */
-      }
-    }
     if (wavPath) {
       try {
         await unlink(wavPath);

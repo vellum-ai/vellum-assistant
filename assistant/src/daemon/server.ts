@@ -964,10 +964,9 @@ export class DaemonServer {
 
     const attachments = attachmentIds
       ? (() => {
-          const resolved = attachmentsStore.getAttachmentsByIds(
-            attachmentIds,
-            { hydrateFileData: true },
-          );
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          });
           const sourcePaths =
             attachmentsStore.getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({

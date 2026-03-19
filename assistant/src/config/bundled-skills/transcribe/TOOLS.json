@@ -23,7 +23,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["mode"]
+        "required": ["mode", "file_path"]
       },
       "executor": "tools/transcribe-media.ts",
       "execution_target": "host"

@@ -588,11 +588,11 @@ Existing conversations created before the disk view was introduced are backfille
 
 ### Key Source Files
 
-| File                                                                  | Role                                                                    |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `assistant/src/memory/conversation-disk-view.ts`                     | Disk view module — init, update, sync, remove, content flattening       |
-| `assistant/src/memory/conversation-crud.ts`                          | DB CRUD layer — calls init, update, and remove disk-view functions (not message sync) |
-| `assistant/src/daemon/conversation-messaging.ts`                     | Daemon messaging pipeline — calls `syncMessageToDisk` after message insertion |
-| `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                       |
+| File                                                                        | Role                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `assistant/src/memory/conversation-disk-view.ts`                            | Disk view module — init, update, sync, remove, content flattening                     |
+| `assistant/src/memory/conversation-crud.ts`                                 | DB CRUD layer — calls init, update, and remove disk-view functions (not message sync) |
+| `assistant/src/daemon/conversation-messaging.ts`                            | Daemon messaging pipeline — calls `syncMessageToDisk` after message insertion         |
+| `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                                     |
 
 ---

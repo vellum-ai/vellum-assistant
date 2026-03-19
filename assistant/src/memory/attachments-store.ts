@@ -313,6 +313,19 @@ export function getSourcePathsForAttachments(
 }
 
 /**
+ * Look up the stored file_path for an attachment by its original source_path.
+ * Returns the workspace-internal file path if found, or null otherwise.
+ * Useful as a fallback when the original source_path is outside the sandbox.
+ */
+export function getFilePathBySourcePath(sourcePath: string): string | null {
+  const row = rawGet<{ file_path: string | null }>(
+    "SELECT file_path FROM attachments WHERE source_path = ? ORDER BY created_at DESC LIMIT 1",
+    sourcePath,
+  );
+  return row?.file_path ?? null;
+}
+
+/**
  * Return the raw binary content for an attachment by reading from its
  * on-disk file path.
  *
