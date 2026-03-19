@@ -13,6 +13,7 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
+  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "../lib/docker";
@@ -278,6 +279,9 @@ async function upgradeDocker(
       extraAssistantEnv[key] = value;
     }
   }
+
+  console.log("🔄 Migrating security files to gateway volume...");
+  await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
 
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
