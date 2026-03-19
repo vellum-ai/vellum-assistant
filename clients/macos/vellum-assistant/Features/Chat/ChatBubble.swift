@@ -49,6 +49,12 @@ struct ChatBubble: View {
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
+    // Cached interleaved content state — updated via .onChange(of:) to avoid
+    // recomputing O(n) grouping on every body evaluation.
+    @State var cachedHasInterleavedContent: Bool = false
+    @State var cachedContentGroups: [ContentGroup] = []
+    /// Set of stableIds for tool-call groups that have non-empty text after them.
+    @State var cachedToolGroupsWithTrailingText: Set<String> = []
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).
@@ -154,6 +160,11 @@ struct ChatBubble: View {
         return formatter.string(from: message.timestamp)
     }
 
+    /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
+    private var visibleInlineSurfaces: [InlineSurfaceData] {
+        message.inlineSurfaces.filter { $0.id != activeSurfaceId }
+    }
+
     /// Whether the text/attachment bubble should be rendered.
     /// Tool calls for assistant messages render outside the bubble as separate chips,
     /// so only show the bubble when there's actual text or attachment content.
@@ -167,11 +178,10 @@ struct ChatBubble: View {
     /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        // Filter out the surface shown in the floating overlay
-        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != activeSurfaceId }
-        if !visibleSurfaces.isEmpty {
+        let surfaces = visibleInlineSurfaces
+        if !surfaces.isEmpty {
             // Show bubble text when all visible surfaces are completed (collapsed to chips)
-            let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
+            let allCompleted = surfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
         return hasText || !message.attachments.isEmpty
@@ -185,7 +195,7 @@ struct ChatBubble: View {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                    if !isUser && hasInterleavedContent {
+                    if !isUser && cachedHasInterleavedContent {
                         interleavedContent
                     } else {
                         if message.isError && hasText {
@@ -200,8 +210,8 @@ struct ChatBubble: View {
 
                         // Inline surfaces render below the bubble as full-width cards
                         // Skip surfaces that are currently shown in the floating overlay
-                        if !message.inlineSurfaces.isEmpty {
-                            ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
+                        if !visibleInlineSurfaces.isEmpty {
+                            ForEach(visibleInlineSurfaces) { surface in
                                 InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                             }
                         }
@@ -212,7 +222,7 @@ struct ChatBubble: View {
                         }
                     }
 
-                    if !hasInterleavedContent {
+                    if !cachedHasInterleavedContent {
                         attachmentWarningBanners(message.attachmentWarnings)
                     }
 
@@ -256,11 +266,14 @@ struct ChatBubble: View {
                 // where the complex view hierarchy makes re-compositing expensive —
                 // async task completions (markdown parsing, image decoding) would
                 // trigger full re-compositing of the entire message on every change.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !hasInterleavedContent))
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
 
             if !isUser { Spacer(minLength: 0) }
         }
         .contentShape(Rectangle())
+        .onAppear { recomputeInterleavedContentCache() }
+        .onChange(of: message.contentOrder) { _ in recomputeInterleavedContentCache() }
+        .onChange(of: message.textSegments) { _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
             isHovered = hovering
         }
