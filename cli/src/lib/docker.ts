@@ -567,6 +567,61 @@ export function serviceDockerRunArgs(opts: {
   };
 }
 
+/**
+ * Migrate trust.json and actor-token-signing-key from the data volume
+ * (old location: /data/.vellum/protected/) to the gateway security volume
+ * (new location: /gateway-security/).
+ *
+ * Uses a temporary busybox container that mounts both volumes. The migration
+ * is idempotent: it only copies a file when the source exists on the data
+ * volume and the destination does not yet exist on the gateway security volume.
+ */
+export async function migrateGatewaySecurityFiles(
+  res: ReturnType<typeof dockerResourceNames>,
+  log: (msg: string) => void,
+): Promise<void> {
+  const migrationContainer = `${res.gatewayContainer}-migration`;
+  const filesToMigrate = ["trust.json", "actor-token-signing-key"];
+
+  // Remove any leftover migration container from a previous interrupted run.
+  try {
+    await exec("docker", ["rm", "-f", migrationContainer]);
+  } catch {
+    // container may not exist
+  }
+
+  for (const fileName of filesToMigrate) {
+    const src = `/data/.vellum/protected/${fileName}`;
+    const dst = `/gateway-security/${fileName}`;
+
+    try {
+      // Run a busybox container that checks source exists and destination
+      // does not, then copies. The shell exits 0 whether or not a copy
+      // happens, so the migration is always safe to re-run.
+      await exec("docker", [
+        "run",
+        "--rm",
+        "--name",
+        migrationContainer,
+        "-v",
+        `${res.dataVolume}:/data:ro`,
+        "-v",
+        `${res.gatewaySecurityVolume}:/gateway-security`,
+        "busybox",
+        "sh",
+        "-c",
+        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && echo "migrated"; else echo "skipped"; fi`,
+      ]);
+      log(`   ${fileName}: checked`);
+    } catch (err) {
+      // Non-fatal — log and continue. The gateway will create fresh files
+      // if they don't exist.
+      const message = err instanceof Error ? err.message : String(err);
+      log(`   ${fileName}: migration failed (${message}), continuing...`);
+    }
+  }
+}
+
 /** The order in which services must be started. */
 export const SERVICE_START_ORDER: ServiceName[] = [
   "assistant",
@@ -912,6 +967,9 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
+
+    log("🔄 Migrating security files to gateway volume...");
+    await migrateGatewaySecurityFiles(res, log);
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
