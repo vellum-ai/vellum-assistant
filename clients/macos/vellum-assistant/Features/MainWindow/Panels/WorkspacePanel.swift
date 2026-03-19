@@ -34,6 +34,7 @@ final class WorkspaceBrowserState {
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
     var viewMode: FileViewMode = .source
+    var isActivelyEditing: Bool = false
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
@@ -59,6 +60,7 @@ final class WorkspaceBrowserState {
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
+        isActivelyEditing = false
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
@@ -751,7 +753,11 @@ private struct WorkspaceFileViewer: View {
                     showReadOnlyBadge: readOnly,
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
-                    }
+                    },
+                    isActivelyEditing: Binding(
+                        get: { state.isActivelyEditing },
+                        set: { state.isActivelyEditing = $0 }
+                    )
                 )
             } else {
                 FileContentHeaderBar(
@@ -771,7 +777,7 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            if isText && !readOnly && state.isDirty {
+            if isText && !readOnly && state.isActivelyEditing {
                 Divider().background(VColor.borderBase)
                 HStack {
                     Spacer()
@@ -780,7 +786,7 @@ private struct WorkspaceFileViewer: View {
                             label: "Discard",
                             style: .ghost,
                             size: .compact,
-                            isDisabled: state.isSaving
+                            isDisabled: state.isSaving || !state.isDirty
                         ) {
                             state.editableContent = state.originalContent
                             state.isDirty = false
@@ -792,7 +798,7 @@ private struct WorkspaceFileViewer: View {
                             label: "Save",
                             style: .primary,
                             size: .compact,
-                            isDisabled: state.isSaving
+                            isDisabled: state.isSaving || !state.isDirty
                         ) {
                             Task { await saveFile(path: detail.path) }
                         }

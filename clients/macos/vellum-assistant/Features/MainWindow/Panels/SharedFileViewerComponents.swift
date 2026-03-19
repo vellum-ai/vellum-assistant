@@ -49,7 +49,7 @@ struct FileContentView: View {
     var isEditable: Bool = false
     var showReadOnlyBadge: Bool = false
     var onTextChange: ((String) -> Void)? = nil
-    @State private var isActivelyEditing = false
+    @Binding var isActivelyEditing: Bool
     @State private var isContentHovered = false
 
     var body: some View {
@@ -120,7 +120,7 @@ struct FileContentView: View {
                     }
                     .padding(VSpacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: VRadius.md)
                             .fill(VColor.surfaceOverlay.opacity(0.9))
                     )
                     .padding(VSpacing.sm)

@@ -354,9 +354,9 @@ struct VCodeTextView: NSViewRepresentable {
             let capturedPS = paragraphStyle
             highlightTask = Task.detached(priority: .userInitiated) {
                 nonisolated(unsafe) let highlighted = highlighter(capturedText, capturedPS)
-                await MainActor.run { [weak self] in
+                await MainActor.run { [weak self, weak textView] in
                     guard !Task.isCancelled else { return }
-                    guard let storage = textView.textStorage else { return }
+                    guard let textView, let storage = textView.textStorage else { return }
                     // Only apply if the text hasn't changed since we started
                     guard (storage.string as String) == capturedText else { return }
                     storage.beginEditing()
