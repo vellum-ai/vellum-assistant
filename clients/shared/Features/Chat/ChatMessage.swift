@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -896,12 +897,26 @@ public struct ToolCallData: Identifiable, Equatable {
     #if os(macOS)
     public static func decodeImage(from base64String: String?) -> NSImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return NSImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = NSImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "vellum", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #elseif os(iOS)
     public static func decodeImage(from base64String: String?) -> UIImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return UIImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = UIImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "vellum", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #else
     #error("Unsupported platform")
