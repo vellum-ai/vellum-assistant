@@ -41,6 +41,23 @@ export const INFERENCE_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openrouter: "OpenRouter",
 };
 
+export interface ProviderCatalogEntry {
+  id: string;
+  displayName: string;
+  models: CatalogModel[];
+  defaultModel: string;
+}
+
+/** Build the full provider catalog with metadata for each inference provider. */
+export function getFullProviderCatalog(): ProviderCatalogEntry[] {
+  return Object.entries(PROVIDER_MODEL_CATALOG).map(([id, models]) => ({
+    id,
+    displayName: INFERENCE_PROVIDER_DISPLAY_NAMES[id] ?? id,
+    models,
+    defaultModel: models[0]?.id ?? "",
+  }));
+}
+
 /** Check if a model ID is in the catalog for a given provider */
 export function isModelInCatalog(provider: string, modelId: string): boolean {
   const catalog = PROVIDER_MODEL_CATALOG[provider];
