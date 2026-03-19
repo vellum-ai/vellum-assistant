@@ -528,7 +528,7 @@ export function getAttachmentsByIds(
         try {
           dataBase64 = readFileSync(row.filePath).toString("base64");
         } catch (err: unknown) {
-          const log = getLogger();
+          const log = getLogger("attachments-store");
           log.warn(
             `Failed to read file-backed attachment ${id} from ${row.filePath}: ${err instanceof Error ? err.message : String(err)}`,
           );
