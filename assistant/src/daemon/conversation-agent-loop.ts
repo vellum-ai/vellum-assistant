@@ -1536,6 +1536,7 @@ export async function runAgentLoopImpl(
       state.exchangeCacheCreationInputTokens,
       state.exchangeCacheReadInputTokens,
       collapseRawResponses(state.exchangeRawResponses),
+      state.exchangeProviderName,
     );
 
     void getHookManager().trigger("post-message", {
@@ -1802,11 +1803,12 @@ function emitUsage(
   cacheCreationInputTokens = 0,
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
+  providerName?: string,
 ): void {
   recordUsage(
     {
       conversationId: ctx.conversationId,
-      providerName: ctx.provider.name,
+      providerName: providerName ?? ctx.provider.name,
       usageStats: ctx.usageStats,
     },
     inputTokens,

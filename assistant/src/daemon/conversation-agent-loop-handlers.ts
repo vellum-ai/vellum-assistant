@@ -53,6 +53,8 @@ export interface EventHandlerState {
   llmCallStartedEmitted: boolean;
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
+  /** Most recent resolved provider for the current exchange's usage accounting. */
+  exchangeProviderName: string | undefined;
   exchangeInputTokens: number;
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
@@ -119,6 +121,7 @@ export function createEventHandlerState(): EventHandlerState {
     llmCallStartedEmitted: false,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
+    exchangeProviderName: undefined,
     exchangeInputTokens: 0,
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
@@ -761,6 +764,7 @@ export function handleUsage(
   event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
   const providerName = event.actualProvider ?? deps.ctx.provider.name;
+  state.exchangeProviderName = providerName;
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;

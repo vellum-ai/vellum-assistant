@@ -760,6 +760,81 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("usage accounting", () => {
+    test("records the actual provider for failover-served usage", async () => {
+      const events: ServerMessage[] = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-4.1-2026-03-01",
+          actualProvider: "fireworks",
+          providerDurationMs: 45,
+          rawRequest: {
+            model: "gpt-4.1",
+            messages: [{ role: "user", content: "Hello" }],
+          },
+          rawResponse: {
+            model: "gpt-4.1-2026-03-01",
+            choices: [
+              {
+                finish_reason: "stop",
+                message: {
+                  role: "assistant",
+                  content: "Hi there.",
+                },
+              },
+            ],
+          },
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openrouter",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      expect(mainAgentCall?.[0]).toMatchObject({
+        conversationId: "test-conv",
+        providerName: "fireworks",
+      });
+      expect(mainAgentCall?.[1]).toBe(12);
+      expect(mainAgentCall?.[2]).toBe(3);
+      expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
+    });
+  });
+
   describe("context window exhaustion (context-too-large recovery)", () => {
     test("forwards cache-aware compaction usage to recordUsage", async () => {
       const events: ServerMessage[] = [];
