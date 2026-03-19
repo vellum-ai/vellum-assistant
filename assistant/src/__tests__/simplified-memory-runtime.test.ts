@@ -594,7 +594,7 @@ describe("Simplified Memory Runtime", () => {
           {
             type: "tool_result",
             tool_use_id: "tool-1",
-            content: [{ type: "text", text: "tool output" }],
+            content: "tool output",
           },
         ],
       };
