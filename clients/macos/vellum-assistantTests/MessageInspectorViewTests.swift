@@ -6,11 +6,11 @@ final class MessageInspectorViewTests: XCTestCase {
     func testDefaultsSelectionToMostRecentCallAfterLoad() {
         var state = MessageInspectorViewState()
 
-        state.beginLoading(resetSelection: true)
-        state.finishLoading(with: makeResponse(logs: [
+        let requestToken = state.beginLoading(resetSelection: true)
+        state.finishLoading(with: .loaded(makeResponse(logs: [
             makeLog(id: "older", createdAt: 1_000),
             makeLog(id: "newer", createdAt: 2_000)
-        ]))
+        ])), requestToken: requestToken)
 
         XCTAssertEqual(state.loadState, .loaded)
         XCTAssertEqual(state.logs.map(\.id), ["newer", "older"])
@@ -20,15 +20,15 @@ final class MessageInspectorViewTests: XCTestCase {
     func testLoadStateSwitchesBetweenLoadingEmptyAndFailed() {
         var state = MessageInspectorViewState()
 
-        state.beginLoading(resetSelection: true)
+        let emptyRequestToken = state.beginLoading(resetSelection: true)
         XCTAssertEqual(state.loadState, .loading)
 
-        state.finishLoading(with: makeResponse(logs: []))
+        state.finishLoading(with: .empty, requestToken: emptyRequestToken)
         XCTAssertEqual(state.loadState, .empty)
         XCTAssertNil(state.selectedLogID)
 
-        state.beginLoading(resetSelection: true)
-        state.finishLoading(with: nil)
+        let failedRequestToken = state.beginLoading(resetSelection: true)
+        state.finishLoading(with: .failed, requestToken: failedRequestToken)
         XCTAssertEqual(state.loadState, .failed)
         XCTAssertNil(state.selectedLogID)
     }
@@ -38,8 +38,8 @@ final class MessageInspectorViewTests: XCTestCase {
         let newer = makeLog(id: "newer", createdAt: 2_000)
         let older = makeLog(id: "older", createdAt: 1_000)
 
-        state.beginLoading(resetSelection: true)
-        state.finishLoading(with: makeResponse(logs: [older, newer]))
+        let requestToken = state.beginLoading(resetSelection: true)
+        state.finishLoading(with: .loaded(makeResponse(logs: [older, newer])), requestToken: requestToken)
         state.selectLog(id: "older")
 
         state.selectDetailTab(.prompt)
