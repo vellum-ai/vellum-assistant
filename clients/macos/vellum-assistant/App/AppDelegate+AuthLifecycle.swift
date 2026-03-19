@@ -175,7 +175,14 @@ extension AppDelegate {
                     self?.mainWindow?.windowState.showToast(message: msg, style: style)
                 }
             } else {
-                await authManager.logout()
+                // Managed: user is redirected to the reauth screen regardless of
+                // HTTP outcome, so we don't toast. Log the error for diagnostics —
+                // the local session is always cleared and the stale server session
+                // will expire naturally or be replaced on re-login.
+                let logoutError = await authManager.logout()
+                if let logoutError {
+                    log.warning("Managed logout HTTP request failed (local session cleared): \(logoutError, privacy: .public)")
+                }
             }
 
             // Clear platform identity credentials from the running daemon (local assistants only).
