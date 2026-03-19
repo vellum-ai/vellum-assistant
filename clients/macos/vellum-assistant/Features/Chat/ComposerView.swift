@@ -452,7 +452,16 @@ struct ComposerView: View {
                 }
                 .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
-                // Pending confirmation — send only if possible
+                // Pending confirmation — mic for dictation, send if possible
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .disabled(!hasAPIKey)
+
                 if canSend {
                     VButton(
                         label: "Send message",
