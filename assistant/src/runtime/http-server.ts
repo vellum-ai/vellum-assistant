@@ -147,6 +147,7 @@ import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
+import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
   handlePairingRequest,
@@ -1110,6 +1111,7 @@ export class RuntimeHttpServer {
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
+      ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
       ...(this.getWatchDeps
