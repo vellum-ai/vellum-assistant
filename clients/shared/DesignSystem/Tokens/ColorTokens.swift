@@ -394,13 +394,6 @@ public enum VColor {
     public static let tagGuardian  = adaptiveColor(light: Color(hex: 0xC8E5E2), dark: Color(hex: 0x2A4A45))
     public static let tagHuman     = adaptiveColor(light: Color(hex: 0xEFE8C4), dark: Color(hex: 0x4A4530))
 
-    /// Deterministic conversation icon background palette — semantic compositions of existing tokens.
-    public static let conversationIconBackgrounds: [Color] = [
-        primaryBase, primaryHover, primaryActive,
-        systemPositiveStrong, systemNegativeStrong, systemMidStrong,
-        contentSecondary, contentTertiary,
-    ]
-
     public static func pair(for token: VSemanticColorToken) -> VSemanticColorPair {
         guard let pair = semanticPairs[token] else {
             preconditionFailure("Missing semantic color pair for token: \(token.rawValue)")
