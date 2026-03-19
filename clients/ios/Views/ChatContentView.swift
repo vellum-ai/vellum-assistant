@@ -32,6 +32,12 @@ struct PendingChatAnchorResolution: Equatable {
     let requiresExpandedWindow: Bool
 }
 
+enum PendingChatAnchorSearchStep: Equatable {
+    case scroll(localMessageId: UUID, requiresExpandedWindow: Bool)
+    case loadOlderPage
+    case consume
+}
+
 func makeOnForkFromMessageAction(
     conversationLocalId: UUID?,
     forkConversationFromMessage: ((UUID, String) async -> UUID?)?
@@ -64,6 +70,26 @@ func resolvePendingChatAnchor(
     return PendingChatAnchorResolution(
         localMessageId: displayedMessages[messageIndex].id,
         requiresExpandedWindow: displayedMessageCount != Int.max && messageIndex < visibleStartIndex
+    )
+}
+
+func nextPendingChatAnchorSearchStep(
+    daemonMessageId: String,
+    displayedMessages: [ChatMessage],
+    displayedMessageCount: Int,
+    hasMoreMessages: Bool
+) -> PendingChatAnchorSearchStep {
+    guard let resolution = resolvePendingChatAnchor(
+        daemonMessageId: daemonMessageId,
+        displayedMessages: displayedMessages,
+        displayedMessageCount: displayedMessageCount
+    ) else {
+        return hasMoreMessages ? .loadOlderPage : .consume
+    }
+
+    return .scroll(
+        localMessageId: resolution.localMessageId,
+        requiresExpandedWindow: resolution.requiresExpandedWindow
     )
 }
 
@@ -221,6 +247,13 @@ struct ChatContentView: View {
             .onChange(of: viewModel.messages.count) { _, _ in
                 if !hasPendingAnchor && isNearBottom && !viewModel.isLoadingMoreMessages {
                     scrollToBottom(proxy: proxy, animated: true)
+                } else if hasPendingAnchor {
+                    attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+                }
+            }
+            .onChange(of: viewModel.hasMoreHistory) { _, _ in
+                if hasPendingAnchor {
+                    attemptPendingAnchorScrollIfNeeded(proxy: proxy)
                 }
             }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
@@ -710,34 +743,56 @@ struct ChatContentView: View {
     }
 
     private func attemptPendingAnchorScrollIfNeeded(proxy: ScrollViewProxy) {
-        guard let pendingAnchorRequestId,
-              let pendingAnchorDaemonMessageId,
-              viewModel.isHistoryLoaded else {
-            return
-        }
-
         scrollRestoreTask?.cancel()
-
-        guard let resolution = resolvePendingChatAnchor(
-            daemonMessageId: pendingAnchorDaemonMessageId,
-            displayedMessages: viewModel.displayedMessages,
-            displayedMessageCount: viewModel.displayedMessageCount
-        ) else {
-            onPendingAnchorHandled?(pendingAnchorRequestId)
-            return
-        }
-
         scrollRestoreTask = Task { @MainActor in
-            if resolution.requiresExpandedWindow {
-                viewModel.displayedMessageCount = Int.max
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled else { return }
-            }
+            while !Task.isCancelled {
+                guard let pendingAnchorRequestId,
+                      let pendingAnchorDaemonMessageId,
+                      viewModel.isHistoryLoaded else {
+                    return
+                }
 
-            withAnimation(.easeOut(duration: 0.3)) {
-                proxy.scrollTo(resolution.localMessageId, anchor: .center)
+                switch nextPendingChatAnchorSearchStep(
+                    daemonMessageId: pendingAnchorDaemonMessageId,
+                    displayedMessages: viewModel.displayedMessages,
+                    displayedMessageCount: viewModel.displayedMessageCount,
+                    hasMoreMessages: viewModel.hasMoreMessages
+                ) {
+                case let .scroll(localMessageId, requiresExpandedWindow):
+                    if requiresExpandedWindow {
+                        viewModel.displayedMessageCount = Int.max
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        guard !Task.isCancelled else { return }
+                        continue
+                    }
+
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        proxy.scrollTo(localMessageId, anchor: .center)
+                    }
+                    onPendingAnchorHandled?(pendingAnchorRequestId)
+                    return
+
+                case .loadOlderPage:
+                    if viewModel.isLoadingMoreMessages {
+                        return
+                    }
+
+                    let startedLoading = await viewModel.loadPreviousMessagePage()
+                    guard startedLoading else {
+                        guard !viewModel.isLoadingMoreMessages else { return }
+                        onPendingAnchorHandled?(pendingAnchorRequestId)
+                        return
+                    }
+
+                    if viewModel.isLoadingMoreMessages {
+                        return
+                    }
+
+                case .consume:
+                    onPendingAnchorHandled?(pendingAnchorRequestId)
+                    return
+                }
             }
-            onPendingAnchorHandled?(pendingAnchorRequestId)
         }
     }
 }

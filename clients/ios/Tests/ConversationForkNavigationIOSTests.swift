@@ -97,6 +97,42 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
     }
 
+    func testPendingChatAnchorSearchKeepsLoadingOlderHistoryUntilExhausted() {
+        let oldest = makeMessage(text: "Oldest", daemonMessageId: "msg-oldest")
+        let newest = makeMessage(text: "Newest", daemonMessageId: "msg-newest")
+        let displayedMessages = [oldest, newest]
+
+        XCTAssertEqual(
+            nextPendingChatAnchorSearchStep(
+                daemonMessageId: "msg-newest",
+                displayedMessages: displayedMessages,
+                displayedMessageCount: 1,
+                hasMoreMessages: true
+            ),
+            .scroll(localMessageId: newest.id, requiresExpandedWindow: false)
+        )
+
+        XCTAssertEqual(
+            nextPendingChatAnchorSearchStep(
+                daemonMessageId: "msg-missing",
+                displayedMessages: displayedMessages,
+                displayedMessageCount: 1,
+                hasMoreMessages: true
+            ),
+            .loadOlderPage
+        )
+
+        XCTAssertEqual(
+            nextPendingChatAnchorSearchStep(
+                daemonMessageId: "msg-missing",
+                displayedMessages: displayedMessages,
+                displayedMessageCount: 1,
+                hasMoreMessages: false
+            ),
+            .consume
+        )
+    }
+
     func testCurrentTipForkToolbarActionOnlyExistsForPersistedConversationAndForksCurrentTip() async throws {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
