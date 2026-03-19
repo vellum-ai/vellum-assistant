@@ -365,19 +365,22 @@ public struct ToolConfirmationBubble: View {
 
             if showDiff, let diffInfo = confirmation.diff {
                 let computedDiff = confirmation.unifiedDiffPreview ?? ""
-                let diffBody = computedDiff.isEmpty ? diffInfo.newContent : computedDiff
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentTertiary)
 
-                    VDiffView(diffBody, maxHeight: 260)
-                        .padding(VSpacing.sm)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill(VColor.surfaceOverlay)
-                        )
+                    if computedDiff.isEmpty {
+                        codePreviewBlock(diffInfo.newContent, maxHeight: 260)
+                    } else {
+                        VDiffView(computedDiff, maxHeight: 260)
+                            .padding(VSpacing.sm)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(VColor.surfaceOverlay)
+                            )
+                    }
                 }
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))

@@ -19,8 +19,10 @@ public struct VDiffView: View {
     }
 
     private static func classify(_ line: Substring) -> LineKind {
-        // Unified diff file headers ("--- a/..." and "+++ b/...") are metadata, not changes.
-        if line.hasPrefix("--- ") || line.hasPrefix("+++ ") { return .context }
+        // Unified diff file headers ("--- a/...", "+++ b/...", "--- /dev/null", "+++ /dev/null").
+        // Only match real headers to avoid misclassifying removed/added lines like "--- note".
+        if line.hasPrefix("--- a/") || line.hasPrefix("--- /dev/null") { return .context }
+        if line.hasPrefix("+++ b/") || line.hasPrefix("+++ /dev/null") { return .context }
         if line.hasPrefix("@@") { return .hunk }
         if line.hasPrefix("+") { return .added }
         if line.hasPrefix("-") { return .removed }
@@ -53,7 +55,7 @@ public struct VDiffView: View {
 
     private func diffScrollView(lines: [Substring], axes: Axis.Set) -> some View {
         ScrollView(axes, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     diffLine(line)
                 }

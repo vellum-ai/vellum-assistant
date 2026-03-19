@@ -250,6 +250,28 @@ struct DisplayGallerySection: View {
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
             #endif
 
+            // MARK: - VDiffView
+            GallerySectionHeader(
+                title: "VDiffView",
+                description: "Renders unified diff text with per-line colored backgrounds. Green for additions, red for removals, blue for hunk headers."
+            )
+
+            VCard {
+                VDiffView(Self.sampleDiff)
+                    .padding(VSpacing.sm)
+            }
+
+            Text("With maxHeight constraint")
+                .font(VFont.headline)
+                .foregroundColor(VColor.contentSecondary)
+
+            VCard {
+                VDiffView(Self.sampleDiff, maxHeight: 120)
+                    .padding(VSpacing.sm)
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VStreamingWaveform
             GallerySectionHeader(
                 title: "VStreamingWaveform",
@@ -305,5 +327,19 @@ struct DisplayGallerySection: View {
             }
         }
     }
+
+    // MARK: - Sample Data
+
+    private static let sampleDiff = """
+    --- a/src/config.ts
+    +++ b/src/config.ts
+    @@ -10,7 +10,8 @@ export const config = {
+       timeout: 5000,
+    -  retries: 3,
+    +  retries: 5,
+    +  backoff: "exponential",
+       verbose: false,
+     };
+    """
 }
 #endif
