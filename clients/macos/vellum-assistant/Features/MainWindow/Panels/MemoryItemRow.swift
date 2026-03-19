@@ -13,14 +13,14 @@ struct MemoryItemRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                // Icon — centered vertically, matching skill card
+            HStack(alignment: .top, spacing: VSpacing.lg) {
+                // Icon — top-aligned, matching skill card
                 kindIcon
 
                 // Text content
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Header + timestamp group
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: VSpacing.sm) {
                             Text(item.subject)
                                 .font(VFont.bodyBold)
