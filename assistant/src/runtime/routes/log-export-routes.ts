@@ -513,6 +513,8 @@ function collectWorkspaceFiles(): Record<string, string> {
 
         // SQLite DB handling: dump as SQL text, then enforce size cap
         if (entry.endsWith(".db")) {
+          // Skip the dump entirely if the budget is already exhausted
+          if (totalBytes >= MAX_WORKSPACE_PAYLOAD_BYTES) continue;
           try {
             const proc = spawnSync("sqlite3", [fullPath, ".dump"], {
               timeout: 10_000,

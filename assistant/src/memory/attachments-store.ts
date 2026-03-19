@@ -12,7 +12,7 @@ import { eq, isNotNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getWorkspaceDir } from "../util/platform.js";
-import { getDb, rawAll, rawRun } from "./db.js";
+import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
 
 export interface StoredAttachment {
