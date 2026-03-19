@@ -25,5 +25,14 @@
   - It is fine to refer to tools/utils/etc. directly by name if it is bundled with the skill (likely in `scripts/`)
   - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/specification) - linters validate this
 
+- **Inline command expansions (`!`command``)**
+  - First-party skills may use the interoperable `` !`command` `` syntax to embed dynamic content that is resolved at skill-load time (e.g., `` !`git branch --show-current` ``, `` !`cat package.json | jq '.version'` ``)
+  - This syntax is intentionally compatible with the cross-agent inline skill command convention so that externally authored skills load in Vellum without rewriting
+  - **Vellum's execution semantics are intentionally stricter than the tweet's host-shell behavior**: commands run only in the sandbox, with network off, sanitized environment, 10-second timeout, and stdout-only capture. Do not assume host-shell capabilities (network access, credential availability, interactive prompts)
+  - Place documentation examples of the syntax inside fenced code blocks (`` ``` `` or `~~~`) — the parser skips tokens inside fences, so examples will not accidentally execute
+  - Never use empty commands (`` !`` ``), whitespace-only commands, or unmatched backticks — these are rejected by the parser as malformed
+  - The `inline-skill-commands` feature flag must be enabled for inline expansions to work. When the flag is off, skills containing expansion tokens fail closed at load time
+  - Inline command expansions are only supported for `bundled`, `managed`, and `workspace` skill sources. Skills distributed as `extra` sources cannot use this syntax
+
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way

@@ -156,3 +156,103 @@ Trust rules are stored in `~/.vellum/protected/trust.json`. You can inspect this
 ### "A skill tool keeps prompting even though I approved it."
 
 Check whether the rule has the correct `executionTarget` — a rule scoped to `sandbox` will not match a tool running on `host`.
+
+## Inline Command Expansions
+
+Skills can embed dynamic content by using the **inline command expansion** syntax. When a skill containing these tokens is loaded, each token is executed and replaced with its output before the skill body is delivered to the model. The syntax is shown in the fenced block below.
+
+This syntax is intentionally compatible with the convention established by [inline skill commands](https://x.com) for portable cross-agent skill authoring. Vellum adopts the exact same token format so that externally authored skills load without rewriting — but applies stricter execution constraints.
+
+### Syntax
+
+The canonical syntax is:
+
+```
+!`command`
+```
+
+Where `command` is any shell command string. The exclamation mark immediately precedes the opening backtick with no whitespace in between. Examples:
+
+```markdown
+Current branch: !`git branch --show-current`
+Recent changes: !`git log --oneline -5`
+Project info: !`cat package.json | jq '.name, .version'`
+```
+
+Tokens inside fenced code blocks (` ``` ` or `~~~`) are **not** expanded — they are treated as documentation examples. This allows skills to safely include syntax examples without triggering execution.
+
+### Parsing rules
+
+The parser (`parseInlineCommandExpansions`) enforces fail-closed semantics:
+
+| Condition                                         | Behavior               |
+| ------------------------------------------------- | ---------------------- |
+| Well-formed token outside fenced code             | Parsed as an expansion |
+| Token inside a fenced code block                  | Skipped (not expanded) |
+| Empty command text (no content between backticks) | Rejected as malformed  |
+| Whitespace-only command text                      | Rejected as malformed  |
+| Unmatched opening (no closing backtick found)     | Rejected as malformed  |
+| Nested backticks inside command text              | Rejected as malformed  |
+
+Malformed tokens do not silently pass through — they are collected as errors and logged. If a skill body contains any malformed tokens, the valid tokens are still expanded, but the errors are reported for diagnostics.
+
+### Feature flag
+
+Inline command expansion is gated by the `inline-skill-commands` feature flag (key: `feature_flags.inline-skill-commands.enabled`). The flag defaults to **disabled**.
+
+When the flag is disabled and a skill contains inline command expansion tokens, `skill_load` returns an error rather than delivering unexpanded tokens to the model. This fail-closed behavior prevents the LLM from seeing raw expansion tokens and attempting to interpret them.
+
+### Approval model
+
+Skills with inline command expansions use a separate permission namespace: `skill_load_dynamic:*`. This ensures they do not silently inherit the permissive default `skill_load:*` allow rule.
+
+When a user is prompted to approve a dynamic skill load, the allowlist options are:
+
+| Option         | Pattern                                     | Behavior                                                                                            |
+| -------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Version-pinned | `skill_load_dynamic:<id>@<transitive-hash>` | Approved for this exact version only. Any change to the skill or its includes invalidates the rule. |
+| Any-version    | `skill_load_dynamic:<id>`                   | Approved for all versions of this skill.                                                            |
+
+The transitive hash covers the skill's own content plus all included skills, so a change anywhere in the dependency graph triggers re-approval for version-pinned rules.
+
+### v1 execution limits
+
+In the initial implementation, inline command execution enforces these constraints:
+
+| Constraint       | Value                                                   |
+| ---------------- | ------------------------------------------------------- |
+| Execution target | Sandbox only (no host fallback)                         |
+| Network access   | Off (no outbound connections)                           |
+| Environment      | Sanitized (no API keys, tokens, or credentials)         |
+| Timeout          | 10 seconds per command                                  |
+| Output cap       | 20,000 characters (truncated with `[output truncated]`) |
+| Binary output    | Rejected if >10% non-printable characters               |
+| ANSI sequences   | Stripped before output processing                       |
+| stderr           | Discarded (only stdout is captured)                     |
+
+Commands that fail (timeout, non-zero exit, spawn failure, binary output) produce a deterministic stub in the rendered body rather than leaking raw error output:
+
+```
+<inline_skill_command index="0">[inline command unavailable: command timed out]</inline_skill_command>
+```
+
+### Eligible skill sources
+
+Only **bundled**, **managed**, and **workspace** skills may use inline command expansions. Third-party **extra** skill sources are explicitly rejected — `skill_load` returns an error if an extra-source skill contains inline expansion tokens.
+
+| Source      | Eligible | Reason                                 |
+| ----------- | -------- | -------------------------------------- |
+| `bundled`   | Yes      | Shipped with the application, trusted  |
+| `managed`   | Yes      | User-installed, subject to approval    |
+| `workspace` | Yes      | Project-local, subject to approval     |
+| `extra`     | No       | Third-party roots, out of scope for v1 |
+
+### Fail-closed summary
+
+The system fails closed at every layer:
+
+1. **Flag off** — skill_load returns an error, tokens never reach the model.
+2. **Malformed syntax** — rejected by the parser, logged as errors.
+3. **Unsupported source** — skill_load returns an error for extra-source skills.
+4. **Command failure** — deterministic stub replaces the token, no raw stderr.
+5. **No permission** — `skill_load_dynamic:*` namespace requires explicit approval.
