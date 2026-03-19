@@ -68,11 +68,25 @@ async function main(): Promise<void> {
       return;
     }
 
-    const config = JSON.parse(stdout.trim()) as {
-      model?: string;
-      provider?: string;
-      mode?: string;
-    };
+    const raw = stdout.trim();
+
+    // When the inference config hasn't been explicitly set, the CLI returns
+    // the literal string "(not set)". Fall back to sensible defaults rather
+    // than crashing with a cryptic JSON-parse error.
+    let config: { model?: string; provider?: string; mode?: string };
+    if (raw === "(not set)" || raw === "") {
+      config = {
+        model: "claude-opus-4-6",
+        provider: "anthropic",
+        mode: "unknown",
+      };
+    } else {
+      config = JSON.parse(raw) as {
+        model?: string;
+        provider?: string;
+        mode?: string;
+      };
+    }
 
     const modelId = config.model ?? "unknown";
     const providerId = config.provider ?? "unknown";
