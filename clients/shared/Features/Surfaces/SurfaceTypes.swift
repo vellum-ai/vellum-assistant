@@ -314,16 +314,19 @@ public struct DynamicPageSurfaceData: Sendable, Equatable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    /// Filesystem directory name for this app (may differ from `appId`).
+    public let dirName: String?
     public let appType: String?
     public var preview: DynamicPagePreview?
     public let reloadGeneration: Int?
     public let status: String?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, preview: DynamicPagePreview? = nil, reloadGeneration: Int? = nil, status: String? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, dirName: String? = nil, appType: String? = nil, preview: DynamicPagePreview? = nil, reloadGeneration: Int? = nil, status: String? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
+        self.dirName = dirName
         self.appType = appType
         self.preview = preview
         self.reloadGeneration = reloadGeneration
@@ -756,13 +759,14 @@ public extension Surface {
         let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
         let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
         let appId: String? = update.keys.contains("appId") ? (update["appId"] as? String) : existing.appId
+        let dirName: String? = update.keys.contains("dirName") ? (update["dirName"] as? String) : existing.dirName
         let appType: String? = update.keys.contains("appType") ? (update["appType"] as? String) : existing.appType
         let preview: DynamicPagePreview? = update.keys.contains("preview")
             ? parseDynamicPagePreview(update["preview"] as? [String: Any?])
             : existing.preview
         let reloadGeneration: Int? = update.keys.contains("reloadGeneration") ? (update["reloadGeneration"] as? Int) : existing.reloadGeneration
         let status: String? = update.keys.contains("status") ? (update["status"] as? String) : existing.status
-        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, appType: appType, preview: preview, reloadGeneration: reloadGeneration, status: status)
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, dirName: dirName, appType: appType, preview: preview, reloadGeneration: reloadGeneration, status: status)
     }
     // MARK: - Field Parsing Helpers
 
@@ -928,6 +932,7 @@ public extension Surface {
             width: dict["width"] as? Int,
             height: dict["height"] as? Int,
             appId: dict["appId"] as? String,
+            dirName: dict["dirName"] as? String,
             appType: dict["appType"] as? String,
             preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?]),
             reloadGeneration: dict["reloadGeneration"] as? Int,

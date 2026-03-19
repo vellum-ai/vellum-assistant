@@ -1,6 +1,11 @@
 import { v4 as uuid } from "uuid";
 
-import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppPreview,
+  resolveAppDir,
+  updateApp,
+} from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -1219,9 +1224,11 @@ export async function surfaceProxyResolver(
     const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);
+    const { dirName } = resolveAppDir(app.id);
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
+      dirName,
       preview: {
         ...defaultPreview,
         ...preview,

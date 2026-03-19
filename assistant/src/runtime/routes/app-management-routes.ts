@@ -39,6 +39,7 @@ import {
   isMultifileApp,
   listApps,
   queryAppRecords,
+  resolveAppDir,
   updateApp,
   updateAppRecord,
 } from "../../memory/app-store.js";
@@ -689,8 +690,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
             }
           }
 
+          const { dirName } = resolveAppDir(app.id);
           return Response.json({
             appId: app.id,
+            dirName,
             name: app.name,
             html,
           });

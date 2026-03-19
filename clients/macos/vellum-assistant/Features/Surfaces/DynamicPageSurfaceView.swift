@@ -437,9 +437,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // isolated per app. Non-app surfaces get a shared fallback origin.
         if let appId = appId {
             // App-backed surface — serve from disk via scheme handler.
+            // Use dirName for filesystem paths (may differ from appId/UUID).
+            let localDir = data.dirName ?? appId
             // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
             let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
-            let appDir = appsDirectory.appendingPathComponent(appId)
+            let appDir = appsDirectory.appendingPathComponent(localDir)
             let distIndex = appDir.appendingPathComponent("dist/index.html")
             let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
 
@@ -447,8 +449,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 // Multifile app whose dist/ hasn't been compiled yet — show a
                 // "building" placeholder that auto-retries by navigating to the
                 // scheme URL (not reload, which would just re-render this inline HTML).
-                let distSchemeURL = "vellumapp://\(appId)/dist/index.html"
-                let origin = "vellumapp://\(appId)/"
+                let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
+                let origin = "vellumapp://\(localDir)/"
                 let buildingHTML = """
                 <!DOCTYPE html><html><head><meta charset="UTF-8">
                 <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
@@ -466,7 +468,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
                     ? "dist/index.html"
                     : "index.html"
-                let schemeURL = URL(string: "vellumapp://\(appId)/\(entryPath)")!
+                let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
                 webView.load(URLRequest(url: schemeURL))
             }
         } else {
