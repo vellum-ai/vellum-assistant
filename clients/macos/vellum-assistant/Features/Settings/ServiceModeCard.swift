@@ -98,7 +98,7 @@ struct ServiceCardActions: View {
 /// A picker (dropdown) with an inline save button that adapts to available width.
 ///
 /// At wider sizes, the save button sits to the right of the dropdown. At narrow
-/// widths, it falls below the dropdown to avoid cramped layouts.
+/// widths, it falls below the dropdown via `VAdaptiveStack`.
 @MainActor
 struct PickerWithInlineSave<PickerContent: View>: View {
     let hasChanges: Bool
@@ -109,23 +109,13 @@ struct PickerWithInlineSave<PickerContent: View>: View {
     @ViewBuilder let picker: () -> PickerContent
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: VSpacing.md) {
-                picker()
-                saveButton
-            }
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                picker()
-                saveButton
-            }
+        VAdaptiveStack(horizontalAlignment: .bottom) {
+            picker()
+            VButton(
+                label: isSaving ? savingLabel : saveLabel,
+                style: .primary,
+                isDisabled: !hasChanges || isSaving
+            ) { onSave() }
         }
-    }
-
-    private var saveButton: some View {
-        VButton(
-            label: isSaving ? savingLabel : saveLabel,
-            style: .primary,
-            isDisabled: !hasChanges || isSaving
-        ) { onSave() }
     }
 }

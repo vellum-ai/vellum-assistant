@@ -94,6 +94,50 @@ struct LayoutGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VAdaptiveStack
+            GallerySectionHeader(
+                title: "VAdaptiveStack",
+                description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Wide container (horizontal)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    VAdaptiveStack {
+                        Text("Label")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(VSpacing.sm)
+                            .background(VColor.surfaceActive)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        VButton(label: "Action", style: .primary) {}
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("Narrow container (vertical fallback)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    VAdaptiveStack {
+                        Text("Label")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(VSpacing.sm)
+                            .background(VColor.surfaceActive)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        VButton(label: "Action", style: .primary) {}
+                    }
+                    .frame(width: 120, alignment: .leading)
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VSidePanel
             GallerySectionHeader(
                 title: "VSidePanel",
