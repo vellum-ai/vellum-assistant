@@ -436,7 +436,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "dictation", scopes: ["chat.write"] },
 
   // OAuth / integrations
-  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
+  { endpoint: "oauth/start", scopes: ["settings.write"] },
 
   // Ingress config
   { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },

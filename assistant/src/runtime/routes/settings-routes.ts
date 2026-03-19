@@ -645,9 +645,9 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
 
     // OAuth connect
     {
-      endpoint: "integrations/oauth/start",
+      endpoint: "oauth/start",
       method: "POST",
-      policyKey: "integrations/oauth/start",
+      policyKey: "oauth/start",
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           service?: string;

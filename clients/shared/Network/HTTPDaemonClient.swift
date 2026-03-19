@@ -461,7 +461,7 @@ public final class HTTPTransport {
             return ("/v1/tools/simulate-permission", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("/v1/integrations/oauth/start", nil)
+            return ("/v1/oauth/start", nil)
         case .integrationsVercelConfig:
             return ("/v1/integrations/vercel/config", nil)
         case .integrationsIngressConfig:
@@ -595,7 +595,7 @@ public final class HTTPTransport {
             return ("\(prefix)/tools/simulate-permission/", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("\(prefix)/integrations/oauth/start/", nil)
+            return ("\(prefix)/oauth/start/", nil)
         case .integrationsVercelConfig:
             return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsIngressConfig:
