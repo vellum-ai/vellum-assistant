@@ -7,8 +7,6 @@
  * registry entry instead of another if/else branch.
  */
 
-import { join } from "node:path";
-
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
