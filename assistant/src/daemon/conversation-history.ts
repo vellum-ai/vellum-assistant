@@ -29,6 +29,16 @@ function isToolResultBlock(
   );
 }
 
+function isSystemNoticeBlock(
+  block: ContentBlock | Record<string, unknown>,
+): boolean {
+  if (block.type !== "text") return false;
+  const text = (block as { text?: string }).text ?? "";
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
+}
+
 function isUndoableUserMessage(message: Message): boolean {
   if (message.role !== "user") return false;
   if (getSummaryFromContextMessage(message) != null) return false;
@@ -37,8 +47,9 @@ function isUndoableUserMessage(message: Message): boolean {
   // responses) are not undoable. Messages that have both tool_result and text blocks
   // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
   // undoable because they contain real user content.
+  // System notice text blocks (retry nudges, progress checks) are not user content.
   const hasNonToolResultContent = message.content.some(
-    (block) => !isToolResultBlock(block),
+    (block) => !isToolResultBlock(block) && !isSystemNoticeBlock(block),
   );
   if (!hasNonToolResultContent) return false;
   return true;
