@@ -17,8 +17,7 @@ struct MessageInspectorView: View {
     @State private var response: LLMContextResponse?
     @State private var isLoading = true
     @State private var expandedLogIds: Set<String> = []
-    /// Pre-formatted JSON strings keyed by "\(entryId)-request" / "\(entryId)-response".
-    @State private var formattedJSON: [String: String] = [:]
+    @State private var payloadModels: [String: MessageInspectorPayloadModel] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,19 +30,23 @@ struct MessageInspectorView: View {
         .task(id: messageId) {
             isLoading = true
             response = nil
-            formattedJSON = [:]
+            payloadModels = [:]
             expandedLogIds = []
 
             let result = await llmContextClient.fetchContext(messageId: messageId)
             response = result
-            // Pre-format JSON strings outside the render path
+            // Prepare payload view state outside the render path.
             if let logs = result?.logs {
-                var formatted: [String: String] = [:]
+                var nextPayloadModels: [String: MessageInspectorPayloadModel] = [:]
                 for entry in logs {
-                    formatted["\(entry.id)-request"] = prettyPrintJSON(entry.requestPayload)
-                    formatted["\(entry.id)-response"] = prettyPrintJSON(entry.responsePayload)
+                    nextPayloadModels["\(entry.id)-request"] = MessageInspectorPayloadModel(
+                        payload: entry.requestPayload
+                    )
+                    nextPayloadModels["\(entry.id)-response"] = MessageInspectorPayloadModel(
+                        payload: entry.responsePayload
+                    )
                 }
-                formattedJSON = formatted
+                payloadModels = nextPayloadModels
                 // Auto-expand all entries on load
                 expandedLogIds = Set(logs.map(\.id))
             }
@@ -222,14 +225,14 @@ struct MessageInspectorView: View {
 
             if isExpanded {
                 HStack(alignment: .top, spacing: VSpacing.lg) {
-                    jsonSection(
+                    payloadSection(
                         title: "Request",
-                        formattedText: formattedJSON["\(entry.id)-request"] ?? ""
+                        key: "\(entry.id)-request"
                     )
 
-                    jsonSection(
+                    payloadSection(
                         title: "Response",
-                        formattedText: formattedJSON["\(entry.id)-response"] ?? ""
+                        key: "\(entry.id)-response"
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -251,59 +254,29 @@ struct MessageInspectorView: View {
         }
     }
 
-    // MARK: - JSON Section
+    // MARK: - Payload Section
 
-    private func jsonSection(title: String, formattedText: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text(title)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-
-                Spacer()
-
-                Button(action: {
-                    copyToClipboard(formattedText)
-                }) {
-                    HStack(spacing: VSpacing.xxs) {
-                        VIconView(.copy, size: 10)
-                        Text("Copy \(title)")
-                            .font(VFont.small)
-                    }
-                    .foregroundColor(VColor.contentSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy \(title)")
-            }
-
-            GeometryReader { proxy in
-                ScrollView([.vertical, .horizontal]) {
-                    Text(verbatim: formattedText)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentDefault)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.sm)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .frame(
-                            minWidth: proxy.size.width,
-                            minHeight: proxy.size.height,
-                            alignment: .topLeading
-                        )
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: payloadViewportHeight)
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
-        }
+    private func payloadSection(title: String, key: String) -> some View {
+        MessageInspectorPayloadView(
+            title: title,
+            model: payloadBinding(for: key),
+            viewportHeight: payloadViewportHeight
+        )
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     // MARK: - Helpers
+
+    private func payloadBinding(for key: String) -> Binding<MessageInspectorPayloadModel> {
+        Binding(
+            get: {
+                payloadModels[key] ?? MessageInspectorPayloadModel(source: "")
+            },
+            set: { newValue in
+                payloadModels[key] = newValue
+            }
+        )
+    }
 
     private var skeletonColumn: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -329,47 +302,11 @@ struct MessageInspectorView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func prettyPrintJSON(_ value: AnyCodable) -> String {
-        guard let rawValue = value.value else { return "null" }
-        guard JSONSerialization.isValidJSONObject(wrapForSerialization(rawValue)) else {
-            return String(describing: rawValue)
-        }
-        do {
-            let data = try JSONSerialization.data(
-                withJSONObject: wrapForSerialization(rawValue),
-                options: [.prettyPrinted, .sortedKeys]
-            )
-            return String(data: data, encoding: .utf8) ?? String(describing: rawValue)
-        } catch {
-            return String(describing: rawValue)
-        }
-    }
-
-    /// Wraps AnyCodable-decoded values so JSONSerialization accepts them.
-    /// AnyCodable decodes arrays as `[Any?]` and dicts as `[String: Any?]`;
-    /// JSONSerialization requires non-optional element types.
-    private func wrapForSerialization(_ value: Any) -> Any {
-        if let dict = value as? [String: Any?] {
-            return dict.reduce(into: [String: Any]()) { result, pair in
-                result[pair.key] = pair.value.map { wrapForSerialization($0) } ?? NSNull()
-            }
-        }
-        if let array = value as? [Any?] {
-            return array.map { $0.map { wrapForSerialization($0) } ?? NSNull() }
-        }
-        return value
-    }
-
     private func formattedTimestamp(_ epochMs: Int) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .medium
         return formatter.string(from: date)
-    }
-
-    private func copyToClipboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }
