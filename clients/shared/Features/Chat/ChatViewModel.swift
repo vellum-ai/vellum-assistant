@@ -363,7 +363,7 @@ public final class ChatViewModel: ObservableObject {
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
-    private let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
+    let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
