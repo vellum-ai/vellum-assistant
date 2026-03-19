@@ -457,9 +457,17 @@ public final class MainWindow {
             defaultTrafficLightOrigin = containerView.frame.origin
         }
         guard let origin = defaultTrafficLightOrigin else { return }
+
+        // Vertically center the traffic light buttons in the 48pt custom toolbar.
+        // The default position centers them in the system titlebar; shift down
+        // by half the height difference so they sit centered in our taller bar.
+        let systemTitlebarHeight = containerView.superview?.frame.height ?? 28
+        let toolbarHeight: CGFloat = 48
+        let verticalShift = (toolbarHeight - systemTitlebarHeight) / 2
+
         containerView.setFrameOrigin(NSPoint(
             x: origin.x + 2,
-            y: origin.y - 8
+            y: origin.y - verticalShift
         ))
     }
 
