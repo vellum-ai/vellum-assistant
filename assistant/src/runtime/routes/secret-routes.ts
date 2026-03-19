@@ -182,6 +182,7 @@ export async function handleAddSecret(
           500,
         );
       }
+      clearEmbeddingBackendCache();
       invalidateConfigCache();
       await initializeProviders(getConfig());
       log.info({ provider: name }, "API key updated via HTTP");
