@@ -276,11 +276,39 @@ extension ChatBubble {
     }
 
     /// Number of tool calls in this message that have inline cached images.
-    /// Used to suppress the corresponding image attachments from the attachment
-    /// grid — only when the count matches (i.e. all image attachments come from
-    /// tool calls), so unrelated image attachments still render normally.
+    /// Used to suppress the corresponding tool-block image attachments from the
+    /// attachment grid only when inline tool previews are actually rendered.
     var inlineToolCallImageCount: Int {
         message.toolCalls.filter { $0.cachedImage != nil }.count
+    }
+
+    /// Returns the image attachments that should still render in the attachment grid.
+    /// When inline tool previews are visible, the matching tool-block images are
+    /// hidden so we do not duplicate the same image twice. Non-tool images remain.
+    func visibleAttachmentImages(_ images: [ChatAttachment]) -> [ChatAttachment] {
+        guard shouldRenderToolProgressInline, inlineToolCallImageCount > 0 else {
+            return images
+        }
+
+        var remainingInlineToolImages = inlineToolCallImageCount
+        return images.filter { attachment in
+            guard attachment.sourceType == "tool_block", remainingInlineToolImages > 0 else {
+                return true
+            }
+            remainingInlineToolImages -= 1
+            return false
+        }
+    }
+
+    @ViewBuilder
+    func attachmentWarningBanners(_ warnings: [String]) -> some View {
+        if !warnings.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
+                    VInlineMessage(warning, tone: .warning)
+                }
+            }
+        }
     }
 
     /// Renders cached images from completed tool calls inline below the

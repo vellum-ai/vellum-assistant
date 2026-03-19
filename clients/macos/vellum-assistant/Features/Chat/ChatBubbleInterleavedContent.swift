@@ -246,11 +246,13 @@ extension ChatBubble {
             }
         }
 
-        // Attachments are not part of contentOrder but must still be rendered
-        // Skip image attachments when tool calls already display images inline
+        // Attachments are not part of contentOrder but must still be rendered.
+        // Hide only the tool-block image attachments that are already shown
+        // inline by completed tool calls; keep directive/host images visible.
         let partitioned = partitionedAttachments
-        if !partitioned.images.isEmpty && inlineToolCallImageCount == 0 {
-            attachmentImageGrid(partitioned.images)
+        let visibleImages = visibleAttachmentImages(partitioned.images)
+        if !visibleImages.isEmpty {
+            attachmentImageGrid(visibleImages)
         }
         if !partitioned.videos.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -266,5 +268,6 @@ extension ChatBubble {
                 }
             }
         }
+        attachmentWarningBanners(message.attachmentWarnings)
     }
 }

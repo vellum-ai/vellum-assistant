@@ -1430,6 +1430,8 @@ public struct ChatAttachment: Identifiable {
     public let id: String
     public let filename: String
     public let mimeType: String
+    /// Origin of the attachment on the daemon side, when known.
+    public let sourceType: String?
     /// Base64-encoded file data. Empty when the attachment was too large to embed
     /// in the history_response — use ``fetchData(port:)`` to load it lazily.
     /// Mutable so it can be nil'd out after the daemon has persisted the data,
@@ -1464,10 +1466,11 @@ public struct ChatAttachment: Identifiable {
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
     #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
+        self.sourceType = sourceType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
@@ -1476,10 +1479,11 @@ public struct ChatAttachment: Identifiable {
         self.filePath = filePath
     }
     #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
+        self.sourceType = sourceType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
@@ -1629,6 +1633,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.conversationError == rhs.conversationError
         && lhs.toolCalls == rhs.toolCalls
         && lhs.attachments.count == rhs.attachments.count
+        && lhs.attachmentWarnings == rhs.attachmentWarnings
         && lhs.inlineSurfaces == rhs.inlineSurfaces
         && lhs.confirmation?.state == rhs.confirmation?.state
         && lhs.guardianDecision?.state == rhs.guardianDecision?.state
@@ -1653,6 +1658,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public var modelList: ModelListData?
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
+    public var attachmentWarnings: [String]
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]
     /// Streaming code preview from tool input generation (e.g. app_create HTML).
@@ -1690,7 +1696,7 @@ public struct ChatMessage: Identifiable, Equatable {
         textSegments.joined(separator: "\n")
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], attachmentWarnings: [String] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -1702,6 +1708,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.guardianDecision = guardianDecision
         self.skillInvocation = skillInvocation
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError

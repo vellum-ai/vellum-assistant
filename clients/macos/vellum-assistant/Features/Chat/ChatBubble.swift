@@ -152,7 +152,8 @@ struct ChatBubble: View {
 
     /// Whether the text/attachment bubble should be rendered.
     /// Tool calls for assistant messages render outside the bubble as separate chips,
-    /// so only show the bubble when there's actual text or attachment content.
+    /// so only show the bubble when there's actual text, attachment content, or
+    /// attachment warnings to show.
     ///
     /// NOTE: When inline surfaces are present, the bubble is intentionally hidden
     /// even if the message also contains text. This is by design — the assistant's
@@ -167,7 +168,7 @@ struct ChatBubble: View {
             let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
-        return hasText || !message.attachments.isEmpty
+        return hasText || !message.attachments.isEmpty || !message.attachmentWarnings.isEmpty
     }
 
     var body: some View {
@@ -203,6 +204,10 @@ struct ChatBubble: View {
                         if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
                             documentWidget(for: documentToolCall)
                         }
+                    }
+
+                    if !hasInterleavedContent {
+                        attachmentWarningBanners(message.attachmentWarnings)
                     }
 
                     // Media embeds rendered below the text, preserving source order
@@ -389,9 +394,9 @@ struct ChatBubble: View {
                         .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 
-                // Skip image attachments when tool calls already display images inline
-                if !partitioned.images.isEmpty && inlineToolCallImageCount == 0 {
-                    attachmentImageGrid(partitioned.images)
+                let visibleImages = visibleAttachmentImages(partitioned.images)
+                if !visibleImages.isEmpty {
+                    attachmentImageGrid(visibleImages)
                 }
 
                 if !partitioned.videos.isEmpty {
@@ -545,4 +550,3 @@ private struct ConditionalCompositingGroup: ViewModifier {
         }
     }
 }
-

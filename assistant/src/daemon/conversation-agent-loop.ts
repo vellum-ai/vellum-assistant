@@ -1625,6 +1625,9 @@ export async function runAgentLoopImpl(
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
             : {}),
+          ...(ctx.lastAttachmentWarnings.length > 0
+            ? { attachmentWarnings: ctx.lastAttachmentWarnings }
+            : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
@@ -1644,6 +1647,9 @@ export async function runAgentLoopImpl(
           conversationId: ctx.conversationId,
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
+            : {}),
+          ...(ctx.lastAttachmentWarnings.length > 0
+            ? { attachmentWarnings: ctx.lastAttachmentWarnings }
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }

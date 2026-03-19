@@ -354,6 +354,7 @@ extension ChatViewModel {
                 id: id,
                 filename: attachment.filename,
                 mimeType: attachment.mimeType,
+                sourceType: attachment.sourceType,
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
@@ -375,6 +376,21 @@ extension ChatViewModel {
             messages[index].attachments.append(contentsOf: chatAttachments)
         } else {
             let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
+    /// Ingest attachment warnings from a completion/handoff event into the
+    /// current or new assistant message.
+    func ingestAssistantAttachmentWarnings(_ warnings: [String]?) {
+        guard let warnings, !warnings.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachmentWarnings.append(contentsOf: warnings)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachmentWarnings: warnings)
             currentAssistantMessageId = msg.id
             messages.append(msg)
         }
@@ -711,6 +727,7 @@ extension ChatViewModel {
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             if !wasRefinement {
                 ingestAssistantAttachments(complete.attachments)
+                ingestAssistantAttachmentWarnings(complete.attachmentWarnings)
             }
             if pendingVoiceMessage {
                 pendingVoiceMessage = false
@@ -1003,6 +1020,7 @@ extension ChatViewModel {
             flushPartialOutputBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
+            ingestAssistantAttachmentWarnings(handoff.attachmentWarnings)
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {

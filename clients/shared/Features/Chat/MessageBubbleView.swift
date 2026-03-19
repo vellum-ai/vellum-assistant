@@ -115,6 +115,14 @@ public struct MessageBubbleView: View {
                     }
                 }
 
+                if !message.attachmentWarnings.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(Array(message.attachmentWarnings.enumerated()), id: \.offset) { _, warning in
+                            VInlineMessage(warning, tone: .warning)
+                        }
+                    }
+                }
+
                 // Offline-pending indicator: shown when the message is buffered
                 // locally awaiting daemon reconnect. Replaces the streaming dots.
                 if message.status == .pendingOffline {
@@ -304,6 +312,5 @@ public struct MessageBubbleView: View {
         return 1.0 + 0.4 * sin(normalized * 2 * .pi)
     }
 }
-
 
 

@@ -1450,8 +1450,8 @@ describe("Conversation host attachment directives", () => {
         ),
       ).toBe(true);
 
-      // Attachment warnings are no longer emitted as assistant_text_delta events
-      // (see 9d39e70ae). They are only stored on ctx.lastAttachmentWarnings.
+      // Attachment warnings are surfaced on the completion payload instead of
+      // being emitted as late assistant_text_delta events.
       const warningDelta = events.find(
         (e) =>
           e.type === "assistant_text_delta" &&
@@ -1460,6 +1460,8 @@ describe("Conversation host attachment directives", () => {
       expect(warningDelta).toBeUndefined();
       const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
+      expect((completion as { attachmentWarnings?: string[] }).attachmentWarnings)
+        .toEqual(expect.arrayContaining([expect.stringContaining("access denied by user")]));
     } finally {
       rmSync(hostPath, { force: true });
     }
