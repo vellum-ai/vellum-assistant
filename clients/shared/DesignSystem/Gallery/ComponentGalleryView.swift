@@ -244,6 +244,7 @@ struct ComponentGalleryView: View {
     @ViewBuilder
     private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String)]) -> some View {
         VDisclosureSection(
+            size: .compact,
             title: category.rawValue,
             icon: category.vIcon.rawValue,
             isExpanded: expansionBinding(for: category)
@@ -263,10 +264,10 @@ struct ComponentGalleryView: View {
     private func sidebarRow(label: String, page: GalleryPage) -> some View {
         let isSelected = selectedPage == page
 
-        return VListRow(isSelected: isSelected, onTap: { selectedPage = page }) {
+        return VListRow(size: .compact, isSelected: isSelected, onTap: { selectedPage = page }) {
             Text(label)
                 .font(VFont.body)
-                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
+                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }

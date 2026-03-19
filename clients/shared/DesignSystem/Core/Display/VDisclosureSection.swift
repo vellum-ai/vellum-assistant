@@ -13,6 +13,15 @@ import SwiftUI
 /// }
 /// ```
 public struct VDisclosureSection<Content: View>: View {
+
+    public enum Size {
+        /// Default density — generous spacing for standalone sections.
+        case `default`
+        /// Compact density — tighter spacing matching sidebar row metrics.
+        case compact
+    }
+
+    public var size: Size = .default
     public let title: String
     public var icon: String? = nil
     public var subtitle: String? = nil
@@ -20,17 +29,54 @@ public struct VDisclosureSection<Content: View>: View {
     @ViewBuilder public let content: () -> Content
 
     public init(
+        size: Size = .default,
         title: String,
         icon: String? = nil,
         subtitle: String? = nil,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: @escaping () -> Content
     ) {
+        self.size = size
         self.title = title
         self.icon = icon
         self.subtitle = subtitle
         self._isExpanded = isExpanded
         self.content = content
+    }
+
+    private var iconSize: CGFloat {
+        switch size {
+        case .default: return 14
+        case .compact: return 13
+        }
+    }
+
+    private var headerSpacing: CGFloat {
+        switch size {
+        case .default: return VSpacing.sm
+        case .compact: return VSpacing.xs
+        }
+    }
+
+    private var titleFont: Font {
+        switch size {
+        case .default: return VFont.bodyBold
+        case .compact: return VFont.body
+        }
+    }
+
+    private var titleColor: Color {
+        switch size {
+        case .default: return VColor.contentDefault
+        case .compact: return VColor.contentSecondary
+        }
+    }
+
+    private var contentTopPadding: CGFloat {
+        switch size {
+        case .default: return VSpacing.sm
+        case .compact: return VSpacing.xxs
+        }
     }
 
     public var body: some View {
@@ -40,17 +86,17 @@ public struct VDisclosureSection<Content: View>: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: VSpacing.sm) {
+                HStack(spacing: headerSpacing) {
                     if let icon {
-                        VIconView(.resolve(icon), size: 14)
+                        VIconView(.resolve(icon), size: iconSize)
                             .foregroundColor(VColor.contentTertiary)
                             .frame(width: 20)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
+                            .font(titleFont)
+                            .foregroundColor(titleColor)
                         if let subtitle {
                             Text(subtitle)
                                 .font(VFont.caption)
@@ -78,7 +124,7 @@ public struct VDisclosureSection<Content: View>: View {
 
             if isExpanded {
                 content()
-                    .padding(.top, VSpacing.sm)
+                    .padding(.top, contentTopPadding)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
