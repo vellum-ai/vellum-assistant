@@ -742,6 +742,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel?.inputText = starter.prompt
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
+            isInteractionEnabled: inspectorMessageId == nil,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
@@ -759,7 +760,6 @@ struct ActiveChatViewWrapper: View {
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
             isBootstrapTimedOut: isBootstrapTimedOut,
-            isInteractionEnabled: inspectorMessageId == nil,
             onBootstrapSendLogs: {
                 AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
             }

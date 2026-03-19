@@ -354,7 +354,6 @@ extension ChatViewModel {
                 id: id,
                 filename: attachment.filename,
                 mimeType: attachment.mimeType,
-                sourceType: attachment.sourceType,
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
@@ -727,7 +726,6 @@ extension ChatViewModel {
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             if !wasRefinement {
                 ingestAssistantAttachments(complete.attachments)
-                ingestAssistantAttachmentWarnings(complete.attachmentWarnings)
             }
             if pendingVoiceMessage {
                 pendingVoiceMessage = false
@@ -1020,7 +1018,6 @@ extension ChatViewModel {
             flushPartialOutputBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
-            ingestAssistantAttachmentWarnings(handoff.attachmentWarnings)
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
