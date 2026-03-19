@@ -22,9 +22,7 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
-    var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
-    var catalogModels: [(id: String, name: String)] = []
     var configuredProviders: Set<String> = []
     var providerCatalog: [ProviderCatalogEntry] = []
     let assistantActivityPhase: String
@@ -227,7 +225,6 @@ struct ChatView: View {
                             assistantActivityReason: assistantActivityReason,
                             assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
-                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders,
                             providerCatalog: providerCatalog,
                             activeSubagents: activeSubagents,
@@ -244,7 +241,6 @@ struct ChatView: View {
                             onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
-                            onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,

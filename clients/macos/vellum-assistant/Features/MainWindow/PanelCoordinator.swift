@@ -662,11 +662,7 @@ struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
-            onModelPickerSelect: { messageId, modelId in
-                settingsStore.setModel(modelId)
-            },
             selectedModel: settingsStore.selectedModel,
-            catalogModels: settingsStore.dynamicProviderModels(settingsStore.selectedInferenceProvider).map { (id: $0.id, name: $0.displayName) },
             configuredProviders: settingsStore.configuredProviders,
             providerCatalog: settingsStore.providerCatalog,
             assistantActivityPhase: viewModel.assistantActivityPhase,
