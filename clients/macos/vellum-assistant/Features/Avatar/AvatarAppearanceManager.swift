@@ -127,16 +127,6 @@ final class AvatarAppearanceManager {
         return Self.workspaceCustomAvatarURL()
     }
 
-    /// Whether the connected assistant has a local workspace directory.
-    /// When false (Docker/remote instances), avatar data must be fetched via HTTP.
-    private var hasLocalWorkspace: Bool {
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let assistant = LockfileAssistant.loadByName(assistantId) {
-            return assistant.workspaceDir != nil
-        }
-        return true
-    }
-
     /// The assistant's display name, loaded once from IDENTITY.md to avoid repeated disk I/O.
     private var assistantName: String = "V"
 
@@ -145,16 +135,9 @@ final class AvatarAppearanceManager {
             IdentityInfo.load()?.name,
             fallback: "V"
         )
-        if hasLocalWorkspace {
-            loadCustomAvatar()
-            loadAvatarComponents()
-            watchAvatarFile()
-            watchTraitsFile()
-        } else {
-            Task { [weak self] in
-                await self?.fetchAvatarViaHTTP()
-                await self?.fetchTraitsViaHTTP()
-            }
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
         }
         updateDockLabel()
 
@@ -332,7 +315,7 @@ final class AvatarAppearanceManager {
     /// (`proceedToApp`), and after assistant switches.
     /// Invalidates all cached images so SwiftUI views pick up the new avatar,
     /// and re-reads the identity so the dock label reflects the current assistant.
-    /// For Docker/remote instances, fetches via HTTP through the gateway.
+    /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
         assistantName = AssistantDisplayName.resolve(
             IdentityInfo.load()?.name,
@@ -343,14 +326,9 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
-        if hasLocalWorkspace {
-            loadCustomAvatar()
-            loadAvatarComponents()
-        } else {
-            Task { [weak self] in
-                await self?.fetchAvatarViaHTTP()
-                await self?.fetchTraitsViaHTTP()
-            }
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
         }
         updateDockLabel()
     }
