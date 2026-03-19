@@ -97,15 +97,21 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 1)
     }
 
-    func testDeprecatedModelStillBypassesWorkspaceRefinementAndSends() {
+    func testUnknownSlashCommandsUseWorkspaceRefinementWhenSurfaceIsActive() {
         viewModel.activeSurfaceId = "surface-1"
         viewModel.isChatDockedToSide = false
 
+        viewModel.inputText = "/foo"
+        viewModel.sendMessage()
+
+        XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
+        XCTAssertEqual(viewModel.messages.count, 0)
+
+        viewModel.isWorkspaceRefinementInFlight = false
         viewModel.inputText = "/model"
         viewModel.sendMessage()
 
-        XCTAssertFalse(viewModel.isWorkspaceRefinementInFlight)
-        XCTAssertEqual(viewModel.messages.count, 1)
-        XCTAssertEqual(viewModel.messages[0].text, "/model")
+        XCTAssertTrue(viewModel.isWorkspaceRefinementInFlight)
+        XCTAssertEqual(viewModel.messages.count, 0)
     }
 }

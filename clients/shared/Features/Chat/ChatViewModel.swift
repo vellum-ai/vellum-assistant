@@ -1226,8 +1226,11 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let hasSlashCommandToken = ChatSlashCommandCatalog.normalizedCommandName(from: text) != nil
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !hasSlashCommandToken
+        let hasRecognizedSlashCommand = ChatSlashCommandCatalog.isRecognizedSlashCommand(
+            text,
+            surface: .sendPath
+        )
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !hasRecognizedSlashCommand
 
         let willBeQueued = isSending && conversationId != nil
         var queuedMessageId: UUID?
