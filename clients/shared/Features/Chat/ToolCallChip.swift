@@ -44,6 +44,14 @@ public struct ToolCallChip: View {
         return count
     }
 
+    /// Whether the tool produces diff-formatted output that benefits from line-level highlighting.
+    static func isFileEditTool(_ name: String) -> Bool {
+        switch name {
+        case "file_edit", "host_file_edit", "app_file_edit": return true
+        default: return false
+        }
+    }
+
     /// Human-readable explanation for common exit codes.
     static func exitCodeExplanation(_ code: Int) -> String? {
         switch code {
@@ -219,7 +227,9 @@ public struct ToolCallChip: View {
                                 }
                             } else {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
-                                if lineCount > 500 {
+                                if Self.isFileEditTool(toolCall.toolName) {
+                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
+                                } else if lineCount > 500 {
                                     ScrollView {
                                         Text(result)
                                             .font(VFont.monoSmall)
