@@ -152,17 +152,35 @@ export async function restore(): Promise<void> {
     // Preflight check
     console.log("Running preflight analysis...\n");
 
-    const response = await fetch(
-      `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/octet-stream",
+    let response: Response;
+    try {
+      response = await fetch(
+        `${entry.runtimeUrl}/v1/migrations/import-preflight`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: bundleData,
+          signal: AbortSignal.timeout(120_000),
         },
-        body: bundleData,
-      },
-    );
+      );
+    } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        console.error("Error: Preflight request timed out after 2 minutes.");
+        process.exit(1);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+        console.error(
+          `Error: Could not connect to assistant '${name}'. Is it running?`,
+        );
+        console.error(`Try: vellum wake ${name}`);
+        process.exit(1);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const body = await response.text();
@@ -213,18 +231,35 @@ export async function restore(): Promise<void> {
     // Full import
     console.log("Importing backup...\n");
 
-    const response = await fetch(
-      `${entry.runtimeUrl}/v1/migrations/import`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/octet-stream",
+    let response: Response;
+    try {
+      response = await fetch(
+        `${entry.runtimeUrl}/v1/migrations/import`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: bundleData,
+          signal: AbortSignal.timeout(120_000),
         },
-        body: bundleData,
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
+      );
+    } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        console.error("Error: Import request timed out after 2 minutes.");
+        process.exit(1);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+        console.error(
+          `Error: Could not connect to assistant '${name}'. Is it running?`,
+        );
+        console.error(`Try: vellum wake ${name}`);
+        process.exit(1);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const body = await response.text();
