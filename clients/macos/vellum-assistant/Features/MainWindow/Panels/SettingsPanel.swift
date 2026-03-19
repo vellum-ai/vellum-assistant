@@ -91,6 +91,7 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
+    @State private var embeddingKeyText: String = ""
 
     @State private var showingTrustRules = false
     @State private var accessibilityGranted: Bool = false
@@ -394,6 +395,13 @@ struct SettingsPanel: View {
                 store: store,
                 authManager: authManager,
                 apiKeyText: $imageGenKeyText,
+                showToast: showToast
+            )
+
+            // EMBEDDING
+            EmbeddingServiceCard(
+                store: store,
+                apiKeyText: $embeddingKeyText,
                 showToast: showToast
             )
 

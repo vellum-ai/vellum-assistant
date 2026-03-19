@@ -741,6 +741,10 @@ export function handleSurfaceAction(
       selectedIds,
     );
   }
+  const accumulatedState = ctx.accumulatedSurfaceState.get(surfaceId);
+  if (accumulatedState && Object.keys(accumulatedState).length > 0) {
+    fallbackContent += `\n\nAccumulated surface state: ${JSON.stringify(accumulatedState)}`;
+  }
   // When a relay_prompt button also carries selection data (e.g. list/table
   // surface with a canned prompt + user-selected rows), append the selection
   // context so the LLM sees both the prompt and the user's selections.
