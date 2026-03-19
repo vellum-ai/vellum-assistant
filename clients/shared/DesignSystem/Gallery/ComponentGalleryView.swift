@@ -224,6 +224,7 @@ struct ComponentGalleryView: View {
                                     Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
                                         .contentShape(Rectangle())
                                         .onTapGesture {
+                                            guard !isSearching else { return }
                                             isExpanded(item.category).wrappedValue.toggle()
                                         }
                                 }
