@@ -1249,9 +1249,29 @@ export class DaemonServer {
    * Look up an active conversation that owns a given surfaceId.
    */
   findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
+    // Fast path: exact surfaceId match in surfaceState
     for (const c of this.conversations.values()) {
       if (c.surfaceState.has(surfaceId)) return c;
     }
+
+    // Fallback: standalone app surfaces use "app-open-{appId}" IDs that
+    // were never part of any conversation.  Extract the appId and find
+    // a conversation whose surfaceState has a surface for that app.
+    const appOpenPrefix = "app-open-";
+    if (surfaceId.startsWith(appOpenPrefix)) {
+      const appId = surfaceId.slice(appOpenPrefix.length);
+      for (const c of this.conversations.values()) {
+        for (const [, state] of c.surfaceState.entries()) {
+          const data = state.data as Record<string, unknown>;
+          if (data?.appId === appId) {
+            // Register this surfaceId so subsequent lookups are O(1)
+            c.surfaceState.set(surfaceId, state);
+            return c;
+          }
+        }
+      }
+    }
+
     return undefined;
   }
 
