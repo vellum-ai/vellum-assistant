@@ -26,16 +26,16 @@ import {
   getFilePathForAttachment,
 } from "./attachments-store.js";
 import {
+  getConversation,
+  getMessageById,
+  getMessages,
+} from "./conversation-crud.js";
+import {
   getConversationDirName,
   getConversationDirPath,
   getLegacyConversationDirPath,
   getResolvedConversationDirPath,
 } from "./conversation-directories.js";
-import {
-  getConversation,
-  getMessageById,
-  getMessages,
-} from "./conversation-crud.js";
 
 const log = getLogger("conversation-disk-view");
 
@@ -49,10 +49,7 @@ export {
   getResolvedConversationDirPath,
 };
 
-function ensureConversationDirPath(
-  id: string,
-  createdAtMs: number,
-): string {
+function ensureConversationDirPath(id: string, createdAtMs: number): string {
   const dirPath = getResolvedConversationDirPath(id, createdAtMs);
   mkdirSync(dirPath, { recursive: true });
   return dirPath;
