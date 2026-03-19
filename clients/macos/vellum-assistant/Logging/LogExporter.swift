@@ -229,7 +229,10 @@ enum LogExporter {
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant = await MainActor.run { Self.isManagedAssistant }
+        let isManagedAssistant: Bool = {
+            guard let id = connectedId else { return false }
+            return LockfileAssistant.loadByName(id)?.isManaged == true
+        }()
 
         var daemonUnreachable = false
         if isManagedAssistant, let assistantId = connectedId,
