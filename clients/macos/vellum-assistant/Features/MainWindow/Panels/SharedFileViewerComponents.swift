@@ -98,6 +98,12 @@ struct FileContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+        .onChange(of: viewMode) { _, newMode in
+            let modes = availableViewModes(for: fileName, mimeType: mimeType)
+            guard modes.count > 1 else { return }
+            let preference = newMode == .source ? "source" : "preview"
+            UserDefaults.standard.set(preference, forKey: "fileViewerPreferredMode")
+        }
     }
 }
 

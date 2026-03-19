@@ -46,7 +46,10 @@ final class WorkspaceBrowserState {
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
         let ext = (targetPath as NSString).pathExtension.lowercased()
-        if ext == "md" || ext == "markdown" {
+        let prefersSource = UserDefaults.standard.string(forKey: "fileViewerPreferredMode") == "source"
+        if prefersSource {
+            viewMode = .source
+        } else if ext == "md" || ext == "markdown" {
             viewMode = .preview
         } else if ext == "json" {
             viewMode = .tree
@@ -66,7 +69,7 @@ final class WorkspaceBrowserState {
             let isJSON = ext == "json"
                 || detail?.mimeType.lowercased().hasPrefix("application/json") == true
             let content = isJSON ? Self.prettyPrintJSON(raw) : raw
-            if isJSON, viewMode != .tree {
+            if isJSON, !prefersSource, viewMode != .tree {
                 viewMode = .tree
             }
             editableContent = content

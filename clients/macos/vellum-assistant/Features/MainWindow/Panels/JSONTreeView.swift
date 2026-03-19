@@ -67,7 +67,7 @@ private enum JSONNode: Identifiable {
     private static func prettyPrint(_ obj: Any) -> String {
         guard let data = try? JSONSerialization.data(
             withJSONObject: obj,
-            options: [.prettyPrinted, .withoutEscapingSlashes]
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         ) else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
