@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-// Mock the logger before importing the module under test
+// Mock the logger before importing the module under test so log calls are no-ops
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -37,6 +37,7 @@ const apps = new Map<string, typeof legacyApp | typeof multifileApp>([
 mock.module("../memory/app-store.js", () => ({
   getApp: (id: string) => apps.get(id) ?? null,
   getAppsDir: () => "/fake/apps",
+  getAppDirPath: (id: string) => `/fake/apps/${id}`,
   isMultifileApp: (app: Record<string, unknown>) => app.formatVersion === 2,
 }));
 
