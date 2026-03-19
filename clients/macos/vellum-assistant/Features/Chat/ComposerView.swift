@@ -153,6 +153,11 @@ struct ComposerView: View {
                 suppressSlashReopen = false
             }
         }
+        .onChange(of: hasPendingConfirmation) { _, pending in
+            if !pending, isInteractionEnabled {
+                composerFocus = true
+            }
+        }
     }
 
     /// The text overlays (slash highlighting, ghost text) rendered behind / on
