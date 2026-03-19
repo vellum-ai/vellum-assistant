@@ -147,6 +147,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case power = "lucide-power"
     case settings = "lucide-settings"
     case slidersHorizontal = "lucide-sliders-horizontal"
+    case filter = "lucide-filter"
     case cpu = "lucide-cpu"
     case hardDrive = "lucide-hard-drive"
     case network = "lucide-network"
