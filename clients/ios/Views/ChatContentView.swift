@@ -32,6 +32,21 @@ struct PendingChatAnchorResolution: Equatable {
     let requiresExpandedWindow: Bool
 }
 
+func makeOnForkFromMessageAction(
+    conversationLocalId: UUID?,
+    forkConversationFromMessage: ((UUID, String) async -> UUID?)?
+) -> ((String) -> Void)? {
+    guard let conversationLocalId, let forkConversationFromMessage else {
+        return nil
+    }
+
+    return { daemonMessageId in
+        Task {
+            _ = await forkConversationFromMessage(conversationLocalId, daemonMessageId)
+        }
+    }
+}
+
 func resolvePendingChatAnchor(
     daemonMessageId: String,
     displayedMessages: [ChatMessage],
@@ -57,6 +72,7 @@ struct ChatContentView: View {
     var pendingAnchorRequestId: UUID? = nil
     var pendingAnchorDaemonMessageId: String? = nil
     var onPendingAnchorHandled: ((UUID) -> Void)? = nil
+    var onForkFromMessage: ((String) -> Void)? = nil
     @FocusState private var isInputFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var emptyStateVisible = false
@@ -414,7 +430,8 @@ struct ChatContentView: View {
             onSurfaceRefetch: { surfaceId, conversationId in
                 viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
             },
-            onRetryConversationError: message.isError && index == messages.count - 1 ? { viewModel.retryAfterConversationError() } : nil
+            onRetryConversationError: message.isError && index == messages.count - 1 ? { viewModel.retryAfterConversationError() } : nil,
+            onForkFromMessage: onForkFromMessage
         )
 
         // Inline media embeds (images, videos)

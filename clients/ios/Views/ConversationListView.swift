@@ -723,7 +723,16 @@ struct ConversationChatView: View {
                 pendingAnchorDaemonMessageId: anchorRequest?.daemonMessageId,
                 onPendingAnchorHandled: { requestId in
                     store.consumePendingAnchorRequest(id: requestId)
-                }
+                },
+                onForkFromMessage: conversation.conversationId == nil ? nil : makeOnForkFromMessageAction(
+                    conversationLocalId: conversation.id,
+                    forkConversationFromMessage: { conversationLocalId, daemonMessageId in
+                        await store.forkConversation(
+                            conversationLocalId: conversationLocalId,
+                            throughDaemonMessageId: daemonMessageId
+                        )
+                    }
+                )
             )
         }
             .navigationTitle("Chat")
