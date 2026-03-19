@@ -172,22 +172,7 @@ export async function setModel(
 
   ctx.updateConfigFingerprint();
 
-  const newProvider = config.services.inference.provider;
-
-  const setMaskedKeys: Record<string, string> = {};
-  for (const p of VALID_INFERENCE_PROVIDERS) {
-    const masked = await getMaskedProviderKey(p);
-    if (masked) setMaskedKeys[p] = masked;
-  }
-
-  return {
-    model: config.services.inference.model,
-    provider: newProvider,
-    configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[newProvider],
-    allProviders: getFullProviderCatalog(),
-    maskedKeys: setMaskedKeys,
-  };
+  return await getModelInfo();
 }
 
 /**
