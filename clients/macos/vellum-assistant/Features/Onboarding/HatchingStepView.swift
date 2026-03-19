@@ -264,8 +264,6 @@ struct HatchingStepView: View {
     private static let dockerReadySentinel = "Docker containers are up and running"
 
     private func startRemoteHatch() {
-        let apiKey = APIKeyManager.getKey(for: "anthropic") ?? ""
-
         let config = VellumCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
@@ -274,8 +272,7 @@ struct HatchingStepView: View {
             awsRoleArn: state.awsRoleArn,
             sshHost: state.sshHost,
             sshUser: state.sshUser,
-            sshPrivateKey: state.sshPrivateKey,
-            anthropicApiKey: apiKey
+            sshPrivateKey: state.sshPrivateKey
         )
 
         Task {

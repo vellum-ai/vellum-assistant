@@ -81,7 +81,7 @@ final class VellumCli {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
-        "ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+        "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
         // Cloud provider auth — needed by hatch and retire flows.
@@ -349,7 +349,6 @@ final class VellumCli {
         var sshHost: String = ""
         var sshUser: String = ""
         var sshPrivateKey: String = ""
-        var anthropicApiKey: String = ""
     }
 
     func runRemoteHatch(
@@ -397,10 +396,6 @@ final class VellumCli {
             #else
             env["VELLUM_PLATFORM_URL"] = "https://vellum.ai"
             #endif
-        }
-
-        if !config.anthropicApiKey.isEmpty {
-            env["ANTHROPIC_API_KEY"] = config.anthropicApiKey
         }
 
         if config.remote == "gcp" {
@@ -693,14 +688,6 @@ final class VellumCli {
                 if env["RUNTIME_HTTP_PORT"] == nil,
                    let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                     env["RUNTIME_HTTP_PORT"] = port
-                }
-                // Fall back to credential storage for the Anthropic API key
-                // when it's not in the process environment (e.g. app launched
-                // from Finder, not a terminal with ANTHROPIC_API_KEY set).
-                if env["ANTHROPIC_API_KEY"] == nil,
-                   let storedKey = APIKeyManager.getKey(for: "anthropic"),
-                   !storedKey.isEmpty {
-                    env["ANTHROPIC_API_KEY"] = storedKey
                 }
                 proc.environment = env
 
