@@ -366,21 +366,55 @@ export function handleListMessages(
       content = msg.content;
     }
     const rendered = renderHistoryContent(content);
-    // Strip <no_response/> markers so web/API clients never see the raw
-    // sentinel that the delivery layer uses to suppress channel output.
-    const filteredSegments = rendered.textSegments
-      ?.map((s) => s.replace(NO_RESPONSE_INLINE_RE, "").trim())
-      .filter((s) => s.length > 0);
-    const filteredText = rendered.text
-      .replace(NO_RESPONSE_INLINE_RE, "")
-      .trim();
+
+    // Strip <no_response/> markers from assistant messages so web/API
+    // clients never see the raw sentinel. Only assistant messages produce
+    // this marker; user messages are left untouched.
+    if (msg.role === "assistant") {
+      const originalSegments = rendered.textSegments;
+      const keepIndices: number[] = [];
+      const filteredSegments: string[] = [];
+      for (let i = 0; i < originalSegments.length; i++) {
+        const cleaned = originalSegments[i]
+          .replace(NO_RESPONSE_INLINE_RE, "")
+          .trim();
+        if (cleaned.length > 0) {
+          keepIndices.push(i);
+          filteredSegments.push(cleaned);
+        }
+      }
+      // Remap contentOrder text:N indices to account for removed segments
+      const indexMap = new Map<number, number>();
+      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+      const filteredContentOrder = rendered.contentOrder
+        .map((entry) => {
+          const m = entry.match(/^text:(\d+)$/);
+          if (!m) return entry;
+          const newIdx = indexMap.get(Number(m[1]));
+          return newIdx !== undefined ? `text:${newIdx}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+
+      return {
+        role: msg.role,
+        text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+        timestamp: msg.createdAt,
+        toolCalls: rendered.toolCalls,
+        toolCallsBeforeText: rendered.toolCallsBeforeText,
+        textSegments: filteredSegments,
+        contentOrder: filteredContentOrder,
+        surfaces: rendered.surfaces,
+        id: msg.id,
+      };
+    }
+
     return {
       role: msg.role,
-      text: filteredText,
+      text: rendered.text,
       timestamp: msg.createdAt,
       toolCalls: rendered.toolCalls,
       toolCallsBeforeText: rendered.toolCallsBeforeText,
-      textSegments: filteredSegments,
+      textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
       id: msg.id,
