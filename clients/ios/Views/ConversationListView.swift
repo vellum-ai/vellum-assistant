@@ -42,6 +42,7 @@ func applyConversationSelectionRequest(
     }
 }
 
+@MainActor
 func shouldShowCurrentTipForkAction(
     store: IOSConversationStore,
     for conversation: IOSConversation
