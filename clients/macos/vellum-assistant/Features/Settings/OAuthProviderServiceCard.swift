@@ -410,7 +410,7 @@ struct OAuthProviderServiceCard: View {
                     Text("Client ID")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
-                    VTextField(placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID", text: $createAppClientId)
+                    VTextField(placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID", text: $createAppClientId, maxWidth: .infinity)
                 }
                 if (providerMeta?.requires_client_secret ?? 1) != 0 {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -418,7 +418,7 @@ struct OAuthProviderServiceCard: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentSecondary)
                         SecureField("Enter client secret", text: $createAppClientSecret)
-                            .vInputStyle()
+                            .vInputStyle(maxWidth: .infinity)
                             .font(VFont.body)
                     }
                 }
