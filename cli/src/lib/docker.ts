@@ -285,6 +285,7 @@ export function dockerResourceNames(instanceName: string) {
     cesSecurityVolume: `${instanceName}-ces-sec`,
     dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
+    gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
     socketVolume: `${instanceName}-socket`,
     workspaceVolume: `${instanceName}-workspace`,
@@ -342,6 +343,7 @@ export async function retireDocker(name: string): Promise<void> {
     res.socketVolume,
     res.workspaceVolume,
     res.cesSecurityVolume,
+    res.gatewaySecurityVolume,
   ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
@@ -518,10 +520,14 @@ export function serviceDockerRunArgs(opts: {
       `${res.dataVolume}:/data`,
       "-v",
       `${res.workspaceVolume}:/workspace`,
+      "-v",
+      `${res.gatewaySecurityVolume}:/gateway-security`,
       "-e",
       "BASE_DATA_DIR=/data",
       "-e",
       "WORKSPACE_DIR=/workspace",
+      "-e",
+      "GATEWAY_SECURITY_DIR=/gateway-security",
       "-e",
       `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
       "-e",
@@ -905,6 +911,7 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
+    await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
