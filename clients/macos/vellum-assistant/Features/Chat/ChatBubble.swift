@@ -51,10 +51,94 @@ struct ChatBubble: View {
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
-    @State var cachedHasInterleavedContent: Bool = false
-    @State var cachedContentGroups: [ContentGroup] = []
+    // Eagerly initialized in init() to prevent first-frame flash where the
+    // wrong layout path renders before .onAppear fires.
+    @State var cachedHasInterleavedContent: Bool
+    @State var cachedContentGroups: [ContentGroup]
     /// Set of stableIds for tool-call groups that have non-empty text after them.
-    @State var cachedToolGroupsWithTrailingText: Set<String> = []
+    @State var cachedToolGroupsWithTrailingText: Set<String>
+
+    init(
+        message: ChatMessage,
+        decidedConfirmation: ToolConfirmationData?,
+        onSurfaceAction: @escaping (String, String, [String: AnyCodable]?) -> Void,
+        onDismissDocumentWidget: @escaping (String) -> Void,
+        dismissedDocumentSurfaceIds: Set<String>,
+        onReportMessage: ((String?) -> Void)? = nil,
+        onForkFromMessage: ((String) -> Void)? = nil,
+        showInspectButton: Bool = false,
+        onInspectMessage: ((String?) -> Void)? = nil,
+        onSurfaceRefetch: ((String, String) -> Void)? = nil,
+        onRehydrate: (() -> Void)? = nil,
+        mediaEmbedSettings: MediaEmbedResolverSettings? = nil,
+        resolveHttpPort: @escaping (() -> Int?) = { nil },
+        onConfirmationAllow: ((String) -> Void)? = nil,
+        onConfirmationDeny: ((String) -> Void)? = nil,
+        onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
+        onTemporaryAllow: ((String, String) -> Void)? = nil,
+        activeConfirmationRequestId: String? = nil,
+        onRetryFailedMessage: ((UUID) -> Void)? = nil,
+        onRetryConversationError: (() -> Void)? = nil,
+        isLatestAssistantMessage: Bool = false,
+        isProcessingAfterTools: Bool = false,
+        processingStatusText: String? = nil,
+        activeSurfaceId: String? = nil
+    ) {
+        self.message = message
+        self.decidedConfirmation = decidedConfirmation
+        self.onSurfaceAction = onSurfaceAction
+        self.onDismissDocumentWidget = onDismissDocumentWidget
+        self.dismissedDocumentSurfaceIds = dismissedDocumentSurfaceIds
+        self.onReportMessage = onReportMessage
+        self.onForkFromMessage = onForkFromMessage
+        self.showInspectButton = showInspectButton
+        self.onInspectMessage = onInspectMessage
+        self.onSurfaceRefetch = onSurfaceRefetch
+        self.onRehydrate = onRehydrate
+        self.mediaEmbedSettings = mediaEmbedSettings
+        self.resolveHttpPort = resolveHttpPort
+        self.onConfirmationAllow = onConfirmationAllow
+        self.onConfirmationDeny = onConfirmationDeny
+        self.onAlwaysAllow = onAlwaysAllow
+        self.onTemporaryAllow = onTemporaryAllow
+        self.activeConfirmationRequestId = activeConfirmationRequestId
+        self.onRetryFailedMessage = onRetryFailedMessage
+        self.onRetryConversationError = onRetryConversationError
+        self.isLatestAssistantMessage = isLatestAssistantMessage
+        self.isProcessingAfterTools = isProcessingAfterTools
+        self.processingStatusText = processingStatusText
+        self.activeSurfaceId = activeSurfaceId
+
+        // Eagerly compute interleaved content cache so the first body
+        // evaluation uses the correct layout path (no flash).
+        let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
+        _cachedHasInterleavedContent = State(initialValue: interleaved)
+
+        if interleaved {
+            let groups = Self.computeContentGroupsStatic(
+                contentOrder: message.contentOrder,
+                hasInterleavedContent: interleaved
+            )
+            _cachedContentGroups = State(initialValue: groups)
+
+            var trailingTextIds = Set<String>()
+            for group in groups {
+                guard case .toolCalls(let indices) = group else { continue }
+                if Self.computeHasTextAfterToolGroupStatic(
+                    toolIndices: indices,
+                    contentOrder: message.contentOrder,
+                    textSegments: message.textSegments,
+                    hasText: !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
+                    trailingTextIds.insert(group.stableId)
+                }
+            }
+            _cachedToolGroupsWithTrailingText = State(initialValue: trailingTextIds)
+        } else {
+            _cachedContentGroups = State(initialValue: [])
+            _cachedToolGroupsWithTrailingText = State(initialValue: [])
+        }
+    }
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).
