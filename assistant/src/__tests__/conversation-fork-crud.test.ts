@@ -174,6 +174,34 @@ describe("forkConversation", () => {
     ).toBe(true);
   });
 
+  test("preserves source order when source messages share a timestamp", () => {
+    const source = createConversation("Equal timestamp thread");
+    const db = getDb();
+    const createdAt = Date.now();
+
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('z-source-message', '${source.id}', 'user', 'first', ${createdAt})`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a-source-message', '${source.id}', 'assistant', 'second', ${createdAt})`,
+    );
+
+    const sourceMessages = getMessages(source.id);
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = getMessages(fork.id);
+
+    expect(sourceMessages.map((message) => message.content)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(forkMessages.map((message) => message.content)).toEqual(
+      sourceMessages.map((message) => message.content),
+    );
+    expect(forkMessages.map((message) => message.role)).toEqual(
+      sourceMessages.map((message) => message.role),
+    );
+  });
+
   test("forks only through the requested branch point", async () => {
     const source = createConversation("Branchable thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
