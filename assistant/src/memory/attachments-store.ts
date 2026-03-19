@@ -317,10 +317,18 @@ export function getSourcePathsForAttachments(
  * Returns the workspace-internal file path if found, or null otherwise.
  * Useful as a fallback when the original source_path is outside the sandbox.
  */
-export function getFilePathBySourcePath(sourcePath: string): string | null {
+export function getFilePathBySourcePath(
+  sourcePath: string,
+  conversationId: string,
+): string | null {
   const row = rawGet<{ file_path: string | null }>(
-    "SELECT file_path FROM attachments WHERE source_path = ? ORDER BY created_at DESC LIMIT 1",
+    `SELECT a.file_path FROM attachments a
+     JOIN message_attachments ma ON ma.attachment_id = a.id
+     JOIN messages m ON m.id = ma.message_id
+     WHERE a.source_path = ? AND m.conversation_id = ?
+     ORDER BY a.created_at DESC LIMIT 1`,
     sourcePath,
+    conversationId,
   );
   return row?.file_path ?? null;
 }
