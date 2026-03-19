@@ -1,6 +1,6 @@
 # Integrations Architecture
 
-OAuth, messaging adapters, script proxy, and asset-tool architecture.
+OAuth, messaging adapters, script proxy, and conversation disk view architecture.
 
 ## Integrations — OAuth2 + Unified Messaging
 
@@ -514,90 +514,80 @@ The proxy subsystem is fully wired, including credential injection. The session 
 
 ---
 
-## Asset Search and Materialize — Cross-Conversation Media Reuse
+## Conversation Disk View — Filesystem-Based Conversation Access
 
-The `asset_search` and `asset_materialize` tools enable the assistant to discover and use previously uploaded media assets (images, documents, audio) across conversations. Assets are stored as base64-encoded blobs in the `attachments` table and linked to messages via the `message_attachments` join table.
+The conversation disk view projects conversation metadata, messages, and attachments to a browsable filesystem layout under `~/.vellum/workspace/conversations/`. This enables the assistant to search, read, and manipulate conversation data (including media attachments) using standard file tools (`read_file`, `glob`, `grep`) rather than dedicated asset search tools.
 
-### Asset Discovery and Materialization Flow
+### Directory Layout
+
+Each conversation is projected to a directory named `{id}_{isoDate}`:
+
+```
+~/.vellum/workspace/conversations/
+  abc123_2025-01-15T10-30-00.000Z/
+    meta.json             # Conversation metadata (id, title, type, channel, timestamps)
+    messages.jsonl        # Flattened message log (one JSON object per line)
+    attachments/          # Decoded attachment files (original filenames, collision-safe)
+      photo.png
+      document.pdf
+```
+
+### Write-Through Sync
+
+Disk writes happen as a write-through side effect of DB operations — whenever a conversation is created, updated, or receives a new message, the corresponding disk-view files are updated in lockstep. All disk writes are best-effort; failures are logged but never thrown, so the disk view cannot break DB operations.
 
 ```mermaid
 sequenceDiagram
-    participant Model as LLM
-    participant Search as asset_search tool
-    participant DB as SQLite (attachments)
-    participant Visibility as media-visibility-policy
-    participant Materialize as asset_materialize tool
-    participant Sandbox as Sandbox filesystem
+    participant CRUD as conversation-crud.ts
+    participant DiskView as conversation-disk-view.ts
+    participant FS as Filesystem
 
-    Model->>Search: search(mime_type: "image/*", recency: "last_7_days")
-    Search->>DB: query attachments (filters)
-    DB-->>Search: matching rows (metadata only, no base64)
-    Search->>Visibility: filterVisibleAttachments(results, currentContext)
-    Note over Visibility: Private-conversation attachments filtered out<br/>unless viewer is in the same conversation
-    Visibility-->>Search: visible results
-    Search-->>Model: metadata list (IDs, filenames, types, sizes)
+    Note over CRUD,FS: Conversation creation
+    CRUD->>CRUD: INSERT conversation row
+    CRUD->>DiskView: initConversationDir(conv)
+    DiskView->>FS: mkdir + write meta.json
 
-    Model->>Materialize: materialize(attachment_id, destination_path)
-    Materialize->>Materialize: sandboxPolicy(destination_path)
-    Materialize->>DB: load attachment (including base64 data)
-    Materialize->>Visibility: isAttachmentVisible(attachmentCtx, currentCtx)
-    Note over Visibility: Second visibility check at materialize time<br/>prevents TOCTOU between search and materialize
-    Materialize->>Materialize: size check (max 100 MB)
-    Materialize->>Sandbox: write decoded bytes to destination
-    Materialize-->>Model: "Materialized 'photo.jpg' to /workspace/media/photo.jpg"
+    Note over CRUD,FS: Message insertion
+    CRUD->>CRUD: INSERT message row
+    CRUD->>DiskView: syncMessageToDisk(convId, msgId, createdAtMs)
+    DiskView->>DiskView: flattenContentBlocks(content)
+    DiskView->>FS: append JSONL record to messages.jsonl
+    DiskView->>FS: write attachment files to attachments/
+
+    Note over CRUD,FS: Conversation update (title change, etc.)
+    CRUD->>CRUD: UPDATE conversation row
+    CRUD->>DiskView: updateMetaFile(conv)
+    DiskView->>FS: rewrite meta.json
+
+    Note over CRUD,FS: Conversation deletion
+    CRUD->>CRUD: DELETE conversation row
+    CRUD->>DiskView: removeConversationDir(id, createdAtMs)
+    DiskView->>FS: rm -rf conversation directory
 ```
 
-### Private Conversation Visibility Gate
+### Content Flattening
 
-Attachments from private conversations are only visible to the same private conversation. Standard-conversation attachments are visible everywhere. The policy is enforced at both the search and materialize stages to prevent cross-conversation data leakage.
+Message content (stored as JSON `ContentBlock[]` in the DB) is flattened for the JSONL log:
 
-```mermaid
-graph TB
-    subgraph "Visibility Rules"
-        ATT_STD["Attachment from<br/>standard conversation"]
-        ATT_PVT["Attachment from<br/>private conversation"]
+- **Text blocks** are concatenated into a single `content` string.
+- **Tool use blocks** are extracted into a `toolCalls` array (`{ name, input }`).
+- **Tool result blocks** are extracted into a `toolResults` array.
+- **Image/file blocks** are skipped — they are represented via the `attachments/` subdirectory instead.
 
-        VIEWER_ANY["Any conversation<br/>(standard or private)"]
-        VIEWER_SAME["Same private conversation<br/>(matching conversationId)"]
-        VIEWER_OTHER["Different private conversation<br/>or standard conversation"]
-    end
+### Attachment Projection
 
-    ATT_STD -->|"always visible"| VIEWER_ANY
-    ATT_PVT -->|"visible"| VIEWER_SAME
-    ATT_PVT -->|"hidden"| VIEWER_OTHER
-```
+When a message with attachments is synced, each attachment's binary content is decoded from the DB and written to the `attachments/` subdirectory using the original filename. Filename collisions are resolved by appending a numeric suffix (e.g., `photo-2.png`, `photo-3.png`). The resolved filenames are recorded in the JSONL record's `attachments` array.
 
-**Source conversation lookup**: The `getAttachmentSourceConversations()` function traces an attachment's lineage through `message_attachments` -> `messages` -> `conversations` to determine which conversations it belongs to and whether any of them are private.
+### Backfill Migration
 
-**Mixed-source attachments**: If an attachment is linked to messages in both standard and private conversations (e.g., the user shared the same file in two conversations), the attachment is treated as globally visible because at least one source is non-private.
-
-**Orphan attachments**: Attachments with no message linkage (orphans) are treated as universally visible rather than hidden, since they have no private-conversation provenance.
-
-### Search Capabilities
-
-| Parameter         | Type   | Description                                                                                    |
-| ----------------- | ------ | ---------------------------------------------------------------------------------------------- |
-| `mime_type`       | string | MIME type filter with wildcard support (`image/*`, `application/pdf`)                          |
-| `filename`        | string | Case-insensitive substring match on original filename                                          |
-| `recency`         | enum   | Time-based filter: `last_hour`, `last_24_hours`, `last_7_days`, `last_30_days`, `last_90_days` |
-| `conversation_id` | string | Scope results to attachments in a specific conversation                                        |
-| `limit`           | number | Maximum results (default 20, max 100)                                                          |
-
-### Materialize Safeguards
-
-- **Sandbox path enforcement**: Destination path must resolve inside the sandbox working directory
-- **Size limit**: 100 MB ceiling prevents materializing excessively large attachments
-- **Double visibility check**: Both `asset_search` and `asset_materialize` independently verify visibility, preventing TOCTOU races between search and use
-- **Risk level**: Both tools are `RiskLevel.Low` since they read existing data and write only within the sandbox
+Existing conversations created before the disk view was introduced are backfilled by workspace migration `009-backfill-conversation-disk-view`, which replays all conversations and their messages through the disk-view sync functions.
 
 ### Key Source Files
 
-| File                                              | Role                                                                                          |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `assistant/src/tools/assets/search.ts`            | `asset_search` tool — cross-conversation attachment metadata search with visibility filtering |
-| `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                        |
-| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`                    |
-| `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                         |
-| `assistant/src/memory/conversation-crud.ts`       | `getConversationType()` — conversation type lookup for visibility context                     |
+| File                                                                  | Role                                                                    |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `assistant/src/memory/conversation-disk-view.ts`                     | Disk view module — init, update, sync, remove, content flattening       |
+| `assistant/src/memory/conversation-crud.ts`                          | DB CRUD layer — calls disk-view functions as write-through side effects |
+| `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                       |
 
 ---
