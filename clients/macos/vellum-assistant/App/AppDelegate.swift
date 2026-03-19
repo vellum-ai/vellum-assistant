@@ -370,6 +370,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         applyThemePreference()
         registerBundledFonts()
         AvatarAppearanceManager.shared.start()
+        SoundManager.shared.start()
+        RandomSoundTimer.shared.start()
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
@@ -587,6 +589,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
+        RandomSoundTimer.shared.stop()
+        SoundManager.shared.stop()
         #if !DEBUG
         keychainBroker?.stop()
         #endif
