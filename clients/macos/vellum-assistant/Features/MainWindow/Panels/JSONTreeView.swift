@@ -424,14 +424,11 @@ private struct NodeCopyWrapper<Content: View>: View {
         HStack(spacing: 4) {
             content
 
-            Spacer(minLength: 0)
-
             if isHovered {
                 VCopyButton(text: node.serializedValue, iconSize: 9, accessibilityHint: "Copy value")
                     .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onHover { hovering in
