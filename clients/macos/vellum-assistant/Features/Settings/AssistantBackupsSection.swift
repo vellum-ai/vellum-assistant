@@ -17,8 +17,6 @@ struct AssistantBackupsSection: View {
 
     @State private var isExporting = false
     @State private var isImporting = false
-    @State private var showingRestoreConfirmation = false
-    @State private var pendingRestoreURL: URL?
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
@@ -254,8 +252,21 @@ struct AssistantBackupsSection: View {
         panel.begin { result in
             guard result == .OK, let url = panel.url else { return }
             Task { @MainActor in
-                pendingRestoreURL = url
-                showingRestoreConfirmation = true
+                // Use NSAlert instead of SwiftUI .alert — SwiftUI alerts on
+                // inner views are swallowed when the parent has its own .alert
+                // modifiers (SettingsDeveloperTab has several).
+                let alert = NSAlert()
+                alert.messageText = "Restore from Backup"
+                alert.informativeText = "This will replace the assistant's current data with the backup and restart it. This action cannot be undone."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Restore")
+                alert.addButton(withTitle: "Cancel")
+                alert.buttons.first?.hasDestructiveAction = true
+
+                let response = alert.runModal()
+                guard response == .alertFirstButtonReturn else { return }
+
+                await performLocalRestore(url)
             }
         }
     }
@@ -342,27 +353,10 @@ struct AssistantBackupsSection: View {
     }
 }
 
-// MARK: - Local Restore Confirmation Modifier
+// MARK: - Local Restore
 
 extension AssistantBackupsSection {
-    /// Attaches the restore confirmation alert. Called from the parent view so the alert
-    /// scope covers the entire card.
-    var withRestoreConfirmation: some View {
-        self.alert("Restore from Backup", isPresented: $showingRestoreConfirmation) {
-            Button("Cancel", role: .cancel) {
-                pendingRestoreURL = nil
-            }
-            Button("Restore", role: .destructive) {
-                if let url = pendingRestoreURL {
-                    Task { await performLocalRestore(url) }
-                }
-            }
-        } message: {
-            Text("This will replace the assistant's current data with the backup and restart it. This action cannot be undone.")
-        }
-    }
-
-    private func performLocalRestore(_ fileURL: URL) async {
+    func performLocalRestore(_ fileURL: URL) async {
         isImporting = true
         defer { isImporting = false }
 
@@ -415,8 +409,6 @@ extension AssistantBackupsSection {
         } catch {
             errorMessage = "Import failed: \(error.localizedDescription)"
         }
-
-        pendingRestoreURL = nil
     }
 }
 
