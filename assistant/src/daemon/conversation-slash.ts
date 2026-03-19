@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import QRCode from "qrcode";
 
+import type { InterfaceId } from "../channels/types.js";
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
@@ -40,6 +41,7 @@ export interface SlashContext {
   model: string;
   provider: string;
   estimatedCost: number;
+  userMessageInterface?: InterfaceId;
 }
 
 // ── Deprecated model-switching shortcuts ─────────────────────────────
@@ -124,6 +126,40 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
   return { kind: "unknown", message: lines.join("\n") };
 }
 
+function resolveCommandsList(context?: SlashContext): string[] {
+  const fallbackLines = [
+    "/commands — List all available commands",
+    "/models — List all available models",
+    "/pair — Generate pairing info for connecting a mobile device",
+  ];
+  if (context) {
+    fallbackLines.push("/status — Show conversation status and context usage");
+  }
+
+  if (!context) return fallbackLines;
+
+  if (context.userMessageInterface === "macos") {
+    return [
+      "/commands — List all available commands",
+      "/models — List all available models",
+      "/status — Show conversation status and context usage",
+      "/btw — Ask a side question while the assistant is working",
+      "/pair — Generate pairing info for connecting a mobile device",
+    ];
+  }
+
+  if (context.userMessageInterface === "ios") {
+    return [
+      "/commands — List all available commands",
+      "/models — List all available models",
+      "/status — Show conversation status and context usage",
+      "/btw — Ask a side question while the assistant is working",
+    ];
+  }
+
+  return fallbackLines;
+}
+
 /**
  * Resolve built-in slash commands (/models, /status, /commands, /pair).
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
@@ -179,17 +215,9 @@ export async function resolveSlash(
 
   // Handle /commands command
   if (trimmed === "/commands") {
-    const lines = [
-      "/commands — List all available commands",
-      "/models — List all available models",
-      "/pair — Generate pairing info for connecting a mobile device",
-    ];
-    if (context) {
-      lines.push("/status — Show conversation status and context usage");
-    }
     return {
       kind: "unknown",
-      message: lines.join("\n"),
+      message: resolveCommandsList(context).join("\n"),
     };
   }
 

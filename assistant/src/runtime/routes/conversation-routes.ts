@@ -1066,6 +1066,7 @@ export async function handleSendMessage(
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
+    userMessageInterface: sourceInterface,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);
 
