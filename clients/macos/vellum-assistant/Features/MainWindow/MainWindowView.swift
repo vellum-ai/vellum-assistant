@@ -491,163 +491,7 @@ struct MainWindowView: View {
     /// Core layout extracted to break up type-checker complexity.
     private var coreLayoutView: some View {
         GeometryReader { geometry in
-            Group {
-                VStack(spacing: 0) {
-                    topBarView
-
-                    // Main container: sidebar + content with uniform padding
-                    HStack(spacing: 16) {
-                        if !isSettingsOpen {
-                            sidebarView
-                                .animation(VAnimation.panel, value: sidebarExpanded)
-                        }
-
-                        chatContentView(geometry: geometry)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .animation(VAnimation.panel, value: sidebarExpanded)
-                            .overlay {
-                                daemonLoadingOverlayIfNeeded
-                            }
-                    }
-                    .padding(16)
-                }
-                .coordinateSpace(name: "coreLayout")
-                .overlay {
-                    // Click-outside-to-dismiss background for preferences drawer
-                    if sidebar.showPreferencesDrawer {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(VAnimation.snappy) {
-                                    sidebar.showPreferencesDrawer = false
-                                }
-                            }
-                    }
-                }
-                .overlay {
-                    // Click-outside-to-dismiss background for conversation actions drawer
-                    if showConversationActionsDrawer {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { dismissConversationDrawer() }
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if showConversationActionsDrawer {
-                        let presentation = conversationHeaderPresentation
-                        ConversationActionsDrawer(
-                            presentation: presentation,
-                            onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
-                            onPin: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.pinConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onUnpin: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.unpinConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onArchive: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.archiveConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
-                        )
-                        .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
-                        .zIndex(10)
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    // Preferences drawer rendered at top level so it floats above all content
-                    if sidebar.showPreferencesDrawer {
-                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
-                        // Position above the PreferencesRow: clear the row height + divider + gap
-                        let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
-                        let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
-                        DrawerMenuView(
-                            authManager: authManager,
-                            onSettings: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.settings)
-                            },
-                            onUsage: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.usageDashboard)
-                            },
-                            onDebug: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.debug)
-                            },
-                            onLogOut: {
-                                sidebar.showPreferencesDrawer = false
-                                AppDelegate.shared?.performLogout()
-                            },
-                            onSignIn: {
-                                sidebar.showPreferencesDrawer = false
-                                Task {
-                                    await authManager.loginWithToast(showToast: { msg, style in
-                                        windowState.showToast(message: msg, style: style)
-                                    })
-                                }
-                            },
-                            onOpenBilling: {
-                                sidebar.showPreferencesDrawer = false
-                                settingsStore.pendingSettingsTab = .billing
-                                windowState.selection = .panel(.settings)
-                            }
-                        )
-                        .frame(width: drawerWidth)
-                        .offset(x: 16 + VSpacing.sm, y: -drawerY)
-                        .zIndex(10)
-                        .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
-                    }
-                }
-                .overlay {
-                    if showConversationSwitcher {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                showConversationSwitcher = false
-                            }
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if showConversationSwitcher {
-                        ConversationSwitcherDrawer(
-                            regularConversations: regularConversations,
-                            activeConversationId: conversationManager.activeConversationId,
-                            conversationManager: conversationManager,
-                            windowState: windowState,
-                            sidebar: sidebar,
-                            selectConversation: { selectConversation($0) },
-                            onDismiss: { showConversationSwitcher = false }
-                        )
-                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(
-                            x: 16 + sidebarCollapsedWidth - VSpacing.xs,
-                            y: conversationSwitcherTriggerFrame.minY
-                        )
-                        .zIndex(10)
-                        .transition(.opacity)
-                        .onChange(of: conversationManager.activeConversationId) { _, _ in
-                            showConversationSwitcher = false
-                        }
-                        .onChange(of: sidebarExpanded) { _, expanded in
-                            if expanded { showConversationSwitcher = false }
-                        }
-                    }
-                }
-            }
-            .ignoresSafeArea(edges: .top)
-            .background(VColor.surfaceBase.ignoresSafeArea())
-            .frame(width: geometry.size.width / zoomManager.zoomLevel,
-                   height: geometry.size.height / zoomManager.zoomLevel)
-            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-            .frame(width: geometry.size.width, height: geometry.size.height,
-                   alignment: .topLeading)
+            coreLayoutContent(geometry: geometry)
         }
         .frame(minWidth: 800, minHeight: 600)
         .overlay(alignment: .top) {
@@ -957,6 +801,183 @@ struct MainWindowView: View {
         }
         // Hover→pending-deletion invariant is now owned by
         // SidebarInteractionState.setConversationHover(conversationId:hovering:)
+    }
+
+    @ViewBuilder
+    private func coreLayoutContent(geometry: GeometryProxy) -> some View {
+        coreLayoutBase(geometry: geometry)
+            .ignoresSafeArea(edges: .top)
+            .background(VColor.surfaceBase.ignoresSafeArea())
+            .frame(width: geometry.size.width / zoomManager.zoomLevel,
+                   height: geometry.size.height / zoomManager.zoomLevel)
+            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .overlay { preferencesDismissLayer }
+            .overlay { conversationActionsDismissLayer }
+            .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
+            .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
+            .overlay { conversationSwitcherDismissLayer }
+            .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
+    }
+
+    @ViewBuilder
+    private func coreLayoutBase(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            topBarView
+
+            // Main container: sidebar + content with uniform padding
+            HStack(spacing: 16) {
+                if !isSettingsOpen {
+                    sidebarView
+                        .animation(VAnimation.panel, value: sidebarExpanded)
+                }
+
+                chatContentView(geometry: geometry)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .animation(VAnimation.panel, value: sidebarExpanded)
+                    .overlay {
+                        daemonLoadingOverlayIfNeeded
+                    }
+            }
+            .padding(16)
+        }
+        .coordinateSpace(name: "coreLayout")
+    }
+
+    @ViewBuilder
+    private var preferencesDismissLayer: some View {
+        if sidebar.showPreferencesDrawer {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(VAnimation.snappy) {
+                        sidebar.showPreferencesDrawer = false
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationActionsDismissLayer: some View {
+        if showConversationActionsDrawer {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { dismissConversationDrawer() }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationActionsDrawerLayer: some View {
+        if showConversationActionsDrawer {
+            ConversationActionsDrawer(
+                presentation: conversationHeaderPresentation,
+                onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                onPin: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.pinConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onUnpin: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.unpinConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onArchive: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.archiveConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
+            )
+            .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
+            .zIndex(10)
+        }
+    }
+
+    @ViewBuilder
+    private var preferencesDrawerLayer: some View {
+        if sidebar.showPreferencesDrawer {
+            let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+            let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
+            // Position above the PreferencesRow: clear the row height + divider + gap
+            let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
+            let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
+            DrawerMenuView(
+                authManager: authManager,
+                onSettings: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.settings)
+                },
+                onUsage: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.usageDashboard)
+                },
+                onDebug: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.debug)
+                },
+                onLogOut: {
+                    sidebar.showPreferencesDrawer = false
+                    AppDelegate.shared?.performLogout()
+                },
+                onSignIn: {
+                    sidebar.showPreferencesDrawer = false
+                    Task {
+                        await authManager.loginWithToast(showToast: { msg, style in
+                            windowState.showToast(message: msg, style: style)
+                        })
+                    }
+                },
+                onOpenBilling: {
+                    sidebar.showPreferencesDrawer = false
+                    settingsStore.pendingSettingsTab = .billing
+                    windowState.selection = .panel(.settings)
+                }
+            )
+            .frame(width: drawerWidth)
+            .offset(x: 16 + VSpacing.sm, y: -drawerY)
+            .zIndex(10)
+            .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var conversationSwitcherDismissLayer: some View {
+        if showConversationSwitcher {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showConversationSwitcher = false
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationSwitcherDrawerLayer: some View {
+        if showConversationSwitcher {
+            ConversationSwitcherDrawer(
+                regularConversations: regularConversations,
+                activeConversationId: conversationManager.activeConversationId,
+                conversationManager: conversationManager,
+                windowState: windowState,
+                sidebar: sidebar,
+                selectConversation: { selectConversation($0) },
+                onDismiss: { showConversationSwitcher = false }
+            )
+            .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+            .offset(
+                x: 16 + sidebarCollapsedWidth - VSpacing.xs,
+                y: conversationSwitcherTriggerFrame.minY
+            )
+            .zIndex(10)
+            .transition(.opacity)
+            .onChange(of: conversationManager.activeConversationId) { _, _ in
+                showConversationSwitcher = false
+            }
+            .onChange(of: sidebarExpanded) { _, expanded in
+                if expanded { showConversationSwitcher = false }
+            }
+        }
     }
 
     /// Restart the daemon process without re-hatching a new assistant.
