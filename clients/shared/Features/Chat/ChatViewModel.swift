@@ -1398,7 +1398,7 @@ public final class ChatViewModel: ObservableObject {
             var result = ""
             do {
                 let stream = self.btwClient.sendMessage(
-                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
+                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words). Match your personality. Output ONLY the greeting text — no quotes, no formatting.",
                     conversationKey: key
                 )
                 for try await delta in stream {
