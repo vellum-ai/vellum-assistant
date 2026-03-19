@@ -1361,7 +1361,7 @@ private struct MessageCellView: View, Equatable {
             && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.providerCatalog.count == rhs.providerCatalog.count
-            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.models.count == $1.models.count })
+            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) })
     }
 
     let message: ChatMessage
