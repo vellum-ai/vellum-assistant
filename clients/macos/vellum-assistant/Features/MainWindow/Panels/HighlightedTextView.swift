@@ -73,6 +73,7 @@ struct HighlightedTextView: View {
         }
         .onChange(of: language) { _, _ in
             isActivelyEditing = false
+            highlightVersion &+= 1
         }
     }
 
