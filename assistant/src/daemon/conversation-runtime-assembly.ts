@@ -266,6 +266,8 @@ export interface ActiveSurfaceContext {
   /** When set, the surface is backed by a persisted app. */
   appId?: string;
   appName?: string;
+  /** Filesystem directory/slug for the app (used to construct file paths). */
+  appDirName?: string;
   appSchemaJson?: string;
   /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
   appPages?: Record<string, string>;
@@ -297,19 +299,18 @@ export function injectActiveSurfaceContext(
 
   if (ctx.appId) {
     // ── App-backed surface ──
+    const slug = ctx.appDirName ?? ctx.appId;
     lines.push(
-      `The user is viewing app "${ctx.appName ?? "Untitled"}" (app_id: "${ctx.appId}") in workspace mode.`,
+      `The user is viewing app "${ctx.appName ?? "Untitled"}" (app_id: "${ctx.appId}", slug: "${slug}") in workspace mode.`,
       "",
-      'PREREQUISITE: If `app_*` tools (e.g. `app_file_edit`, `app_file_write`) are not yet available, call `skill_load` with `id: "app-builder"` first to load them.',
+      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `id: "app-builder"` first to load it.',
       "",
       "RULES FOR WORKSPACE MODIFICATION:",
-      `1. Use \`app_file_edit\` with app_id "${ctx.appId}" for surgical changes.`,
-      "   Provide old_string (exact match) and new_string (replacement).",
-      '   Include a short `status` message describing what you\'re doing (e.g. "adding dark mode styles").',
-      "2. Use `app_file_write` to create new files or fully rewrite files. Include `status`.",
-      "3. Use `app_file_read` to read any file with line numbers before editing.",
-      "4. Use `app_file_list` to see all files in the app.",
-      "5. The surface refreshes automatically after file edits — do NOT call app_update, ui_show, or ui_update.",
+      `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`~/.vellum/workspace/data/apps/${slug}/<path>\`.`,
+      "2. Use `file_write` to create new files or rewrite files.",
+      "3. Use `file_read` to read any file with line numbers before editing.",
+      "4. Use `bash ls` to see all files in the app directory.",
+      `5. Call \`app_refresh\` with app_id "${ctx.appId}" ONCE after all changes are complete.`,
       "6. NEVER respond with only text — the user expects a visual update.",
       "7. Make ONLY the changes the user requested. Preserve existing content/styling.",
       "8. Keep your text response to 1 brief sentence confirming what you changed.",
