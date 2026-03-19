@@ -486,10 +486,12 @@ extension AppDelegate {
             let collectUsageData = canonicalCollectUsageData ?? legacyCollectUsageData
             let hasExplicitCollectUsageData = collectUsageData != nil
 
+            let legacySendDiagnostics = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
             let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            // Fall back to legacy collectUsageData keys so users who opted
-            // out via the old master switch keep Sentry disabled.
-            let sendDiagnostics = canonicalSendDiagnostics ?? collectUsageData
+            // Fall back to the legacy sendPerformanceReports key first, then
+            // to legacy collectUsageData keys so users who opted out via the
+            // old master switch keep Sentry disabled.
+            let sendDiagnostics = canonicalSendDiagnostics ?? legacySendDiagnostics ?? collectUsageData
             let hasExplicitSendDiagnostics = sendDiagnostics != nil
 
             // Apply Sentry state based on sendDiagnostics (default true when absent)
