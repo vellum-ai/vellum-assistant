@@ -105,12 +105,13 @@ export async function runInlineCommand(
     networkMode: "off",
   });
 
-  // Build a minimal, sanitized environment. Explicitly exclude gateway URL
-  // and workspace dir since inline commands have no business calling internal
-  // APIs or mutating workspace state.
+  // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
+  // workspace dir, and data dir since inline commands have no business calling
+  // internal APIs, mutating workspace state, or accessing instance-scoped data.
   const env = buildSanitizedEnv();
   delete env.INTERNAL_GATEWAY_BASE_URL;
   delete env.VELLUM_WORKSPACE_DIR;
+  delete env.VELLUM_DATA_DIR;
 
   return new Promise<InlineCommandResult>((resolve) => {
     let timedOut = false;
