@@ -221,7 +221,12 @@ describe("GET /v1/suggestion", () => {
         metadata: null,
       },
     ]);
-    mockGetConfiguredProvider.mockImplementation(async () => null);
+    mockGetConfiguredProvider.mockImplementation(
+      async () =>
+        null as unknown as Awaited<
+          ReturnType<typeof mockGetConfiguredProvider>
+        >,
+    );
 
     const url = makeUrl({ conversationKey: "test-key" });
     const deps = makeDeps();
@@ -429,10 +434,10 @@ describe("GET /v1/suggestion", () => {
     await handleGetSuggestion(url, deps);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
-    const callArgs = provider.sendMessage.mock.calls[0];
-    const options = callArgs[3] as {
-      config?: { modelIntent?: string };
-    };
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const options = callArgs[3] as
+      | { config?: { modelIntent?: string } }
+      | undefined;
     expect(options?.config?.modelIntent).toBe("latency-optimized");
   });
 });
