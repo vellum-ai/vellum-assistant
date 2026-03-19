@@ -541,10 +541,8 @@ export async function executeAppGenerateIcon(
   // destroying an existing icon if generation fails.
   const { existsSync, renameSync, unlinkSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const { getAppDirPath: resolveAppDir } =
-    await import("../../memory/app-store.js");
-  const iconPath = join(resolveAppDir(input.app_id), "icon.png");
-  const tempPath = join(resolveAppDir(input.app_id), "icon.tmp.png");
+  const iconPath = join(getAppDirPath(input.app_id), "icon.png");
+  const tempPath = join(getAppDirPath(input.app_id), "icon.tmp.png");
 
   // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {
