@@ -79,8 +79,20 @@ export async function backup(): Promise<void> {
   ) {
     accessToken = tokenData.accessToken;
   } else {
-    const freshToken = await leaseGuardianToken(entry.runtimeUrl, name);
-    accessToken = freshToken.accessToken;
+    try {
+      const freshToken = await leaseGuardianToken(entry.runtimeUrl, entry.assistantId);
+      accessToken = freshToken.accessToken;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+        console.error(
+          `Error: Could not connect to assistant '${name}'. Is it running?`,
+        );
+        console.error(`Try: vellum wake ${name}`);
+        process.exit(1);
+      }
+      throw err;
+    }
   }
 
   // Call the export endpoint
