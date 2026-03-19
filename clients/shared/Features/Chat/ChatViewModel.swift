@@ -2109,9 +2109,33 @@ public final class ChatViewModel: ObservableObject {
                 conversationId: conversationId,
                 requestId: entry.key
             )
-            if !success {
+            if success {
+                applyQueuedMessageDeletion(requestId: entry.key)
+            } else {
                 log.error("Failed to delete queued message")
             }
+        }
+    }
+
+    /// Update local state after the server confirms a queued message deletion.
+    /// Mirrors the bookkeeping that `.messageQueuedDeleted` performs so that
+    /// the UI stays consistent when the delete originates from a direct HTTP call.
+    func applyQueuedMessageDeletion(requestId: String) {
+        pendingQueuedCount = max(0, pendingQueuedCount - 1)
+        let messageId = requestIdToMessageId.removeValue(forKey: requestId)
+            ?? activeRequestIdToMessageId.removeValue(forKey: requestId)
+        if let messageId {
+            messages.removeAll { $0.id == messageId }
+        }
+        var queuePosition = 0
+        for i in messages.indices {
+            if case .queued = messages[i].status {
+                messages[i].status = .queued(position: queuePosition)
+                queuePosition += 1
+            }
+        }
+        if pendingQueuedCount == 0 && !isThinking {
+            isSending = false
         }
     }
 

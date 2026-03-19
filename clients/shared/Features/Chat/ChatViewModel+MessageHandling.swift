@@ -910,7 +910,9 @@ extension ChatViewModel {
                             conversationId: queued.conversationId,
                             requestId: queued.requestId
                         )
-                        if !success {
+                        if success {
+                            applyQueuedMessageDeletion(requestId: queued.requestId)
+                        } else {
                             log.error("Failed to send deferred delete_queued_message")
                         }
                     }
@@ -921,24 +923,7 @@ extension ChatViewModel {
 
         case .messageQueuedDeleted(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
-            pendingQueuedCount = max(0, pendingQueuedCount - 1)
-            // Remove the message from the UI
-            let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId)
-                ?? activeRequestIdToMessageId.removeValue(forKey: msg.requestId)
-            if let messageId {
-                messages.removeAll { $0.id == messageId }
-            }
-            // Recompute positions for remaining queued messages
-            var queuePosition = 0
-            for i in messages.indices {
-                if case .queued = messages[i].status {
-                    messages[i].status = .queued(position: queuePosition)
-                    queuePosition += 1
-                }
-            }
-            if pendingQueuedCount == 0 && !isThinking {
-                isSending = false
-            }
+            applyQueuedMessageDeletion(requestId: msg.requestId)
 
         case .messageDequeued(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
