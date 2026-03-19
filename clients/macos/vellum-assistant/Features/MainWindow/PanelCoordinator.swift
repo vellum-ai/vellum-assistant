@@ -385,6 +385,7 @@ extension MainWindowView {
                 conversationStartersEnabled: conversationStartersEnabled,
                 showInspectButton: showInspectButton,
                 daemonClient: daemonClient,
+                conversationManager: conversationManager,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
@@ -586,6 +587,7 @@ struct ActiveChatViewWrapper: View {
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
+    let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
