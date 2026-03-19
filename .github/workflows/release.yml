@@ -213,6 +213,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        if: false
         working-directory: /tmp/digests
         run: |
           SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
@@ -264,10 +265,8 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
             echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   push-gateway-image:
@@ -510,6 +509,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        if: false
         working-directory: /tmp/digests
         run: |
           SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
@@ -561,10 +561,8 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
             echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   push-credential-executor-manifest:
@@ -667,6 +665,7 @@ jobs:
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Create Docker Hub manifest list and push
+        if: false
         working-directory: /tmp/digests
         run: |
           SOURCE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
@@ -718,10 +717,103 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
             echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  push-dockerhub-image:
+    needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: assistant
+            runs_on: ubuntu-latest-8-cores
+            image_name_secret: ASSISTANT_IMAGE_NAME
+            context: .
+            dockerfile: assistant/Dockerfile
+            cache_scope: assistant-dockerhub
+            feature_flag_path: assistant/src/config/feature-flag-registry.json
+          - service: gateway
+            runs_on: ubuntu-latest
+            image_name_secret: GATEWAY_IMAGE_NAME
+            context: gateway
+            dockerfile: gateway/Dockerfile
+            cache_scope: gateway-dockerhub
+            feature_flag_path: gateway/src/feature-flag-registry.json
+          - service: credential-executor
+            runs_on: ubuntu-latest
+            image_name_secret: CREDENTIAL_EXECUTOR_IMAGE_NAME
+            context: .
+            dockerfile: credential-executor/Dockerfile
+            cache_scope: credential-executor-dockerhub
+            feature_flag_path: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Compute Docker Hub tags
+        id: tags
+        env:
+          IMAGE_NAME: ${{ secrets[matrix.image_name_secret] }}
+        run: |
+          IMAGE="vellumai/${IMAGE_NAME}"
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
+            TAGS="${IMAGE}:${VERSION}"
+          else
+            TAGS="${IMAGE}:v${VERSION}"
+            TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
+          fi
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Sync feature flag registry for Docker context
+        if: matrix.feature_flag_path != ''
+        run: cp meta/feature-flags/feature-flag-registry.json ${{ matrix.feature_flag_path }}
+
+      - name: Build and push multi-platform image to Docker Hub
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+
+      - name: Summary
+        run: |
+          echo "## Docker Hub Image Published (${{ matrix.service }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.extract-version.outputs.debug_run }}" = "true" ]; then
+            echo "**Debug tag:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   register-release:
@@ -1573,7 +1665,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright]
     if: ${{ !cancelled() && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2140,7 +2232,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.debug_run != 'true' }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
