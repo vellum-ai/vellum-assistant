@@ -962,6 +962,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<interface_turn_context>",
   "<turn_context>",
   "<memory_brief>",
+  "<supporting_recall>",
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   "<voice_call_control>",
