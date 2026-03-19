@@ -818,8 +818,11 @@ public final class SettingsStore: ObservableObject {
         // Persist locally first
         APIKeyManager.setKey(trimmed, for: provider)
 
-        // Remove any stale deletion tombstone
-        removeDeletionTombstone(type: "api_key", name: provider)
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded. Deferring this until
+        // after async validation creates a race: if the daemon reconnects before
+        // validation completes, replayDeletionTombstones would DELETE the new key.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
@@ -833,7 +836,11 @@ public final class SettingsStore: ObservableObject {
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
-                    addDeletionTombstone(type: "api_key", name: provider)
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: provider)
+                    }
                 }
             }
         }
@@ -2102,8 +2109,14 @@ public final class SettingsStore: ObservableObject {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-            if let model = inference["model"] as? String { self.selectedModel = model }
+            // Only apply local config provider/model as a fallback when the daemon
+            // hasn't yet reported an authoritative value. Once the daemon responds
+            // via applyModelInfoResponse, its values take precedence over local
+            // config which may be stale (especially for remote assistants).
+            if lastDaemonProvider == nil,
+               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+            if lastDaemonProvider == nil,
+               let model = inference["model"] as? String { self.selectedModel = model }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {

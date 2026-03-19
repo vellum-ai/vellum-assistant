@@ -8,7 +8,7 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     var fetchVercelConfigCallCount = 0
     var fetchModelInfoCallCount = 0
-    var setModelCalls: [String] = []
+    var setModelCalls: [(model: String, provider: String?)] = []
     var setImageGenModelCalls: [String] = []
     var fetchTelegramConfigCallCount = 0
     var setTelegramConfigCalls: [(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?)] = []
@@ -39,7 +39,7 @@ final class MockSettingsClient: SettingsClientProtocol {
     }
 
     func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
-        setModelCalls.append(model)
+        setModelCalls.append((model: model, provider: provider))
         return setModelResponse
     }
 
