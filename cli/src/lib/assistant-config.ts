@@ -34,6 +34,21 @@ export interface LocalInstanceResources {
   [key: string]: unknown;
 }
 
+/** Docker image metadata for the service group. Enables rollback to known-good digests. */
+export interface ContainerInfo {
+  assistantImage: string;
+  gatewayImage: string;
+  cesImage: string;
+  /** sha256 digest of the assistant image at time of hatch/upgrade */
+  assistantDigest?: string;
+  /** sha256 digest of the gateway image at time of hatch/upgrade */
+  gatewayDigest?: string;
+  /** sha256 digest of the CES image at time of hatch/upgrade */
+  cesDigest?: string;
+  /** Docker network name for the service group */
+  networkName?: string;
+}
+
 export interface AssistantEntry {
   assistantId: string;
   runtimeUrl: string;
@@ -56,6 +71,10 @@ export interface AssistantEntry {
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
+  /** Last-known version of the service group, populated at hatch and updated by health checks. */
+  serviceGroupVersion?: string;
+  /** Docker image metadata for rollback. Only present for docker topology entries. */
+  containerInfo?: ContainerInfo;
   [key: string]: unknown;
 }
 
