@@ -32,7 +32,7 @@ struct AgentPanelContent: View {
 
     /// Whether any files in the selected skill are viewable (non-binary with content).
     private var hasViewableFiles: Bool {
-        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? false
+        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? true
     }
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
