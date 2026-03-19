@@ -279,13 +279,11 @@ final class ConversationForkIOSTests: XCTestCase {
                     dict["conversationType"] = conversationType
                 }
                 if let forkParent = item.forkParent {
-                    var forkParentDict: [String: Any] = [
+                    let forkParentDict: [String: Any] = [
                         "conversationId": forkParent.conversationId,
-                        "messageId": forkParent.messageId
+                        "messageId": forkParent.messageId,
+                        "title": forkParent.title
                     ]
-                    if let title = forkParent.title {
-                        forkParentDict["title"] = title
-                    }
                     dict["forkParent"] = forkParentDict
                 }
                 return dict
