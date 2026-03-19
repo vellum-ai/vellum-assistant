@@ -108,12 +108,6 @@ export async function approveHostAttachmentRead(
   return isAllowDecision(response.decision);
 }
 
-export function formatAttachmentWarnings(warnings: string[]): string | null {
-  if (warnings.length === 0) return null;
-  const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
-  return `\n\n${lines.join("\n")}`;
-}
-
 export interface AttachmentResolutionResult {
   assistantAttachments: AssistantAttachmentDraft[];
   emittedAttachments: UserMessageAttachment[];

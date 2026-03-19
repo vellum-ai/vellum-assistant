@@ -77,7 +77,6 @@ import {
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
-  formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
@@ -1578,17 +1577,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-
-      const warningText = formatAttachmentWarnings(
-        attachmentResult.directiveWarnings,
-      );
-      if (warningText) {
-        onEvent({
-          type: "assistant_text_delta",
-          text: warningText,
-          conversationId: ctx.conversationId,
-        });
-      }
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {

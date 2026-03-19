@@ -389,8 +389,8 @@ struct ChatBubble: View {
                         .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 
-                // Skip image attachments when they all come from tool calls shown inline
-                if !partitioned.images.isEmpty && partitioned.images.count != inlineToolCallImageCount {
+                // Skip image attachments when tool calls already display images inline
+                if !partitioned.images.isEmpty && inlineToolCallImageCount == 0 {
                     attachmentImageGrid(partitioned.images)
                 }
 
