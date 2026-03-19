@@ -13,11 +13,7 @@ struct MemoryItemRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                // Kind icon
-                kindIcon
-
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Header row: badges + delete aligned to top
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         // Title + timestamp tightly grouped on the left
@@ -52,7 +48,6 @@ struct MemoryItemRow: View {
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
-                }
             }
             .padding(VSpacing.lg)
             .background(isHovered ? VColor.surfaceActive : Color.clear)
@@ -70,23 +65,6 @@ struct MemoryItemRow: View {
             Button("Delete", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - Kind Icon
-
-    @ViewBuilder
-    private var kindIcon: some View {
-        if let kind = memoryKind, let icon = VIcon(rawValue: kind.icon) {
-            VIconView(icon, size: 20)
-                .foregroundColor(kind.color)
-                .frame(width: 40, height: 40)
-                .accessibilityHidden(true)
-        } else {
-            VIconView(.brain, size: 20)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(width: 40, height: 40)
-                .accessibilityHidden(true)
-        }
     }
 
     // MARK: - Kind Tag
