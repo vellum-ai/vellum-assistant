@@ -1238,9 +1238,17 @@ struct MessageListView: View {
             .onChange(of: isSending) {
                 if isSending {
                     hasReceivedScrollEvent = true
-                    // Reattach and pin to bottom when the user sends a message.
-                    bottomPinCoordinator.reattach()
-                    requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                    // Only force-reattach when the user just sent a new message.
+                    // Mid-turn isSending transitions (e.g. after a tool confirmation
+                    // resolves and the assistant resumes) must not yank a user who
+                    // scrolled up back to the bottom.
+                    let isUserSend = messages.last?.role == .user
+                    if isUserSend || bottomPinCoordinator.isFollowingBottom {
+                        if isUserSend {
+                            bottomPinCoordinator.reattach()
+                        }
+                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                    }
                 }
             }
             .onChange(of: isThinking) {
