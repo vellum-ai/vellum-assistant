@@ -25,6 +25,8 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    var onDropStarted: (() -> Void)?
+    var onDropEnded: (() -> Void)?
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
     var providerCatalog: [ProviderCatalogEntry] = []
@@ -476,6 +478,10 @@ struct ChatView: View {
         // NSTextView inside the composer) intercepts the drag session.
         isDropTargeted = false
 
+        // Signal loading immediately so the "Processing…" chip appears without
+        // waiting for NSItemProvider async callbacks to resolve.
+        onDropStarted?()
+
         var urls: [URL] = []
         var imageDataItems: [NSItemProvider] = []
         let group = DispatchGroup()
@@ -557,6 +563,9 @@ struct ChatView: View {
 
         group.notify(queue: .main) {
             if !urls.isEmpty { onDropFiles(urls) }
+            // End the external load now that all providers have resolved and
+            // the individual addAttachment calls have taken over tracking.
+            onDropEnded?()
         }
         return true
     }

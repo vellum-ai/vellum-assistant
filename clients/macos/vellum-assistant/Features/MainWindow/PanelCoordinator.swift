@@ -664,6 +664,8 @@ struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
+            onDropStarted: { viewModel.attachmentManager.beginExternalLoad() },
+            onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
             selectedModel: settingsStore.selectedModel,
             configuredProviders: settingsStore.configuredProviders,
             providerCatalog: settingsStore.providerCatalog,
