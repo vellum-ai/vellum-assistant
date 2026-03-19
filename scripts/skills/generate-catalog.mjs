@@ -14,124 +14,11 @@ import { readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseFrontmatter } from "./parse-skill-yaml.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolve(__dirname, "../../skills");
 const CATALOG_PATH = join(SKILLS_DIR, "catalog.json");
-
-/**
- * Minimal YAML frontmatter parser (same approach as lint-skill-spec.mjs).
- * Returns the parsed frontmatter object.
- */
-function parseFrontmatter(content) {
-  const trimmed = content.trimStart();
-  if (!trimmed.startsWith("---")) {
-    throw new Error("SKILL.md must start with YAML frontmatter (---).");
-  }
-
-  const endIndex = trimmed.indexOf("\n---", 3);
-  if (endIndex === -1) {
-    throw new Error("SKILL.md frontmatter is missing closing delimiter (---).");
-  }
-
-  const yamlBlock = trimmed.slice(trimmed.indexOf("\n", 0) + 1, endIndex);
-  return parseSimpleYaml(yamlBlock);
-}
-
-/**
- * Minimal YAML parser for flat key-value pairs, nested maps, and arrays.
- * Handles string values (quoted or unquoted), inline JSON objects/arrays,
- * YAML list syntax (`- item`), and multiple levels of nesting.
- */
-function parseSimpleYaml(yaml) {
-  const result = {};
-  const lines = yaml.split("\n");
-  // Stack of { indent, obj, key } to track nesting context
-  const stack = [{ indent: -1, obj: result, key: null }];
-
-  for (const line of lines) {
-    if (line.trim() === "" || line.trim().startsWith("#")) {
-      continue;
-    }
-
-    // Calculate indentation (number of leading spaces)
-    const indent = line.match(/^(\s*)/)[1].length;
-
-    // Check for YAML list item: `- value`
-    const listMatch = line.match(/^(\s*)-\s+(.*)/);
-    if (listMatch) {
-      const listValue = listMatch[2].trim();
-      // Pop stack to find the parent array at the right indentation level
-      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-        stack.pop();
-      }
-      const parent = stack[stack.length - 1];
-      if (Array.isArray(parent.obj)) {
-        parent.obj.push(stripQuotes(listValue));
-      }
-      continue;
-    }
-
-    const match = line.match(/^(\s*)(\S+):\s*(.*)/);
-    if (!match) continue;
-
-    const key = match[2];
-    const value = match[3].trim();
-
-    // Pop stack to find the parent at the right indentation level
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-    const parent = stack[stack.length - 1].obj;
-
-    if (value === "" || value === "|" || value === ">") {
-      // Start of a nested object or array — peek ahead to determine which
-      const nextNonEmpty = lines
-        .slice(lines.indexOf(line) + 1)
-        .find((l) => l.trim() !== "" && !l.trim().startsWith("#"));
-      if (nextNonEmpty && nextNonEmpty.match(/^\s*-\s+/)) {
-        // Next meaningful line is a list item -> initialize as array
-        parent[key] = [];
-        stack.push({ indent, obj: parent[key], key });
-      } else {
-        parent[key] = {};
-        stack.push({ indent, obj: parent[key], key });
-      }
-    } else if (
-      (value.startsWith("{") && value.endsWith("}")) ||
-      (value.startsWith("[") && value.endsWith("]"))
-    ) {
-      // Inline JSON
-      try {
-        parent[key] = JSON.parse(value);
-      } catch {
-        parent[key] = stripQuotes(value);
-      }
-    } else {
-      parent[key] = stripQuotes(value);
-    }
-  }
-
-  return result;
-}
-
-function stripQuotes(s) {
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    return processEscapes(s.slice(1, -1));
-  }
-  return s;
-}
-
-/**
- * Process JSON-style unicode escape sequences (\uXXXX) in a string.
- */
-function processEscapes(s) {
-  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
-    String.fromCharCode(parseInt(hex, 16)),
-  );
-}
 
 /**
  * Build a catalog entry from a skill directory.
@@ -146,7 +33,7 @@ function buildEntry(skillName) {
   }
 
   const content = readFileSync(skillMdPath, "utf-8");
-  const frontmatter = parseFrontmatter(content);
+  const { frontmatter } = parseFrontmatter(content);
 
   const entry = {
     id: skillName,
