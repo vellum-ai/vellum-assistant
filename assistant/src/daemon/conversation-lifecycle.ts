@@ -125,6 +125,7 @@ export interface AbortContext {
     string,
     { surfaceType: SurfaceType; data: SurfaceData; title?: string }
   >;
+  accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   readonly queue: MessageQueue;
 }
 
@@ -237,6 +238,7 @@ export function abortConversation(ctx: AbortContext): void {
     ctx.pendingSurfaceActions.clear();
     ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
+    ctx.accumulatedSurfaceState.clear();
     unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
       queued.onEvent({
@@ -268,6 +270,7 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.pendingSurfaceActions.clear();
   ctx.surfaceActionRequestIds.clear();
   ctx.surfaceState.clear();
+  ctx.accumulatedSurfaceState.clear();
   ctx.lastSurfaceAction.clear();
   ctx.workspaceTopLevelContext = null;
 }
