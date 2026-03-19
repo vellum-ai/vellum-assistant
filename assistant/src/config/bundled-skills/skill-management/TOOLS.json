@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "scaffold_managed_skill",
-      "description": "Create or update a managed skill in ~/.vellum/workspace/skills. The skill becomes available for skill_load immediately. Never persist a skill without explicit user consent. Before persisting, test the snippet: write to a temp file with bash and run with `bun run /tmp/vellum-eval/snippet.ts`. Iterate up to 3 attempts, then ask the user. Clean up temp files after. Do not use file_write for temp files outside the working directory. After a skill is written, the next turn may run in a recreated session due to file-watcher eviction - continue normally.",
+      "description": "Create or update a managed skill in ~/.vellum/workspace/skills. The skill becomes available for skill_load immediately. Never persist a skill without explicit user consent. Before persisting, test the snippet: write to a temp file with bash and run with `bun run /tmp/vellum-eval/snippet.ts`. Iterate up to 3 attempts, then ask the user. Clean up temp files after. Do not use file_write for temp files outside the working directory. After a skill is written, the next turn may run in a recreated conversation due to file-watcher eviction - continue normally.",
       "category": "skills",
       "risk": "high",
       "input_schema": {
@@ -54,7 +54,7 @@
     },
     {
       "name": "delete_managed_skill",
-      "description": "Delete a managed skill from ~/.vellum/workspace/skills and remove it from the SKILLS.md index. Never delete a skill without explicit user confirmation. After deletion, the next turn may run in a recreated session due to file-watcher eviction - continue normally.",
+      "description": "Delete a managed skill from ~/.vellum/workspace/skills and remove it from the SKILLS.md index. Never delete a skill without explicit user confirmation. After deletion, the next turn may run in a recreated conversation due to file-watcher eviction - continue normally.",
       "category": "skills",
       "risk": "high",
       "input_schema": {
