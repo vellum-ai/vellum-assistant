@@ -49,14 +49,9 @@ export async function buildModelInfoEvent(): Promise<ServerMessage> {
   return { type: "model_info", ...(await getModelInfo()) };
 }
 
-/** True when the trimmed content is a /model or /models slash command. */
+/** True when the trimmed content is the /models slash command. */
 export function isModelSlashCommand(content: string): boolean {
-  const trimmed = content.trim();
-  return (
-    trimmed === "/model" ||
-    trimmed === "/models" ||
-    trimmed.startsWith("/model ")
-  );
+  return content.trim() === "/models";
 }
 
 // ── Context Interface ────────────────────────────────────────────────

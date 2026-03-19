@@ -2849,17 +2849,14 @@ public final class ChatViewModel: ObservableObject {
             activeSubagents.append(info)
         }
 
-        // Tag assistant messages that follow "/model" or "/models" user messages
-        // so the client renders the picker/table UI instead of plain text.
+        // Tag assistant messages that follow "/models" user messages
+        // so the client renders the table UI instead of plain text.
         var hasModelCommand = false
         for i in chatMessages.indices {
             guard chatMessages[i].role == .user,
                   i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
             let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if userText == "/model" {
-                chatMessages[i + 1].modelPicker = ModelPickerData()
-                hasModelCommand = true
-            } else if userText == "/models" {
+            if userText == "/models" {
                 chatMessages[i + 1].modelList = ModelListData()
                 hasModelCommand = true
             } else if userText == "/commands" {

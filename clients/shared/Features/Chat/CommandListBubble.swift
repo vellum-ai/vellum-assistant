@@ -8,7 +8,6 @@ public struct CommandListBubble: View {
 
     private let commands: [CommandEntry] = [
         CommandEntry(id: "/commands", description: "Show this list"),
-        CommandEntry(id: "/model", description: "Show or switch the current model"),
         CommandEntry(id: "/models", description: "List all available models"),
     ]
 
