@@ -5,10 +5,12 @@
  * (specific ID → most recent assistant → any message → empty conversation).
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import JSZip from "jszip";
 
 const testDir = mkdtempSync(join(tmpdir(), "diagnostics-export-test-"));
 
@@ -90,6 +92,27 @@ function seedMessage(
   );
 }
 
+function seedLlmRequestLog(
+  id: string,
+  conversationId: string,
+  provider: string | null,
+  requestPayload: unknown,
+  responsePayload: unknown,
+  createdAt: number,
+): void {
+  db().run(
+    "INSERT INTO llm_request_logs (id, conversation_id, provider, request_payload, response_payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [
+      id,
+      conversationId,
+      provider,
+      JSON.stringify(requestPayload),
+      JSON.stringify(responsePayload),
+      createdAt,
+    ],
+  );
+}
+
 function seedConversationKey(
   conversationKey: string,
   conversationId: string,
@@ -102,6 +125,7 @@ function seedConversationKey(
 
 function cleanDb(): void {
   db().run("DELETE FROM messages");
+  db().run("DELETE FROM llm_request_logs");
   db().run("DELETE FROM conversation_keys");
   db().run("DELETE FROM conversations");
 }
@@ -215,5 +239,50 @@ describe("diagnostics export", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { success: boolean };
     expect(json.success).toBe(true);
+  });
+
+  test("preserves llm request provider identity in the exported JSONL", async () => {
+    const convId = "conv-7";
+    const now = Date.now();
+
+    seedConversation(convId);
+    seedMessage("msg-user-7", convId, "user", "hello", now - 1000);
+    seedMessage("msg-assistant-7", convId, "assistant", "world", now);
+    seedLlmRequestLog(
+      "log-7",
+      convId,
+      "openrouter",
+      { model: "openai/gpt-4.1-mini", input: "hello" },
+      { output: "world" },
+      now,
+    );
+
+    const res = await callExport({ conversationId: convId });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { success: boolean; filePath: string };
+    expect(json.success).toBe(true);
+
+    const zip = await JSZip.loadAsync(readFileSync(json.filePath));
+    const llmRequests = zip.file("llm_requests.jsonl");
+    expect(llmRequests).not.toBeNull();
+
+    const lines = (await llmRequests!.async("string")).trim().split("\n");
+    expect(lines).toHaveLength(1);
+
+    const row = JSON.parse(lines[0]) as {
+      id: string;
+      conversationId: string;
+      provider?: string | null;
+      request: unknown;
+      response: unknown;
+    };
+
+    expect(row).toMatchObject({
+      id: "log-7",
+      conversationId: convId,
+      provider: "openrouter",
+    });
+
+    rmSync(json.filePath, { force: true });
   });
 });
