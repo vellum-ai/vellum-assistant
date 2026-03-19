@@ -221,18 +221,25 @@ struct InferenceServiceCard: View {
             }
             return ""
         }()
+        let placeholder: String = {
+            if !currentMask.isEmpty {
+                return currentMask
+            }
+            if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
+                return providerPlaceholder
+            }
+            return "Enter your API key"
+        }()
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            SecureField(
-                !currentMask.isEmpty ? currentMask : "Enter your API key",
-                text: $apiKeyText
-            )
+            SecureField(placeholder, text: $apiKeyText)
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .disabled(store.apiKeySaving)
+                .frame(maxWidth: 400)
 
             if let error = store.apiKeySaveError {
                 Text(error)
