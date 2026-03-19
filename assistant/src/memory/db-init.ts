@@ -85,6 +85,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersDisplayMetadata,
   migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
@@ -465,6 +466,9 @@ export function initializeDb(): void {
 
   // 81. Add managed_service_config_key column to oauth_providers
   migrateOAuthProvidersManagedServiceConfigKey(database);
+
+  // 81b. Add display metadata columns to oauth_providers (display_name, description, dashboard_url, etc.)
+  migrateOAuthProvidersDisplayMetadata(database);
 
   // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
   migrateLlmRequestLogMessageId(database);

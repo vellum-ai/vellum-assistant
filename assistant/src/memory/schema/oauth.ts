@@ -19,6 +19,11 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   callbackTransport: text("callback_transport"),
   pingUrl: text("ping_url"),
   managedServiceConfigKey: text("managed_service_config_key"),
+  displayName: text("display_name"),
+  description: text("description"),
+  dashboardUrl: text("dashboard_url"),
+  clientIdPlaceholder: text("client_id_placeholder"),
+  requiresClientSecret: integer("requires_client_secret").notNull().default(1),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

@@ -123,6 +123,7 @@ export { migrateOAuthProvidersManagedServiceConfigKey } from "./178-oauth-provid
 export { migrateLlmRequestLogMessageId } from "./179-llm-request-log-message-id.js";
 export { migrateBackfillInlineAttachmentsToDisk } from "./180-backfill-inline-attachments-to-disk.js";
 export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-starters-checkpoints.js";
+export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-display-metadata.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
