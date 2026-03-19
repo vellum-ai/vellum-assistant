@@ -27,6 +27,9 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
+    daemon: {
+      titleGenerationMaxTokens: 30,
+    },
 
     provider: "mock-provider",
     maxTokens: 4096,
@@ -172,6 +175,10 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
+}));
+
+mock.module("../memory/archive-store.js", () => ({
+  insertCompactionEpisode: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({
