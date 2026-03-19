@@ -80,6 +80,36 @@ private struct PersistedConversation: Codable {
         case legacySessionId = "sessionId"
     }
 
+    init(
+        id: UUID,
+        title: String,
+        createdAt: Date,
+        lastActivityAt: Date? = nil,
+        isArchived: Bool? = nil,
+        isPinned: Bool? = nil,
+        displayOrder: Int? = nil,
+        isPrivate: Bool? = nil,
+        conversationId: String? = nil,
+        scheduleJobId: String? = nil,
+        hasUnseenLatestAssistantMessage: Bool? = nil,
+        latestAssistantMessageAt: Date? = nil,
+        lastSeenAssistantMessageAt: Date? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.lastActivityAt = lastActivityAt
+        self.isArchived = isArchived
+        self.isPinned = isPinned
+        self.displayOrder = displayOrder
+        self.isPrivate = isPrivate
+        self.conversationId = conversationId
+        self.scheduleJobId = scheduleJobId
+        self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
+        self.latestAssistantMessageAt = latestAssistantMessageAt
+        self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
