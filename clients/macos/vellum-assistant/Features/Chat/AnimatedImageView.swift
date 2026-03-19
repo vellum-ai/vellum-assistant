@@ -18,6 +18,27 @@ struct AnimatedImageView: View {
     @State private var isLoading = true
     @Environment(\.displayScale) private var displayScale
 
+    // MARK: - In-memory caches
+
+    /// Caches decoded NSImage instances to avoid redundant image decoding when
+    /// LazyVStack recycles cells during scroll.
+    private static let imageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 50
+        // ~50 MB — estimated cost is set per-image based on pixel dimensions.
+        cache.totalCostLimit = 50 * 1024 * 1024
+        return cache
+    }()
+
+    /// Caches raw GIF Data separately since animated GIFs need the original
+    /// bytes (not just NSImage) to drive frame-by-frame animation.
+    private static let gifDataCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 50
+        cache.totalCostLimit = 50 * 1024 * 1024
+        return cache
+    }()
+
     /// Maximum display dimension in points (matches text bubble maxWidth).
     private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
 
@@ -73,6 +94,16 @@ struct AnimatedImageView: View {
         isLoading = true
         defer { isLoading = false }
 
+        let cacheKey = urlString as NSString
+
+        // Check in-memory caches first to avoid redundant disk reads / decoding.
+        if let cachedImage = Self.imageCache.object(forKey: cacheKey) {
+            let cachedGIFData = Self.gifDataCache.object(forKey: cacheKey) as Data?
+            self.loadedImage = cachedImage
+            self.imageData = cachedGIFData
+            return
+        }
+
         // Support local file paths
         if urlString.hasPrefix("/") || urlString.hasPrefix("file://") {
             let fileURL = urlString.hasPrefix("file://")
@@ -81,6 +112,7 @@ struct AnimatedImageView: View {
             if let fileURL {
                 imageData = try? Data(contentsOf: fileURL)
                 loadedImage = imageData.flatMap { NSImage(data: $0) }
+                cacheLoadedImage(forKey: cacheKey)
             }
             return
         }
@@ -100,6 +132,7 @@ struct AnimatedImageView: View {
             let fileURL = URL(fileURLWithPath: workspaceDir + "/" + urlString)
             imageData = try? Data(contentsOf: fileURL)
             loadedImage = imageData.flatMap { NSImage(data: $0) }
+            cacheLoadedImage(forKey: cacheKey)
             return
         }
 
@@ -109,8 +142,29 @@ struct AnimatedImageView: View {
             let data = try await ImageCache.shared.imageData(for: url)
             self.imageData = data
             self.loadedImage = NSImage(data: data)
+            cacheLoadedImage(forKey: cacheKey)
         } catch {
             // Keep placeholder on failure
+        }
+    }
+
+    /// Stores the currently loaded image (and GIF data if applicable) into the
+    /// static in-memory caches. Cost is estimated from pixel dimensions so the
+    /// `totalCostLimit` on NSCache approximates real memory pressure.
+    private func cacheLoadedImage(forKey key: NSString) {
+        guard let image = loadedImage else { return }
+
+        // Estimate memory cost: width * height * 4 bytes (RGBA)
+        let rep = image.representations.first
+        let pixelWidth = rep?.pixelsWide ?? Int(image.size.width)
+        let pixelHeight = rep?.pixelsHigh ?? Int(image.size.height)
+        let cost = pixelWidth * pixelHeight * 4
+
+        Self.imageCache.setObject(image, forKey: key, cost: cost)
+
+        // Cache raw GIF data separately so animated GIFs still work on re-scroll.
+        if let data = imageData, isAnimatedGIF(data) {
+            Self.gifDataCache.setObject(data as NSData, forKey: key, cost: data.count)
         }
     }
 
