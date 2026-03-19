@@ -115,8 +115,7 @@ struct IdentityPanel: View {
                 workspaceFiles: workspaceFiles,
                 onFileSelected: { path in
                     viewingFilePath = path
-                },
-                isFullscreen: $isFullscreen
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(isFullscreen ? Color.clear : VColor.surfaceOverlay)
