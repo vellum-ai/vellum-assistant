@@ -1103,9 +1103,18 @@ struct MessageListView: View {
                 ConversationScrollbarVisibilityController(shouldShow: shouldShowConversationScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                // Filter non-finite viewport heights (nan/inf during attachment
+                // insertion or image loading). Every finite change matters here,
+                // so dead-zone is 0.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: height,
+                    previous: scrollViewportHeight,
+                    deadZone: 0
+                )
+                guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightPreferenceChange")
                 let viewportChanged = anchorTracker.updateViewport(
-                    height: height,
+                    height: accepted,
                     storedViewportHeight: &scrollViewportHeight
                 )
                 if viewportChanged, scrollTracking.lastTailAnchorY.isFinite {
@@ -1117,12 +1126,16 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
-                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
-                // reducing layout invalidation cascades during rapid scroll.
-                guard abs(minY - anchorTracker.lastMinY) > 2 else { return }
+                // Filter non-finite anchor values and apply 2pt dead-zone to
+                // reduce layout invalidation cascades during rapid scroll.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: minY,
+                    previous: anchorTracker.lastMinY
+                )
+                guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                 recordScrollLoopEvent(.anchorPreferenceChange)
-                anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 scheduleTranscriptSnapshot()
                 // Geometry tracking only — no per-frame scrollTo calls here.
@@ -1132,14 +1145,27 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
-                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
-                // reducing layout invalidation cascades during rapid scroll.
-                guard abs(anchorY - scrollTracking.lastTailAnchorY) > 2 else { return }
-                scrollTracking.lastTailAnchorY = anchorY
-                updateAvatarFollower(anchorY: anchorY)
+                // Filter non-finite tail anchor values and apply 2pt dead-zone
+                // to reduce layout invalidation cascades during rapid scroll.
+                let decision = PreferenceGeometryFilter.evaluate(
+                    newValue: anchorY,
+                    previous: scrollTracking.lastTailAnchorY
+                )
+                guard case .accept(let accepted) = decision else { return }
+                scrollTracking.lastTailAnchorY = accepted
+                updateAvatarFollower(anchorY: accepted)
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
+                // Filter non-finite sentinel values to prevent transient layout
+                // data from corrupting pagination trigger state. No dead-zone —
+                // every finite position change matters for edge-transition detection.
+                guard PreferenceGeometryFilter.evaluate(
+                    newValue: sentinelMinY,
+                    previous: .infinity,
+                    deadZone: 0
+                ) != .rejectNonFinite else { return }
+
                 let isInRange = MessageListPaginationTriggerPolicy.isInTriggerBand(
                     sentinelMinY: sentinelMinY,
                     viewportHeight: scrollViewportHeight
