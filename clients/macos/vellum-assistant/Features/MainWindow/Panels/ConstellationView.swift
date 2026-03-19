@@ -238,6 +238,7 @@ private struct CategoryNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .nativeTooltip(category.displayName)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -284,6 +285,7 @@ private struct SubCategoryNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(label)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -334,6 +336,7 @@ private struct SkillNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(item.label)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
