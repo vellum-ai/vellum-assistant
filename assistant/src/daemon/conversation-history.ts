@@ -142,10 +142,10 @@ export async function cleanupQdrantVectors(
 export function consolidateAssistantMessages(
   conversationId: string,
   userMessageId: string,
-): void {
+): boolean {
   const allMessages = getMessages(conversationId);
   const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
-  if (userMsgIndex === -1) return;
+  if (userMsgIndex === -1) return false;
 
   const messagesToConsolidate: typeof allMessages = [];
   const internalToolResultMessages: typeof allMessages = [];
@@ -182,12 +182,14 @@ export function consolidateAssistantMessages(
 
   // Only consolidate if there are multiple assistant messages
   if (messagesToConsolidate.length <= 1) {
+    let didMutate = false;
     // Still delete internal tool_result messages even if only one assistant message,
     // and collect IDs for vector cleanup
     const allSegmentIds: string[] = [];
     const allOrphanedItemIds: string[] = [];
     for (const id of messagesToDelete) {
       const deleted = deleteMessageById(id);
+      didMutate = true;
       allSegmentIds.push(...deleted.segmentIds);
       allOrphanedItemIds.push(...deleted.orphanedItemIds);
     }
@@ -205,7 +207,7 @@ export function consolidateAssistantMessages(
         );
       });
     }
-    return;
+    return didMutate;
   }
 
   log.info(
@@ -350,6 +352,7 @@ export function consolidateAssistantMessages(
     },
     "Assistant messages consolidated",
   );
+  return true;
 }
 
 // ── Undo ─────────────────────────────────────────────────────────────

@@ -43,7 +43,10 @@ import {
   updateConversationContextWindow,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import {
+  rebuildConversationDiskViewFromDbState,
+  syncMessageToDisk,
+} from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -1766,7 +1769,13 @@ export async function runAgentLoopImpl(
     ctx.commandIntent = undefined;
 
     if (userMessageId) {
-      consolidateAssistantMessages(ctx.conversationId, userMessageId);
+      const didMutateHistory = consolidateAssistantMessages(
+        ctx.conversationId,
+        userMessageId,
+      );
+      if (didMutateHistory) {
+        rebuildConversationDiskViewFromDbState(ctx.conversationId);
+      }
     }
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");

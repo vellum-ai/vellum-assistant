@@ -58,12 +58,19 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
+import {
+  addMessage,
+  createConversation,
+  deleteMessageById,
+  relinkAttachments,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 import {
   flattenContentBlocks,
   getConversationDirName,
   getConversationDirPath,
   initConversationDir,
+  rebuildConversationDiskViewFromDbState,
   removeConversationDir,
   resolveUniqueFilename,
   syncMessageToDisk,
@@ -607,6 +614,93 @@ describe("syncMessageToDisk", () => {
     expect(existsSync(join(dirPath, "attachments", record.attachments[0]))).toBe(
       true,
     );
+
+    rmSync(dirPath, { recursive: true, force: true });
+  });
+});
+
+describe("rebuildConversationDiskViewFromDbState", () => {
+  beforeEach(resetTables);
+
+  test("rewrites stale pre-consolidation disk view with final DB state", async () => {
+    const conv = createConversation("Consolidation Repair");
+    initConversationDir({
+      id: conv.id,
+      title: conv.title,
+      createdAt: conv.createdAt,
+      conversationType: conv.conversationType,
+      originChannel: null,
+    });
+
+    const userMsg = await addMessage(conv.id, "user", "find docs", undefined, {
+      skipIndexing: true,
+    });
+    const assistantPart1 = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Searching..." }]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const internalToolResult = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "tool-1", content: "done" },
+      ]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const assistantPart2 = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Found it." }]),
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const att = uploadAttachment("result.txt", "text/plain", "ok");
+    linkAttachmentToMessage(assistantPart2.id, att.id, 0);
+
+    // Simulate stale disk view generated before consolidation.
+    syncMessageToDisk(conv.id, userMsg.id, conv.createdAt);
+    syncMessageToDisk(conv.id, assistantPart1.id, conv.createdAt);
+    syncMessageToDisk(conv.id, internalToolResult.id, conv.createdAt);
+    syncMessageToDisk(conv.id, assistantPart2.id, conv.createdAt);
+
+    // Simulate DB mutations performed by consolidation.
+    updateMessageContent(
+      assistantPart1.id,
+      JSON.stringify([
+        { type: "text", text: "Searching..." },
+        { type: "tool_result", tool_use_id: "tool-1", content: "done" },
+        { type: "text", text: "Found it." },
+      ]),
+    );
+    relinkAttachments([assistantPart2.id], assistantPart1.id);
+    deleteMessageById(internalToolResult.id);
+    deleteMessageById(assistantPart2.id);
+
+    rebuildConversationDiskViewFromDbState(conv.id);
+
+    const dirPath = getConversationDirPath(conv.id, conv.createdAt);
+    const lines = readFileSync(join(dirPath, "messages.jsonl"), "utf-8")
+      .trim()
+      .split("\n");
+
+    expect(lines).toHaveLength(2);
+
+    const rebuiltUser = JSON.parse(lines[0]);
+    const rebuiltAssistant = JSON.parse(lines[1]);
+
+    expect(rebuiltUser.role).toBe("user");
+    expect(rebuiltAssistant.role).toBe("assistant");
+    expect(rebuiltAssistant.content).toBe("Searching...\nFound it.");
+    expect(rebuiltAssistant.toolResults).toEqual([{ content: "done" }]);
+    expect(rebuiltAssistant.attachments).toHaveLength(1);
+    expect(
+      existsSync(join(dirPath, "attachments", rebuiltAssistant.attachments[0])),
+    ).toBe(true);
 
     rmSync(dirPath, { recursive: true, force: true });
   });

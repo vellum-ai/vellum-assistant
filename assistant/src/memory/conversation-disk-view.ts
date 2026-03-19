@@ -25,13 +25,17 @@ import {
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
 } from "./attachments-store.js";
-import { getMessageById } from "./conversation-crud.js";
 import {
   getConversationDirName,
   getConversationDirPath,
   getLegacyConversationDirPath,
   getResolvedConversationDirPath,
 } from "./conversation-directories.js";
+import {
+  getConversation,
+  getMessageById,
+  getMessages,
+} from "./conversation-crud.js";
 
 const log = getLogger("conversation-disk-view");
 
@@ -318,6 +322,51 @@ export function syncMessageToDisk(
     log.warn(
       { err, conversationId, messageId },
       "Failed to sync message to disk",
+    );
+  }
+}
+
+/**
+ * Rebuild a single conversation's disk view from current DB state.
+ *
+ * This rewrites append-only `messages.jsonl` and replays all persisted messages
+ * in DB order so disk data matches post-mutation state (e.g., after assistant-
+ * message consolidation). Existing attachment files are preserved to avoid
+ * losing file-backed rows where base64 payloads were already compacted out.
+ */
+export function rebuildConversationDiskViewFromDbState(
+  conversationId: string,
+): void {
+  try {
+    const conv = getConversation(conversationId);
+    if (!conv) {
+      log.warn(
+        { conversationId },
+        "rebuildConversationDiskViewFromDbState: conversation not found",
+      );
+      return;
+    }
+
+    const dirPath = ensureConversationDirPath(conversationId, conv.createdAt);
+    const messagesPath = join(dirPath, "messages.jsonl");
+
+    rmSync(messagesPath, { force: true });
+    writeFileSync(messagesPath, "");
+    // Preserve attachment files: many attachment rows are file-backed with
+    // data_base64 cleared, so deleting attachments/ can make content
+    // unrecoverable for replay.
+    mkdirSync(join(dirPath, "attachments"), { recursive: true });
+
+    const convMessages = getMessages(conversationId);
+    for (const msg of convMessages) {
+      syncMessageToDisk(conversationId, msg.id, conv.createdAt);
+    }
+
+    updateMetaFile(conv);
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to rebuild conversation disk view from DB state",
     );
   }
 }
