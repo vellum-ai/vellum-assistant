@@ -298,15 +298,9 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let currentMask: String = {
-            if isConnected, let masked = store.providerMaskedKeys[effectiveProvider], !masked.isEmpty {
-                return masked
-            }
-            return ""
-        }()
         let placeholder: String = {
-            if !currentMask.isEmpty {
-                return currentMask
+            if isConnected {
+                return "••••••••••••••••"
             }
             if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
                 return providerPlaceholder

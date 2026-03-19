@@ -63,8 +63,6 @@ public final class SettingsStore: ObservableObject {
 
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
-    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x").
-    @Published var providerMaskedKeys: [String: String] = [:]
 
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
@@ -972,9 +970,6 @@ public final class SettingsStore: ObservableObject {
         }
         if let allProviders = response.allProviders, !allProviders.isEmpty {
             self.providerCatalog = allProviders
-        }
-        if let maskedKeys = response.maskedKeys {
-            self.providerMaskedKeys = maskedKeys
         }
     }
 

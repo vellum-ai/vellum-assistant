@@ -16,7 +16,6 @@ import {
   isProviderAvailable,
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { getMaskedProviderKey } from "../../security/secure-keys.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
@@ -44,7 +43,6 @@ export interface ModelInfo {
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
   allProviders?: ProviderCatalogEntry[];
-  maskedKeys?: Record<string, string>;
 }
 
 /** Return current model configuration. */
@@ -52,19 +50,12 @@ export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   const provider = config.services.inference.provider;
 
-  const maskedKeys: Record<string, string> = {};
-  for (const p of VALID_INFERENCE_PROVIDERS) {
-    const masked = await getMaskedProviderKey(p);
-    if (masked) maskedKeys[p] = masked;
-  }
-
   return {
     model: config.services.inference.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
     availableModels: PROVIDER_CATALOG.find((p) => p.id === provider)?.models,
     allProviders: PROVIDER_CATALOG,
-    maskedKeys,
   };
 }
 
