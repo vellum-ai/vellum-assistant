@@ -22,6 +22,9 @@ import Foundation
 @MainActor
 final class ScrollWheelDetectorRegistry {
 
+    /// App-wide shared instance used by `ScrollWheelDetector` lifecycle hooks.
+    static let shared = ScrollWheelDetectorRegistry()
+
     // MARK: - Entry
 
     /// Metadata for a single registered detector.

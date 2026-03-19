@@ -57,6 +57,9 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case appLifecycle
     case scrollWheelUntether
     case scrollWheelRetether
+    case detectorInstall
+    case detectorUpdate
+    case detectorRemove
 }
 
 /// Content-safe diagnostic event.
