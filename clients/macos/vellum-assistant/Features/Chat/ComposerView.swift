@@ -426,6 +426,7 @@ struct ComposerView: View {
                     composerFocus = true
                     onSend()
                 }
+                .vTooltip("Type a message to send")
             } else if !hasPendingConfirmation {
                 // Mic button (visible with or without text)
                 VButton(
@@ -436,6 +437,7 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Click to dictate or hold \(pttKeyDisplayName)")
 
                 // Send button
                 VButton(
@@ -448,6 +450,7 @@ struct ComposerView: View {
                     composerFocus = true
                     onSend()
                 }
+                .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
                 // Pending confirmation — send only if possible
                 if canSend {
