@@ -31,9 +31,6 @@ extension HTTPTransport {
             } else if let msg = message as? UndoRequest {
                 Task { await self.undoLastMessage(conversationId: msg.conversationId) }
                 return true
-            } else if message is RegenerateMessage {
-                // Handled by RegenerateClient via GatewayHTTPClient.
-                return true
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
                 return true
