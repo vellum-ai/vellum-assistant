@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 /**
- * CLI for vellum-self-knowledge skill: `bun run scripts/self-info.ts`
+ * Self-info script for the vellum-self-knowledge skill.
  *
- * Queries the current inference configuration and returns structured JSON
- * with the active model, provider, and mode.
+ * Queries the current inference configuration and emits a human-readable
+ * summary to stdout. The output is designed to be injected directly into
+ * the prompt via inline command expansion (`!\`...\``), but also works
+ * when run directly from the command line.
+ *
+ * Pass `--json` for structured JSON output (backwards-compatible with
+ * earlier versions that always emitted JSON).
  */
 
 // ---------------------------------------------------------------------------
@@ -39,12 +44,12 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function output(data: unknown): void {
+function outputJson(data: unknown): void {
   process.stdout.write(JSON.stringify(data) + "\n");
 }
 
-function outputError(message: string, code = 1): void {
-  output({ ok: false, error: message });
+function outputJsonError(message: string, code = 1): void {
+  outputJson({ ok: false, error: message });
   process.exitCode = code;
 }
 
@@ -53,6 +58,8 @@ function outputError(message: string, code = 1): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  const jsonMode = process.argv.includes("--json");
+
   try {
     const proc = Bun.spawn(["assistant", "config", "get", "services.inference"], {
       stdout: "pipe",
@@ -64,7 +71,13 @@ async function main(): Promise<void> {
     const exitCode = await proc.exited;
 
     if (exitCode !== 0) {
-      outputError(`Failed to read inference config: ${stderr.trim() || "unknown error"}`);
+      const msg = `Failed to read inference config: ${stderr.trim() || "unknown error"}`;
+      if (jsonMode) {
+        outputJsonError(msg);
+      } else {
+        process.stdout.write(`[self-info unavailable: ${msg}]\n`);
+        process.exitCode = 1;
+      }
       return;
     }
 
@@ -97,15 +110,28 @@ async function main(): Promise<void> {
 
     const modeLabel = mode === "your-own" ? "your-own API key" : mode === "managed" ? "managed platform proxy" : mode;
 
-    output({
-      ok: true,
-      model: { id: modelId, displayName: modelDisplayName },
-      provider: { id: providerId, displayName: providerDisplayName },
-      mode,
-      summary: `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`,
-    });
+    const summary = `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`;
+
+    if (jsonMode) {
+      outputJson({
+        ok: true,
+        model: { id: modelId, displayName: modelDisplayName },
+        provider: { id: providerId, displayName: providerDisplayName },
+        mode,
+        summary,
+      });
+    } else {
+      // Plain text summary — suitable for inline command expansion
+      process.stdout.write(summary + "\n");
+    }
   } catch (err) {
-    outputError(err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    if (jsonMode) {
+      outputJsonError(msg);
+    } else {
+      process.stdout.write(`[self-info unavailable: ${msg}]\n`);
+      process.exitCode = 1;
+    }
   }
 }
 
