@@ -282,6 +282,7 @@ export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
+    cesSecurityVolume: `${instanceName}-ces-sec`,
     dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
     network: `${instanceName}-net`,
@@ -336,7 +337,7 @@ export async function retireDocker(name: string): Promise<void> {
   } catch {
     // network may not exist
   }
-  for (const vol of [res.dataVolume, res.socketVolume, res.workspaceVolume]) {
+  for (const vol of [res.dataVolume, res.socketVolume, res.workspaceVolume, res.cesSecurityVolume]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
     } catch {
@@ -538,6 +539,8 @@ export function serviceDockerRunArgs(opts: {
       `${res.dataVolume}:/data:ro`,
       "-v",
       `${res.workspaceVolume}:/workspace:ro`,
+      "-v",
+      `${res.cesSecurityVolume}:/ces-security`,
       "-e",
       "CES_MODE=managed",
       "-e",
@@ -546,6 +549,8 @@ export function serviceDockerRunArgs(opts: {
       "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
       "-e",
       "CES_ASSISTANT_DATA_MOUNT=/data",
+      "-e",
+      "CREDENTIAL_SECURITY_DIR=/ces-security",
       imageTags["credential-executor"],
     ],
   };
@@ -886,6 +891,7 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.workspaceVolume]);
+    await exec("docker", ["volume", "create", res.cesSecurityVolume]);
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
