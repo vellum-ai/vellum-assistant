@@ -7,9 +7,8 @@ import { setServiceField } from "../../config/raw-config-utils.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
 import {
-  getFullProviderCatalog,
   isModelInCatalog,
-  PROVIDER_MODEL_CATALOG,
+  PROVIDER_CATALOG,
 } from "../../providers/model-catalog.js";
 import { getProviderDefaultModel } from "../../providers/model-intents.js";
 import {
@@ -28,10 +27,10 @@ import {
   log,
 } from "./shared.js";
 
-/** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_CATALOG. */
+/** Reverse lookup: model ID → provider, derived from PROVIDER_CATALOG. */
 export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
-  Object.entries(PROVIDER_MODEL_CATALOG).flatMap(([provider, models]) =>
-    models.map(({ id }) => [id, provider]),
+  PROVIDER_CATALOG.flatMap((provider) =>
+    provider.models.map(({ id }) => [id, provider.id]),
   ),
 );
 
@@ -63,8 +62,8 @@ export async function getModelInfo(): Promise<ModelInfo> {
     model: config.services.inference.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[provider],
-    allProviders: getFullProviderCatalog(),
+    availableModels: PROVIDER_CATALOG.find((p) => p.id === provider)?.models,
+    allProviders: PROVIDER_CATALOG,
     maskedKeys,
   };
 }

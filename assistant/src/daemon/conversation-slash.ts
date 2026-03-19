@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { getFullProviderCatalog } from "../providers/model-catalog.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -54,7 +54,7 @@ async function resolveModelList(): Promise<SlashResolution> {
     id: provider,
     displayName: providerName,
     models,
-  } of getFullProviderCatalog()) {
+  } of PROVIDER_CATALOG) {
     const hasKey = configuredProviders.has(provider);
     const status = hasKey ? "✓" : "✗";
     lines.push(`**${providerName}** ${status}`);
