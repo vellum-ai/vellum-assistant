@@ -210,16 +210,6 @@ extension Notification.Name {
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
-    // MARK: - Static Helpers
-
-    /// Character set for percent-encoding query-string values, excluding
-    /// query-string metacharacters that would break parameter parsing.
-    private static let queryValueAllowed: CharacterSet = {
-        var cs = CharacterSet.urlQueryAllowed
-        cs.remove(charactersIn: "&=+#")
-        return cs
-    }()
-
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
@@ -743,57 +733,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             purpose: purpose,
             contactChannelId: contactChannelId
         ))
-    }
-
-    // MARK: - Local Daemon HTTP Helpers
-
-    /// Which local server a request should target.
-    private enum LocalHTTPTarget {
-        /// The daemon runtime HTTP server (port from httpPort, default 7821).
-        case daemon
-        /// The gateway server (port resolved via LockfilePaths: env > lockfile > 7830).
-        case gateway
-    }
-
-    /// Build an authenticated URLRequest for a local HTTP endpoint.
-    ///
-    /// Token resolution order:
-    /// 1. `tokenOverride` (for callers that need a specific token)
-    /// 2. JWT from `ActorTokenManager.getToken()` — persisted in Keychain, so available
-    ///    across app restarts once the initial bootstrap has completed. On first-ever
-    ///    launch the bootstrap endpoint is unprotected (pre-auth), so the lack of a
-    ///    token at that point is expected and harmless.
-    ///
-    /// Returns `nil` when the required port is unavailable.
-    private func buildLocalRequest(
-        target: LocalHTTPTarget,
-        path: String,
-        method: String = "GET",
-        timeout: TimeInterval = 10,
-        tokenOverride: String? = nil
-    ) -> URLRequest? {
-        let baseURL: String
-        switch target {
-        case .daemon:
-            guard let port = httpPort else { return nil }
-            baseURL = "http://localhost:\(port)"
-        case .gateway:
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
-            baseURL = "http://127.0.0.1:\(port)"
-        }
-
-        guard let url = URL(string: "\(baseURL)/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = timeout
-
-        let token = tokenOverride.flatMap { $0.isEmpty ? nil : $0 }
-            ?? ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
-        if let token, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        return request
     }
 
 }
