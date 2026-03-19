@@ -113,7 +113,8 @@ public struct VDropdown<T: Hashable>: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .accessibilityLabel(label ?? selectedLabel ?? placeholder)
+            .accessibilityLabel(label ?? placeholder)
+            .accessibilityValue(selectedLabel ?? "")
             .accessibilityHint(errorMessage ?? "")
 
             if let errorMessage {
