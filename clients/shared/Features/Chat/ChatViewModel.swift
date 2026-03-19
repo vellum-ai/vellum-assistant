@@ -1142,18 +1142,23 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
-        // Intercept the exact `/fork` command only when the platform has
-        // registered a local fork handler and there is no extra payload.
+        // Intercept the exact `/fork` command locally so it never falls
+        // through to the assistant as ordinary chat text.
         if text == "/fork",
            !hasAttachments,
-           !hasSkillInvocation,
-           let onFork
+           !hasSkillInvocation
         {
             inputText = ""
             suggestion = nil
             pendingSuggestionRequestId = nil
             flushCoalescedPublish()
-            onFork()
+            if let onFork {
+                errorText = nil
+                conversationError = nil
+                onFork()
+            } else {
+                errorText = "Send a message before forking this conversation."
+            }
             return
         }
 
@@ -3234,7 +3239,7 @@ public final class ChatViewModel: ObservableObject {
     /// platform. On non-macOS platforms, returns nil fields (PTT is desktop-only).
     static func currentPttMetadata() -> PttMetadata {
         #if os(macOS)
-        let key = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        let key = SharedUserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         return PttMetadata(activationKey: key, microphonePermissionGranted: micGranted)
         #else

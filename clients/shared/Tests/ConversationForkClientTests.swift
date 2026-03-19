@@ -46,7 +46,7 @@ final class ConversationForkClientTests: XCTestCase {
         MockConversationForkURLProtocol.requestHandler = nil
         URLProtocol.registerClass(MockConversationForkURLProtocol.self)
 
-        originalConnectedAssistantId = UserDefaults.standard.object(forKey: "connectedAssistantId")
+        originalConnectedAssistantId = SharedUserDefaults.standard.object(forKey: "connectedAssistantId")
 
         let primaryLockfileURL = LockfilePaths.primary
         primaryLockfileExisted = FileManager.default.fileExists(atPath: primaryLockfileURL.path)
@@ -68,9 +68,9 @@ final class ConversationForkClientTests: XCTestCase {
         }
 
         if let originalConnectedAssistantId {
-            UserDefaults.standard.set(originalConnectedAssistantId, forKey: "connectedAssistantId")
+            SharedUserDefaults.standard.set(originalConnectedAssistantId, forKey: "connectedAssistantId")
         } else {
-            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            SharedUserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         }
 
         try super.tearDownWithError()
@@ -196,7 +196,7 @@ final class ConversationForkClientTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: lockfile, options: [.sortedKeys])
         try data.write(to: LockfilePaths.primary, options: .atomic)
-        UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
+        SharedUserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
     }
 
     private func requestJSONBody(from request: URLRequest) throws -> [String: Any] {
