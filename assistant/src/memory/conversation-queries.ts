@@ -57,6 +57,33 @@ export function countConversations(includeBackground = false): number {
   return total;
 }
 
+/**
+ * Count conversations that have at least one user-sent message.
+ *
+ * This is stricter than `countConversations()` — it excludes:
+ *   - Empty conversations (just created, no messages yet)
+ *   - Notification-only conversations (system/assistant messages only)
+ *
+ * Used by the bootstrap gate to determine whether the user has ever
+ * actually chatted, without being fooled by the just-created empty
+ * conversation or background notification threads.
+ */
+export function countConversationsWithUserMessages(): number {
+  const db = getDb();
+  const [{ total }] = db
+    .select({ total: count() })
+    .from(conversations)
+    .where(
+      sql`${conversations.id} IN (
+        SELECT DISTINCT ${messages.conversationId}
+        FROM ${messages}
+        WHERE ${messages.role} = 'user'
+      ) AND ${conversations.conversationType} NOT IN ('background', 'private')`,
+    )
+    .all();
+  return total;
+}
+
 export function getLatestConversation(): ConversationRow | null {
   const db = getDb();
   const row = db
