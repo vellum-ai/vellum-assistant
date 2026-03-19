@@ -168,7 +168,7 @@ class IOSConversationStore: ObservableObject {
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
-    private let conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient()
+    private let conversationUnreadClient: any ConversationUnreadClientProtocol
     private let userDefaults: UserDefaults
     private static let persistenceKey = "ios_conversations_v1"
     private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
@@ -377,17 +377,19 @@ class IOSConversationStore: ObservableObject {
     init(
         daemonClient: any DaemonClientProtocol,
         connectedModeOverride: Bool? = nil,
-        conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
-        conversationListClient: any ConversationListClientProtocol = ConversationListClient(),
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
+        conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
+        conversationListClient: any ConversationListClientProtocol = ConversationListClient(),
+        conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient(),
         userDefaults: UserDefaults = .standard
     ) {
         self.daemonClient = daemonClient
-        self.conversationHistoryClient = conversationHistoryClient
-        self.conversationListClient = conversationListClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationForkClient = conversationForkClient
+        self.conversationHistoryClient = conversationHistoryClient
+        self.conversationListClient = conversationListClient
+        self.conversationUnreadClient = conversationUnreadClient
         self.userDefaults = userDefaults
         Self.migrateKeysIfNeeded(userDefaults: userDefaults)
 
