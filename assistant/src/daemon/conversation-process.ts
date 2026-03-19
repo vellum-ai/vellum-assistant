@@ -17,7 +17,6 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { VALID_INFERENCE_PROVIDERS } from "../config/schemas/services.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -27,14 +26,8 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
-import {
-  getFullProviderCatalog,
-  PROVIDER_MODEL_CATALOG,
-} from "../providers/model-catalog.js";
-import { getConfiguredProviders } from "../providers/provider-availability.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
-import { getMaskedProviderKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
@@ -45,6 +38,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import type { ModelSetContext } from "./handlers/config-model.js";
+import { getModelInfo } from "./handlers/config-model.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -57,24 +51,7 @@ const log = getLogger("conversation-process");
 
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
-  const config = getConfig();
-  const provider = config.services.inference.provider;
-
-  const maskedKeys: Record<string, string> = {};
-  for (const p of VALID_INFERENCE_PROVIDERS) {
-    const masked = await getMaskedProviderKey(p);
-    if (masked) maskedKeys[p] = masked;
-  }
-
-  return {
-    type: "model_info",
-    model: config.services.inference.model,
-    provider,
-    configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[provider],
-    allProviders: getFullProviderCatalog(),
-    maskedKeys,
-  };
+  return { type: "model_info", ...(await getModelInfo()) };
 }
 
 /** True when the trimmed content is a /model or /models slash command. */
