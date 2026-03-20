@@ -299,6 +299,34 @@ struct NavigationGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vLink" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VLink
+                GallerySectionHeader(
+                    title: "VLink",
+                    description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Default (caption)").font(VFont.caption).foregroundStyle(VColor.contentTertiary)
+                            HStack(spacing: 0) {
+                                Text("Telegram ID: ").font(VFont.caption).foregroundStyle(VColor.contentTertiary)
+                                VLink("123456789", destination: URL(string: "https://web.telegram.org")!)
+                            }
+                        }
+                        Divider().background(VColor.borderBase)
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Body font").font(VFont.caption).foregroundStyle(VColor.contentTertiary)
+                            VLink("@example_bot", destination: URL(string: "https://t.me/example_bot")!, font: VFont.body)
+                        }
+                    }
+                }
+            }
+
             if filter == nil || filter == "vThemeToggle" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -342,6 +370,7 @@ extension NavigationGallerySection {
         case "vSegmentedControl": NavigationGallerySection(filter: "vSegmentedControl")
         case "vTabBar": NavigationGallerySection(filter: "vTabBar")
         case "vSidebarRow": NavigationGallerySection(filter: "vSidebarRow")
+        case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
         default: EmptyView()
         }

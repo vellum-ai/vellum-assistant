@@ -544,10 +544,7 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if let username = store.telegramBotUsername, !username.isEmpty {
                         if let url = URL(string: "https://t.me/\(username)") {
-                            Link("@\(username)", destination: url)
-                                .font(VFont.body)
-                                .lineLimit(1)
-                                .pointerCursor()
+                            VLink("@\(username)", destination: url, font: VFont.body)
                         } else {
                             Text("@\(username)")
                                 .font(VFont.body)
@@ -656,10 +653,7 @@ struct AssistantChannelsDetailView: View {
                                 .foregroundColor(VColor.contentTertiary)
                             if let teamId = store.slackChannelTeamId,
                                let url = URL(string: "slack://user?team=\(teamId)&id=\(botUserId)") {
-                                Link(botUserId, destination: url)
-                                    .font(VFont.caption)
-                                    .lineLimit(1)
-                                    .pointerCursor()
+                                VLink(botUserId, destination: url)
                             } else {
                                 Text(botUserId)
                                     .font(VFont.caption)

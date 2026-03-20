@@ -111,6 +111,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vSegmentedControl", "VSegmentedControl", ["segmented control", "tabs"]),
                 ("vSidebarRow", "VSidebarRow", ["sidebar row", "navigation row"]),
                 ("vTabBar", "VTabBar + VTab", ["tab bar", "tabs"]),
+                ("vLink", "VLink", ["link", "url", "external link", "hyperlink"]),
                 ("vThemeToggle", "VThemeToggle", ["theme toggle", "dark mode", "light mode"]),
             ]
         case .tokens:
