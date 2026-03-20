@@ -122,7 +122,11 @@ extension AppDelegate {
             // Auto-approve low/medium risk tool confirmations during CU sessions
             let cuAutoApprove = self.currentSession?.autoApproveTools == true
                 || self.activeHostCuProxy?.autoApproveTools == true
-            if cuAutoApprove, (msg.riskLevel == "low" || msg.riskLevel == "medium") {
+            let cuConversationId = self.activeHostCuProxy?.conversationId
+            let confirmationMatchesCuSession = cuConversationId != nil
+                && (msg.conversationId == nil || msg.conversationId == cuConversationId)
+            if cuAutoApprove, confirmationMatchesCuSession,
+               (msg.riskLevel == "low" || msg.riskLevel == "medium") {
                 let success = await InteractionClient().sendConfirmationResponse(
                     requestId: msg.requestId,
                     decision: "allow"
