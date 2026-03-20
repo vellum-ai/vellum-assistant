@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, or } from "drizzle-orm";
+import { and, asc, eq, lte, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -217,7 +217,10 @@ export function getPendingAndOverdueFollowUps(): BriefFollowUp[] {
         eq(followups.status, "nudged"),
       ),
     )
-    .orderBy(asc(followups.expectedResponseBy))
+    .orderBy(
+      sql`CASE WHEN ${followups.expectedResponseBy} IS NULL THEN 1 ELSE 0 END`,
+      asc(followups.expectedResponseBy),
+    )
     .all();
 
   return rows as BriefFollowUp[];
