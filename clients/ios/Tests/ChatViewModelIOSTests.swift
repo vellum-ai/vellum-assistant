@@ -150,28 +150,15 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationId, "first-session")
     }
 
-    func testConversationInfoClearsBootstrapState() {
+    func testConversationInfoClearsBootstrapState() async {
         // Simulate a bootstrap scenario
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until bootstrap completes — the new bootstrap flow sets
-        // conversationId directly (to the correlation ID) without waiting
-        // for a server conversation_info response.
-        let expectation = XCTestExpectation(description: "bootstrap completes")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if viewModel.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
-        wait(for: [expectation], timeout: 2.0)
-        cancelled = true
+        // Wait for bootstrap to complete — the bootstrap flow sets conversationId
+        // inside a Task { @MainActor }, so we yield via Task.sleep to let it run.
+        await waitForBootstrap()
 
         // Bootstrap should have created a conversation ID locally and cleared bootstrap state
         XCTAssertNotNil(viewModel.conversationId)
@@ -301,7 +288,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     // MARK: - Full Send/Receive Cycle
 
-    func testFullMessageCycle() {
+    func testFullMessageCycle() async {
         // 1. Send a user message
         viewModel.inputText = "Tell me about iOS"
         viewModel.sendMessage()
@@ -310,21 +297,8 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until bootstrap completes — the new bootstrap flow sets
-        // conversationId directly without a server conversation_info round-trip.
-        let expectation = XCTestExpectation(description: "bootstrap completes")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if viewModel.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
-        wait(for: [expectation], timeout: 2.0)
-        cancelled = true
+        // Wait for bootstrap to complete
+        await waitForBootstrap()
 
         // 2. Bootstrap should have created a conversation ID locally
         XCTAssertNotNil(viewModel.conversationId)
@@ -540,6 +514,20 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // The fallback succeeded, so errorText should reflect the preference-not-saved message
         XCTAssertEqual(vm.errorText, "Preference could not be saved. This action was allowed once.")
+    }
+
+    // MARK: - Helpers
+
+    /// Wait for the bootstrap Task to set conversationId. Uses async Task.sleep
+    /// to yield the main actor, giving the bootstrap Task a chance to execute.
+    /// GCD-based polling (DispatchQueue.main.asyncAfter + XCTestExpectation) is
+    /// unreliable because XCTest's wait(for:timeout:) doesn't always pump the
+    /// Swift concurrency cooperative executor.
+    private func waitForBootstrap(timeout: TimeInterval = 5.0) async {
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while viewModel.conversationId == nil && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 }
 
