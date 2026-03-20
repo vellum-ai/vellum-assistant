@@ -32,7 +32,11 @@ export function migrateDropSimplifiedMemory(database: DrizzleDb): void {
   }
 
   // Remove embedding rows for archive target types that no longer exist.
-  raw.exec(
-    `DELETE FROM memory_embeddings WHERE targetType IN ('observation', 'chunk', 'episode')`,
-  );
+  try {
+    raw.exec(
+      `DELETE FROM memory_embeddings WHERE targetType IN ('observation', 'chunk', 'episode')`,
+    );
+  } catch {
+    // Column doesn't exist — table was never migrated to include targetType.
+  }
 }
