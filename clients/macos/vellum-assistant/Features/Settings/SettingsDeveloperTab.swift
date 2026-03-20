@@ -397,7 +397,13 @@ struct SettingsDeveloperTab: View {
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
-            if let version = effectiveVersion {
+            if daemonClient?.isUpdateInProgress == true {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Updating to \(daemonClient?.updateTargetVersion ?? "...")...")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.systemMidStrong)
+            } else if let version = effectiveVersion {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
