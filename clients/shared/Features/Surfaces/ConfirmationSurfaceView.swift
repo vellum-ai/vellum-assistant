@@ -85,6 +85,8 @@ public struct ConfirmationSurfaceView: View {
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
+                Spacer()
+
                 VButton(
                     label: data.cancelLabel ?? "Cancel",
                     style: .outlined
