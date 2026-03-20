@@ -44,6 +44,9 @@ import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 
 const log = getLogger("memory-jobs-worker");
 
+export const POLL_INTERVAL_MIN_MS = 1_500;
+export const POLL_INTERVAL_MAX_MS = 30_000;
+
 export interface MemoryJobsWorker {
   runOnce(): Promise<number>;
   stop(): void;
@@ -57,12 +60,24 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
 
   let stopped = false;
   let tickRunning = false;
+  let timer: ReturnType<typeof setTimeout>;
+  let currentIntervalMs = POLL_INTERVAL_MIN_MS;
 
   const tick = async () => {
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runMemoryJobsOnce({ enableScheduledCleanup: true });
+      const processed = await runMemoryJobsOnce({
+        enableScheduledCleanup: true,
+      });
+      if (processed > 0) {
+        currentIntervalMs = POLL_INTERVAL_MIN_MS;
+      } else {
+        currentIntervalMs = Math.min(
+          currentIntervalMs * 2,
+          POLL_INTERVAL_MAX_MS,
+        );
+      }
     } catch (err) {
       log.error({ err }, "Memory worker tick failed");
     } finally {
@@ -70,11 +85,19 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
     }
   };
 
-  const timer = setInterval(() => {
-    void tick();
-  }, 1500);
-  timer.unref();
-  void tick();
+  const scheduleTick = () => {
+    if (stopped) return;
+    timer = setTimeout(() => {
+      void tick().then(() => {
+        if (!stopped) scheduleTick();
+      });
+    }, currentIntervalMs);
+    (timer as NodeJS.Timeout).unref?.();
+  };
+
+  void tick().then(() => {
+    if (!stopped) scheduleTick();
+  });
 
   return {
     async runOnce(): Promise<number> {
@@ -82,7 +105,7 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
     },
     stop(): void {
       stopped = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     },
   };
 }
