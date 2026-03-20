@@ -721,9 +721,15 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
     fi
 done
 
-# Default VELLUM_PLATFORM_URL for `run` builds (local dev against dev platform)
-if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
-    export VELLUM_PLATFORM_URL="https://platform-assistant.vellum.ai"
+# Default VELLUM_PLATFORM_URL — single source of truth for the platform URL.
+# VellumCli.swift no longer hardcodes a fallback; it relies on this being
+# embedded into Info.plist via LSEnvironment below.
+if [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
+    if [ "$CMD" = "run" ]; then
+        export VELLUM_PLATFORM_URL="https://platform-assistant.vellum.ai"
+    else
+        export VELLUM_PLATFORM_URL="https://vellum.ai"
+    fi
 fi
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
