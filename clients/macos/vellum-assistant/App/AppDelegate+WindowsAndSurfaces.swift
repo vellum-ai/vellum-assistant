@@ -120,8 +120,9 @@ extension AppDelegate {
     func handleToolConfirmationRequest(_ msg: ConfirmationRequestMessage) {
         Task { @MainActor in
             // Auto-approve low/medium risk tool confirmations during CU sessions
-            if self.currentSession?.autoApproveTools == true,
-               msg.riskLevel == "low" || msg.riskLevel == "medium" {
+            let cuAutoApprove = self.currentSession?.autoApproveTools == true
+                || self.activeHostCuProxy?.autoApproveTools == true
+            if cuAutoApprove, (msg.riskLevel == "low" || msg.riskLevel == "medium") {
                 let success = await InteractionClient().sendConfirmationResponse(
                     requestId: msg.requestId,
                     decision: "allow"
