@@ -21,6 +21,7 @@ interface StartEvent {
     normalize?: boolean;
     latency?: string;
     streaming?: boolean;
+    speed?: number;
   };
 }
 
@@ -106,6 +107,7 @@ export class FishAudioSession {
             reference_id: config.referenceId || undefined,
             format: config.format,
             chunk_length: config.chunkLength,
+            speed: config.speed,
             streaming: true,
           },
         };
