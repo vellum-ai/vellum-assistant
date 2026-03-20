@@ -129,16 +129,21 @@ Examples:
             return;
           }
 
-          const body = (await response.json()) as {
-            results?: Array<{
-              id: string;
-              account_label?: string;
-              scopes_granted?: string[];
-              status?: string;
-            }>;
-          };
+          const body = (await response.json()) as unknown;
 
-          const connections = (body.results ?? []).map((c) => ({
+          // The platform returns either a flat array or a {results: [...]} wrapper.
+          const rawEntries = (
+            Array.isArray(body)
+              ? body
+              : ((body as Record<string, unknown>).results ?? [])
+          ) as Array<{
+            id: string;
+            account_label?: string;
+            scopes_granted?: string[];
+            status?: string;
+          }>;
+
+          const connections = rawEntries.map((c) => ({
             id: c.id,
             accountLabel: c.account_label ?? null,
             scopesGranted: c.scopes_granted ?? [],
