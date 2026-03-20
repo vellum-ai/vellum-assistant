@@ -300,9 +300,17 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 
 </details>
 
+### Naming Convention: `V` Prefix
+All design system types — structs, enums, and view modifiers — **must** use the `V` prefix to distinguish them from native SwiftUI types and feature-level views:
+- **Views and controls:** `VButton`, `VCard`, `VTextField`, `VSidebarRow`, `VLoadingIndicator`
+- **Tokens:** `VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, `VIcon`
+- **View modifiers:** `.vCard()`, `.vTooltip()`, `.vShimmer()`, `.vPanelBackground()`
+
+The `V` prefix makes design system components immediately recognizable in code, avoids naming collisions with SwiftUI built-ins (e.g., `VToggle` vs `Toggle`), and enables easy search/filtering across the codebase.
+
 ### Adding New Shared Components
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
-- Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
+- Follow the `V` prefix naming convention described above. Use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
 - Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog. See the [Preview Policy](#preview-policy--component-gallery) section below for rationale.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
