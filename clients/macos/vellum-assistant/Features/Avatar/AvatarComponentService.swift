@@ -76,6 +76,8 @@ final class AvatarComponentService {
             }
             if let decoded {
                 log.info("Fetched character components: \(decoded.bodyShapes.count) body shapes, \(decoded.eyeStyles.count) eye styles, \(decoded.colors.count) colors")
+            } else {
+                log.warning("character-components response decoded as nil (unexpected response body)")
             }
             return decoded
         } catch {
