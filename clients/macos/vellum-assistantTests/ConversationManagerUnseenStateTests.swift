@@ -28,15 +28,11 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { [weak self] message in
-            self?.sentMessages.append(message)
-        }
         conversationManager = ConversationManager(daemonClient: daemonClient)
         conversationManager.createConversation()
     }
 
     override func tearDown() {
-        daemonClient?.sendOverride = nil
         conversationManager = nil
         daemonClient = nil
         sentMessages = []
@@ -363,12 +359,6 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        daemonClient.sendOverride = { _ in
-            throw NSError(domain: "ConversationManagerUnseenStateTests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "offline"
-            ])
-        }
-
         conversationManager.conversations[index].conversationId = "session-unread-failure"
         conversationManager.conversations[index].hasUnseenLatestAssistantMessage = false
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
@@ -397,17 +387,6 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         // mark-all-seen defers the seen signal
         conversationManager.markAllConversationsSeen()
-
-        // Fail only unread signals so markConversationUnread triggers rollback,
-        // while allowing seen signals from commitPendingSeenSignals to succeed.
-        daemonClient.sendOverride = { [weak self] message in
-            if message is ConversationUnreadSignal {
-                throw NSError(domain: "ConversationManagerUnseenStateTests", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "offline"
-                ])
-            }
-            self?.sentMessages.append(message)
-        }
 
         sentMessages.removeAll()
 

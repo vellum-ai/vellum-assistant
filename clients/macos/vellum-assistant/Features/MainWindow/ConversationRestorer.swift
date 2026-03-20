@@ -60,14 +60,20 @@ final class ConversationRestorer {
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
-        daemonClient.onConversationListResponse = { [weak self] response in
-            self?.handleConversationListResponse(response)
-        }
-        daemonClient.onHistoryResponse = { [weak self] response in
-            self?.handleHistoryResponse(response)
-        }
-        daemonClient.onConversationTitleUpdated = { [weak self] response in
-            self?.handleConversationTitleUpdated(response)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in self.daemonClient.subscribe() {
+                switch message {
+                case .conversationListResponse(let response):
+                    self.handleConversationListResponse(response)
+                case .historyResponse(let response):
+                    self.handleHistoryResponse(response)
+                case .conversationTitleUpdated(let response):
+                    self.handleConversationTitleUpdated(response)
+                default:
+                    break
+                }
+            }
         }
         // On first launch after onboarding, skip the initial conversation list fetch
         // so the conversation restorer doesn't override the wake-up conversation.

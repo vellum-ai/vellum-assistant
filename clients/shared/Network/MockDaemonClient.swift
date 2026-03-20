@@ -1,13 +1,10 @@
 #if DEBUG
 import Foundation
 
-/// Lightweight in-memory mock for `DaemonClientProtocol`, used in tests and SwiftUI previews.
+/// Lightweight in-memory mock for `DaemonStatusProtocol`, used in tests and SwiftUI previews.
 @MainActor
-public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
+public final class MockDaemonClient: DaemonStatusProtocol, ObservableObject {
     public var isConnected: Bool = false
-
-    /// Messages recorded by `send(_:)` for assertion in tests.
-    public private(set) var sentMessages: [Any] = []
 
     /// Continuations to feed messages into active `subscribe()` streams.
     private var continuations: [AsyncStream<ServerMessage>.Continuation] = []
@@ -20,16 +17,19 @@ public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
         }
     }
 
-    public func send<T: Encodable>(_ message: T) throws {
-        sentMessages.append(message)
-    }
-
     public func connect() async throws {
         isConnected = true
     }
 
     public func disconnect() {
         isConnected = false
+    }
+
+    /// Messages recorded by `sendUserMessage()` for assertion in tests.
+    public private(set) var sentMessages: [(content: String?, conversationId: String)] = []
+
+    public func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil) {
+        sentMessages.append((content: content, conversationId: conversationId))
     }
 
     public func startSSE() {}
@@ -42,4 +42,8 @@ public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
         }
     }
 }
+
+/// Typealias for backward compatibility — tests and previews that reference
+/// `MockDaemonClient` continue to work unchanged.
+public typealias MockDaemonStatus = MockDaemonClient
 #endif

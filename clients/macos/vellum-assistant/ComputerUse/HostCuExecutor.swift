@@ -25,27 +25,14 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// ```
 enum HostCuExecutor {
 
-    /// Register the host CU handler on the given daemon client.
-    /// The handler will execute CU actions locally and post results back.
-    ///
-    /// - Parameters:
-    ///   - client: The daemon client to register on.
-    ///   - overlayProvider: Called on each request to get the session proxy for
-    ///     overlay state updates. May return nil to skip overlay updates.
+    /// Host CU handling is now done in AppDelegate's subscribe loop.
+    /// This method is retained as a no-op for source compatibility.
     @MainActor
     static func register(
         on client: DaemonClient,
         overlayProvider: @escaping @MainActor (_ conversationId: String, _ request: HostCuRequest) -> HostCuSessionProxy? = { _, _ in nil }
     ) {
-        client.onHostCuRequest = { [weak client] request in
-            guard let client else { return }
-            Task { @MainActor in
-                let proxy = overlayProvider(request.conversationId, request)
-                let result = await HostCuActionRunner.perform(request, overlayProxy: proxy)
-                log.debug("Host CU completed — requestId=\(request.requestId, privacy: .public) toolName=\(request.toolName, privacy: .public)")
-                _ = await HostProxyClient().postCuResult(result)
-            }
-        }
+        // No-op: host CU requests are handled via DaemonStatus.subscribe() in AppDelegate.
     }
 }
 

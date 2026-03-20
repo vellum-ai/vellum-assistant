@@ -340,7 +340,6 @@ struct SettingsDeveloperTab: View {
             SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
         }
         .onDisappear {
-            daemonClient?.onEnvVarsResponse = nil
             sentryDismissTask?.cancel()
             revokeApiKeyDismissTask?.cancel()
         }

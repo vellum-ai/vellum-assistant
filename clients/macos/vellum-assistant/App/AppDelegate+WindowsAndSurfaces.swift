@@ -52,43 +52,13 @@ extension NSApplication {
 
 extension AppDelegate {
 
-    private func currentUserAppsDirectory() -> URL {
+    func currentUserAppsDirectory() -> URL {
         let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
         return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
     }
 
     func setupSurfaceManager() {
-        daemonClient.onSurfaceShow = { [weak self] msg in
-            guard let self else { return }
-            self.surfaceManager.userAppsDirectory = self.currentUserAppsDirectory()
-            self.surfaceManager.showSurface(msg)
-        }
-        daemonClient.onSurfaceUpdate = { [weak self] msg in
-            guard let self else { return }
-            self.surfaceManager.updateSurface(msg)
-        }
-        daemonClient.onSurfaceDismiss = { [weak self] msg in
-            guard let self else { return }
-            self.surfaceManager.dismissSurface(msg)
-        }
-        daemonClient.onSurfaceComplete = { [weak self] msg in
-            guard let self else { return }
-            self.surfaceManager.dismissSurface(UiSurfaceDismissMessage(
-                type: "ui_surface_dismiss",
-                conversationId: msg.conversationId ?? "",
-                surfaceId: msg.surfaceId
-            ))
-        }
-
-        // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
-        daemonClient.onAppFilesChanged = { [weak self] appId in
-            guard let self else { return }
-            self.refreshAppsCache()
-            for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
-                guard appSurfaceId == appId else { continue }
-                self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
-            }
-        }
+        // Surface event handling is now in startDaemonEventSubscription() via subscribe().
 
         // Wire SurfaceManager action callback to SurfaceActionClient
         surfaceManager.onAction = { conversationId, surfaceId, actionId, data in
@@ -127,11 +97,6 @@ extension AppDelegate {
             }
         }
 
-        // Forward layout config from daemon to MainWindowState
-        daemonClient.onLayoutConfig = { [weak self] msg in
-            self?.mainWindow?.windowState.applyLayoutConfig(msg)
-        }
-
         // Route dynamic pages to workspace
         surfaceManager.onDynamicPageShow = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
@@ -148,72 +113,59 @@ extension AppDelegate {
     }
 
     func setupToolConfirmationNotifications() {
-        daemonClient.onConfirmationRequest = { [weak self] msg in
-            guard let self else { return }
-            Task { @MainActor in
-                // Auto-approve low/medium risk tool confirmations during CU sessions
-                if self.currentSession?.autoApproveTools == true,
-                   msg.riskLevel == "low" || msg.riskLevel == "medium" {
-                    let success = await InteractionClient().sendConfirmationResponse(
+        // Confirmation handling is now in startDaemonEventSubscription() via subscribe().
+    }
+
+    /// Handle a tool confirmation request from the daemon event stream.
+    func handleToolConfirmationRequest(_ msg: ConfirmationRequestMessage) {
+        Task { @MainActor in
+            // Auto-approve low/medium risk tool confirmations during CU sessions
+            if self.currentSession?.autoApproveTools == true,
+               msg.riskLevel == "low" || msg.riskLevel == "medium" {
+                let success = await InteractionClient().sendConfirmationResponse(
+                    requestId: msg.requestId,
+                    decision: "allow"
+                )
+                if success {
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: "allow"
                     )
-                    if success {
-                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                            requestId: msg.requestId,
-                            decision: "allow"
-                        )
-                    } else {
-                        log.error("Failed to auto-approve confirmation")
-                    }
+                } else {
+                    log.error("Failed to auto-approve confirmation")
+                }
+                return
+            }
+
+            if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
+                let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
+                let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
+                if confirmationIsForActiveConversation {
                     return
                 }
+            }
 
-                // When the chat window is visible AND the confirmation belongs to the
-                // active conversation, the inline ToolConfirmationBubble handles the
-                // confirmation UX — skip the native notification to avoid showing a
-                // duplicate prompt.  If the confirmation is for a background conversation,
-                // the inline bubble won't be visible, so we must still fire the
-                // native notification.
-                if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
-                    let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
-                    let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
-                    if confirmationIsForActiveConversation {
-                        return
-                    }
-                }
-
-                let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
-                // If the inline chat path already forwarded the response, skip
-                // the duplicate send and state update.
-                guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
-                    return
-                }
-                let success = await InteractionClient().sendConfirmationResponse(
+            let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+            guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
+                return
+            }
+            let success = await InteractionClient().sendConfirmationResponse(
+                requestId: msg.requestId,
+                decision: decision
+            )
+            if success {
+                self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                     requestId: msg.requestId,
                     decision: decision
                 )
-                if success {
-                    // Only sync the inline message state if the send succeeded.
-                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                        requestId: msg.requestId,
-                        decision: decision
-                    )
-                } else {
-                    log.error("Failed to send confirmation response")
-                }
+            } else {
+                log.error("Failed to send confirmation response")
             }
         }
     }
 
     func setupSecretPromptManager() {
-        daemonClient.onSecretRequest = { [weak self] msg in
-            self?.secretPromptManager.showPrompt(msg)
-            // Secret/credential prompts require user input — play the needs-input sound.
-            Task { @MainActor in
-                SoundManager.shared.play(.needsInput)
-            }
-        }
+        // Secret request handling is now in startDaemonEventSubscription() via subscribe().
         secretPromptManager.onResponse = { requestId, value, delivery in
             await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
         }

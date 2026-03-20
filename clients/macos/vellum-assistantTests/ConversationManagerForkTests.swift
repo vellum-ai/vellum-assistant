@@ -40,7 +40,6 @@ final class ConversationManagerForkTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { _ in }
         forkClient = MockConversationForkClient()
         detailClient = MockConversationDetailClient()
         conversationManager = ConversationManager(
@@ -51,7 +50,6 @@ final class ConversationManagerForkTests: XCTestCase {
     }
 
     override func tearDown() {
-        daemonClient?.sendOverride = nil
         conversationManager = nil
         detailClient = nil
         forkClient = nil

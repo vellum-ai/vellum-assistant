@@ -540,15 +540,19 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Wire up ingress config response (for SSE-pushed updates)
-        daemonClient?.onIngressConfigResponse = { [weak self] response in
-            self?.handleIngressConfigResponse(response)
-        }
-
-        // Wire up Telegram config response
-        daemonClient?.onTelegramConfigResponse = { [weak self] response in
-            guard let self else { return }
-            self.applyTelegramConfigResponse(response)
+        // Subscribe to SSE-pushed config updates
+        Task { @MainActor [weak self] in
+            guard let self, let daemonClient = self.daemonClient else { return }
+            for await message in daemonClient.subscribe() {
+                switch message {
+                case .ingressConfigResponse(let response):
+                    self.handleIngressConfigResponse(response)
+                case .telegramConfigResponse(let response):
+                    self.applyTelegramConfigResponse(response)
+                default:
+                    break
+                }
+            }
         }
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
