@@ -23,6 +23,11 @@ struct AssistantUpgradeSection: View {
     @Binding var isDockerOperationInProgress: Bool
     @Binding var dockerOperationLabel: String
 
+    /// Whether a Sparkle update is available (local topology only).
+    var sparkleUpdateAvailable: Bool = false
+    /// The version Sparkle would upgrade to (local topology only).
+    var sparkleUpdateVersion: String?
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -83,6 +88,23 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
+                if topology == .local {
+                    if sparkleUpdateAvailable, let updateVersion = sparkleUpdateVersion {
+                        HStack(spacing: VSpacing.sm) {
+                            Text("Update available:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text(updateVersion)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.primaryBase)
+                        }
+                    } else if !sparkleUpdateAvailable && currentVersion != nil {
+                        Text("You are on the latest version.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemPositiveStrong)
+                    }
+                }
+
                 if !availableReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
                         Text(isRollback ? "Roll back to:" : "Upgrade to:")
@@ -102,7 +124,7 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty {
+                if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty && topology != .local {
                     Text(selectedVersion == nil
                          ? "You are on the latest version."
                          : "You are already on this version.")
@@ -110,7 +132,7 @@ struct AssistantUpgradeSection: View {
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
 
-                if availableReleases.isEmpty && !isLoadingReleases && errorMessage == nil {
+                if availableReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
                     Text("No releases available.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
