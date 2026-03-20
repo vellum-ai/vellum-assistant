@@ -1886,6 +1886,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             Task { await conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
         }
 
+        // Clean up the SSE remapping entry now that the VM uses the server ID.
+        // This prevents stale remapping and updates host-tool-request filtering.
+        daemonClient.eventStreamClient.cleanupAfterConversationIdResolution(localId: syntheticId, serverId: serverId)
+
         log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")
     }
 

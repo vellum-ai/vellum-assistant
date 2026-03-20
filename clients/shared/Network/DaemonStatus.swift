@@ -237,10 +237,13 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             #endif
         }
 
-        // Wire conversation ID resolution from EventStreamClient through to transport cleanup.
+        // Wire conversation ID resolution from EventStreamClient to subscribers.
+        // Only clean up the SSE remapping entry when a subscriber actually handles
+        // the resolution (on macOS, ConversationManager updates the VM's conversationId).
+        // On iOS, no handler exists — the mapping and synthetic ID must stay so
+        // parseSSEData can continue remapping for the unchanged synthetic ID.
         eventStreamClient.onConversationIdResolved = { [weak self] localId, serverId in
             guard let self else { return }
-            self.eventStreamClient.cleanupAfterConversationIdResolution(localId: localId, serverId: serverId)
             self.eventStreamClient.broadcastMessage(.conversationIdResolved(localId: localId, serverId: serverId))
         }
 
@@ -270,6 +273,12 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                 self.httpTransport?.setUpdateInProgress(false)
                 self.eventStreamClient.resetSSEReconnectDelay()
             }
+        }
+
+        // Broadcast auth errors from health check 401 handling to subscribers.
+        transport.onAuthError = { [weak self] message in
+            guard let self else { return }
+            self.eventStreamClient.broadcastMessage(message)
         }
 
         self.httpTransport = transport
@@ -346,7 +355,10 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
         httpTransport?.disconnect()
         httpTransport = nil
-        eventStreamClient.teardown()
+        // Stop SSE but preserve subscriber streams — consumers (AppDelegate,
+        // SettingsStore, ConversationRestorer, etc.) start one-shot for-await
+        // loops that must survive reconnects and assistant switches.
+        eventStreamClient.stopSSE()
 
         isConnected = false
         isConnecting = false
