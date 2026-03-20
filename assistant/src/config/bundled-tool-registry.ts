@@ -13,7 +13,7 @@
  *   bun run scripts/generate-bundled-tool-registry.ts
  */
 import type { SkillToolScript } from "../tools/skills/script-contract.js";
-// ── acp ─────────────────────────────────────────────────────────────────────────
+// ── acp ────────────────────────────────────────────────────────────────────────
 import * as acpAbort from "./bundled-skills/acp/tools/acp-abort.js";
 import * as acpSpawn from "./bundled-skills/acp/tools/acp-spawn.js";
 import * as acpStatus from "./bundled-skills/acp/tools/acp-status.js";
