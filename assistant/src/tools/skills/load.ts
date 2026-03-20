@@ -440,10 +440,14 @@ export class SkillLoadTool implements Tool {
                 "Rendered inline command expansions for included skill",
               );
             } catch (err) {
-              log.warn(
+              log.error(
                 { err, skillId: childId, parentSkillId: skill.id },
-                "Failed to render inline commands for included skill, using raw body",
+                "Failed to render inline commands for included skill",
               );
+              return {
+                content: `Error: failed to render inline commands for included skill "${childId}": ${err instanceof Error ? err.message : String(err)}`,
+                isError: true,
+              };
             }
           }
 
