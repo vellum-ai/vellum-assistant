@@ -216,4 +216,19 @@ final class MessageURLExtractorMarkdownTests: XCTestCase {
         XCTAssertEqual(urls[0].absoluteString, "https://a.com")
         XCTAssertEqual(urls[1].absoluteString, "https://b.com")
     }
+
+    // MARK: - Catastrophic backtracking regression
+
+    func testLongURLWithUnbalancedParensDoesNotHang() {
+        // A long URL-like string with an unbalanced opening paren triggers
+        // exponential backtracking in the `(a+)+` pattern if the regex
+        // lacks possessive quantifiers. This must complete in < 1 second.
+        let longPath = String(repeating: "a", count: 200)
+        let text = "[link](https://example.com/\(longPath)(broken"
+        let start = CFAbsoluteTimeGetCurrent()
+        let urls = MessageURLExtractor.extractMarkdownLinkURLs(from: text)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        XCTAssertTrue(urls.isEmpty)
+        XCTAssertLessThan(elapsed, 1.0, "Regex took \(elapsed)s — possible catastrophic backtracking")
+    }
 }

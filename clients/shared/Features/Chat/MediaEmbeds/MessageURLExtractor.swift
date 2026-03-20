@@ -93,13 +93,22 @@ public enum MessageURLExtractor {
     // Matches markdown-style links: [text](url) and [text](url "title")
     // The URL group supports up to 2 levels of nested parentheses in the
     // URL (e.g. Wikipedia: `Swift_(programming_language_(nested))`).
+    //
+    // All inner quantifiers use possessive modifiers (`++`, `*+`) to
+    // prevent catastrophic backtracking. Without them the nested
+    // `[^()\s"]+` inside the outer `(?:…)+` forms the classic `(a+)+`
+    // pattern, causing exponential runtime on malformed input (e.g. a
+    // long URL-like string with unbalanced parentheses).  Possessive
+    // quantifiers are supported by the ICU regex engine backing
+    // NSRegularExpression and are safe here because the alternation
+    // branches never overlap in which characters they consume.
     private static let markdownLinkPattern: NSRegularExpression = {
         // paren2 matches innermost balanced parens: (...)
         // paren1 matches one level up, allowing paren2 inside: (...(...))
         // The URL is one or more non-special chars or paren1 groups.
-        let paren2 = #"\([^()]*\)"#
-        let paren1 = #"\((?:[^()]*|\#(paren2))*\)"#
-        let urlBody = #"(?:[^()\s"]+|\#(paren1))+"#
+        let paren2 = #"\([^()]*+\)"#
+        let paren1 = #"\((?:[^()]*+|\#(paren2))*+\)"#
+        let urlBody = #"(?:[^()\s"]++|\#(paren1))++"#
         let pattern = #"\[(?:[^\[\]]|\[.*?\])*\]\(\s*(\#(urlBody))(?:\s+"[^"]*")?\s*\)"#
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
