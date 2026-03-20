@@ -24,12 +24,10 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 ## Step 0: Check Existing Configuration
 
-Before starting setup, check whether Slack is already configured:
+Before starting setup, check whether Slack is already configured by calling `credential_store` with `action: "inspect"` for each token:
 
-```bash
-assistant credentials inspect --service slack_channel --field app_token --json
-assistant credentials inspect --service slack_channel --field bot_token --json
-```
+- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "app_token"`
+- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "bot_token"`
 
 - If both credentials have `"hasSecret": true` and the connection is active — Slack is fully configured. Offer to show status or reconfigure.
 - If only one token is present — offer to resume setup from the missing step.
