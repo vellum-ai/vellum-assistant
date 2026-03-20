@@ -2,9 +2,7 @@ import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { getFailoverProvider } from "../../providers/registry.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { createClaudeCodeBackend } from "../../swarm/backend-claude-code.js";
 import { resolveSwarmLimits } from "../../swarm/limits.js";
-import { executeSwarm } from "../../swarm/orchestrator.js";
 import { generatePlan } from "../../swarm/router-planner.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -120,71 +118,10 @@ export const swarmDelegateTool: Tool = {
         return { content: "Cancelled before execution", isError: true };
       }
 
-      // Execute
-      const backend = createClaudeCodeBackend();
-      let synthesisProvider: typeof planProvider | undefined;
-      try {
-        synthesisProvider = getFailoverProvider(
-          config.services.inference.provider,
-          config.providerOrder,
-        );
-      } catch {
-        // No provider available for synthesis - will use fallback
-      }
-
-      const summary = await executeSwarm({
-        plan,
-        limits,
-        backend,
-        workingDir: context.workingDir,
-        modelIntent: config.swarm.synthesizerModelIntent,
-        synthesisProvider,
-        synthesisModelIntent: config.swarm.synthesizerModelIntent,
-        signal: context.signal,
-        onStatus: (event) => {
-          switch (event.kind) {
-            case "task_started":
-              context.onOutput?.(`[START] ${event.taskId}\n`);
-              break;
-            case "task_completed":
-              context.onOutput?.(`[DONE]  ${event.taskId}\n`);
-              break;
-            case "task_failed":
-              context.onOutput?.(`[FAIL]  ${event.taskId}\n`);
-              break;
-            case "task_blocked":
-              context.onOutput?.(`[BLOCK] ${event.taskId}\n`);
-              break;
-            case "done":
-              context.onOutput?.(`\nSwarm completed.\n`);
-              break;
-          }
-        },
-      });
-
-      // Format result
-      const lines: string[] = [];
-      lines.push(summary.finalAnswer);
-      lines.push("");
-      lines.push(`---`);
-      lines.push(
-        `Tasks: ${summary.stats.completed} completed, ${summary.stats.failed} failed, ${summary.stats.blocked} blocked`,
-      );
-      lines.push(`Duration: ${summary.stats.totalDurationMs}ms`);
-
-      if (summary.stats.failed > 0 || summary.stats.blocked > 0) {
-        lines.push("");
-        lines.push("### Issues");
-        for (const r of summary.results) {
-          if (r.status === "failed") {
-            lines.push(`- **${r.taskId}** (failed): ${r.summary}`);
-          }
-        }
-      }
-
       return {
-        content: lines.join("\n"),
-        isError: summary.stats.completed === 0,
+        content:
+          "Swarm orchestration is currently unavailable: no worker backend is configured.",
+        isError: true,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
