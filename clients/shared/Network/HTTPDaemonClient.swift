@@ -140,6 +140,15 @@ public final class HTTPTransport {
         #endif
     }
 
+    // MARK: - SSE Parse Time Tracking
+
+    /// Accumulated main-thread time spent in `parseSSEData` within the current
+    /// 1-second window. When this exceeds 500ms, a warning is logged to help
+    /// diagnose main-thread saturation during rapid streaming.
+    private var sseParseTimeAccumulator: TimeInterval = 0
+    private var sseParseCountInWindow: Int = 0
+    private var sseWindowStart: CFAbsoluteTime = 0
+
     /// Currently active SSE task.
     private var sseTask: Task<Void, Never>?
 
@@ -851,6 +860,21 @@ public final class HTTPTransport {
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             if elapsed > 0.05 || byteCount > 100_000 {
                 log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000))ms, \(byteCount) bytes")
+            }
+            // Track rolling main-thread time spent parsing SSE events.
+            // Flags when >500ms of a 1-second window is consumed by SSE parsing.
+            sseParseTimeAccumulator += elapsed
+            sseParseCountInWindow += 1
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - sseWindowStart > 1.0 {
+                if sseParseTimeAccumulator > 0.5 {
+                    let totalMs = String(format: "%.0f", sseParseTimeAccumulator * 1000)
+                    let count = sseParseCountInWindow
+                    log.warning("SSE main-thread saturation: \(totalMs)ms in \(count) events over 1s")
+                }
+                sseParseTimeAccumulator = 0
+                sseParseCountInWindow = 0
+                sseWindowStart = now
             }
         }
         var jsonString = data

@@ -407,12 +407,14 @@ struct MessageListView: View {
         // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
         // sub-pixel jitter during scroll would otherwise cause continuous re-renders.
         guard abs(avatarDisplayY - y) > 2 else { return }
+        recordScrollLoopEvent(.avatarDisplayYApplied)
         withAnimation(ConversationAvatarFollower.spring) {
             avatarDisplayY = y
         }
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
+        recordScrollLoopEvent(.avatarFollowerUpdate)
         // Compute visibility once and update @State only on boundary crossings.
         let nowVisible = anchorY.isFinite
             && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
@@ -745,6 +747,12 @@ struct MessageListView: View {
         let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
         logNonFiniteGeometryOnce(sanitizer: sanitizer)
 
+        // Capture rolling scroll loop guard counts for debug-state.json.
+        let guardCounts = scrollLoopGuard.currentCounts(conversationId: convId.uuidString)
+        let guardCountsStringKeyed: [String: Int]? = guardCounts.isEmpty ? nil : Dictionary(
+            uniqueKeysWithValues: guardCounts.map { ($0.key.rawValue, $0.value) }
+        )
+
         ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
             conversationId: convId.uuidString,
             capturedAt: Date(),
@@ -765,6 +773,7 @@ struct MessageListView: View {
             tailAnchorY: safeTailAnchorY,
             scrollViewportHeight: safeViewportHeight,
             containerWidth: safeContainerWidth,
+            scrollLoopGuardCounts: guardCountsStringKeyed,
             nonFiniteFields: sanitizer.nonFiniteFields
         ))
     }
@@ -919,6 +928,7 @@ struct MessageListView: View {
                             }
                     }
 
+                    let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let state = precomputedState
                     ForEach(Array(zip(state.displayMessages.indices, state.displayMessages)), id: \.1.id) { index, message in
                         MessageCellView(
@@ -1162,6 +1172,7 @@ struct MessageListView: View {
                     previous: scrollTracking.lastTailAnchorY
                 )
                 guard case .accept(let accepted) = decision else { return }
+                recordScrollLoopEvent(.tailAnchorPreferenceChange)
                 scrollTracking.lastTailAnchorY = accepted
                 updateAvatarFollower(anchorY: accepted)
             }

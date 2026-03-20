@@ -224,6 +224,10 @@ struct DebugSnapshot: Codable {
         let containerWidth: Double?
         let lastScrollToReason: String?
         let lastLoopWarningTimestamp: Date?
+        /// Rolling event counts from `ChatScrollLoopGuard` within the 2-second
+        /// detection window. Keys are event kind names; values are counts.
+        /// Non-zero counts only. Useful for identifying hot paths before a freeze.
+        let scrollLoopGuardCounts: [String: Int]?
         /// Names of geometry fields whose original values were non-finite
         /// (nan, inf, -inf) and were replaced with `nil` during sanitization.
         let nonFiniteFields: [String]?
@@ -249,6 +253,7 @@ struct DebugSnapshot: Codable {
             self.containerWidth = snapshot.containerWidth
             self.lastScrollToReason = snapshot.lastScrollToReason
             self.lastLoopWarningTimestamp = snapshot.lastLoopWarningTimestamp
+            self.scrollLoopGuardCounts = snapshot.scrollLoopGuardCounts
             self.nonFiniteFields = snapshot.nonFiniteFields
         }
     }

@@ -244,6 +244,10 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     let lastScrollToReason: String?
     /// Timestamp of the last scroll-loop warning from `ChatScrollLoopGuard`.
     let lastLoopWarningTimestamp: Date?
+    /// Rolling event counts from `ChatScrollLoopGuard` at snapshot time.
+    /// Keys are `EventKind.rawValue` strings; values are counts within the
+    /// rolling 2-second window. Only non-zero counts are included.
+    let scrollLoopGuardCounts: [String: Int]?
 
     // MARK: Sanitization metadata
 
@@ -273,6 +277,7 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         containerWidth: Double? = nil,
         lastScrollToReason: String? = nil,
         lastLoopWarningTimestamp: Date? = nil,
+        scrollLoopGuardCounts: [String: Int]? = nil,
         nonFiniteFields: [String]? = nil
     ) {
         self.conversationId = conversationId
@@ -296,6 +301,7 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.containerWidth = containerWidth
         self.lastScrollToReason = lastScrollToReason
         self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
+        self.scrollLoopGuardCounts = scrollLoopGuardCounts
         self.nonFiniteFields = nonFiniteFields
     }
 }

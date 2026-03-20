@@ -14,6 +14,10 @@ import Foundation
 /// **Thresholds:**
 /// - More than 40 `anchorPreferenceChange` events in 2 seconds
 /// - More than 15 `scrollToRequested` events in 2 seconds
+/// - More than 50 `avatarFollowerUpdate` events in 2 seconds
+/// - More than 30 `avatarDisplayYApplied` events in 2 seconds
+/// - More than 60 `tailAnchorPreferenceChange` events in 2 seconds
+/// - More than 40 `bodyEvaluation` events in 2 seconds
 ///
 /// Once tripped, the guard emits at most one aggregate warning per cooldown
 /// window (the same 2-second duration), then re-arms after a quiet window
@@ -27,6 +31,10 @@ final class ChatScrollLoopGuard {
         case scrollToRequested
         case repinAttempt
         case suppressionFlip
+        case avatarFollowerUpdate
+        case avatarDisplayYApplied
+        case tailAnchorPreferenceChange
+        case bodyEvaluation
     }
 
     // MARK: - Aggregate Snapshot
@@ -49,6 +57,18 @@ final class ChatScrollLoopGuard {
 
     /// Maximum scrollTo requests allowed in the detection window.
     static let scrollToThreshold: Int = 15
+
+    /// Maximum updateAvatarFollower() calls allowed in the detection window.
+    static let avatarFollowerThreshold: Int = 50
+
+    /// Maximum applyAvatarDisplayY() @State mutations allowed in the detection window.
+    static let avatarApplyThreshold: Int = 30
+
+    /// Maximum ConversationTailAnchorYKey preference fires allowed in the detection window.
+    static let tailAnchorThreshold: Int = 60
+
+    /// Maximum body evaluations allowed in the detection window.
+    static let bodyEvaluationThreshold: Int = 40
 
     /// Rolling window duration in seconds for event counting.
     static let windowDuration: TimeInterval = 2.0
@@ -115,12 +135,24 @@ final class ChatScrollLoopGuard {
         // Check thresholds.
         let anchorCount = state.events[.anchorPreferenceChange]?.count ?? 0
         let scrollToCount = state.events[.scrollToRequested]?.count ?? 0
+        let avatarFollowerCount = state.events[.avatarFollowerUpdate]?.count ?? 0
+        let avatarApplyCount = state.events[.avatarDisplayYApplied]?.count ?? 0
+        let tailAnchorCount = state.events[.tailAnchorPreferenceChange]?.count ?? 0
+        let bodyEvalCount = state.events[.bodyEvaluation]?.count ?? 0
 
         var trippedBy: EventKind?
         if anchorCount > Self.anchorThreshold {
             trippedBy = .anchorPreferenceChange
         } else if scrollToCount > Self.scrollToThreshold {
             trippedBy = .scrollToRequested
+        } else if avatarFollowerCount > Self.avatarFollowerThreshold {
+            trippedBy = .avatarFollowerUpdate
+        } else if avatarApplyCount > Self.avatarApplyThreshold {
+            trippedBy = .avatarDisplayYApplied
+        } else if tailAnchorCount > Self.tailAnchorThreshold {
+            trippedBy = .tailAnchorPreferenceChange
+        } else if bodyEvalCount > Self.bodyEvaluationThreshold {
+            trippedBy = .bodyEvaluation
         }
 
         var snapshot: AggregateSnapshot?
@@ -159,6 +191,20 @@ final class ChatScrollLoopGuard {
     /// Resets all tracking state for all conversations.
     func resetAll() {
         states.removeAll()
+    }
+
+    /// Returns the current rolling event counts for a conversation.
+    /// Used by `DebugStateWriter` to include hot-path rates in `debug-state.json`.
+    func currentCounts(conversationId: String) -> [EventKind: Int] {
+        guard let state = states[conversationId] else { return [:] }
+        var counts: [EventKind: Int] = [:]
+        for kind in EventKind.allCases {
+            let count = state.events[kind]?.count ?? 0
+            if count > 0 {
+                counts[kind] = count
+            }
+        }
+        return counts
     }
 }
 
