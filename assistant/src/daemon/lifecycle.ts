@@ -385,32 +385,39 @@ export async function runDaemon(): Promise<void> {
       }
 
       if (qdrantStarted) {
-        const embeddingSelection = await selectEmbeddingBackend(config);
-        const embeddingModel = embeddingSelection.backend
-          ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
-          : undefined;
-        const qdrantClient = initQdrantClient({
-          url: qdrantUrl,
-          collection: config.memory.qdrant.collection,
-          vectorSize: config.memory.qdrant.vectorSize,
-          onDisk: config.memory.qdrant.onDisk,
-          quantization: config.memory.qdrant.quantization,
-          embeddingModel,
-        });
+        try {
+          const embeddingSelection = await selectEmbeddingBackend(config);
+          const embeddingModel = embeddingSelection.backend
+            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+            : undefined;
+          const qdrantClient = initQdrantClient({
+            url: qdrantUrl,
+            collection: config.memory.qdrant.collection,
+            vectorSize: config.memory.qdrant.vectorSize,
+            onDisk: config.memory.qdrant.onDisk,
+            quantization: config.memory.qdrant.quantization,
+            embeddingModel,
+          });
 
-        // Eagerly ensure the collection exists so we detect migrations
-        // (unnamed→named vectors, dimension/model changes) at startup.
-        // If a destructive migration occurred, enqueue a rebuild_index job
-        // to re-embed all memory items from the SQLite cache.
-        const { migrated } = await qdrantClient.ensureCollection();
-        if (migrated) {
-          enqueueMemoryJob("rebuild_index", {});
-          log.info(
-            "Qdrant collection was migrated — enqueued rebuild_index job",
+          // Eagerly ensure the collection exists so we detect migrations
+          // (unnamed→named vectors, dimension/model changes) at startup.
+          // If a destructive migration occurred, enqueue a rebuild_index job
+          // to re-embed all memory items from the SQLite cache.
+          const { migrated } = await qdrantClient.ensureCollection();
+          if (migrated) {
+            enqueueMemoryJob("rebuild_index", {});
+            log.info(
+              "Qdrant collection was migrated — enqueued rebuild_index job",
+            );
+          }
+
+          log.info("Qdrant vector store initialized");
+        } catch (err) {
+          log.warn(
+            { err },
+            "Qdrant client initialization failed — memory features will be degraded",
           );
         }
-
-        log.info("Qdrant vector store initialized");
       }
 
       log.info("Daemon startup: starting memory worker");
