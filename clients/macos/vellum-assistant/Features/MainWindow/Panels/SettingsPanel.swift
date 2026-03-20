@@ -413,6 +413,38 @@ struct SettingsPanel: View {
 
     private var integrationsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Managed services billing info banner
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.info, size: 14)
+                    .foregroundColor(VColor.primaryBase)
+
+                Text("Managed services are metered and deducted from your Vellum account balance.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+
+                Button {
+                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/pricing")!)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("View pricing")
+                            .underline()
+                        VIconView(.arrowUpRight, size: 10)
+                    }
+                    .font(VFont.body)
+                    .foregroundColor(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.borderBase, lineWidth: 1)
+            )
+
             // ANTHROPIC / INFERENCE
             InferenceServiceCard(
                 store: store,
