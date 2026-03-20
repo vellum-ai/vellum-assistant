@@ -101,6 +101,15 @@ export function isQdrantBreakerOpen(): boolean {
   return breakerState !== "closed";
 }
 
+/**
+ * Returns true when the breaker is open and the cooldown has elapsed,
+ * meaning the next call to `withQdrantBreaker` will transition to half-open.
+ * Use this to allow a single probe job through when embed jobs are otherwise skipped.
+ */
+export function shouldAllowQdrantProbe(): boolean {
+  return breakerState === "open" && Date.now() - openedAt >= COOLDOWN_MS;
+}
+
 /** @internal Test-only: reset circuit breaker state */
 export function _resetQdrantBreaker(): void {
   breakerState = "closed";

@@ -4,7 +4,10 @@ import { v4 as uuid } from "uuid";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb, rawAll, rawChanges } from "./db.js";
-import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
+import {
+  isQdrantBreakerOpen,
+  shouldAllowQdrantProbe,
+} from "./qdrant-circuit-breaker.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");
@@ -203,11 +206,22 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
 
   const remainingSlots = limit - nonEmbedCandidates.length;
 
-  // When the Qdrant circuit breaker is open, skip embed jobs entirely.
-  // They would just be claimed → fail → deferred, wasting CPU cycles.
-  const skipEmbedJobs = isQdrantBreakerOpen();
+  // When the Qdrant circuit breaker is open, skip embed jobs entirely —
+  // they would just be claimed → fail → deferred, wasting CPU cycles.
+  // Exception: if the cooldown has elapsed (breaker ready for half-open probe),
+  // allow exactly 1 embed job through so the breaker can self-heal.
+  const breakerOpen = isQdrantBreakerOpen();
+  const probeAllowed = breakerOpen && shouldAllowQdrantProbe();
+  const skipEmbedJobs = breakerOpen && !probeAllowed;
+  const embedLimit = probeAllowed ? 1 : remainingSlots;
+
   if (skipEmbedJobs && remainingSlots > 0) {
     log.debug("Skipping embed job claims — Qdrant circuit breaker is open");
+  }
+  if (probeAllowed && remainingSlots > 0) {
+    log.debug(
+      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed",
+    );
   }
 
   const embedCandidates =
@@ -217,7 +231,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
           .from(memoryJobs)
           .where(and(pendingFilter, inArray(memoryJobs.type, EMBED_JOB_TYPES)))
           .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
-          .limit(remainingSlots)
+          .limit(embedLimit)
           .all()
       : [];
 
