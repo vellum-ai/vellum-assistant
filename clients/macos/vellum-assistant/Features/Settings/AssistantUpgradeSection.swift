@@ -20,6 +20,9 @@ struct AssistantUpgradeSection: View {
     let currentVersion: String?
     let topology: AssistantTopology
 
+    @Binding var isDockerOperationInProgress: Bool
+    @Binding var dockerOperationLabel: String
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -247,13 +250,16 @@ struct AssistantUpgradeSection: View {
         }
         let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
         let version = selectedVersion ?? latestRelease?.version
+        dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Upgrading assistant..."
+        isDockerOperationInProgress = true
+        defer { isDockerOperationInProgress = false }
         do {
             try await cli.upgrade(name: name, version: version)
-            successMessage = "Upgrade complete."
+            successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
         } catch {
-            errorMessage = "Upgrade failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
         }
     }
 
