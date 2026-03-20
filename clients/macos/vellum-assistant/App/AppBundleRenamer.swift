@@ -21,6 +21,12 @@ enum AppBundleRenamer {
 
     private static let targetName = AppDelegate.appName
 
+    /// Escapes a string for safe interpolation inside bash single-quoted strings.
+    /// Replaces `'` with `'\''` (end quote, escaped quote, reopen quote).
+    private static func shellEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "'", with: "'\\''")
+    }
+
     /// Returns `true` if the current bundle's display name differs from
     /// "Vellum" and a rename + relaunch is needed.
     static var needsRename: Bool {
@@ -61,13 +67,13 @@ enum AppBundleRenamer {
             sleep 0.1
         done
 
-        APP_DIR='\(bundleURL.path)'
+        APP_DIR='\(shellEscape(bundleURL.path))'
         CONTENTS="$APP_DIR/Contents"
         MACOS="$CONTENTS/MacOS"
-        OLD_EXE='\(currentExeName)'
-        NEW_NAME='\(targetName)'
-        BUNDLE_DIR='\(bundleDir.path)'
-        BUNDLE_ID='\(bundleId)'
+        OLD_EXE='\(shellEscape(currentExeName))'
+        NEW_NAME='\(shellEscape(targetName))'
+        BUNDLE_DIR='\(shellEscape(bundleDir.path))'
+        BUNDLE_ID='\(shellEscape(bundleId))'
         TARGET_APP="$BUNDLE_DIR/$NEW_NAME.app"
 
         # 1. Rename the executable
