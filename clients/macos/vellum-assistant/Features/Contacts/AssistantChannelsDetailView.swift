@@ -41,9 +41,9 @@ struct AssistantChannelsDetailView: View {
     @State private var emailRowExpanded: Bool = false
 
     // Auto-focus first input when setup expands
-    @State private var isTelegramTokenFocused: Bool = false
-    @State private var isSlackBotTokenFocused: Bool = false
-    @State private var isVoiceAccountSidFocused: Bool = false
+    @FocusState private var isTelegramTokenFocused: Bool
+    @FocusState private var isSlackBotTokenFocused: Bool
+    @FocusState private var isVoiceAccountSidFocused: Bool
     @State private var focusTask: Task<Void, Never>?
 
     var body: some View {
@@ -600,9 +600,9 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Telegram bot token",
                 text: $telegramBotTokenText,
                 isSecure: true,
-                maxWidth: 400,
-                isFocused: $isTelegramTokenFocused
+                maxWidth: 400
             )
+            .focused($isTelegramTokenFocused)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -703,9 +703,9 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Bot Token (xoxb-...)",
                 text: $slackChannelBotTokenInput,
                 isSecure: true,
-                maxWidth: 400,
-                isFocused: $isSlackBotTokenFocused
+                maxWidth: 400
             )
+            .focused($isSlackBotTokenFocused)
 
             VTextField(
                 "App Token",
@@ -815,9 +815,9 @@ struct AssistantChannelsDetailView: View {
                 "Account SID",
                 placeholder: "Account SID",
                 text: $voiceAccountSidText,
-                maxWidth: 400,
-                isFocused: $isVoiceAccountSidFocused
+                maxWidth: 400
             )
+            .focused($isVoiceAccountSidFocused)
 
             VTextField(
                 "Auth Token",
