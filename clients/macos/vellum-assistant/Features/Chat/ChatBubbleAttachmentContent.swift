@@ -23,17 +23,13 @@ private enum ImageActions {
         let sanitized = (filename as NSString).lastPathComponent
         let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
-        // Attempt base64 decode upfront to determine if full-res data is actually
-        // available. This prevents extension/content mismatch when base64Data is
-        // non-empty but corrupt (not valid base64).
-        let fullResData: Data? = base64Data.flatMap { str in
-            guard !str.isEmpty else { return nil }
-            guard let decoded = Data(base64Encoded: str), !decoded.isEmpty else { return nil }
-            return decoded
-        }
-
+        // Use non-emptiness as a lightweight proxy for valid base64 data to
+        // decide the suggested filename. Full decode is deferred to the
+        // background write block to avoid blocking the main thread for large
+        // payloads (multi-MB screenshots).
+        let hasBase64 = base64Data.map { !$0.isEmpty } ?? false
         let suggestedName: String
-        if fullResData != nil {
+        if hasBase64 {
             suggestedName = fallbackName
         } else {
             suggestedName = (fallbackName as NSString).deletingPathExtension + ".png"
@@ -45,8 +41,9 @@ private enum ImageActions {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                if let fullResData {
-                    try? fullResData.write(to: url)
+                if let base64Data, !base64Data.isEmpty,
+                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                    try? decoded.write(to: url)
                 } else if let tiff = image.tiffRepresentation,
                           let rep = NSBitmapImageRep(data: tiff),
                           let png = rep.representation(using: .png, properties: [:]) {
