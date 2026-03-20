@@ -133,7 +133,7 @@ final class ConversationForkIOSTests: XCTestCase {
                 )
             ]
         )
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
 
         let refreshed = store.conversations.first(where: { $0.conversationId == "conv-thread" })
         XCTAssertNil(refreshed?.forkParent)
