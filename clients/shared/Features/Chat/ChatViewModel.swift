@@ -194,12 +194,86 @@ public final class ChatViewModel: ObservableObject {
         set {
             messageManager.isSending = newValue
             if newValue {
-                // Start watchdog: log a warning if isSending is still true after 60s
+                // Start watchdog: if isSending is still true after 60s, auto-recover
+                // by resetting transient state so the user can send new messages.
+                // Without this, a missed messageComplete (e.g. server-side error with
+                // the SSE stream still alive) leaves the chat permanently stuck.
                 sendingWatchdogTask?.cancel()
                 sendingWatchdogTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(60))
                     guard !Task.isCancelled, let self, self.isSending else { return }
-                    log.warning("isSending watchdog: still true after 60s, conversationId=\(self.conversationId ?? "nil")")
+                    log.error("isSending watchdog: still true after 60s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    // Reset all transient state to match the reconnect recovery
+                    // path, so the chat is fully usable again.
+                    self.isThinking = false
+                    self.isCancelling = false
+                    // Workspace refinement state
+                    self.isWorkspaceRefinementInFlight = false
+                    self.refinementFlushTask?.cancel()
+                    self.refinementFlushTask = nil
+                    self.refinementMessagePreview = nil
+                    self.refinementStreamingText = nil
+                    self.cancelledDuringRefinement = false
+                    self.refinementTextBuffer = ""
+                    self.refinementReceivedSurfaceUpdate = false
+                    // Activity phase state — keep lastActivityVersion at its
+                    // current value so late activity events from the abandoned
+                    // run with a lower version are rejected.
+                    self.assistantActivityPhase = "idle"
+                    self.assistantActivityAnchor = "global"
+                    self.assistantActivityReason = nil
+                    self.assistantStatusText = nil
+                    self.isCompacting = false
+                    // Streaming message state
+                    if let existingId = self.currentAssistantMessageId,
+                       let index = self.messages.firstIndex(where: { $0.id == existingId }) {
+                        self.messages[index].isStreaming = false
+                        self.messages[index].streamingCodePreview = nil
+                        self.messages[index].streamingCodeToolName = nil
+                        for j in self.messages[index].toolCalls.indices where !self.messages[index].toolCalls[j].isComplete {
+                            self.messages[index].toolCalls[j].isComplete = true
+                            self.messages[index].toolCalls[j].completedAt = Date()
+                        }
+                    }
+                    self.currentAssistantMessageId = nil
+                    self.currentTurnUserText = nil
+                    self.currentAssistantHasText = false
+                    self.lastContentWasToolCall = false
+                    self.discardStreamingBuffer()
+                    self.discardPartialOutputBuffer()
+                    // Voice state
+                    self.pendingVoiceMessage = false
+                    // Bootstrap state — if the first message triggered the watchdog
+                    // before a conversationId was assigned, clear these so the next
+                    // sendMessage() doesn't take the isBootstrapping early-return path.
+                    self.bootstrapCorrelationId = nil
+                    self.pendingUserMessage = nil
+                    self.pendingUserMessageDisplayText = nil
+                    self.pendingUserAttachments = nil
+                    self.pendingUserMessageAutomated = false
+                    // Queue tracking state
+                    self.pendingQueuedCount = 0
+                    self.pendingMessageIds.removeAll()
+                    self.requestIdToMessageId.removeAll()
+                    self.activeRequestIdToMessageId.removeAll()
+                    self.pendingLocalDeletions.removeAll()
+                    // Reset queued/processing user messages to .sent
+                    for i in self.messages.indices {
+                        if case .queued = self.messages[i].status, self.messages[i].role == .user {
+                            self.messages[i].status = .sent
+                        } else if self.messages[i].role == .user && self.messages[i].status == .processing {
+                            self.messages[i].status = .sent
+                        }
+                    }
+                    // Cancel stale cancel-timeout task
+                    self.cancelTimeoutTask?.cancel()
+                    self.cancelTimeoutTask = nil
+                    // Setting isSending = false triggers the setter again which
+                    // cancels this watchdog task — use the backing store directly.
+                    self.messageManager.isSending = false
+                    self.sendingWatchdogTask = nil
+                    // Dispatch any pending send-direct so the user's message isn't lost.
+                    self.dispatchPendingSendDirect()
                 }
             } else {
                 sendingWatchdogTask?.cancel()
