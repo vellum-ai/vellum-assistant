@@ -31,6 +31,16 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export the variable from Settings. For public ingress URLs (e.g. OAuth redirect URIs, webhook registration), use `assistant config get ingress.publicBaseUrl` or load the `public-ingress` skill — do not inject public URLs as environment variables.
 
+### Trust Management in Docker Mode
+
+In Docker mode, the gateway is the sole owner of trust rule storage. Trust files (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`), configured via `GATEWAY_SECURITY_DIR`. No other container has access to this volume.
+
+The assistant reads and writes trust rules via the gateway's HTTP trust API instead of accessing the filesystem directly. This ensures the security boundary is enforced at the container level — even if the assistant container is compromised, it cannot tamper with trust rules without going through the gateway's API.
+
+### Credential Access in Docker Mode
+
+In Docker mode, the gateway accesses stored credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. The gateway does not have direct filesystem access to credential encryption keys (`keys.enc`, `store.key`), which reside on the CES security volume.
+
 ### Channel Identity Vocabulary
 
 Gateway inbound events use a channel-discriminated union model (`GatewayInboundEvent`) with explicit identity fields:
