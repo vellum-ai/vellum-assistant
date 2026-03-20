@@ -15,6 +15,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
     @Published public private(set) var isUpdateAvailable = false
     @Published public private(set) var isDeferredUpdateReady = false
+    @Published public private(set) var availableUpdateVersion: String?
 
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.
@@ -140,6 +141,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         Task { @MainActor in
             log.info("Found valid update: \(item.displayVersionString, privacy: .public)")
             self.isUpdateAvailable = true
+            self.availableUpdateVersion = item.displayVersionString
         }
     }
 
@@ -148,6 +150,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     nonisolated public func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         Task { @MainActor in
             self.isUpdateAvailable = false
+            self.availableUpdateVersion = nil
         }
     }
 
@@ -163,6 +166,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             if choice == .skip {
                 log.info("User skipped update \(updateItem.displayVersionString, privacy: .public)")
                 self.isUpdateAvailable = false
+                self.availableUpdateVersion = nil
             }
         }
     }
