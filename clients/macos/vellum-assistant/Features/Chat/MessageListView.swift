@@ -270,7 +270,42 @@ struct MessageListView: View {
             by: { $0.parentMessageId! }
         )
         let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
-        let showTimestamp = timestampIndices(for: displayMessages)
+        let showTimestamp = timestampIds(for: displayMessages)
+        let messageIndexById = Dictionary(uniqueKeysWithValues: displayMessages.enumerated().map { ($1.id, $0) })
+
+        var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
+        for i in displayMessages.indices {
+            if i + 1 < displayMessages.count,
+               let conf = displayMessages[i + 1].confirmation,
+               conf.state != .pending {
+                nextDecidedConfirmationByIndex[i] = conf
+            }
+        }
+
+        var isConfirmationRenderedInlineByIndex = Set<Int>()
+        for i in displayMessages.indices {
+            guard let confirmation = displayMessages[i].confirmation,
+                  confirmation.state == .pending,
+                  let confirmationToolUseId = confirmation.toolUseId,
+                  !confirmationToolUseId.isEmpty else { continue }
+            for j in (0..<i).reversed() {
+                let msg = displayMessages[j]
+                guard msg.role == .assistant, msg.confirmation == nil else { continue }
+                if msg.toolCalls.contains(where: { $0.toolUseId == confirmationToolUseId && $0.pendingConfirmation != nil }) {
+                    isConfirmationRenderedInlineByIndex.insert(i)
+                }
+                break
+            }
+        }
+
+        var hasPrecedingAssistantByIndex = Set<Int>()
+        for i in displayMessages.indices where i > 0 {
+            if displayMessages[i - 1].role == .assistant {
+                hasPrecedingAssistantByIndex.insert(i)
+            }
+        }
+
+        let hasUserMessage = displayMessages.contains { $0.role == .user }
         let lastVisible = displayMessages.last
         let currentTurnMessages: ArraySlice<ChatMessage> = {
             if isSending, let last = displayMessages.last, last.role == .user {
@@ -306,12 +341,17 @@ struct MessageListView: View {
 
         return PrecomputedMessageListState(
             displayMessages: displayMessages,
+            messageIndexById: messageIndexById,
             activePendingRequestId: activePendingRequestId,
             latestAssistantId: latestAssistantId,
             anchoredThinkingIndex: anchoredThinkingIndex,
             subagentsByParent: subagentsByParent,
             orphanSubagents: orphanSubagents,
             showTimestamp: showTimestamp,
+            nextDecidedConfirmationByIndex: nextDecidedConfirmationByIndex,
+            isConfirmationRenderedInlineByIndex: isConfirmationRenderedInlineByIndex,
+            hasPrecedingAssistantByIndex: hasPrecedingAssistantByIndex,
+            hasUserMessage: hasUserMessage,
             lastVisible: lastVisible,
             currentTurnMessages: currentTurnMessages,
             hasActiveToolCall: hasActiveToolCall,
@@ -338,18 +378,19 @@ struct MessageListView: View {
         }
     }
 
-    /// Pre-compute which message indices should show a timestamp divider.
+    /// Pre-compute which message IDs should show a timestamp divider.
     /// Avoids creating a Calendar instance per-message inside the ForEach body.
-    private func timestampIndices(for list: [ChatMessage]) -> Set<Int> {
+    /// Uses UUID-based keys so results are stable across array mutations.
+    private func timestampIds(for list: [ChatMessage]) -> Set<UUID> {
         guard !list.isEmpty else { return [] }
-        var result: Set<Int> = [0]
+        var result: Set<UUID> = [list[0].id]
         var calendar = Calendar.current
         calendar.timeZone = ChatTimestampTimeZone.resolve()
         for i in 1..<list.count {
             let current = list[i].timestamp
             let previous = list[i - 1].timestamp
             if !calendar.isDate(current, inSameDayAs: previous) || current.timeIntervalSince(previous) > 300 {
-                result.insert(i)
+                result.insert(list[i].id)
             }
         }
         return result
@@ -856,9 +897,9 @@ struct MessageListView: View {
     }
 
     @ViewBuilder
-    private func thinkingIndicatorRow(displayMessages: [ChatMessage]) -> some View {
+    private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
         RunningIndicator(
-            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+            label: !hasEverSentMessage && hasUserMessage
                 ? "Waking up..."
                 : assistantStatusText ?? "Thinking",
             showIcon: false
@@ -913,12 +954,16 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let state = precomputedState
-                    ForEach(Array(zip(state.displayMessages.indices, state.displayMessages)), id: \.1.id) { index, message in
+                    ForEach(state.displayMessages) { message in
+                        let index = state.messageIndexById[message.id] ?? 0
                         MessageCellView(
                             message: message,
                             index: index,
-                            displayMessages: state.displayMessages,
-                            showTimestamp: state.showTimestamp,
+                            showTimestamp: state.showTimestamp.contains(message.id),
+                            nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
+                            isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
+                            hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
+                            hasUserMessage: state.hasUserMessage,
                             activePendingRequestId: state.activePendingRequestId,
                             latestAssistantId: state.latestAssistantId,
                             anchoredThinkingIndex: state.anchoredThinkingIndex,
@@ -973,7 +1018,7 @@ struct MessageListView: View {
                         if isCompacting {
                             compactingIndicatorRow()
                         } else {
-                            thinkingIndicatorRow(displayMessages: state.displayMessages)
+                            thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                         }
                     } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                         compactingIndicatorRow()
@@ -1638,6 +1683,10 @@ private struct MessageCellView: View, Equatable {
         lhs.message == rhs.message
             && lhs.index == rhs.index
             && lhs.showTimestamp == rhs.showTimestamp
+            && lhs.nextDecidedConfirmation == rhs.nextDecidedConfirmation
+            && lhs.isConfirmationRenderedInline == rhs.isConfirmationRenderedInline
+            && lhs.hasPrecedingAssistant == rhs.hasPrecedingAssistant
+            && lhs.hasUserMessage == rhs.hasUserMessage
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.latestAssistantId == rhs.latestAssistantId
             && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
@@ -1656,8 +1705,11 @@ private struct MessageCellView: View, Equatable {
 
     let message: ChatMessage
     let index: Int
-    let displayMessages: [ChatMessage]
-    let showTimestamp: Set<Int>
+    let showTimestamp: Bool
+    let nextDecidedConfirmation: ToolConfirmationData?
+    let isConfirmationRenderedInline: Bool
+    let hasPrecedingAssistant: Bool
+    let hasUserMessage: Bool
     let activePendingRequestId: String?
     let latestAssistantId: UUID?
     let anchoredThinkingIndex: Int?
@@ -1667,7 +1719,6 @@ private struct MessageCellView: View, Equatable {
     let assistantStatusText: String?
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
-    /// When true, the cell renders a brief highlight flash.
     let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     let resolveHttpPort: () -> Int?
@@ -1684,12 +1735,8 @@ private struct MessageCellView: View, Equatable {
     var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
-    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
-    /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
-    /// Called when the user taps "Retry" on an inline conversation error.
-    /// Receives the error message's ID so the handler can validate the retry target.
     var onRetryConversationError: ((UUID) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
@@ -1711,7 +1758,7 @@ private struct MessageCellView: View, Equatable {
     }
 
     @ViewBuilder
-    private func commandListView(for message: ChatMessage, nextDecidedConfirmation: ToolConfirmationData? = nil) -> some View {
+    private func commandListView(for message: ChatMessage) -> some View {
         if let commandEntries = CommandListBubble.parsedEntries(from: message.text) {
             CommandListBubble(commands: commandEntries)
         } else {
@@ -1747,16 +1794,10 @@ private struct MessageCellView: View, Equatable {
         }
     }
 
-    private func commandListFallbackMessage(from message: ChatMessage) -> ChatMessage {
-        var fallbackMessage = message
-        fallbackMessage.commandList = nil
-        return fallbackMessage
-    }
-
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
         RunningIndicator(
-            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+            label: !hasEverSentMessage && hasUserMessage
                 ? "Waking up..."
                 : assistantStatusText ?? "Thinking",
             showIcon: false
@@ -1765,48 +1806,14 @@ private struct MessageCellView: View, Equatable {
         .id("thinking-indicator")
     }
 
-    /// Returns true when the given pending confirmation is already rendered inline
-    /// under a preceding assistant message's tool step (via AssistantProgressView),
-    /// so the standalone ToolConfirmationBubble row should be suppressed.
-    ///
-    /// Falls back to `false` when `pendingConfirmation` is not populated on any
-    /// tool call (e.g. history restore, missing `toolUseId`), which correctly
-    /// causes the standalone bubble to render as a fallback.
-    private func isConfirmationRenderedInline(
-        confirmation: ToolConfirmationData,
-        messages: [ChatMessage],
-        at index: Int
-    ) -> Bool {
-        guard let confirmationToolUseId = confirmation.toolUseId, !confirmationToolUseId.isEmpty else {
-            return false
-        }
-        for i in (0..<index).reversed() {
-            let msg = messages[i]
-            guard msg.role == .assistant, msg.confirmation == nil else { continue }
-            return msg.toolCalls.contains { tc in
-                tc.toolUseId == confirmationToolUseId && tc.pendingConfirmation != nil
-            }
-        }
-        return false
-    }
-
     var body: some View {
-        if showTimestamp.contains(index) {
+        if showTimestamp {
             TimestampDivider(date: message.timestamp)
         }
 
         if let confirmation = message.confirmation {
             if confirmation.state == .pending {
-                // Check if this confirmation is already rendered inline under the
-                // preceding assistant message's tool step (via AssistantProgressView).
-                // If so, skip the standalone bubble to avoid duplication.
-                let isRenderedInline = isConfirmationRenderedInline(
-                    confirmation: confirmation,
-                    messages: displayMessages,
-                    at: index
-                )
-
-                if !isRenderedInline {
+                if !isConfirmationRenderedInline {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
@@ -1818,11 +1825,6 @@ private struct MessageCellView: View, Equatable {
                     .id(message.id)
                 }
             } else {
-                let hasPrecedingAssistant: Bool = {
-                    guard index > 0 else { return false }
-                    return displayMessages[index - 1].role == .assistant
-                }()
-
                 if !hasPrecedingAssistant {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
@@ -1838,7 +1840,7 @@ private struct MessageCellView: View, Equatable {
             modelListView(for: message)
                 .id(message.id)
         } else if message.commandList != nil {
-            commandListView(for: message, nextDecidedConfirmation: nil)
+            commandListView(for: message)
                 .id(message.id)
         } else if let guardianDecision = message.guardianDecision {
             GuardianDecisionBubble(
@@ -1849,13 +1851,6 @@ private struct MessageCellView: View, Equatable {
             )
             .id(message.id)
         } else {
-            let nextDecidedConfirmation: ToolConfirmationData? = {
-                guard index + 1 < displayMessages.count,
-                      let conf = displayMessages[index + 1].confirmation,
-                      conf.state != .pending else { return nil }
-                return conf
-            }()
-
             ChatBubble(
                 message: message,
                 decidedConfirmation: nextDecidedConfirmation,
@@ -2216,12 +2211,17 @@ private struct AvatarGlowModifier: ViewModifier {
 /// current-turn detection) on every layout pass.
 struct PrecomputedMessageListState {
     let displayMessages: [ChatMessage]
+    let messageIndexById: [UUID: Int]
     let activePendingRequestId: String?
     let latestAssistantId: UUID?
     let anchoredThinkingIndex: Int?
     let subagentsByParent: [UUID: [SubagentInfo]]
     let orphanSubagents: [SubagentInfo]
-    let showTimestamp: Set<Int>
+    let showTimestamp: Set<UUID>
+    let nextDecidedConfirmationByIndex: [Int: ToolConfirmationData]
+    let isConfirmationRenderedInlineByIndex: Set<Int>
+    let hasPrecedingAssistantByIndex: Set<Int>
+    let hasUserMessage: Bool
     let lastVisible: ChatMessage?
     let currentTurnMessages: ArraySlice<ChatMessage>
     let hasActiveToolCall: Bool
