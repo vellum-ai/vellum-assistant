@@ -13,107 +13,24 @@ import SwiftUI
 /// }
 /// ```
 public struct VDisclosureSection<Content: View>: View {
-
-    public enum Size {
-        /// Default density — generous spacing for standalone sections.
-        case `default`
-        /// Compact density — tighter spacing matching sidebar row metrics.
-        case compact
-    }
-
-    public var size: Size = .default
     public let title: String
     public var icon: String? = nil
     public var subtitle: String? = nil
     @Binding public var isExpanded: Bool
     @ViewBuilder public let content: () -> Content
 
-    @State private var isHovered = false
-
     public init(
-        size: Size = .default,
         title: String,
         icon: String? = nil,
         subtitle: String? = nil,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.size = size
         self.title = title
         self.icon = icon
         self.subtitle = subtitle
         self._isExpanded = isExpanded
         self.content = content
-    }
-
-    private var iconSize: CGFloat {
-        switch size {
-        case .default: return 14
-        case .compact: return 13
-        }
-    }
-
-    private var headerSpacing: CGFloat {
-        switch size {
-        case .default: return VSpacing.sm
-        case .compact: return VSpacing.xs
-        }
-    }
-
-    private var titleFont: Font {
-        switch size {
-        case .default: return VFont.bodyBold
-        case .compact: return VFont.body
-        }
-    }
-
-    private var titleColor: Color {
-        switch size {
-        case .default: return VColor.contentDefault
-        case .compact: return VColor.contentSecondary
-        }
-    }
-
-    private var contentTopPadding: CGFloat {
-        switch size {
-        case .default: return VSpacing.sm
-        case .compact: return VSpacing.xxs
-        }
-    }
-
-    private var headerLeadingPadding: CGFloat {
-        switch size {
-        case .default: return 0
-        case .compact: return VSpacing.xs
-        }
-    }
-
-    private var headerTrailingPadding: CGFloat {
-        switch size {
-        case .default: return 0
-        case .compact: return VSpacing.sm
-        }
-    }
-
-    private var headerVerticalPadding: CGFloat {
-        switch size {
-        case .default: return 0
-        case .compact: return VSpacing.xs
-        }
-    }
-
-    private var headerMinHeight: CGFloat? {
-        switch size {
-        case .default: return nil
-        case .compact: return 32
-        }
-    }
-
-    private var iconColor: Color {
-        switch size {
-        case .default: return VColor.contentTertiary
-        case .compact: return VColor.primaryBase
-        }
     }
 
     public var body: some View {
@@ -123,17 +40,17 @@ public struct VDisclosureSection<Content: View>: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: headerSpacing) {
+                HStack(spacing: VSpacing.sm) {
                     if let icon {
-                        VIconView(.resolve(icon), size: iconSize)
-                            .foregroundColor(iconColor)
+                        VIconView(.resolve(icon), size: 14)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 20)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
-                            .font(titleFont)
-                            .foregroundColor(titleColor)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
                                 .font(VFont.caption)
@@ -150,20 +67,10 @@ public struct VDisclosureSection<Content: View>: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }
-                .padding(.leading, headerLeadingPadding)
-                .padding(.trailing, headerTrailingPadding)
-                .padding(.vertical, headerVerticalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: headerMinHeight)
-                .background(
-                    size == .compact && isHovered ? VColor.surfaceBase : Color.clear
-                )
-                .animation(VAnimation.fast, value: isHovered)
-                .clipShape(RoundedRectangle(cornerRadius: size == .compact ? VRadius.md : 0))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
             .pointerCursor()
             .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")
@@ -171,7 +78,7 @@ public struct VDisclosureSection<Content: View>: View {
 
             if isExpanded {
                 content()
-                    .padding(.top, contentTopPadding)
+                    .padding(.top, VSpacing.sm)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }

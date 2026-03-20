@@ -144,20 +144,6 @@ struct ComponentGalleryView: View {
         return expandable.allSatisfy { expandedCategories.contains($0) }
     }
 
-    private func expansionBinding(for category: ComponentGalleryCategory) -> Binding<Bool> {
-        Binding(
-            get: { isSearching || expandedCategories.contains(category) },
-            set: { newValue in
-                guard !isSearching else { return }
-                if newValue {
-                    expandedCategories.insert(category)
-                } else {
-                    expandedCategories.remove(category)
-                }
-            }
-        )
-    }
-
     private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
         let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
         if query.isEmpty {
@@ -201,7 +187,7 @@ struct ComponentGalleryView: View {
                 .padding(.vertical, VSpacing.xs)
 
                 ScrollView {
-                    VStack(spacing: VSpacing.xxs) {
+                    VStack(spacing: VSpacing.xs) {
                         ForEach(filteredCategories, id: \.category) { item in
                             sidebarCategory(item.category, components: item.components)
                         }
@@ -243,13 +229,28 @@ struct ComponentGalleryView: View {
 
     @ViewBuilder
     private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String)]) -> some View {
-        VDisclosureSection(
-            size: .compact,
-            title: category.rawValue,
-            icon: category.vIcon.rawValue,
-            isExpanded: expansionBinding(for: category)
-        ) {
-            VStack(spacing: 0) {
+        let isCategoryExpanded = isSearching || expandedCategories.contains(category)
+
+        VStack(spacing: 0) {
+            VSidebarRow(
+                icon: category.vIcon.rawValue,
+                label: category.rawValue,
+                trailingIcon: VIcon.chevronRight.rawValue,
+                trailingIconRotation: .degrees(isCategoryExpanded ? 90 : 0)
+            ) {
+                guard !isSearching else { return }
+                withAnimation(VAnimation.fast) {
+                    if expandedCategories.contains(category) {
+                        expandedCategories.remove(category)
+                    } else {
+                        expandedCategories.insert(category)
+                    }
+                }
+            }
+            .accessibilityValue(isCategoryExpanded ? "expanded" : "collapsed")
+            .accessibilityHint("Double-tap to \(isCategoryExpanded ? "collapse" : "expand")")
+
+            if isCategoryExpanded {
                 sidebarRow(label: "Overview", page: .overview(category))
                 ForEach(components, id: \.id) { component in
                     sidebarRow(
@@ -264,12 +265,11 @@ struct ComponentGalleryView: View {
     private func sidebarRow(label: String, page: GalleryPage) -> some View {
         let isSelected = selectedPage == page
 
-        return VListRow(size: .compact, isSelected: isSelected, onTap: { selectedPage = page }) {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        return VSidebarRow(
+            label: label,
+            isActive: isSelected
+        ) {
+            selectedPage = page
         }
         .accessibilityLabel(label)
     }

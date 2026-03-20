@@ -136,10 +136,6 @@ struct DisplayGallerySection: View {
                     description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup."
                 )
 
-                Text("Default Size")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentSecondary)
-
                 VDisclosureSection(
                     title: "Basic Section",
                     isExpanded: .constant(true)
@@ -163,23 +159,6 @@ struct DisplayGallerySection: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceOverlay)
 
-                Text("Compact Size")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentSecondary)
-
-                VDisclosureSection(
-                    size: .compact,
-                    title: "Compact Section",
-                    icon: VIcon.folder.rawValue,
-                    isExpanded: .constant(true)
-                ) {
-                    Text("Tighter spacing for sidebar use")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
-
             }
 
             if filter == nil || filter == "vListRow" {
@@ -189,12 +168,8 @@ struct DisplayGallerySection: View {
                 // MARK: - VListRow
                 GallerySectionHeader(
                     title: "VListRow",
-                    description: "List item with hover highlight, optional tap action, and selection state. Supports default and compact sizes."
+                    description: "List item with hover highlight and optional tap action."
                 )
-
-                Text("Default Size")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentSecondary)
 
                 VCard(padding: 0) {
                     VStack(spacing: 0) {
@@ -213,13 +188,13 @@ struct DisplayGallerySection: View {
 
                         Divider().background(VColor.borderBase)
 
-                        VListRow(isSelected: true, onTap: {}) {
+                        VListRow(onTap: {}) {
                             HStack {
                                 VIconView(.folder, size: 14)
-                                    .foregroundColor(VColor.primaryBase)
-                                Text("Selected row")
+                                    .foregroundColor(VColor.systemNegativeHover)
+                                Text("Another tappable row")
                                     .font(VFont.body)
-                                    .foregroundColor(VColor.contentEmphasized)
+                                    .foregroundColor(VColor.contentDefault)
                                 Spacer()
                                 VBadge(style: .count(3))
                             }
@@ -231,36 +206,6 @@ struct DisplayGallerySection: View {
                             Text("Static row (no tap action)")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentSecondary)
-                        }
-                    }
-                }
-
-                Text("Compact Size")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentSecondary)
-
-                VCard(padding: 0) {
-                    VStack(spacing: 0) {
-                        VListRow(size: .compact, onTap: {}) {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.fileText, size: 13)
-                                    .foregroundColor(VColor.primaryBase)
-                                Text("Compact tappable row")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.contentSecondary)
-                            }
-                        }
-
-                        Divider().background(VColor.borderBase)
-
-                        VListRow(size: .compact, isSelected: true, onTap: {}) {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.folder, size: 13)
-                                    .foregroundColor(VColor.primaryBase)
-                                Text("Compact selected row")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.contentEmphasized)
-                            }
                         }
                     }
                 }
