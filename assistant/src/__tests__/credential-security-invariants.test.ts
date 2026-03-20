@@ -216,6 +216,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "calls/twilio-config.ts", // call infrastructure credential lookup
       "calls/twilio-provider.ts", // call infrastructure credential lookup
       "calls/twilio-rest.ts", // Twilio REST API credential lookup
+      "calls/fish-audio-client.ts", // Fish Audio TTS API key lookup
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
       "cli/commands/keys.ts", // CLI credential management commands
       "cli/commands/credentials.ts", // CLI credential management commands
