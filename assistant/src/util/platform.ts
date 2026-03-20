@@ -436,11 +436,11 @@ export function ensureDataDir(): void {
   const dirs = [
     // Root-level dirs (runtime)
     root,
-    // protected, signals, hooks are local-only — skip in containerized mode
-    // (credentials via CES HTTP API, trust via gateway API, no IPC signals)
-    ...(containerized
-      ? []
-      : [join(root, "protected"), join(root, "signals"), join(root, "hooks")]),
+    // signals dir is needed everywhere (MCP reload, user-message signals)
+    join(root, "signals"),
+    // protected, hooks are local-only — skip in containerized mode
+    // (credentials via CES HTTP API, trust via gateway API)
+    ...(containerized ? [] : [join(root, "protected"), join(root, "hooks")]),
     // Workspace dirs
     workspace,
     join(workspace, "skills"),
