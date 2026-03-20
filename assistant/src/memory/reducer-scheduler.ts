@@ -24,6 +24,7 @@ import { getDb } from "./db.js";
 import { type ReducerPromptInput, runReducer } from "./reducer.js";
 import {
   applyReducerResult,
+  forceAdvanceDirtyTail,
   getActiveOpenLoops,
   getActiveTimeContexts,
 } from "./reducer-store.js";
@@ -233,9 +234,20 @@ export async function reduceBeforeSwitch(
 
     return dirtyConversationId;
   } catch (err) {
+    // runReducer only throws on fatal/permanent errors (e.g. 400 "prompt
+    // too long"). Force-advance the dirty tail so every subsequent
+    // conversation switch doesn't waste an API call hitting the same
+    // permanent error.
+    const lastMessage = unreducedMessages[unreducedMessages.length - 1];
+    forceAdvanceDirtyTail(dirtyConversationId, lastMessage.id);
     log.warn(
-      { err, conversationId: dirtyConversationId },
-      "Pre-switch memory reduction failed — continuing with switch",
+      {
+        err,
+        conversationId: dirtyConversationId,
+        skippedMessages: unreducedMessages.length,
+        reducedThroughMessageId: lastMessage.id,
+      },
+      "Pre-switch memory reduction failed permanently — force-advanced dirty tail",
     );
     return null;
   }
