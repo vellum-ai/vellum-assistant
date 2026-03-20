@@ -69,10 +69,8 @@ struct AboutVellumView: View {
                 serviceGroupRow
             }
 
-            // Update check result (Docker/managed only)
-            if topology != .local {
-                updateCheckResultView
-            }
+            // Update check result
+            updateCheckResultView
 
             Divider()
 
@@ -148,7 +146,15 @@ struct AboutVellumView: View {
 
     @ViewBuilder
     private var updateCheckResultView: some View {
-        if let result = updateCheckResult {
+        if isCheckingForUpdates {
+            HStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking for updates...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+        } else if let result = updateCheckResult {
             switch result {
             case .upToDate:
                 HStack(spacing: VSpacing.xs) {
@@ -229,11 +235,20 @@ struct AboutVellumView: View {
 
     private func performUpdateCheck() async {
         updateCheckResult = nil
+        isCheckingForUpdates = true
 
         switch topology {
         case .local:
-            // Local: delegate to Sparkle which handles its own UI
+            // Local: trigger Sparkle and show result inline after a brief wait
             AppDelegate.shared?.updateManager.checkForUpdates()
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let sparkleAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+            if sparkleAvailable, let version = AppDelegate.shared?.updateManager.availableUpdateVersion {
+                updateCheckResult = .updateAvailable(version: version)
+            } else {
+                updateCheckResult = .upToDate
+            }
+            isCheckingForUpdates = false
 
         case .docker, .managed:
             // Docker/managed: check platform API and show result inline

@@ -35,6 +35,8 @@ struct AssistantUpgradeSection: View {
     @State private var errorMessage: String?
     @State private var successMessage: String?
     @State private var showingUpgradeConfirmation = false
+    @State private var isCheckingLocal = false
+    @State private var hasCheckedForUpdates = false
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -142,13 +144,23 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.primaryBase)
                         }
-                    } else if !sparkleUpdateAvailable {
+                    } else if hasCheckedForUpdates && !sparkleUpdateAvailable {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleCheck, size: 12)
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text("You are on the latest version.")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.systemPositiveStrong)
+                        }
+                    }
+
+                    if isCheckingLocal {
+                        HStack(spacing: VSpacing.sm) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking for updates...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -203,8 +215,20 @@ struct AssistantUpgradeSection: View {
 
             HStack(spacing: VSpacing.md) {
                 if topology == .local {
-                    VButton(label: "Check for Updates", style: .outlined) {
-                        AppDelegate.shared?.updateManager.checkForUpdates()
+                    VButton(
+                        label: isCheckingLocal ? "Checking..." : "Check for Updates",
+                        style: .outlined,
+                        isDisabled: isCheckingLocal
+                    ) {
+                        Task {
+                            isCheckingLocal = true
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+                            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+                            hasCheckedForUpdates = true
+                            isCheckingLocal = false
+                        }
                     }
                 } else if topology != .remote {
                     // Docker and managed get the upgrade button
