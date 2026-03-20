@@ -34,7 +34,8 @@ struct InputsGallerySection: View {
                 // MARK: - VTextField
                 GallerySectionHeader(
                     title: "VTextField",
-                    description: "Single-line text input with optional label, icons, secure mode, and error display."
+                    description: "Single-line text input with optional label, icons, secure mode, and error display.",
+                    useInsteadOf: "Raw TextField or SecureField with manual styling"
                 )
 
                 VCard {
@@ -397,7 +398,8 @@ struct InputsGallerySection: View {
                 // MARK: - VDropdown
                 GallerySectionHeader(
                     title: "VDropdown",
-                    description: "Generic dropdown picker with optional label, error display, and icon support."
+                    description: "Generic dropdown picker with optional label, error display, and icon support.",
+                    useInsteadOf: "Raw Menu + Picker with manual styling"
                 )
 
                 VCard {

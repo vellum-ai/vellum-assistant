@@ -14,7 +14,8 @@ struct DisplayGallerySection: View {
                 // MARK: - VCard
                 GallerySectionHeader(
                     title: "VCard",
-                    description: "Container with surface background, border, and configurable padding."
+                    description: "Container with surface background, border, and configurable padding.",
+                    useInsteadOf: "Manual padding + background + cornerRadius"
                 )
 
                 VCard {
@@ -133,7 +134,8 @@ struct DisplayGallerySection: View {
                 // MARK: - VDisclosureSection
                 GallerySectionHeader(
                     title: "VDisclosureSection",
-                    description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup."
+                    description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.",
+                    useInsteadOf: "Raw DisclosureGroup"
                 )
 
                 VDisclosureSection(

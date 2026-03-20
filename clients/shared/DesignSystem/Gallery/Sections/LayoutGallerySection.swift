@@ -89,7 +89,8 @@ struct LayoutGallerySection: View {
                 // MARK: - VAdaptiveStack
                 GallerySectionHeader(
                     title: "VAdaptiveStack",
-                    description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width. Use this instead of a raw HStack when content should gracefully reflow at narrow widths."
+                    description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width.",
+                    useInsteadOf: "Raw ViewThatFits { HStack { } VStack { } } in feature code"
                 )
 
                 VCard {
