@@ -133,10 +133,10 @@ final class AvatarAppearanceManager {
             IdentityInfo.load()?.name,
             fallback: "V"
         )
-        Task { [weak self] in
-            await self?.fetchAvatarViaHTTP()
-            await self?.fetchTraitsViaHTTP()
-        }
+        // Avatar is fetched later via reloadAvatar() once the gateway is
+        // confirmed ready. Fetching here would race the daemon startup and
+        // clear the avatar to nil on connection-refused, falling back to the
+        // bundled Vellum logo.
         updateDockLabel()
 
         // Fire-and-forget: fetch character component definitions via the
