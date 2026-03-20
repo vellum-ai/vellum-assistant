@@ -90,7 +90,7 @@ enum LogExporter {
             }
             // When routing to the brain project, tag the event so it's clear
             // it originated from the macOS client (not the daemon itself).
-            if formData.reason == .assistantBehavior {
+            if formData.reason == .somethingBroken {
                 tags["client"] = "macos"
             }
 
@@ -165,7 +165,7 @@ enum LogExporter {
 
             // Route assistant behavior reports to the brain Sentry project
             // so they appear alongside daemon issues for triage.
-            let dsn: String? = formData.reason == .assistantBehavior
+            let dsn: String? = formData.reason == .somethingBroken
                 ? MetricKitManager.brainDSN
                 : nil
 

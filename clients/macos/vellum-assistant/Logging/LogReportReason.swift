@@ -3,35 +3,45 @@ import VellumAssistantShared
 
 /// Pre-defined categories a user can pick when sending a log report.
 enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
-    case bugReport
+    case somethingBroken
+    case appCrash
     case performanceIssue
     case connectionIssue
-    case assistantBehavior
-    case appCrash
+    case featureRequest
     case other
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .bugReport: return "Bug Report"
-        case .performanceIssue: return "Performance Issue"
-        case .connectionIssue: return "Connection Issue"
-        case .assistantBehavior: return "Assistant Behavior"
-        case .appCrash: return "App Crash"
-        case .other: return "Other"
+        case .somethingBroken: return "Something isn't working"
+        case .appCrash: return "App crashed or won't start"
+        case .performanceIssue: return "Performance is slow"
+        case .connectionIssue: return "Connection issue"
+        case .featureRequest: return "Feature request"
+        case .other: return "Other feedback"
         }
     }
 
     /// Lucide icon raw value suitable for `VIcon.resolve(_:)`.
     var icon: String {
         switch self {
-        case .bugReport: return VIcon.bug.rawValue
+        case .somethingBroken: return VIcon.bug.rawValue
+        case .appCrash: return VIcon.triangleAlert.rawValue
         case .performanceIssue: return VIcon.zap.rawValue
         case .connectionIssue: return VIcon.wifiOff.rawValue
-        case .assistantBehavior: return VIcon.brain.rawValue
-        case .appCrash: return VIcon.triangleAlert.rawValue
+        case .featureRequest: return VIcon.lightbulb.rawValue
         case .other: return VIcon.messageCircle.rawValue
+        }
+    }
+
+    /// Whether this category represents an error/issue that benefits from diagnostic logs.
+    var isErrorCategory: Bool {
+        switch self {
+        case .somethingBroken, .appCrash, .performanceIssue, .connectionIssue:
+            return true
+        case .featureRequest, .other:
+            return false
         }
     }
 }
