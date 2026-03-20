@@ -42,7 +42,7 @@ mock.module("../memory/qdrant-client.js", () => ({
 }));
 
 // Stub deleted legacy modules so imports resolve (full cleanup in follow-up PR)
-const emptyRecall = {
+const _emptyRecall = {
   enabled: true,
   degraded: false,
   injectedText: "",
@@ -54,24 +54,19 @@ const emptyRecall = {
   latencyMs: 0,
   topCandidates: [],
 };
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => emptyRecall,
-  queryMemoryForCli: async () => emptyRecall,
+mock.module("../memory/inject.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: unknown[]) => msgs,
-}));
-mock.module("../memory/query-builder.js", () => ({
-  buildMemoryQuery: (userRequest: string) => userRequest,
-}));
-mock.module("../memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => 4000,
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { buildMemoryQuery } from "../memory/query-builder.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,

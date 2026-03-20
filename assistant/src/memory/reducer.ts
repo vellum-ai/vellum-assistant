@@ -17,6 +17,7 @@ import {
   getConfiguredProvider,
 } from "../providers/provider-send-message.js";
 import { getLogger } from "../util/logger.js";
+import { classifyError } from "./job-utils.js";
 import {
   type ArchiveEpisodeCandidate,
   type ArchiveObservationCandidate,
@@ -147,8 +148,13 @@ export function buildReducerUserMessage(input: ReducerPromptInput): string {
  *
  * Returns {@link EMPTY_REDUCER_RESULT} when:
  * - No provider is configured/available
- * - The provider call fails or times out
+ * - The provider call fails with a transient error (timeouts, 5xx, rate limits)
+ * - The call is aborted via the provided signal
  * - The model output is unparseable
+ *
+ * @throws Re-throws permanent provider errors (4xx client errors such as
+ *         400 "prompt too long", 401, 403) so callers can handle them
+ *         (e.g. force-advancing the dirty tail to break retry loops).
  *
  * @param input  Structured reducer input
  * @param signal Optional external abort signal
@@ -197,9 +203,22 @@ export async function runReducer(
   } catch (err) {
     if (combinedSignal.aborted) {
       log.warn("Memory reducer provider call timed out or was aborted");
-    } else {
-      log.warn({ err }, "Memory reducer provider call failed");
+      return EMPTY_REDUCER_RESULT;
     }
+
+    // Permanent provider errors (400 "prompt too long", 401, 403, etc.)
+    // must not be silently swallowed — re-throw so callers can handle them
+    // (e.g. force-advancing the dirty tail to break retry loops).
+    const category = classifyError(err);
+    if (category === "fatal") {
+      log.error(
+        { err },
+        "Memory reducer provider call failed with permanent error",
+      );
+      throw err;
+    }
+
+    log.warn({ err }, "Memory reducer provider call failed (transient)");
     return EMPTY_REDUCER_RESULT;
   } finally {
     cleanup();

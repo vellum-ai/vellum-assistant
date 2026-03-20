@@ -47,13 +47,9 @@ RUN apt-get update && apt-get install -y \
     g++ \
     git \
     sudo \
-    bubblewrap \
     htop \
     procps \
     && rm -rf /var/lib/apt/lists/*
-
-## Alias bwrap to bubblewrap
-RUN ln -sf /usr/bin/bwrap /usr/bin/bubblewrap
 
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun

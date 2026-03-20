@@ -144,13 +144,16 @@ mock.module("../memory/retriever.js", () => ({
     const y = Math.floor(days / 365);
     return `${y} year${y === 1 ? "" : "s"} ago`;
   },
-  embedWithRetry: async () => ({ vectors: [[]], provider: "mock", model: "mock" }),
+  embedWithRetry: async () => ({
+    vectors: [[]],
+    provider: "mock",
+    model: "mock",
+  }),
 }));
 
 import { and, eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { vectorToBlob } from "../memory/job-utils.js";
 
 // Disable LLM extraction and summarization in tests to avoid real API calls
 // and ensure deterministic pattern-based extraction / fallback summaries.
@@ -176,14 +179,10 @@ mock.module("../config/loader.js", () => ({
 }));
 import { estimateTextTokens } from "../context/token-estimator.js";
 import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
-import {
-  getMemorySystemStatus,
-  requestMemoryBackfill,
-} from "../memory/admin.js";
+import { requestMemoryBackfill } from "../memory/admin.js";
 import {
   addMessage,
   createConversation,
-  getConversationMemoryScopeId,
   messageMetadataSchema,
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
@@ -200,6 +199,7 @@ import {
   resetCleanupScheduleThrottle,
   runMemoryJobsOnce,
 } from "../memory/jobs-worker.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import {
   buildMemoryRecall,
   escapeXmlTags,
@@ -209,7 +209,6 @@ import {
 } from "../memory/retriever.js";
 import {
   conversations,
-  memoryEmbeddings,
   memoryItems,
   memoryJobs,
   memorySegments,

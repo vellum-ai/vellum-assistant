@@ -61,12 +61,12 @@ mock.module("../config/loader.js", () => ({
 
 import { v4 as uuid } from "uuid";
 
+import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
 import { buildArchiveRecall } from "../memory/archive-recall.js";
 import { insertObservation } from "../memory/archive-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { injectMemoryRecallAsUserBlock } from "../memory/inject.js";
 import { memoryEpisodes, memoryObservations } from "../memory/schema.js";
-import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../providers/types.js";
 
 describe("Memory lifecycle E2E (simplified path)", () => {
@@ -173,7 +173,11 @@ describe("Memory lifecycle E2E (simplified path)", () => {
         conversationId,
         title: "Kubernetes Setup",
         summary: "Deployed Kubernetes cluster on AWS EKS with 3 worker nodes",
+        tokenEstimate: 12,
+        startAt: now,
+        endAt: now,
         createdAt: now,
+        updatedAt: now,
       })
       .run();
 
@@ -229,9 +233,7 @@ describe("Memory lifecycle E2E (simplified path)", () => {
     expect(injected[0].content).toHaveLength(2);
 
     // Stripped by prefix-based stripping
-    const cleaned = stripUserTextBlocksByPrefix(injected, [
-      "<memory_brief>",
-    ]);
+    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_brief>"]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toHaveLength(1);
     const cb0 = cleaned[0].content[0];

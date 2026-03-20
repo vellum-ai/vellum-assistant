@@ -99,6 +99,11 @@ public final class ChatViewModel: ObservableObject {
     /// message trim on .warning and .critical events to reclaim memory quickly.
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
+    /// Watchdog task that fires when `isSending` has been `true` for more than
+    /// 60 seconds without being reset.  Helps diagnose app freezes where the
+    /// send-in-progress indicator gets stuck.
+    private var sendingWatchdogTask: Task<Void, Never>?
+
     // MARK: - Coalesced objectWillChange forwarding
 
     /// Coalescing window for sub-manager objectWillChange forwarding.
@@ -186,7 +191,21 @@ public final class ChatViewModel: ObservableObject {
     }
     public var isSending: Bool {
         get { messageManager.isSending }
-        set { messageManager.isSending = newValue }
+        set {
+            messageManager.isSending = newValue
+            if newValue {
+                // Start watchdog: log a warning if isSending is still true after 60s
+                sendingWatchdogTask?.cancel()
+                sendingWatchdogTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(60))
+                    guard !Task.isCancelled, let self, self.isSending else { return }
+                    log.warning("isSending watchdog: still true after 60s, conversationId=\(self.conversationId ?? "nil")")
+                }
+            } else {
+                sendingWatchdogTask?.cancel()
+                sendingWatchdogTask = nil
+            }
+        }
     }
     public var assistantActivityPhase: String {
         get { messageManager.assistantActivityPhase }

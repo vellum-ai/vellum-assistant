@@ -30,7 +30,6 @@ Key concepts:
 
 Examples:
   $ assistant memory status
-  $ assistant memory query "What is the project deadline?"
   $ assistant memory backfill`,
   );
 
