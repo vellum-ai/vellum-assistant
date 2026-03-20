@@ -1,13 +1,5 @@
-import { and, eq, ne } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
-
-import type { AssistantConfig } from "../../config/types.js";
 import { buildArchiveRecall } from "../../memory/archive-recall.js";
 import { insertObservation } from "../../memory/archive-store.js";
-import { getDb } from "../../memory/db.js";
-import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { memoryItems } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import type { ToolExecutionResult } from "../types.js";
@@ -18,7 +10,7 @@ const log = getLogger("memory-tools");
 
 export async function handleMemorySave(
   args: Record<string, unknown>,
-  config: AssistantConfig,
+  _config: unknown,
   conversationId: string,
   messageId: string | undefined,
   scopeId: string = "default",
@@ -63,311 +55,8 @@ export async function handleMemorySave(
       ? truncate(args.subject.trim(), 80, "")
       : inferSubjectFromStatement(statement.trim());
 
-  // When simplified memory is enabled, save directly to the simplified
-  // observation/chunk tables instead of the legacy memory_items table.
-  if (config.memory.simplified.enabled) {
-    return handleSimplifiedMemorySave(
-      kind,
-      subject,
-      statement.trim(),
-      conversationId,
-      messageId,
-      scopeId,
-    );
-  }
-
   try {
-    const db = getDb();
-    const id = uuid();
-    const now = Date.now();
     const trimmedStatement = truncate(statement.trim(), 500, "");
-
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      kind,
-      subject,
-      trimmedStatement,
-    );
-
-    const existing = db
-      .select()
-      .from(memoryItems)
-      .where(
-        and(
-          eq(memoryItems.fingerprint, fingerprint),
-          eq(memoryItems.scopeId, scopeId),
-        ),
-      )
-      .get();
-
-    if (existing) {
-      db.update(memoryItems)
-        .set({
-          status: "active",
-          importance: 0.8,
-          lastSeenAt: now,
-          verificationState: "user_confirmed",
-        })
-        .where(eq(memoryItems.id, existing.id))
-        .run();
-
-      enqueueMemoryJob("embed_item", { itemId: existing.id });
-      return {
-        content: `Memory already exists (ID: ${existing.id}). Updated and refreshed.`,
-        isError: false,
-      };
-    }
-
-    db.insert(memoryItems)
-      .values({
-        id,
-        kind,
-        subject,
-        statement: trimmedStatement,
-        status: "active",
-        confidence: 0.95, // explicit saves have high confidence
-        importance: 0.8, // explicit saves are high importance
-        fingerprint,
-        verificationState: "user_confirmed",
-        scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        lastUsedAt: null,
-      })
-      .run();
-
-    enqueueMemoryJob("embed_item", { itemId: id });
-
-    log.debug(
-      { id, kind, subject, conversationId, messageId },
-      "Memory item saved via tool",
-    );
-    return {
-      content: `Saved to memory (ID: ${id}).\nKind: ${kind}\nSubject: ${subject}\nStatement: ${trimmedStatement}`,
-      isError: false,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "memory_save failed");
-    return { content: `Error: Failed to save memory: ${msg}`, isError: true };
-  }
-}
-
-// ── memory_update ────────────────────────────────────────────────────
-
-export async function handleMemoryUpdate(
-  args: Record<string, unknown>,
-  _config: AssistantConfig,
-  scopeId: string = "default",
-): Promise<ToolExecutionResult> {
-  const rawMemoryId = args.memory_id;
-  if (typeof rawMemoryId !== "string" || rawMemoryId.trim().length === 0) {
-    return {
-      content: "Error: memory_id is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  // Accept both bare IDs and typed IDs (e.g. "item:abc-123" -> "abc-123")
-  const memoryId = stripTypedIdPrefix(rawMemoryId.trim());
-
-  const statement = args.statement;
-  if (typeof statement !== "string" || statement.trim().length === 0) {
-    return {
-      content: "Error: statement is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  try {
-    const db = getDb();
-
-    // Constrain lookup to the current scope so conversations cannot mutate
-    // memory items belonging to a different scope.
-    const existing = db
-      .select()
-      .from(memoryItems)
-      .where(
-        and(eq(memoryItems.id, memoryId), eq(memoryItems.scopeId, scopeId)),
-      )
-      .get();
-
-    if (!existing) {
-      return {
-        content: `Error: Memory item with ID "${memoryId}" not found`,
-        isError: true,
-      };
-    }
-
-    const now = Date.now();
-    const trimmedStatement = truncate(statement.trim(), 500, "");
-
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      existing.kind,
-      existing.subject,
-      trimmedStatement,
-    );
-
-    // Collision detection also constrained to the current scope.
-    const collision = db
-      .select({ id: memoryItems.id })
-      .from(memoryItems)
-      .where(
-        and(
-          eq(memoryItems.fingerprint, fingerprint),
-          eq(memoryItems.scopeId, scopeId),
-          ne(memoryItems.status, "deleted"),
-        ),
-      )
-      .get();
-    if (collision && collision.id !== existing.id) {
-      return {
-        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_recall to find it.`,
-        isError: true,
-      };
-    }
-
-    db.update(memoryItems)
-      .set({
-        statement: trimmedStatement,
-        fingerprint,
-        lastSeenAt: now,
-        importance: 0.8,
-        verificationState: "user_confirmed",
-      })
-      .where(eq(memoryItems.id, existing.id))
-      .run();
-
-    enqueueMemoryJob("embed_item", { itemId: existing.id });
-
-    log.debug(
-      { id: existing.id, kind: existing.kind },
-      "Memory item updated via tool",
-    );
-    return {
-      content: `Updated memory (ID: ${existing.id}).\nKind: ${existing.kind}\nSubject: ${existing.subject}\nNew statement: ${trimmedStatement}`,
-      isError: false,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, memoryId }, "memory_update failed");
-    return { content: `Error: Failed to update memory: ${msg}`, isError: true };
-  }
-}
-
-// ── memory_recall ────────────────────────────────────────────────────
-
-export interface MemoryRecallToolResult {
-  text: string;
-  resultCount: number;
-  degraded: boolean;
-  items: Array<{ id: string; type: string; kind: string }>;
-  sources: {
-    semantic: number;
-    recency: number;
-  };
-}
-
-export async function handleMemoryRecall(
-  args: Record<string, unknown>,
-  _config: AssistantConfig,
-  scopeId?: string,
-  _conversationId?: string,
-): Promise<ToolExecutionResult> {
-  const query = args.query;
-  if (typeof query !== "string" || query.trim().length === 0) {
-    return {
-      content: "Error: query is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  return handleSimplifiedMemoryRecall(query.trim(), scopeId ?? "default");
-}
-
-// ── memory_delete ────────────────────────────────────────────────────
-
-export async function handleMemoryDelete(
-  args: Record<string, unknown>,
-  _config: AssistantConfig,
-  scopeId: string = "default",
-): Promise<ToolExecutionResult> {
-  const rawMemoryId = args.memory_id;
-  if (typeof rawMemoryId !== "string" || rawMemoryId.trim().length === 0) {
-    return {
-      content: "Error: memory_id is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  const memoryId = stripTypedIdPrefix(rawMemoryId.trim());
-
-  try {
-    const db = getDb();
-
-    const existing = db
-      .select()
-      .from(memoryItems)
-      .where(
-        and(eq(memoryItems.id, memoryId), eq(memoryItems.scopeId, scopeId)),
-      )
-      .get();
-
-    if (!existing) {
-      return {
-        content: `Error: Memory item with ID "${memoryId}" not found`,
-        isError: true,
-      };
-    }
-
-    if (existing.status === "deleted") {
-      return {
-        content: `Memory item (ID: ${memoryId}) was already deleted.`,
-        isError: false,
-      };
-    }
-
-    db.update(memoryItems)
-      .set({
-        status: "deleted",
-        lastSeenAt: Date.now(),
-      })
-      .where(eq(memoryItems.id, existing.id))
-      .run();
-
-    log.debug(
-      { id: existing.id, kind: existing.kind },
-      "Memory item deleted via tool",
-    );
-    return {
-      content: `Deleted memory (ID: ${existing.id}).\nKind: ${existing.kind}\nSubject: ${existing.subject}\nStatement: ${existing.statement}`,
-      isError: false,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, memoryId }, "memory_delete failed");
-    return { content: `Error: Failed to delete memory: ${msg}`, isError: true };
-  }
-}
-
-// ── Simplified memory helpers ────────────────────────────────────────
-
-/**
- * Save a memory item as an observation + chunk in the simplified system.
- * This is used when simplified memory is enabled instead of writing to
- * the legacy memory_items table.
- */
-function handleSimplifiedMemorySave(
-  kind: string,
-  subject: string,
-  statement: string,
-  conversationId: string,
-  messageId: string | undefined,
-  scopeId: string,
-): ToolExecutionResult {
-  try {
-    const trimmedStatement = truncate(statement, 500, "");
     const content = `[${kind}] ${subject}: ${trimmedStatement}`;
 
     const result = insertObservation({
@@ -398,14 +87,45 @@ function handleSimplifiedMemorySave(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "simplified memory_save failed");
+    log.error({ err }, "memory_save failed");
     return { content: `Error: Failed to save memory: ${msg}`, isError: true };
   }
 }
 
+// ── memory_recall ────────────────────────────────────────────────────
+
+export interface MemoryRecallToolResult {
+  text: string;
+  resultCount: number;
+  degraded: boolean;
+  items: Array<{ id: string; type: string; kind: string }>;
+  sources: {
+    semantic: number;
+    recency: number;
+  };
+}
+
+export async function handleMemoryRecall(
+  args: Record<string, unknown>,
+  _config: unknown,
+  scopeId?: string,
+  _conversationId?: string,
+): Promise<ToolExecutionResult> {
+  const query = args.query;
+  if (typeof query !== "string" || query.trim().length === 0) {
+    return {
+      content: "Error: query is required and must be a non-empty string",
+      isError: true,
+    };
+  }
+
+  return handleSimplifiedMemoryRecall(query.trim(), scopeId ?? "default");
+}
+
+// ── Simplified memory helpers ────────────────────────────────────────
+
 /**
- * Recall memories using the simplified archive recall path instead of
- * the legacy hybrid retriever.
+ * Recall memories using the simplified archive recall path.
  */
 function handleSimplifiedMemoryRecall(
   query: string,
@@ -450,7 +170,7 @@ function handleSimplifiedMemoryRecall(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, query }, "simplified memory_recall failed");
+    log.error({ err, query }, "memory_recall failed");
     return {
       content: `Error: Memory recall failed: ${msg}`,
       isError: true,
@@ -464,13 +184,4 @@ function inferSubjectFromStatement(statement: string): string {
   // Take first few words as a subject label
   const words = statement.split(/\s+/).slice(0, 6).join(" ");
   return truncate(words, 80, "");
-}
-
-/**
- * Strip a typed ID prefix (e.g. "item:abc-123" -> "abc-123") so that IDs
- * copied from memory_recall output work in memory_manage update/delete ops.
- */
-function stripTypedIdPrefix(id: string): string {
-  const match = id.match(/^(?:item|segment|summary):(.+)$/);
-  return match ? match[1] : id;
 }
