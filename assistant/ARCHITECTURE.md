@@ -1138,7 +1138,7 @@ graph LR
 
 ## Dynamic Skill Tool System — Runtime Tool Projection
 
-Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Browser, Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools. Browser tools (previously the core `headless-browser` tool) are now provided by the bundled `browser` skill with system default allow rules that preserve frictionless auto-approval.
+Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Browser, Gmail, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools. Browser tools (previously the core `headless-browser` tool) are now provided by the bundled `browser` skill with system default allow rules that preserve frictionless auto-approval.
 
 ### Bundled Skill Retrieval Contract (CLI-First)
 
@@ -1180,7 +1180,6 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
 | `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
-| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                  | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                      |
 | `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
 | `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
 | `app-builder`   | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                    | Dynamic app authoring — create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                    |
@@ -1375,7 +1374,7 @@ Every layer in the pipeline defaults to rejection rather than silent degradation
 | File                                                | Role                                                                                       |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
-| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
+| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, computer-use, weather, etc.)                    |
 | `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
 | `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
 | `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
@@ -1599,8 +1598,8 @@ sequenceDiagram
     participant Planner as Router Planner
     participant LLM as LLM Provider
     participant Scheduler as DAG Scheduler
-    participant W1 as Worker 1 (claude_code)
-    participant W2 as Worker 2 (claude_code)
+    participant W1 as Worker 1
+    participant W2 as Worker 2
     participant Synth as Synthesizer
 
     Session->>Tool: execute(objective)
@@ -1615,11 +1614,11 @@ sequenceDiagram
 
     par Parallel workers (bounded by maxWorkers)
         Scheduler->>W1: runTask(t1, profile=coder)
-        Note over W1: Agent SDK subprocess
+        Note over W1: SwarmWorkerBackend
         W1-->>Scheduler: result
     and
         Scheduler->>W2: runTask(t2, profile=researcher)
-        Note over W2: Agent SDK subprocess
+        Note over W2: SwarmWorkerBackend
         W2-->>Scheduler: result
     end
 
