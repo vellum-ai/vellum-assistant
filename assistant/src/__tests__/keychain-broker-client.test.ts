@@ -676,33 +676,37 @@ describe("keychain-broker-client", () => {
   // Connect timeout
   // -----------------------------------------------------------------------
   describe("connect timeout", () => {
-    let server: Server;
-    const connections = new Set<import("node:net").Socket>();
+    let stopFn: (() => Promise<void>) | null = null;
 
     beforeEach(() => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
     });
 
     afterEach(async () => {
-      // Destroy all active connections so server.close() completes promptly
-      for (const conn of connections) conn.destroy();
-      connections.clear();
-      if (server) {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (stopFn) {
+        await stopFn();
+        stopFn = null;
       }
     });
 
     test("rejects connect within 3 seconds when broker is unresponsive", async () => {
-      // Create a server that accepts connections but never completes the
-      // handshake (simulates an unresponsive broker process).
-      server = createServer((conn) => {
-        connections.add(conn);
-        conn.on("close", () => connections.delete(conn));
+      // Create a server that accepts connections but never responds
+      // (simulates an unresponsive broker process).
+      const activeConns = new Set<import("node:net").Socket>();
+      const server = createServer((conn) => {
+        activeConns.add(conn);
+        conn.on("close", () => activeConns.delete(conn));
         // Accept connection but do nothing — no data, no close
       });
       await new Promise<void>((resolve) => {
         server.listen(SOCKET_PATH, () => resolve());
       });
+      stopFn = () =>
+        new Promise<void>((resolve) => {
+          for (const conn of activeConns) conn.destroy();
+          activeConns.clear();
+          server.close(() => resolve());
+        });
 
       const client = createBrokerClient();
       const start = Date.now();
@@ -722,7 +726,7 @@ describe("keychain-broker-client", () => {
       const broker = createMockBroker();
       broker.setHandler(() => ({ ok: true, result: { pong: true } }));
       await broker.start();
-      server = broker.server;
+      stopFn = () => broker.stop();
 
       const client = createBrokerClient();
       const result = await client.ping();
