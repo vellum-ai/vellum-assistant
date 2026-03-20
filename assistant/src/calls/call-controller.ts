@@ -556,10 +556,10 @@ export class CallController {
 
     const synthesizeAndPlay = async (text: string): Promise<void> => {
       if (!this.isCurrentRun(runVersion)) return;
-      if (!fishSession) {
-        fishSession = await FishAudioSession.create(config.fishAudio);
-        this.activeFishSession = fishSession;
-      }
+      // Fish Audio S2 requires a stop event to emit FinishEvent, which
+      // closes the session. Create a fresh session for each sentence.
+      fishSession = await FishAudioSession.create(config.fishAudio);
+      this.activeFishSession = fishSession;
       const audioBuffer = await fishSession.synthesize(text);
       const format = config.fishAudio.format ?? "mp3";
       const audioId = storeAudio(audioBuffer, format as "mp3" | "wav" | "opus");

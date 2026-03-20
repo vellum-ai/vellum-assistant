@@ -14,14 +14,14 @@ const log = getLogger("fish-audio-client");
 interface StartEvent {
   event: "start";
   request: {
+    text?: string;
     reference_id?: string;
     format?: string;
     sample_rate?: number;
     chunk_length?: number;
     normalize?: boolean;
     latency?: string;
-    streaming?: boolean;
-    speed?: number;
+    prosody?: { speed?: number; volume?: number };
   };
 }
 
@@ -93,7 +93,7 @@ export class FishAudioSession {
         {
           headers: {
             Authorization: `Bearer ${apiKey}`,
-            model: "speech-01",
+            model: "s1",
           },
         } as unknown as string[],
       );
@@ -104,11 +104,15 @@ export class FishAudioSession {
         const startEvent: StartEvent = {
           event: "start",
           request: {
+            text: "",
             reference_id: config.referenceId || undefined,
             format: config.format,
             chunk_length: config.chunkLength,
-            speed: config.speed,
-            streaming: true,
+            latency: "balanced",
+            prosody:
+              config.speed !== 1.0
+                ? { speed: config.speed }
+                : undefined,
           },
         };
 
@@ -132,8 +136,9 @@ export class FishAudioSession {
 
   /**
    * Send text for synthesis and wait for the complete audio response.
-   * Sends a TextEvent followed by a FlushEvent, then collects AudioEvent
-   * chunks until a FinishEvent is received.
+   * Sends TextEvent + FlushEvent + StopEvent, then collects AudioEvent
+   * chunks until FinishEvent. Fish Audio S2 only emits FinishEvent after
+   * a StopEvent, so each synthesize() call terminates the session.
    */
   synthesize(text: string): Promise<Buffer> {
     if (this.closed) {
@@ -159,7 +164,12 @@ export class FishAudioSession {
       const flushEvent: FlushEvent = { event: "flush" };
       this.ws.send(encode(flushEvent));
 
-      log.debug({ textLength: text.length }, "Sent text for synthesis");
+      // Fish Audio S2 only sends FinishEvent after receiving StopEvent.
+      // This closes the session, so a new session is needed for the next sentence.
+      const stopEvent: StopEvent = { event: "stop" };
+      this.ws.send(encode(stopEvent));
+
+      log.debug({ textLength: text.length }, "Sent text+flush+stop for synthesis");
     });
   }
 
