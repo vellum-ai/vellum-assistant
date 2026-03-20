@@ -54,7 +54,7 @@ enum LogExporter {
                 log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
                 NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
-                alert.messageText = "Send Failed"
+                alert.messageText = "Feedback Failed"
                 alert.informativeText = "Could not send feedback: \(error.localizedDescription)"
                 alert.alertStyle = .warning
                 alert.runModal()
