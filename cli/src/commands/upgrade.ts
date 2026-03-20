@@ -265,6 +265,18 @@ async function upgradeDocker(
     );
   }
 
+  // Persist rollback state to lockfile BEFORE any destructive changes.
+  // This enables the `vellum rollback` command to restore the previous version.
+  if (entry.serviceGroupVersion && entry.containerInfo) {
+    const rollbackEntry: AssistantEntry = {
+      ...entry,
+      previousServiceGroupVersion: entry.serviceGroupVersion,
+      previousContainerInfo: { ...entry.containerInfo },
+    };
+    saveAssistantEntry(rollbackEntry);
+    console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
+  }
+
   console.log("💾 Capturing existing container environment...");
   const capturedEnv = await captureContainerEnv(res.assistantContainer);
   console.log(
@@ -372,6 +384,8 @@ async function upgradeDocker(
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
       },
+      previousServiceGroupVersion: entry.serviceGroupVersion,
+      previousContainerInfo: entry.containerInfo,
     };
     saveAssistantEntry(updatedEntry);
 
@@ -430,6 +444,8 @@ async function upgradeDocker(
                 cesDigest: previousImageRefs["credential-executor"],
                 networkName: res.network,
               },
+              previousServiceGroupVersion: undefined,
+              previousContainerInfo: undefined,
             };
             saveAssistantEntry(rolledBackEntry);
           }
