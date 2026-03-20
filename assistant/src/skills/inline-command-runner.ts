@@ -38,6 +38,15 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_CHARS = 20_000;
 
 /**
+ * Maximum bytes to buffer from stdout during streaming. Once this limit is
+ * reached we stop accepting data so a long-running command (e.g. `yes`) cannot
+ * grow memory unbounded before the timeout fires. Set generously above
+ * MAX_OUTPUT_CHARS to account for multi-byte UTF-8 and ANSI sequences that will
+ * be stripped before the character-level clamp.
+ */
+const MAX_STDOUT_BUFFER_BYTES = MAX_OUTPUT_CHARS * 4;
+
+/**
  * ANSI escape sequence pattern (covers SGR, cursor movement, erase, etc.).
  * Matches: ESC[ ... final_byte  and  ESC] ... ST  (OSC sequences).
  */
@@ -116,6 +125,7 @@ export async function runInlineCommand(
   return new Promise<InlineCommandResult>((resolve) => {
     let timedOut = false;
     const stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
 
     let child: ReturnType<typeof spawn>;
     try {
@@ -140,7 +150,15 @@ export async function runInlineCommand(
       child.kill("SIGKILL");
     }, timeoutMs);
 
-    child.stdout!.on("data", (data: Buffer) => stdoutChunks.push(data));
+    child.stdout!.on("data", (data: Buffer) => {
+      if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) return;
+      stdoutChunks.push(data);
+      stdoutBytes += data.length;
+      if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) {
+        // Stop reading to release backpressure on the child process
+        child.stdout!.destroy();
+      }
+    });
 
     child.on("close", (code) => {
       clearTimeout(timer);
