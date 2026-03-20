@@ -672,6 +672,18 @@ extension AppDelegate {
         hasSetupDaemon = false
         daemonClient.disconnect()
         UserDefaults.standard.removeObject(forKey: "user.profile")
+
+        // Dev builds may have a custom bundle name (e.g. "Jarvis.app").
+        // Rename the bundle back to "Vellum.app" and relaunch so the dock
+        // label is correct on the onboarding screen. No-op for production
+        // builds which always use "Vellum".
+        if AppBundleRenamer.needsRename {
+            AppBundleRenamer.renameAndRelaunch()
+            // renameAndRelaunch() calls NSApp.terminate — execution does
+            // not reach here. If the rename fails it returns false and we
+            // fall through to showOnboarding().
+        }
+
         showOnboarding()
         return true
     }
