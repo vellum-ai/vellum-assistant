@@ -106,6 +106,7 @@ export class QdrantManager {
         QDRANT__SERVICE__GRPC_PORT: "0", // disable gRPC
         QDRANT__TELEMETRY_DISABLED: "true",
         QDRANT__STORAGE__STORAGE_PATH: this.storagePath,
+        QDRANT__STORAGE__SNAPSHOTS_PATH: join(this.storagePath, "snapshots"),
         QDRANT__LOG_LEVEL: "WARN",
       },
       stdout: "ignore",
