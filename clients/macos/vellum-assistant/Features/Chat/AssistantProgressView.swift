@@ -746,6 +746,37 @@ private struct StepDetailRow: View {
             || !toolCall.claudeCodeSteps.isEmpty
     }
 
+    /// Resolves the display title for this step row based on its current state.
+    /// Extracted from the view body to avoid Swift type-checker timeout on complex
+    /// inline closures inside `Text()`.
+    private var stepTitle: String {
+        if let reason = toolCall.reasonDescription, !reason.isEmpty {
+            return phase == .denied ? "Blocked — " + reason : reason
+        }
+        if let label = skillLabel {
+            return phase == .denied ? "Blocked — " + label : label
+        }
+        if toolCall.isComplete {
+            return toolCall.actionDescription
+        }
+        let friendlyLabel = ChatBubble.friendlyRunningLabel(
+            toolCall.toolName,
+            inputSummary: toolCall.inputSummary,
+            buildingStatus: toolCall.buildingStatus
+        )
+        return phase == .denied ? "Blocked — " + friendlyLabel : friendlyLabel
+    }
+
+    private var stepTitleColor: Color {
+        if toolCall.isComplete {
+            return toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault
+        }
+        if phase == .denied {
+            return VColor.contentTertiary
+        }
+        return VColor.contentDefault
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Row header
@@ -774,57 +805,11 @@ private struct StepDetailRow: View {
 
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        if toolCall.isComplete {
-                            Text({
-                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                                    return reason
-                                }
-                                if let label = skillLabel {
-                                    return label
-                                }
-                                return toolCall.actionDescription
-                            }())
-                                .font(VFont.caption)
-                                .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        } else if phase == .denied {
-                            Text({
-                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                                    return "Blocked — " + reason
-                                }
-                                if let label = skillLabel {
-                                    return "Blocked — " + label
-                                }
-                                return "Blocked — " + ChatBubble.friendlyRunningLabel(
-                                    toolCall.toolName,
-                                    inputSummary: toolCall.inputSummary,
-                                    buildingStatus: toolCall.buildingStatus
-                                )
-                            }())
+                        Text(stepTitle)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(stepTitleColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        } else {
-                            Text({
-                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                                    return reason
-                                }
-                                if let label = skillLabel {
-                                    return label
-                                }
-                                return ChatBubble.friendlyRunningLabel(
-                                    toolCall.toolName,
-                                    inputSummary: toolCall.inputSummary,
-                                    buildingStatus: toolCall.buildingStatus
-                                )
-                            }())
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        }
                     }
 
                     Spacer()
