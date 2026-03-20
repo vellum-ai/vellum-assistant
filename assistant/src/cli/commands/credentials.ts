@@ -655,9 +655,23 @@ Examples:
 
           const connection = safeGetConnectionByProvider(metadata.service);
           const output = buildCredentialOutput(metadata, secret, connection);
+
+          // When the keychain broker is unreachable and we have no secret,
+          // override the output to indicate the broker is down rather than
+          // misleadingly reporting "(not set)".
+          if (unreachable && (secret == null || secret.length === 0)) {
+            output.scrubbedValue = "(broker unreachable)";
+            output.brokerUnreachable = true;
+          }
+
           writeOutput(cmd, output);
 
           if (!shouldOutputJson(cmd)) {
+            if (unreachable && (secret == null || secret.length === 0)) {
+              log.warn(
+                "⚠ Keychain broker unreachable — secret may exist but cannot be retrieved",
+              );
+            }
             printCredentialHuman(output);
           }
         } catch (err) {
