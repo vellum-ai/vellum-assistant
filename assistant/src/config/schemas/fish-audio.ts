@@ -19,6 +19,14 @@ export const FishAudioConfigSchema = z
       })
       .default("mp3")
       .describe("Output audio format"),
+    latency: z
+      .enum(["normal", "balanced"], {
+        error: "fishAudio.latency must be one of: normal, balanced",
+      })
+      .default("normal")
+      .describe(
+        "Latency/quality tradeoff for Fish Audio S2 synthesis. 'normal' prioritizes lower latency; 'balanced' trades latency for higher quality.",
+      ),
     speed: z
       .number({ error: "fishAudio.speed must be a number" })
       .min(0.5, "fishAudio.speed must be >= 0.5")
