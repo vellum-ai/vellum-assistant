@@ -208,7 +208,7 @@ Verify that `message.channels` event subscription is enabled in your Slack app s
 
 ## Implementation Rules
 
-All token collection goes through `credential_store` prompts. Never accept tokens in chat or use alternative storage paths. Do not use `ui_show`, `ui_update`, `assistant credentials reveal`, `curl`, or `assistant config set slack.*` in chat to collect or manipulate tokens.
+All token collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, `curl`, or `assistant config set slack.*` in chat to collect or manipulate tokens. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
 
 ## Clearing Credentials
 
