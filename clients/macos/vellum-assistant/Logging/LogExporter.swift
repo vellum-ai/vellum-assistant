@@ -82,6 +82,7 @@ enum LogExporter {
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
                 "logs_included": formData.includeLogs ? "true" : "false",
+                "log_time_range": formData.logTimeRange.rawValue,
             ]
             if case .conversation(let conversationId, _, _, _) = formData.scope {
                 tags["conversation_id"] = conversationId
@@ -292,6 +293,7 @@ enum LogExporter {
             var metadata: [String: Any] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
+                "log_time_range": formData.logTimeRange.rawValue,
                 // device_id intentionally matches ~/.vellum/device.json UUID
                 // so log exports correlate with daemon Sentry events and telemetry.
                 "device_id": SentryDeviceInfo.deviceId,
