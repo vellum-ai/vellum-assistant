@@ -1643,7 +1643,9 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
-            "400": { description: "Missing or invalid provider_key query parameter" },
+            "400": {
+              description: "Missing or invalid provider_key query parameter",
+            },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -2522,6 +2524,31 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
+          },
+        },
+      },
+      "/v1/admin/upgrade-broadcast": {
+        post: {
+          summary: "Broadcast upgrade to connected clients",
+          description:
+            "Internal control-plane endpoint that proxies an upgrade-broadcast request to the assistant daemon. Authenticated with an edge JWT. The daemon notifies all connected clients that a new version is available.",
+          operationId: "upgradeBroadcast",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Broadcast sent successfully" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
           },
         },
       },
