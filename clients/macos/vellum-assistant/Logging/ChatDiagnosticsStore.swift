@@ -470,6 +470,9 @@ final class ChatDiagnosticsStore {
         if let index = snapshotOrder.firstIndex(of: conversationId) {
             snapshotOrder.remove(at: index)
         }
+
+        // Refresh the background-safe snapshot.
+        refreshLastKnownSnapshot()
     }
 
     // MARK: - Session Log Writing
