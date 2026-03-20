@@ -111,10 +111,6 @@ export function hasUngatedHttpAuthDisabled(): boolean {
 
 // ── Monitoring ───────────────────────────────────────────────────────────────
 
-export function getLogfireToken(): string | undefined {
-  return str("LOGFIRE_TOKEN");
-}
-
 const DEFAULT_SENTRY_DSN =
   "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992";
 
