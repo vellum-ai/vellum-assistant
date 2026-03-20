@@ -255,28 +255,6 @@ final class AvatarAppearanceManager {
 
     // MARK: - Custom Avatar
 
-    /// Resolves which avatar URL to load from, performing one-time migration if needed.
-    /// Extracted as a static helper so migration logic is directly testable.
-    nonisolated static func resolveCustomAvatarURL(
-        workspaceURL: URL,
-        legacyURL: URL,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        // One-time migration: copy legacy avatar to workspace if workspace copy doesn't exist
-        if !fileManager.fileExists(atPath: workspaceURL.path), fileManager.fileExists(atPath: legacyURL.path) {
-            let dir = workspaceURL.deletingLastPathComponent()
-            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-            try? fileManager.copyItem(at: legacyURL, to: workspaceURL)
-        }
-
-        if fileManager.fileExists(atPath: workspaceURL.path) {
-            return workspaceURL
-        } else if fileManager.fileExists(atPath: legacyURL.path) {
-            return legacyURL
-        }
-        return nil
-    }
-
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
         let url = customAvatarURL
         let dir = url.deletingLastPathComponent()
