@@ -4,6 +4,7 @@
  * can only be read once (across restarts).
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -24,12 +25,17 @@ export function createSigningKeyBootstrapHandler(_config: GatewayConfig) {
       // remote callers from fetching the raw signing key through the gateway.
       const bootstrapSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
       if (bootstrapSecret) {
-        const provided = req.headers.get("x-bootstrap-secret");
-        if (provided !== bootstrapSecret) {
+        const provided = req.headers.get("x-bootstrap-secret") ?? "";
+        const providedBuf = Buffer.from(provided);
+        const expectedBuf = Buffer.from(bootstrapSecret);
+        const valid =
+          providedBuf.length === expectedBuf.length &&
+          timingSafeEqual(providedBuf, expectedBuf);
+        if (!valid) {
           log.warn("Signing key bootstrap rejected — invalid or missing bootstrap secret");
           return Response.json(
             { error: "Invalid bootstrap secret" },
-            { status: 403 },
+            { status: 401 },
           );
         }
       }

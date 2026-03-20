@@ -99,11 +99,26 @@ function handleCancelSchedule(id: string): Response {
   return handleListSchedules();
 }
 
+const VALID_MODES = ["notify", "execute"] as const;
+const VALID_ROUTING_INTENTS = [
+  "single_channel",
+  "multi_channel",
+  "all_channels",
+] as const;
+
 function handleUpdateSchedule(
   id: string,
   body: Record<string, unknown>,
 ): Response {
   const updates: Record<string, unknown> = {};
+
+  if ("mode" in body && !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])) {
+    return httpError("BAD_REQUEST", `Invalid mode: must be one of ${VALID_MODES.join(", ")}`, 400);
+  }
+  if ("routingIntent" in body && !VALID_ROUTING_INTENTS.includes(body.routingIntent as (typeof VALID_ROUTING_INTENTS)[number])) {
+    return httpError("BAD_REQUEST", `Invalid routingIntent: must be one of ${VALID_ROUTING_INTENTS.join(", ")}`, 400);
+  }
+
   for (const key of [
     "name",
     "expression",
@@ -285,8 +300,13 @@ export function scheduleRouteDefinitions(deps: {
       endpoint: "schedules/:id",
       method: "PATCH",
       policyKey: "schedules",
-      handler: async ({ req, params }) =>
-        handleUpdateSchedule(params.id, await req.json()),
+      handler: async ({ req, params }) => {
+        const body: unknown = await req.json();
+        if (typeof body !== "object" || body === null || Array.isArray(body)) {
+          return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
+        }
+        return handleUpdateSchedule(params.id, body as Record<string, unknown>);
+      },
     },
     {
       endpoint: "schedules/:id/run",
