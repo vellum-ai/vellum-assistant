@@ -240,7 +240,7 @@ export function createTrustRulesDeleteHandler() {
           { status: 404 },
         );
       }
-      return Response.json({ removed: true });
+      return Response.json({ success: true });
     } catch (err) {
       log.error({ err }, "Failed to remove trust rule");
       return Response.json({ error: "Internal server error" }, { status: 500 });
@@ -256,7 +256,7 @@ export function createTrustRulesClearHandler() {
   return async (_req: Request): Promise<Response> => {
     try {
       clearRules();
-      return Response.json({ cleared: true });
+      return Response.json({ success: true });
     } catch (err) {
       log.error({ err }, "Failed to clear trust rules");
       return Response.json({ error: "Internal server error" }, { status: 500 });
