@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
-import { getRootDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 export interface DefaultRuleTemplate {
   id: string;
@@ -116,7 +116,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Workspace prompt files — the agent should always be able to read, edit,
   // and write these without prompting.  Also allow `rm BOOTSTRAP.md` so the
   // agent can delete it at the end of the onboarding ritual.
-  const workspaceDir = join(getRootDir(), "workspace").replaceAll("\\", "/");
+  const workspaceDir = getWorkspaceDir().replaceAll("\\", "/");
   const WORKSPACE_PROMPT_FILES = [
     "IDENTITY.md",
     "USER.md",
@@ -163,7 +163,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Skill source directories — writing or editing skill source files should
   // require explicit user approval so a compromised agent loop cannot silently
   // modify skill code to escalate privileges.
-  const managedSkillsDir = join(getRootDir(), "workspace", "skills").replaceAll(
+  const managedSkillsDir = join(getWorkspaceDir(), "skills").replaceAll(
     "\\",
     "/",
   );

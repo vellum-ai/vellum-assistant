@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ensureDir, pathExists } from "../util/fs.js";
-import { getRootDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 export interface Draft {
   id: string;
@@ -25,7 +25,7 @@ export interface Draft {
 }
 
 function getDraftsDir(platform: string): string {
-  const dir = join(getRootDir(), "workspace", "data", "drafts", platform);
+  const dir = join(getWorkspaceDir(), "data", "drafts", platform);
   ensureDir(dir);
   return dir;
 }
