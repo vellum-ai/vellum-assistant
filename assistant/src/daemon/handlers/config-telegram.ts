@@ -75,12 +75,12 @@ export async function getTelegramConfig(): Promise<TelegramConfigResult> {
     "telegram",
     botUsername ? `@${botUsername}` : undefined,
   );
-  const hasBotToken = !!(await getSecureKeyAsync(
-    credentialKey("telegram", "bot_token"),
-  )).value;
-  const hasWebhookSecret = !!(await getSecureKeyAsync(
-    credentialKey("telegram", "webhook_secret"),
-  )).value;
+  const hasBotToken = !!(
+    await getSecureKeyAsync(credentialKey("telegram", "bot_token"))
+  ).value;
+  const hasWebhookSecret = !!(
+    await getSecureKeyAsync(credentialKey("telegram", "webhook_secret"))
+  ).value;
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
   const botId = getTelegramBotId();
@@ -182,9 +182,9 @@ export async function setTelegramConfig(
   invalidateConfigCache();
 
   // Ensure webhook secret exists (generate if missing)
-  let hasWebhookSecret = !!(await getSecureKeyAsync(
-    credentialKey("telegram", "webhook_secret"),
-  )).value;
+  let hasWebhookSecret = !!(
+    await getSecureKeyAsync(credentialKey("telegram", "webhook_secret"))
+  ).value;
   if (!hasWebhookSecret) {
     const { randomUUID } = await import("node:crypto");
     const webhookSecret = randomUUID();
@@ -280,12 +280,12 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 
   if (r1 === "error" || r2 === "error") {
     // Check each key individually so partial deletions report accurate status.
-    const hasBotToken = !!(await getSecureKeyAsync(
-      credentialKey("telegram", "bot_token"),
-    ));
-    const hasWebhookSecret = !!(await getSecureKeyAsync(
-      credentialKey("telegram", "webhook_secret"),
-    ));
+    const hasBotToken = !!(
+      await getSecureKeyAsync(credentialKey("telegram", "bot_token"))
+    ).value;
+    const hasWebhookSecret = !!(
+      await getSecureKeyAsync(credentialKey("telegram", "webhook_secret"))
+    ).value;
     return {
       success: false,
       hasBotToken,
