@@ -42,7 +42,12 @@ export function createSigningKeyBootstrapHandler(_config: GatewayConfig) {
         try {
           writeFileSync(lockPath, new Date().toISOString(), { mode: 0o600 });
         } catch (err) {
+          inFlight = false;
           log.error({ err }, "Failed to write signing-key-bootstrap lock file");
+          return Response.json(
+            { error: "Failed to persist bootstrap lock — refusing to serve key" },
+            { status: 500 },
+          );
         }
 
         return response;
