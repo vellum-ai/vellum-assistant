@@ -222,6 +222,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
+      "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
