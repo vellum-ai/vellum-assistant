@@ -515,6 +515,24 @@ final class SessionOverlayWindow {
 
             return hstack
 
+        case .awaitingConfirmation:
+            let hstack = NSStackView()
+            hstack.orientation = .horizontal
+            hstack.spacing = 8
+
+            let autoApproveBtn = makeAutoApproveButton()
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            let stopBtn = makeButton("Stop", action: #selector(SessionOverlayButtonTarget.stopClicked))
+            stopBtn.bezelStyle = .rounded
+            stopBtn.contentTintColor = NSColor(VColor.systemNegativeStrong)
+
+            hstack.addArrangedSubview(autoApproveBtn)
+            hstack.addArrangedSubview(spacer)
+            hstack.addArrangedSubview(stopBtn)
+
+            return hstack
+
         default:
             return NSView()
         }
