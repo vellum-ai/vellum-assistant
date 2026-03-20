@@ -121,7 +121,7 @@ struct ChatView: View {
     /// timeout window. Shows a failure screen instead of the loading skeleton.
     var isBootstrapTimedOut: Bool = false
 
-    /// Called when the user taps "Send Logs to Vellum" on the bootstrap
+    /// Called when the user taps "Report to Vellum" on the bootstrap
     /// timeout view.
     var onBootstrapSendLogs: (() -> Void)?
 
@@ -649,7 +649,7 @@ private struct ChatBootstrapTimeoutView: View {
             }
 
             if let onSendLogs {
-                VButton(label: "Send Logs to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
+                VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
                     onSendLogs()
                 }
             }

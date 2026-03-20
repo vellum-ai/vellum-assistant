@@ -39,7 +39,7 @@ struct DaemonConnectionTimeoutView: View {
                 }
             }
 
-            VButton(label: "Send Logs to Vellum", leftIcon: VIcon.send.rawValue, style: .ghost) {
+            VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .ghost) {
                 onSendLogs()
             }
 
