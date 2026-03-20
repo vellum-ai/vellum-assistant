@@ -739,6 +739,7 @@ export const SERVICE_START_ORDER: ServiceName[] = [
 /** Start all three containers in dependency order. */
 export async function startContainers(
   opts: {
+    bootstrapSecret?: string;
     cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
