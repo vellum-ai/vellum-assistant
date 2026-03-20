@@ -87,7 +87,8 @@ struct APIKeyStepView: View {
     private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
         switch mode {
         case .vellumCloud:
-            return state.skippedAuth ? "Requires Account" : "Coming Soon"
+            if state.skippedAuth { return "Requires Account" }
+            return userHostedEnabled ? nil : "Coming Soon"
         case .docker:
             return userHostedEnabled ? nil : "Coming Soon"
         default:
@@ -206,7 +207,7 @@ struct APIKeyStepView: View {
     // MARK: - Helpers
 
     private var canContinue: Bool {
-        state.selectedHostingMode != .vellumCloud
+        true
     }
 
     private var continueButtonTitle: String {

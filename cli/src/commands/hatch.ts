@@ -38,6 +38,7 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
+import { hatchPlatform } from "../lib/platform-hatch";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
   startLocalDaemon,
@@ -875,6 +876,11 @@ export async function hatch(): Promise<void> {
 
   if (remote === "docker") {
     await hatchDocker(species, detached, name, watch);
+    return;
+  }
+
+  if (remote === "vellum-cloud") {
+    await hatchPlatform(species, name);
     return;
   }
 
