@@ -533,6 +533,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onPageChanged = onPageChanged
         context.coordinator.onLinkOpen = onLinkOpen
 
+        // Refresh timing context when the coordinator is reused across surface navigations
+        // so diagnostic logs are attributed to the correct surface/app.
+        let newSurfaceId = data.appId ?? "ephemeral"
+        if context.coordinator.surfaceId != newSurfaceId || context.coordinator.appId != appId {
+            context.coordinator.surfaceId = newSurfaceId
+            context.coordinator.appId = appId
+        }
+
         // Keep the coordinator's desired insets up-to-date so webView(_:didFinish:)
         // can re-inject the correct values after a page reload.
         let newTop = Int(topContentInset)
@@ -952,9 +960,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.morphGeneration == generation else { return }
                 self.logPhase("captureSnapshotAfterMorph:takeSnapshot")
-                self.captureSnapshot { base64 in
+                self.captureSnapshot { [weak self] base64 in
                     if let base64 {
-                        self.logPhase("captureSnapshotAfterMorph:complete")
+                        self?.logPhase("captureSnapshotAfterMorph:complete")
                         onSnapshotCaptured(base64)
                     }
                 }
