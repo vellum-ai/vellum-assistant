@@ -72,7 +72,6 @@ export function getWorkspaceDirOverride(): string | undefined {
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_AWS_ROLE_ARN",
-  "VELLUM_CLAUDE_CODE_DEPTH",
   "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
   "VELLUM_DAEMON_NOAUTH",
