@@ -13,7 +13,7 @@ import { dirname, join } from "path";
 import { type LocalInstanceResources } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { stopProcessByPidFile } from "./process.js";
+import { isVellumProcess, stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -580,6 +580,13 @@ function recoverPidFile(
 ): number | undefined {
   const pid = findPidListeningOnPort(daemonPort);
   if (pid) {
+    // Verify the listener is actually a vellum daemon before adopting it.
+    // Without this check, a user's own process (e.g. a dev server) that
+    // happens to be on the daemon port would be written into the PID file
+    // and later killed by lifecycle commands (sleep, retire, stop).
+    if (!isVellumProcess(pid)) {
+      return undefined;
+    }
     mkdirSync(dirname(pidFile), { recursive: true });
     writeFileSync(pidFile, String(pid), "utf-8");
   }

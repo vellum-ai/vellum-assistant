@@ -698,6 +698,10 @@ final class VellumCli {
 
     /// Send SIGTERM to a process identified by a PID file. Does not wait for
     /// the process to exit — the next launch will clean up any stragglers.
+    ///
+    /// Guards against stale PID reuse: if the OS has recycled the PID and it
+    /// now belongs to a non-vellum process (e.g. a user's localhost dev server),
+    /// the signal is skipped and the stale PID file is removed.
     private func signalViaPIDFile(_ pidFileURL: URL, label: String) {
         guard FileManager.default.fileExists(atPath: pidFileURL.path) else { return }
         let pidData: Data
@@ -712,8 +716,53 @@ final class VellumCli {
             return
         }
 
+        // Verify the PID belongs to a vellum-related process before signaling.
+        // Without this check, a stale PID file (or one corrupted by recoverPidFile
+        // adopting a non-vellum listener) could cause us to SIGTERM an unrelated
+        // process such as the user's localhost dev server.
+        guard Self.isVellumProcess(pid) else {
+            log.info("PID \(pid) is not a vellum process — skipping SIGTERM for \(label, privacy: .public) and removing stale PID file")
+            try? FileManager.default.removeItem(at: pidFileURL)
+            return
+        }
+
         log.info("Sending SIGTERM to \(label, privacy: .public) (pid \(pid))")
         kill(pid, SIGTERM)
+    }
+
+    /// Check whether a PID belongs to a vellum-related process by inspecting
+    /// its command line via `ps`. Mirrors the logic in cli/src/lib/process.ts.
+    private static func isVellumProcess(_ pid: pid_t) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", "\(pid)", "-o", "command="]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+
+        guard process.terminationStatus == 0 else { return false }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return false
+        }
+
+        // Match the same patterns as cli/src/lib/process.ts isVellumProcess()
+        let patterns = [
+            "vellum-daemon", "vellum-cli", "vellum-gateway",
+            "@vellumai", "/.vellum/", "/daemon/main",
+            "/vellum/", "qdrant/bin/qdrant"
+        ]
+        return patterns.contains { command.contains($0) }
     }
 
     /// Run a CLI command, log the invocation and result, and return
