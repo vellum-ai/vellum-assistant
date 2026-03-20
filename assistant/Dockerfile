@@ -28,6 +28,9 @@ RUN cd /app/assistant && bun install --frozen-lockfile
 # Copy source
 COPY assistant ./assistant
 
+# Copy meta directory (provider-env-vars.json is imported at runtime by secure-keys.ts)
+COPY meta ./meta
+
 # Final stage
 FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
 
