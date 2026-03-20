@@ -91,6 +91,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Permissions Settings
 
     @Published var dangerouslySkipPermissions: Bool
+    /// Monotonic counter to ignore stale rollback responses from rapid toggles.
+    private var skipPermissionsToggleGeneration: UInt = 0
 
     // MARK: - Telegram Integration State
 
@@ -575,6 +577,9 @@ public final class SettingsStore: ObservableObject {
 
             // Fetch embedding config on init
             refreshEmbeddingConfig()
+
+            // Fetch skip-permissions state for Docker assistants on init
+            refreshDangerouslySkipPermissions()
         }
     }
 
@@ -2963,12 +2968,14 @@ public final class SettingsStore: ObservableObject {
         // Docker assistants: use the HTTP API (workspace is on a Docker volume,
         // not directly writable from the host).
         if isCurrentAssistantDocker {
+            skipPermissionsToggleGeneration &+= 1
+            let requestGeneration = skipPermissionsToggleGeneration
             dangerouslySkipPermissions = enabled
-            Task {
+            Task { @MainActor in
                 let success = await settingsClient.setDangerouslySkipPermissions(enabled)
-                if !success {
-                    // Revert optimistic toggle on failure
-                    dangerouslySkipPermissions = !enabled
+                if !success, self.skipPermissionsToggleGeneration == requestGeneration {
+                    // Revert optimistic toggle on failure only if no newer toggle has fired
+                    self.dangerouslySkipPermissions = !enabled
                 }
             }
             return
