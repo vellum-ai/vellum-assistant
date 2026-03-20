@@ -312,9 +312,10 @@ describe("QdrantManager", () => {
       expect(existsSync(pidPath)).toBe(false);
     }, 10_000);
 
-    test("cleans up when process exits immediately", async () => {
+    test("fails fast with exit code when process exits immediately", async () => {
       const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
 
+      // GIVEN a Qdrant binary that exits immediately with code 1
       placeFakeBinary("#!/bin/sh\nexit 1");
 
       const port = getTestPort();
@@ -323,8 +324,33 @@ describe("QdrantManager", () => {
         ...FAST_TIMEOUTS,
       });
 
-      await expect(mgr.start()).rejects.toThrow("did not become ready");
+      // WHEN we start the manager
+      const startTime = Date.now();
+      await expect(mgr.start()).rejects.toThrow(
+        /exited with code \d+ before becoming ready/,
+      );
+      const elapsed = Date.now() - startTime;
+
+      // THEN it fails fast (well under the 100ms readyz timeout)
+      expect(elapsed).toBeLessThan(FAST_TIMEOUTS.readyzTimeoutMs);
+
+      // AND the PID file is cleaned up
       expect(existsSync(pidPath)).toBe(false);
+    }, 10_000);
+
+    test("includes stderr in error when process crashes", async () => {
+      // GIVEN a Qdrant binary that writes to stderr before crashing
+      placeFakeBinary('#!/bin/sh\necho "fatal: storage corrupted" >&2\nexit 1');
+
+      const port = getTestPort();
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${port}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      // WHEN we start the manager
+      // THEN the error includes the stderr output
+      await expect(mgr.start()).rejects.toThrow("storage corrupted");
     }, 10_000);
   });
 
