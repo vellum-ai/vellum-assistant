@@ -173,7 +173,11 @@ describe("Memory lifecycle E2E (simplified path)", () => {
         conversationId,
         title: "Kubernetes Setup",
         summary: "Deployed Kubernetes cluster on AWS EKS with 3 worker nodes",
+        tokenEstimate: 12,
+        startAt: now,
+        endAt: now,
         createdAt: now,
+        updatedAt: now,
       })
       .run();
 

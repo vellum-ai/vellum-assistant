@@ -94,6 +94,7 @@ import {
   resetStaleSweepThrottle,
   runMemoryJobsOnce,
 } from "../memory/jobs-worker.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
@@ -283,14 +284,14 @@ describe("Memory regressions (experimental)", () => {
       },
     ];
 
-    const recall = await withMockOllamaQueryEmbedding(() =>
+    const recall = (await withMockOllamaQueryEmbedding(() =>
       buildMemoryRecall(
         "timezone",
         "conv-semantic-exclude",
         semanticRecallConfig(),
         { excludeMessageIds: ["msg-semantic-current"] },
       ),
-    );
+    )) as { semanticHits: number; injectedText: string };
     expect(recall.semanticHits).toBe(1);
     expect(recall.injectedText).toContain("User timezone is PST");
     expect(recall.injectedText).not.toContain("(current turn)");
@@ -388,13 +389,13 @@ describe("Memory regressions (experimental)", () => {
       },
     ];
 
-    const recall = await withMockOllamaQueryEmbedding(() =>
+    const recall = (await withMockOllamaQueryEmbedding(() =>
       buildMemoryRecall(
         "timezone",
         "conv-semantic-evidence",
         semanticRecallConfig(),
       ),
-    );
+    )) as { semanticHits: number; injectedText: string };
     expect(recall.semanticHits).toBe(1);
     expect(recall.injectedText).toContain("User timezone is PST");
     expect(recall.injectedText).not.toContain("Stale orphan fact");
@@ -486,11 +487,11 @@ describe("Memory regressions (experimental)", () => {
       },
     ];
 
-    const recall = await withMockOllamaQueryEmbedding(() =>
+    const recall = (await withMockOllamaQueryEmbedding(() =>
       buildMemoryRecall("summary", conversationId, semanticRecallConfig(), {
         excludeMessageIds: ["msg-semantic-summary-excluded"],
       }),
-    );
+    )) as { semanticHits: number; injectedText: string };
     // Both summaries are returned from Qdrant and both pass post-filtering.
     // Verify the pipeline completes successfully with semantic hits.
     expect(recall.semanticHits).toBe(2);

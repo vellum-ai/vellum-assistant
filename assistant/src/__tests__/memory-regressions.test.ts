@@ -205,13 +205,8 @@ import {
   runMemoryJobsOnce,
   sweepStaleItems,
 } from "../memory/jobs-worker.js";
-import {
-  buildMemoryRecall,
-  escapeXmlTags,
-  formatAbsoluteTime,
-  formatRelativeTime,
-  injectMemoryRecallAsUserBlock,
-} from "../memory/retriever.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
+import { buildMemoryRecall, escapeXmlTags, formatAbsoluteTime, formatRelativeTime, injectMemoryRecallAsUserBlock } from "../memory/retriever.js"; // eslint-disable-line @stylistic/max-len
 import {
   conversations,
   memoryEmbeddings,
@@ -2958,7 +2953,7 @@ describe("Memory regressions", () => {
         scopePolicyOverride: undefined,
       },
     );
-    const stdCandidateKeys = stdRecall.topCandidates.map((c) => c.key);
+    const stdCandidateKeys = stdRecall.topCandidates.map((c: { key: string }) => c.key);
     const hasZephyrInStandard = privateItemKeys.some((k) =>
       stdCandidateKeys.includes(k),
     );
