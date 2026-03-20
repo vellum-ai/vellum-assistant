@@ -10,6 +10,7 @@ public protocol ScheduleClientProtocol {
     func toggleSchedule(id: String, enabled: Bool) async throws -> [ScheduleItem]
     func deleteSchedule(id: String) async throws -> [ScheduleItem]
     func cancelSchedule(id: String) async throws -> [ScheduleItem]
+    func runNow(id: String) async throws -> [ScheduleItem]
 }
 
 /// Gateway-backed implementation of ``ScheduleClientProtocol``.
@@ -75,6 +76,19 @@ public struct ScheduleClient: ScheduleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("cancelSchedule failed (HTTP \(response.statusCode))")
+            throw ScheduleClientError.httpError(statusCode: response.statusCode)
+        }
+        return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
+    }
+
+    public func runNow(id: String) async throws -> [ScheduleItem] {
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/schedules/\(id)/run",
+            json: [:],
+            timeout: 30
+        )
+        guard response.isSuccess else {
+            log.error("runNow failed (HTTP \(response.statusCode))")
             throw ScheduleClientError.httpError(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
