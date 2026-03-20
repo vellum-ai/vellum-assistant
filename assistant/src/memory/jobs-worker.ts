@@ -80,6 +80,7 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
       }
     } catch (err) {
       log.error({ err }, "Memory worker tick failed");
+      currentIntervalMs = Math.min(currentIntervalMs * 2, POLL_INTERVAL_MAX_MS);
     } finally {
       tickRunning = false;
     }
