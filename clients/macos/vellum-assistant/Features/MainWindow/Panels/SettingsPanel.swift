@@ -270,11 +270,11 @@ struct SettingsPanel: View {
                 Text("Enter passcode")
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
-                SecureField("", text: $devUnlockText)
-                    .vInputStyle()
-                    .font(VFont.mono)
-                    .frame(width: 160)
-                    .onSubmit {
+                VTextField(
+                    placeholder: "",
+                    text: $devUnlockText,
+                    isSecure: true,
+                    onSubmit: {
                         if devUnlockText.lowercased() == "dev" {
                             isDeveloperEnabled = true
                             showingDevUnlock = false
@@ -294,7 +294,10 @@ struct SettingsPanel: View {
                             }
                         }
                         devUnlockText = ""
-                    }
+                    },
+                    maxWidth: 160,
+                    font: VFont.mono
+                )
             }
             .padding(VSpacing.lg)
         }

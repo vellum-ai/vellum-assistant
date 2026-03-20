@@ -212,10 +212,13 @@ struct SecretPromptView: View {
                 }
 
                 // Secure input
-                SecureField(placeholder, text: $secretValue)
-                    .font(VFont.mono)
-                    .vInputStyle()
-                    .accessibilityIdentifier("secure-credential-input")
+                VTextField(
+                    placeholder: placeholder,
+                    text: $secretValue,
+                    isSecure: true,
+                    font: VFont.mono
+                )
+                .accessibilityIdentifier("secure-credential-input")
 
                 // Safety explainer
                 VStack(alignment: .leading, spacing: VSpacing.xs) {

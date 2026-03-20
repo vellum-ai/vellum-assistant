@@ -84,6 +84,7 @@ public struct VTextField: View {
     public var errorMessage: String? = nil
     public var onSubmit: (() -> Void)? = nil
     public var maxWidth: CGFloat = .infinity
+    public var font: Font = VFont.body
 
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
@@ -97,7 +98,8 @@ public struct VTextField: View {
         isSecure: Bool = false,
         errorMessage: String? = nil,
         onSubmit: (() -> Void)? = nil,
-        maxWidth: CGFloat = .infinity
+        maxWidth: CGFloat = .infinity,
+        font: Font = VFont.body
     ) {
         self.label = label
         self.placeholder = placeholder
@@ -108,6 +110,7 @@ public struct VTextField: View {
         self.errorMessage = errorMessage
         self.onSubmit = onSubmit
         self.maxWidth = maxWidth
+        self.font = font
     }
 
     public var body: some View {
@@ -155,14 +158,14 @@ public struct VTextField: View {
             if isSecure {
                 SecureField(placeholder, text: $text)
                     .textFieldStyle(.plain)
-                    .font(VFont.body)
+                    .font(font)
                     .foregroundColor(VColor.contentDefault)
                     .focused($isFocused)
                     .onSubmit { onSubmit?() }
             } else {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
-                    .font(VFont.body)
+                    .font(font)
                     .foregroundColor(VColor.contentDefault)
                     .focused($isFocused)
                     .onSubmit { onSubmit?() }

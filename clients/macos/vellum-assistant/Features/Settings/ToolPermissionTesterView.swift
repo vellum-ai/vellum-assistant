@@ -35,9 +35,11 @@ struct ToolPermissionTesterView: View {
             // Working directory
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 fieldLabel("Working Directory")
-                TextField("Leave empty for assistant default", text: $model.workingDir)
-                    .vInputStyle()
-                    .font(VFont.mono)
+                VTextField(
+                    placeholder: "Leave empty for assistant default",
+                    text: $model.workingDir,
+                    font: VFont.mono
+                )
             }
 
             // Toggles
@@ -116,14 +118,18 @@ struct ToolPermissionTesterView: View {
     private func toolFieldInput(_ field: ToolFieldDescriptor) -> some View {
         switch field.fieldType {
         case .string:
-            TextField("", text: fieldValueBinding(for: field.id))
-                .vInputStyle()
-                .font(VFont.mono)
+            VTextField(
+                placeholder: "",
+                text: fieldValueBinding(for: field.id),
+                font: VFont.mono
+            )
 
         case .number, .integer:
-            TextField("", text: fieldValueBinding(for: field.id))
-                .vInputStyle()
-                .font(VFont.mono)
+            VTextField(
+                placeholder: "",
+                text: fieldValueBinding(for: field.id),
+                font: VFont.mono
+            )
 
         case .boolean:
             VToggle(isOn: fieldBoolBinding(for: field.id))
@@ -288,9 +294,11 @@ struct ToolPermissionTesterView: View {
     private var toolNamePicker: some View {
         if model.availableToolNames.isEmpty {
             // Fallback to text field while loading or if fetch failed
-            TextField("e.g. host_bash, host_file_write", text: $model.toolName)
-                .vInputStyle()
-                .font(VFont.mono)
+            VTextField(
+                placeholder: "e.g. host_bash, host_file_write",
+                text: $model.toolName,
+                font: VFont.mono
+            )
         } else {
             VDropdown(
                 placeholder: "Select a Tool\u{2026}",
