@@ -300,6 +300,7 @@ struct SettingsAppearanceTab: View {
             }
             .onDisappear {
                 stopRecording()
+                stopRecordingVoiceInput()
             }
 
             // MEDIA EMBEDS section
@@ -484,6 +485,7 @@ struct SettingsAppearanceTab: View {
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
+        stopRecordingVoiceInput()
         shortcutConflictWarning = nil
         recordingDisplayString = nil
 
@@ -549,6 +551,7 @@ struct SettingsAppearanceTab: View {
     }
 
     private func startRecordingVoiceInput() {
+        stopRecording()
         stopRecordingVoiceInput()
         isRecordingVoiceInput = true
 
