@@ -110,21 +110,7 @@ private enum ImageActions {
         }
     }
 
-    /// Presents the macOS share sheet anchored to the center of the key window.
-    static func shareImage(_ image: NSImage) {
-        let picker = NSSharingServicePicker(items: [image])
-        if let window = NSApp.keyWindow, let contentView = window.contentView {
-            let rect = CGRect(
-                x: contentView.bounds.midX,
-                y: contentView.bounds.midY,
-                width: 1,
-                height: 1
-            )
-            picker.show(relativeTo: rect, of: contentView, preferredEdge: .minY)
-        }
-    }
-
-    /// Builds a SwiftUI context menu with Copy, Save As, Open in Preview, and Share actions.
+    /// Builds a SwiftUI context menu with Copy, Save As, and Open in Preview actions.
     @ViewBuilder
     static func contextMenuItems(
         image: NSImage,
@@ -149,13 +135,6 @@ private enum ImageActions {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
 
-        Divider()
-
-        Button {
-            shareImage(image)
-        } label: {
-            Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 12) }
-        }
     }
 }
 
