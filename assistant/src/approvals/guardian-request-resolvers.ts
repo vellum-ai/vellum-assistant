@@ -523,7 +523,7 @@ const accessRequestResolver: GuardianRequestResolver = {
       try {
         const codeText =
           `You approved access for ${requesterExternalUserId}. ` +
-          `Give them this verification code: ${session.secret}. ` +
+          `Give them this verification code: *\`${session.secret}\`*. ` +
           `The code expires in 10 minutes.`;
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
@@ -635,8 +635,8 @@ const accessRequestResolver: GuardianRequestResolver = {
     }
 
     const verificationReplyText = requesterNotified
-      ? `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes.`
-      : `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
+      ? `Access approved for ${requesterLabel}. Give them this verification code: *\`${session.secret}\`*. The code expires in 10 minutes.`
+      : `Access approved for ${requesterLabel}. Give them this verification code: *\`${session.secret}\`*. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
 
     return {
       ok: true,
