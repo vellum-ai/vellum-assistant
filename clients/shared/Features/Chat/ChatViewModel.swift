@@ -221,6 +221,7 @@ public final class ChatViewModel: ObservableObject {
                     self.assistantActivityAnchor = "global"
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
+                    self.isCompacting = false
                     // Streaming message state
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
