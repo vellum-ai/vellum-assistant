@@ -198,7 +198,7 @@ describe("Memory Recall Quality (Simplified Archive)", () => {
 
     test("analogy/debugging patterns trigger recall", () => {
       expect(
-        classifyRecallTrigger("this is similar to that bug before", 0),
+        classifyRecallTrigger("this is similar to that known bug", 0),
       ).toBe("analogy_debug");
       expect(classifyRecallTrigger("I keep getting this error", 0)).toBe(
         "analogy_debug",
