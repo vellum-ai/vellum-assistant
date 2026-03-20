@@ -185,7 +185,7 @@ export async function runInlineCommand(
       // signal so the exit code is null. Only suppress the error in that
       // specific case; a command that outputs a lot but exits with a
       // genuine non-zero code (e.g. exit 1) should still be an error.
-      if (code !== 0 && !(stdoutCapped && code === null)) {
+      if (code !== 0 && !(stdoutCapped && code == null)) {
         log.debug(
           { command, exitCode: code },
           "Inline command exited with non-zero code",
