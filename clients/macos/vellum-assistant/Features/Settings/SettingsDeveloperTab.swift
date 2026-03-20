@@ -70,13 +70,6 @@ struct SettingsDeveloperTab: View {
     @State private var revokeApiKeyStatus: String?
     @State private var revokeApiKeyDismissTask: Task<Void, Never>?
 
-    // -- Rollback state --
-    @State private var isRollingBack = false
-    @State private var showingRollbackConfirmation = false
-    @State private var rollbackError: String?
-    @State private var rollbackSuccess: String?
-    @State private var rollbackVersion: String = ""
-
     // -- Docker operation progress state --
     @State private var isDockerOperationInProgress = false
     @State private var dockerOperationLabel: String = ""
@@ -138,32 +131,6 @@ struct SettingsDeveloperTab: View {
                     currentVersion: healthz?.version,
                     topology: topo
                 )
-            }
-            // Rollback (when previous version is available)
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               let previousVersion = assistant.previousServiceGroupVersion {
-                if assistant.isDocker {
-                    DockerRollbackSection(
-                        assistantName: assistant.assistantId,
-                        previousVersion: previousVersion,
-                        currentVersion: healthz?.version,
-                        isRollingBack: $isRollingBack,
-                        rollbackError: $rollbackError,
-                        rollbackSuccess: $rollbackSuccess,
-                        showingRollbackConfirmation: $showingRollbackConfirmation,
-                        rollbackVersion: $rollbackVersion
-                    )
-                } else if assistant.isManaged || assistant.isRemote {
-                    ManagedRollbackSection(
-                        previousVersion: previousVersion,
-                        currentVersion: healthz?.version,
-                        isRollingBack: $isRollingBack,
-                        rollbackError: $rollbackError,
-                        rollbackSuccess: $rollbackSuccess,
-                        showingRollbackConfirmation: $showingRollbackConfirmation,
-                        rollbackVersion: $rollbackVersion
-                    )
-                }
             }
             // Hatch New Assistant
             hatchNewAssistantSection
@@ -285,14 +252,6 @@ struct SettingsDeveloperTab: View {
             }
         } message: {
             Text("This will disable managed inference. Services set to \"managed\" mode will stop working until you log in again or switch them to use your own API keys.")
-        }
-        .alert("Roll Back Assistant", isPresented: $showingRollbackConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Roll Back") {
-                Task { await performRollback() }
-            }
-        } message: {
-            Text("Roll back to version \(rollbackVersion)? The assistant will be briefly unavailable.")
         }
         .sheet(isPresented: $isRestarting) {
             VStack(spacing: VSpacing.lg) {
@@ -597,48 +556,6 @@ struct SettingsDeveloperTab: View {
                 inlineUpgradeError = error.localizedDescription
             } catch {
                 inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func performRollback() async {
-        rollbackError = nil
-        rollbackSuccess = nil
-        isRollingBack = true
-        defer { isRollingBack = false }
-
-        let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-
-        if assistant?.isDocker == true {
-            dockerOperationLabel = "Rolling back assistant..."
-            isDockerOperationInProgress = true
-            defer { isDockerOperationInProgress = false }
-            guard let cli = AppDelegate.shared?.vellumCli else {
-                rollbackError = "CLI not available"
-                return
-            }
-            do {
-                try await cli.rollback(name: selectedAssistantId)
-                rollbackSuccess = "Rollback complete."
-                await fetchHealthz()
-            } catch {
-                rollbackError = "Rollback failed: \(error.localizedDescription)"
-            }
-        } else {
-            do {
-                let body: [String: String] = ["version": rollbackVersion]
-                let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
-                if response.isSuccess {
-                    rollbackSuccess = "Rollback initiated. The assistant may be briefly unavailable."
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    await fetchHealthz()
-                } else {
-                    rollbackError = "Rollback failed (HTTP \(response.statusCode))"
-                }
-            } catch let error as GatewayHTTPClient.ClientError {
-                rollbackError = error.localizedDescription
-            } catch {
-                rollbackError = "Rollback failed: \(error.localizedDescription)"
             }
         }
     }
@@ -1470,143 +1387,3 @@ private struct DeveloperUpdateProgressRow: View {
     }
 }
 
-// MARK: - Docker Rollback Section
-
-@MainActor
-private struct DockerRollbackSection: View {
-    let assistantName: String
-    let previousVersion: String
-    let currentVersion: String?
-    @Binding var isRollingBack: Bool
-    @Binding var rollbackError: String?
-    @Binding var rollbackSuccess: String?
-    @Binding var showingRollbackConfirmation: Bool
-    @Binding var rollbackVersion: String
-
-    /// Whether the assistant is already running the previous version,
-    /// meaning a rollback would be a no-op.
-    private var alreadyOnPreviousVersion: Bool {
-        guard let currentVersion else { return false }
-        return currentVersion == previousVersion
-    }
-
-    var body: some View {
-        SettingsCard(
-            title: "Rollback",
-            subtitle: "Roll back to the previous service group version."
-        ) {
-            HStack(spacing: VSpacing.sm) {
-                Text("Previous version:")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                Text("\(previousVersion)")
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-            }
-
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Roll Back", style: .outlined) {
-                    rollbackVersion = previousVersion
-                    showingRollbackConfirmation = true
-                }
-                .disabled(isRollingBack || alreadyOnPreviousVersion)
-
-                if isRollingBack {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Rolling back...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-
-            if alreadyOnPreviousVersion {
-                Text("You are already on this version.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-
-            if let error = rollbackError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
-
-            if let success = rollbackSuccess {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemPositiveStrong)
-            }
-        }
-    }
-}
-
-// MARK: - Managed Rollback Section
-
-@MainActor
-private struct ManagedRollbackSection: View {
-    let previousVersion: String
-    let currentVersion: String?
-    @Binding var isRollingBack: Bool
-    @Binding var rollbackError: String?
-    @Binding var rollbackSuccess: String?
-    @Binding var showingRollbackConfirmation: Bool
-    @Binding var rollbackVersion: String
-
-    /// Whether the assistant is already running the previous version,
-    /// meaning a rollback would be a no-op.
-    private var alreadyOnPreviousVersion: Bool {
-        guard let currentVersion else { return false }
-        return currentVersion == previousVersion
-    }
-
-    var body: some View {
-        SettingsCard(
-            title: "Rollback",
-            subtitle: "Roll back to the previous service group version."
-        ) {
-            HStack(spacing: VSpacing.sm) {
-                Text("Previous version:")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                Text("\(previousVersion)")
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-            }
-
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Roll Back", style: .outlined) {
-                    rollbackVersion = previousVersion
-                    showingRollbackConfirmation = true
-                }
-                .disabled(isRollingBack || alreadyOnPreviousVersion)
-
-                if isRollingBack {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Rolling back...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-
-            if alreadyOnPreviousVersion {
-                Text("You are already on this version.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-
-            if let error = rollbackError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
-
-            if let success = rollbackSuccess {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemPositiveStrong)
-            }
-        }
-    }
-}
