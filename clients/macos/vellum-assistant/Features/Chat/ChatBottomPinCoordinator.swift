@@ -129,6 +129,15 @@ final class ChatBottomPinCoordinator {
     /// session task is started so that stale tasks don't clobber newer sessions.
     private var sessionGeneration: Int = 0
 
+    /// Timestamp of the last conversation switch (set by `reset()`).
+    /// During the grace period after a switch, all pin reasons coalesce
+    /// to prevent competing sessions from initialRestore + messageCount + expansion.
+    private var lastResetTime: CFAbsoluteTime?
+
+    /// Duration after a conversation switch during which all pin reasons
+    /// coalesce into the active session regardless of reason type.
+    static let initialLoadGracePeriod: TimeInterval = 0.5
+
     /// Callback invoked when the coordinator decides a scroll-to-bottom should
     /// be executed. The caller (typically MessageListView) performs the actual
     /// `proxy.scrollTo` call. The Bool return indicates whether the pin was
@@ -210,8 +219,20 @@ final class ChatBottomPinCoordinator {
         }
 
         // Coalesce into active session if possible.
-        if let session = activeSession, session.canCoalesce(reason: reason, conversationId: conversationId) {
-            log.debug("[BottomPin] coalesce sid=\(session.sessionId) reason=\(reason.rawValue) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+        // During the initial-load grace period after a conversation switch,
+        // all pin reasons coalesce (regardless of reason type) to prevent
+        // competing sessions from initialRestore + messageCount + expansion.
+        let inGracePeriod = lastResetTime.map { CFAbsoluteTimeGetCurrent() - $0 < Self.initialLoadGracePeriod } ?? false
+        let canCoalesce = if let session = activeSession {
+            inGracePeriod
+                ? (session.conversationId == conversationId && !session.isExhausted)
+                : session.canCoalesce(reason: reason, conversationId: conversationId)
+        } else {
+            false
+        }
+        if canCoalesce {
+            let session = activeSession!
+            log.debug("[BottomPin] coalesce sid=\(session.sessionId) reason=\(reason.rawValue) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) gracePeriod=\(inGracePeriod) isFollowingBottom=\(self.isFollowingBottom)")
             // The existing session task continues; no new task needed.
             // Just record that a new request arrived (the retry loop will
             // pick it up on its next iteration).
@@ -246,6 +267,7 @@ final class ChatBottomPinCoordinator {
     func reset(newConversationId: UUID? = nil) {
         cancelActiveSession(reason: .conversationSwitch)
         isFollowingBottom = true
+        lastResetTime = CFAbsoluteTimeGetCurrent()
         onFollowStateChanged?(true)
     }
 
