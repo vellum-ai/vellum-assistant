@@ -905,7 +905,7 @@ export async function startLocalDaemon(
 
       // Build a minimal environment for the daemon. When launched from the
       // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
-      // __CFBundleIdentifier, CLAUDE_CODE_ENTRYPOINT, etc.) that can cause
+      // __CFBundleIdentifier, etc.) that can cause
       // the daemon to take 50+ seconds to start instead of ~1s.
       const home = homedir();
       const bunBinDir = join(home, ".bun", "bin");
