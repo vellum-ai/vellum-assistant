@@ -442,10 +442,15 @@ export class SkillLoadTool implements Tool {
             } catch (err) {
               log.error(
                 { err, skillId: childId, parentSkillId: skill.id },
-                "Failed to render inline commands for included skill; falling back to raw body",
+                "Failed to render inline commands for included skill; falling back to sanitized body",
               );
-              // Leave childBody unchanged — the raw body is used as a fallback
-              // so that a crash in one child does not prevent sibling rendering.
+              // Strip raw !`...` inline command tokens so they don't leak into
+              // the prompt. Replace with a safe stub to maintain fail-closed
+              // contract for raw tokens while still isolating child failures.
+              childBody = childBody.replace(
+                /!`[^`]*`/g,
+                "[inline command unavailable]",
+              );
             }
           }
 
