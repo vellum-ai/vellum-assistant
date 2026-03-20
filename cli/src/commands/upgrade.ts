@@ -1,3 +1,5 @@
+import { randomBytes } from "crypto";
+
 import cliPkg from "../../package.json";
 
 import {
@@ -260,10 +262,18 @@ async function upgradeDocker(
     // use default
   }
 
+  // Extract CES_SERVICE_TOKEN from the captured env so it can be passed via
+  // the dedicated cesServiceToken parameter (which propagates it to all three
+  // containers). If the old instance predates CES_SERVICE_TOKEN, generate a
+  // fresh one so gateway and CES can authenticate.
+  const cesServiceToken =
+    capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
+
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
   // serviceDockerRunArgs are excluded to avoid duplicates.
   const envKeysSetByRunArgs = new Set([
+    "CES_SERVICE_TOKEN",
     "VELLUM_ASSISTANT_NAME",
     "RUNTIME_HTTP_HOST",
     "PATH",
@@ -290,6 +300,7 @@ async function upgradeDocker(
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
+      cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
       imageTags,
@@ -333,6 +344,7 @@ async function upgradeDocker(
 
         await startContainers(
           {
+            cesServiceToken,
             extraAssistantEnv,
             gatewayPort,
             imageTags: previousImageRefs,
