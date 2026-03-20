@@ -705,7 +705,7 @@ extension AppDelegate {
         case "Contacts":
             // Contacts moved from Settings to Intelligence panel
             showMainWindow()
-            mainWindow?.windowState.showPanel(.intelligence)
+            mainWindow?.windowState.showIntelligenceTab("Contacts")
             return
         default: settingsTab = SettingsTab(rawValue: tab)
         }
