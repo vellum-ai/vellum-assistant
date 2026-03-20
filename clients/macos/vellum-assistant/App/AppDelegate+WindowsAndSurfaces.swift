@@ -124,7 +124,7 @@ extension AppDelegate {
                 || self.activeHostCuProxy?.autoApproveTools == true
             let cuConversationId = self.activeHostCuProxy?.conversationId
             let confirmationMatchesCuSession = cuConversationId != nil
-                && (msg.conversationId == nil || msg.conversationId == cuConversationId)
+                && msg.conversationId == cuConversationId
             if cuAutoApprove, confirmationMatchesCuSession,
                (msg.riskLevel == "low" || msg.riskLevel == "medium") {
                 let success = await InteractionClient().sendConfirmationResponse(
