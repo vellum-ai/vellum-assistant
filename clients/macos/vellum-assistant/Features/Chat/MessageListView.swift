@@ -100,6 +100,7 @@ struct MessageListView: View {
     let onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
@@ -940,6 +941,7 @@ struct MessageListView: View {
                             onReportMessage: onReportMessage,
                             onForkFromMessage: forkFromMessageAction,
                             showInspectButton: showInspectButton,
+                            isTTSEnabled: isTTSEnabled,
                             onInspectMessage: onInspectMessage,
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
@@ -1678,6 +1680,7 @@ private struct MessageCellView: View, Equatable {
     let onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
@@ -1722,6 +1725,7 @@ private struct MessageCellView: View, Equatable {
                 onReportMessage: onReportMessage,
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
@@ -1862,6 +1866,7 @@ private struct MessageCellView: View, Equatable {
                 onReportMessage: onReportMessage,
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,

@@ -379,11 +379,15 @@ extension MainWindowView {
             let showInspectButton = assistantFeatureFlagStore.isEnabled(
                 "feature_flags.settings-developer-nav.enabled"
             )
+            let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
+                "feature_flags.message-tts.enabled"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
                 showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
@@ -584,6 +588,7 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
@@ -702,6 +707,7 @@ struct ActiveChatViewWrapper: View {
                 }
             },
             showInspectButton: showInspectButton,
+            isTTSEnabled: isTTSEnabled,
             onInspectMessage: { daemonMessageId in
                 presentInspector(for: daemonMessageId)
             },

@@ -46,6 +46,7 @@ struct ChatView: View {
     var onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
@@ -241,6 +242,7 @@ struct ChatView: View {
                             onReportMessage: onReportMessage,
                             onForkFromMessage: onForkFromMessage,
                             showInspectButton: showInspectButton,
+                            isTTSEnabled: isTTSEnabled,
                             onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,

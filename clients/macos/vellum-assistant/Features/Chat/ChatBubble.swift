@@ -41,6 +41,9 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
+    /// Whether the message-tts feature flag is enabled. Passed from the parent.
+    var isTTSEnabled: Bool = false
+    @StateObject private var audioPlayer = MessageAudioPlayer()
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
@@ -67,6 +70,7 @@ struct ChatBubble: View {
         onReportMessage: ((String?) -> Void)? = nil,
         onForkFromMessage: ((String) -> Void)? = nil,
         showInspectButton: Bool = false,
+        isTTSEnabled: Bool = false,
         onInspectMessage: ((String?) -> Void)? = nil,
         onSurfaceRefetch: ((String, String) -> Void)? = nil,
         onRehydrate: (() -> Void)? = nil,
@@ -92,6 +96,7 @@ struct ChatBubble: View {
         self.onReportMessage = onReportMessage
         self.onForkFromMessage = onForkFromMessage
         self.showInspectButton = showInspectButton
+        self.isTTSEnabled = isTTSEnabled
         self.onInspectMessage = onInspectMessage
         self.onSurfaceRefetch = onSurfaceRefetch
         self.onRehydrate = onRehydrate
@@ -161,7 +166,7 @@ struct ChatBubble: View {
         hasCopyableText || canReportMessage || canInspectMessage || canForkFromMessage
     }
     private var showOverflowMenu: Bool {
-        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
+        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation || audioPlayer.isPlaying || audioPlayer.isLoading)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -426,6 +431,9 @@ struct ChatBubble: View {
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
+            if !isUser && hasCopyableText && isTTSEnabled {
+                ttsButton
+            }
             if let onReportMessage, !isUser {
                 Button {
                     onReportMessage(message.daemonMessageId)
@@ -465,6 +473,48 @@ struct ChatBubble: View {
                 .pointerCursor()
                 .accessibilityLabel("Inspect LLM context")
             }
+        }
+    }
+
+    // MARK: - TTS Button
+
+    @ViewBuilder
+    private var ttsButton: some View {
+        if audioPlayer.isLoading {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 24, height: 24)
+                .tint(VColor.contentTertiary)
+        } else if audioPlayer.isPlaying {
+            Button {
+                audioPlayer.stop()
+            } label: {
+                VIconView(.square, size: 11)
+                    .foregroundColor(VColor.systemPositiveStrong)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel("Stop audio")
+        } else {
+            Button {
+                Task {
+                    await audioPlayer.playMessage(
+                        messageId: message.daemonMessageId ?? "",
+                        conversationId: nil
+                    )
+                }
+            } label: {
+                VIconView(.volume2, size: 11)
+                    .foregroundColor(audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel("Play as audio")
+            .help(audioPlayer.error ?? "Play as audio")
         }
     }
 
