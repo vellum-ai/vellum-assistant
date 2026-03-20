@@ -267,7 +267,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
 
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-1" }) else {
             XCTFail("Expected connected conversation")
@@ -319,7 +319,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
 
         XCTAssertEqual(store.conversations.count, 1)
         guard let updatedConversation = store.conversations.first else {
@@ -352,7 +352,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-2" }) else {
             XCTFail("Expected unread connected conversation")
             return
@@ -386,14 +386,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testOpeningAlreadySeenConnectedConversationDoesNotEmitSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationSeenSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationSeenSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-3",
             "title": "Seen conversation",
@@ -406,7 +401,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-3" }) else {
             XCTFail("Expected connected conversation")
             return
@@ -414,7 +409,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
         store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
 
-        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(mockListClient.sentSeenSignals.isEmpty)
         XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
@@ -435,7 +430,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-4" }) else {
             XCTFail("Expected connected conversation")
             return
@@ -484,7 +479,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-5" }) else {
             XCTFail("Expected unread connected conversation")
             return
@@ -514,7 +509,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-unread-failure" }) else {
             XCTFail("Expected connected conversation")
             return
@@ -547,7 +542,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-6" }) else {
             XCTFail("Expected connected conversation")
             return
@@ -574,7 +569,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
             XCTFail("Expected connected conversation")
             return
@@ -628,7 +623,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 4_000,
             ],
         ]])
-        daemonClient.onConversationListResponse?(initialResponse)
+        store.handleConversationListResponse(initialResponse)
 
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-refresh-seen" }) else {
             XCTFail("Expected connected conversation")
@@ -648,7 +643,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 4_000,
             ],
         ]])
-        daemonClient.onConversationListResponse?(staleResponse)
+        store.handleConversationListResponse(staleResponse)
 
         XCTAssertFalse(
             store.conversations.first(where: { $0.conversationId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
@@ -670,7 +665,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 5_000,
             ],
         ]])
-        daemonClient.onConversationListResponse?(initialResponse)
+        store.handleConversationListResponse(initialResponse)
 
         guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-refresh-unread" }) else {
             XCTFail("Expected connected conversation")
@@ -690,7 +685,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 5_000,
             ],
         ]])
-        daemonClient.onConversationListResponse?(staleResponse)
+        store.handleConversationListResponse(staleResponse)
 
         XCTAssertTrue(
             store.conversations.first(where: { $0.conversationId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
@@ -719,7 +714,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
             XCTFail("Expected unpinned connected conversation")
             return
@@ -766,14 +761,14 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
             XCTFail("Expected unpinned connected conversation")
             return
         }
 
         store.pinConversation(conversation)
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == conversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -808,7 +803,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onConversationListResponse?(response)
+        store.handleConversationListResponse(response)
         guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-first" }) else {
             XCTFail("Expected pinned connected conversation")
             return

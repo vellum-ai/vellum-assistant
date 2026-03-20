@@ -589,7 +589,7 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    private func handleConversationListResponse(_ response: ConversationListResponseMessage) {
+    func handleConversationListResponse(_ response: ConversationListResponseMessage) {
         // Discard responses from a previous connection.  The daemon does not echo a
         // request ID, so within a single connection all responses are accepted in order.
         // Reconnect-era staleness is detected via the generation counter: when the
