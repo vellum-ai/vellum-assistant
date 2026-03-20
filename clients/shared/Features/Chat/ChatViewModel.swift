@@ -263,10 +263,15 @@ public final class ChatViewModel: ObservableObject {
                             self.messages[i].status = .sent
                         }
                     }
+                    // Cancel stale cancel-timeout task
+                    self.cancelTimeoutTask?.cancel()
+                    self.cancelTimeoutTask = nil
                     // Setting isSending = false triggers the setter again which
                     // cancels this watchdog task — use the backing store directly.
                     self.messageManager.isSending = false
                     self.sendingWatchdogTask = nil
+                    // Dispatch any pending send-direct so the user's message isn't lost.
+                    self.dispatchPendingSendDirect()
                 }
             } else {
                 sendingWatchdogTask?.cancel()
