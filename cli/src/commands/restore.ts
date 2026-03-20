@@ -89,28 +89,39 @@ interface PreflightFileEntry {
   action: string;
 }
 
+interface StructuredError {
+  code: string;
+  message: string;
+  path?: string;
+}
+
 interface PreflightResponse {
   can_import: boolean;
-  errors?: string[];
+  validation?: {
+    is_valid: false;
+    errors: StructuredError[];
+  };
   files?: PreflightFileEntry[];
   summary?: {
-    create: number;
-    overwrite: number;
-    unchanged: number;
-    total: number;
+    files_to_create: number;
+    files_to_overwrite: number;
+    files_unchanged: number;
+    total_files: number;
   };
-  conflicts?: string[];
+  conflicts?: StructuredError[];
 }
 
 interface ImportResponse {
   success: boolean;
   reason?: string;
-  errors?: string[];
+  errors?: StructuredError[];
+  message?: string;
   warnings?: string[];
   summary?: {
-    created: number;
-    overwritten: number;
-    skipped: number;
+    total_files: number;
+    files_created: number;
+    files_overwritten: number;
+    files_skipped: number;
     backups_created: number;
   };
 }
@@ -201,30 +212,38 @@ export async function restore(): Promise<void> {
     const result = (await response.json()) as PreflightResponse;
 
     if (!result.can_import) {
-      console.error("Import blocked by validation errors:");
-      for (const err of result.errors ?? []) {
-        console.error(`  - ${err}`);
+      if (result.validation?.errors?.length) {
+        console.error("Import blocked by validation errors:");
+        for (const err of result.validation.errors) {
+          console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
+        }
+      }
+      if (result.conflicts?.length) {
+        console.error("Import blocked by conflicts:");
+        for (const conflict of result.conflicts) {
+          console.error(`  - ${conflict.message}${conflict.path ? ` (${conflict.path})` : ""}`);
+        }
       }
       process.exit(1);
     }
 
     // Print summary table
     const summary = result.summary ?? {
-      create: 0,
-      overwrite: 0,
-      unchanged: 0,
-      total: 0,
+      files_to_create: 0,
+      files_to_overwrite: 0,
+      files_unchanged: 0,
+      total_files: 0,
     };
     console.log("Preflight analysis:");
-    console.log(`  Files to create:    ${summary.create}`);
-    console.log(`  Files to overwrite: ${summary.overwrite}`);
-    console.log(`  Files unchanged:    ${summary.unchanged}`);
-    console.log(`  Total:              ${summary.total}`);
+    console.log(`  Files to create:    ${summary.files_to_create}`);
+    console.log(`  Files to overwrite: ${summary.files_to_overwrite}`);
+    console.log(`  Files unchanged:    ${summary.files_unchanged}`);
+    console.log(`  Total:              ${summary.total_files}`);
     console.log("");
 
     const conflicts = result.conflicts ?? [];
     console.log(
-      `Conflicts: ${conflicts.length > 0 ? conflicts.join(", ") : "none"}`,
+      `Conflicts: ${conflicts.length > 0 ? conflicts.map((c) => c.message).join(", ") : "none"}`,
     );
 
     // List individual files with their action
@@ -276,25 +295,26 @@ export async function restore(): Promise<void> {
 
     if (!result.success) {
       console.error(
-        `Error: Import failed — ${result.reason ?? "unknown reason"}`,
+        `Error: Import failed — ${result.message ?? result.reason ?? "unknown reason"}`,
       );
       for (const err of result.errors ?? []) {
-        console.error(`  - ${err}`);
+        console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
       }
       process.exit(1);
     }
 
     // Print import report
     const summary = result.summary ?? {
-      created: 0,
-      overwritten: 0,
-      skipped: 0,
+      total_files: 0,
+      files_created: 0,
+      files_overwritten: 0,
+      files_skipped: 0,
       backups_created: 0,
     };
     console.log("✅ Restore complete.");
-    console.log(`  Files created:     ${summary.created}`);
-    console.log(`  Files overwritten: ${summary.overwritten}`);
-    console.log(`  Files skipped:     ${summary.skipped}`);
+    console.log(`  Files created:     ${summary.files_created}`);
+    console.log(`  Files overwritten: ${summary.files_overwritten}`);
+    console.log(`  Files skipped:     ${summary.files_skipped}`);
     console.log(`  Backups created:   ${summary.backups_created}`);
 
     // Print warnings if any
