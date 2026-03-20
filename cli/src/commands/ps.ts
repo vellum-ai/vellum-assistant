@@ -425,7 +425,7 @@ async function listAllAssistants(): Promise<void> {
       // hitting the health endpoint. If the PID file is missing or the
       // process isn't running, the assistant is sleeping — skip the
       // network health check to avoid a misleading "unreachable" status.
-      let health: { status: string; detail: string | null };
+      let health: { status: string; detail: string | null; version?: string };
       const resources = a.resources;
       if (a.cloud === "local" && resources) {
         const pid = readPidFile(resources.pidFile);
