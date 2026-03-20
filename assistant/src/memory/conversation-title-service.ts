@@ -133,6 +133,8 @@ export async function generateAndPersistConversationTitle(
   const result = await runBtwSidechain({
     content: prompt,
     provider,
+    systemPrompt: buildTitleSystemPrompt(),
+    tools: [],
     maxTokens: config.daemon.titleGenerationMaxTokens,
     modelIntent: "latency-optimized",
     signal,
@@ -236,6 +238,8 @@ export async function regenerateConversationTitle(
   const result = await runBtwSidechain({
     content: prompt,
     provider,
+    systemPrompt: buildTitleSystemPrompt(),
+    tools: [],
     maxTokens: config.daemon.titleGenerationMaxTokens,
     modelIntent: "latency-optimized",
     signal,
@@ -277,14 +281,30 @@ export function queueRegenerateConversationTitle(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
+/**
+ * Dedicated system prompt for title generation. Replaces the default
+ * assistant system prompt that btw-sidechain would otherwise inject,
+ * which caused the model to respond to the conversation content instead
+ * of titling it.
+ */
+function buildTitleSystemPrompt(): string {
+  return [
+    "You generate short conversation titles. Output ONLY the title text — no explanation, no quotes, no markdown, no preamble.",
+    "",
+    "Rules:",
+    "- Maximum 5 words and 40 characters",
+    "- Summarize the TOPIC the user is asking about",
+    "- Do NOT respond to the conversation content",
+    "- Do NOT assess feasibility or comment on capabilities",
+  ].join("\n");
+}
+
 function buildTitlePrompt(
   context?: TitleContext,
   userMessage?: string,
   assistantResponse?: string,
 ): string {
-  const parts: string[] = [
-    "Generate a very short title summarizing the TOPIC of this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting. IMPORTANT: Summarize what the user is asking about — do NOT respond to the message, do NOT assess feasibility, and do NOT comment on your own capabilities.",
-  ];
+  const parts: string[] = [];
 
   if (context) {
     const hints: string[] = [];
@@ -295,12 +315,12 @@ function buildTitlePrompt(
     if (context.metadataHints?.length)
       hints.push(`Hints: ${context.metadataHints.join(", ")}`);
     if (hints.length > 0) {
-      parts.push("", "Metadata:", ...hints);
+      parts.push("Metadata:", ...hints, "");
     }
   }
 
   if (userMessage) {
-    parts.push("", `User: ${truncate(userMessage, 200, "")}`);
+    parts.push(`User: ${truncate(userMessage, 200, "")}`);
   }
   if (assistantResponse) {
     parts.push(`Assistant: ${truncate(assistantResponse, 200, "")}`);
@@ -339,11 +359,7 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
 }
 
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
-  const parts: string[] = [
-    "Generate a very short title summarizing the TOPIC of this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting. IMPORTANT: Summarize what the user is asking about — do NOT respond to the messages, do NOT assess feasibility, and do NOT comment on your own capabilities.",
-    "",
-    "Recent messages:",
-  ];
+  const parts: string[] = ["Recent messages:"];
 
   for (const msg of recentMessages) {
     const role = msg.role === "user" ? "User" : "Assistant";

@@ -43,7 +43,7 @@ export const DaemonConfigSchema = z
       .number({ error: "daemon.titleGenerationMaxTokens must be a number" })
       .int("daemon.titleGenerationMaxTokens must be an integer")
       .positive("daemon.titleGenerationMaxTokens must be a positive integer")
-      .default(30)
+      .default(50)
       .describe(
         "Maximum number of tokens for auto-generated conversation titles",
       ),

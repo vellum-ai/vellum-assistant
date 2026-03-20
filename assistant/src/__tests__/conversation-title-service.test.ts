@@ -93,6 +93,8 @@ describe("conversation-title-service", () => {
     expect(mockRunBtwSidechain).toHaveBeenCalledWith(
       expect.objectContaining({
         provider,
+        systemPrompt: expect.stringContaining("conversation titles"),
+        tools: [],
         maxTokens: 37,
         modelIntent: "latency-optimized",
         timeoutMs: 10_000,
@@ -123,6 +125,8 @@ describe("conversation-title-service", () => {
     expect(mockRunBtwSidechain).toHaveBeenCalledWith(
       expect.objectContaining({
         provider,
+        systemPrompt: expect.stringContaining("conversation titles"),
+        tools: [],
         maxTokens: 37,
         modelIntent: "latency-optimized",
         timeoutMs: 10_000,
@@ -133,5 +137,30 @@ describe("conversation-title-service", () => {
       "Project kickoff",
       1,
     );
+  });
+
+  test("title prompt content does not contain generation instructions", async () => {
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("provider.sendMessage should not be called directly");
+      }),
+    };
+
+    await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "Help me plan the kickoff",
+    });
+
+    const call = mockRunBtwSidechain.mock.calls[0]![0] as {
+      content: string;
+      systemPrompt: string;
+    };
+    // Instructions should be in systemPrompt, not in content
+    expect(call.content).not.toContain("Generate a very short title");
+    expect(call.content).not.toContain("do NOT respond");
+    expect(call.systemPrompt).toContain("Do NOT respond");
+    expect(call.systemPrompt).toContain("Maximum 5 words");
   });
 });
