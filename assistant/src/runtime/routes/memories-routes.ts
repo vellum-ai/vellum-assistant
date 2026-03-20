@@ -64,34 +64,6 @@ function isValidSortField(value: string): value is SortField {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Batch-fetch conversation titles for a set of conversation IDs.
- * Returns a Map from conversation ID to title (or null).
- */
-function buildConversationTitleMap(
-  db: ReturnType<typeof getDb>,
-  conversationIds: string[],
-): Map<string, string | null> {
-  const uniqueIds = [...new Set(conversationIds)];
-  if (uniqueIds.length === 0) return new Map();
-
-  const rows = db
-    .select({ id: conversations.id, title: conversations.title })
-    .from(conversations)
-    .where(inArray(conversations.id, uniqueIds))
-    .all();
-
-  const map = new Map<string, string | null>();
-  for (const row of rows) {
-    map.set(row.id, row.title);
-  }
-  return map;
-}
-
-// ---------------------------------------------------------------------------
 // GET /v1/memories
 // ---------------------------------------------------------------------------
 
