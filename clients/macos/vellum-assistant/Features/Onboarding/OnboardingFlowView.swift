@@ -15,6 +15,7 @@ struct OnboardingFlowView: View {
 
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
+    @State private var isResolvingAssociatedManagedAssistant = false
     @State private var managedBootstrapError: String?
 
     private static let appIcon: NSImage? = {
@@ -164,14 +165,16 @@ struct OnboardingFlowView: View {
                 await authManager.checkSession()
             }
             if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
-                state.advance()
+                await continueManagedOnboardingAfterAuthentication()
             }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
                 isAdvancingFromWakeUp = false
                 if managedSignInEnabled && authManager.isAuthenticated {
-                    state.advance()
+                    Task {
+                        await continueManagedOnboardingAfterAuthentication()
+                    }
                 }
             }
             if newStep > maxOnboardingStep {
@@ -211,8 +214,9 @@ struct OnboardingFlowView: View {
                     }
                 } else if managedBootstrapEnabled {
                     if managedSignInEnabled && state.currentStep == 0 {
-                        log.info("Authenticated with no lockfile assistant; advancing to hosting selector")
-                        state.advance()
+                        Task {
+                            await continueManagedOnboardingAfterAuthentication()
+                        }
                     } else {
                         log.info("Session restored with no lockfile assistant — staying on welcome screen for user-initiated hatch")
                     }
@@ -236,6 +240,34 @@ struct OnboardingFlowView: View {
         case .startLogin:
             await authManager.startWorkOSLogin()
         case .bootstrap:
+            state.advance()
+        }
+    }
+
+    private func continueManagedOnboardingAfterAuthentication() async {
+        guard managedBootstrapEnabled,
+              managedSignInEnabled,
+              authManager.isAuthenticated,
+              state.currentStep == 0,
+              !isResolvingAssociatedManagedAssistant else {
+            return
+        }
+
+        isResolvingAssociatedManagedAssistant = true
+        managedBootstrapError = nil
+        defer { isResolvingAssociatedManagedAssistant = false }
+
+        do {
+            if let activation = try await ManagedAssistantConnectionCoordinator().activateAssociatedManagedAssistantIfPresent() {
+                log.info("Authenticated with associated managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
+                onComplete()
+                return
+            }
+
+            log.info("Authenticated account has no associated managed assistant — advancing to hosting selector")
+            state.advance()
+        } catch {
+            log.error("Failed to discover associated managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
             state.advance()
         }
     }

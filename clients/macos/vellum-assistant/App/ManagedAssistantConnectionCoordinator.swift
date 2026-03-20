@@ -8,6 +8,8 @@ protocol ManagedAssistantBootstrapProviding {
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome
+
+    func discoverManagedAssistant() async throws -> PlatformAssistant?
 }
 
 extension ManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {}
@@ -79,7 +81,24 @@ final class ManagedAssistantConnectionCoordinator {
             description: nil,
             anthropicApiKey: nil
         )
-        let assistant = outcome.assistant
+        return try persistManagedAssistant(
+            outcome.assistant,
+            reusedExisting: outcome.reusedExisting
+        )
+    }
+
+    func activateAssociatedManagedAssistantIfPresent() async throws -> ManagedAssistantConnectionResult? {
+        guard let assistant = try await bootstrapService.discoverManagedAssistant() else {
+            return nil
+        }
+
+        return try persistManagedAssistant(assistant, reusedExisting: true)
+    }
+
+    private func persistManagedAssistant(
+        _ assistant: PlatformAssistant,
+        reusedExisting: Bool
+    ) throws -> ManagedAssistantConnectionResult {
         let runtimeURL = runtimeURLProvider()
 
         let isoFormatter = ISO8601DateFormatter()
@@ -110,7 +129,7 @@ final class ManagedAssistantConnectionCoordinator {
 
         return ManagedAssistantConnectionResult(
             assistant: assistant,
-            reusedExisting: outcome.reusedExisting
+            reusedExisting: reusedExisting
         )
     }
 }
