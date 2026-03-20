@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Result of a message TTS synthesis request.
 public enum TTSResult: Sendable {
     /// Audio binary returned successfully.
-    case success(data: Data, contentType: String)
+    case success(data: Data)
     /// Feature flag is disabled (403).
     case featureDisabled
     /// TTS provider is not configured (503).
@@ -39,7 +39,7 @@ public struct TTSClient: TTSClientProtocol {
 
             switch response.statusCode {
             case 200:
-                return .success(data: response.data, contentType: "audio/mpeg")
+                return .success(data: response.data)
             case 403:
                 return .featureDisabled
             case 404:

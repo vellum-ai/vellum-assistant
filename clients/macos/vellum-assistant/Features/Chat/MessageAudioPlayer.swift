@@ -27,7 +27,7 @@ final class MessageAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         let result = await ttsClient.synthesize(messageId: messageId, conversationId: conversationId)
 
         switch result {
-        case .success(let data, _):
+        case .success(let data):
             do {
                 let player = try AVAudioPlayer(data: data)
                 player.delegate = self
