@@ -20,7 +20,7 @@ const log = getLogger("qdrant-manager");
 
 const QDRANT_VERSION = "1.13.2";
 const READYZ_POLL_INTERVAL_MS = 200;
-const READYZ_TIMEOUT_MS = 60_000;
+const READYZ_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 5_000;
 
 export interface QdrantManagerConfig {
@@ -28,7 +28,7 @@ export interface QdrantManagerConfig {
   storagePath?: string;
   /** Override readyz poll interval (ms). Default: 200 */
   readyzPollIntervalMs?: number;
-  /** Override readyz timeout (ms). Default: 60 000 */
+  /** Override readyz timeout (ms). Default: 30 000 */
   readyzTimeoutMs?: number;
   /** Override SIGTERM→SIGKILL grace period (ms). Default: 5 000 */
   shutdownGraceMs?: number;
