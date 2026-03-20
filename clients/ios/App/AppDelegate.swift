@@ -28,7 +28,10 @@ final class ClientProvider: ObservableObject {
     /// state to `isConnected`.
     private var isConnectedSubscription: AnyCancellable?
 
-    /// Shared trace store updated by the daemon client's onTraceEvent callback.
+    /// Task running the SSE subscribe loop that ingests trace events.
+    private var traceSubscriptionTask: Task<Void, Never>?
+
+    /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
     init(client: any DaemonClientProtocol) {
@@ -74,10 +77,16 @@ final class ClientProvider: ObservableObject {
     }
 
     private func bindTraceEvents() {
+        traceSubscriptionTask?.cancel()
+        traceSubscriptionTask = nil
         guard let daemon = client as? DaemonClient else { return }
-        daemon.onTraceEvent = { [weak self] msg in
-            Task { @MainActor [weak self] in
-                self?.traceStore.ingest(msg)
+        traceSubscriptionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in daemon.subscribe() {
+                if Task.isCancelled { break }
+                if case .traceEvent(let msg) = message {
+                    self.traceStore.ingest(msg)
+                }
             }
         }
     }

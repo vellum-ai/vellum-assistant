@@ -175,6 +175,8 @@ class IOSConversationStore: ObservableObject {
     private static let legacyPersistenceKey = "ios_threads_v1"
     private static let legacyConnectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
+    /// Task running the SSE subscribe loop for daemon messages.
+    private var subscribeTask: Task<Void, Never>?
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Tracks conversation IDs that already have an activity-tracking observer to avoid duplicates.
@@ -431,34 +433,37 @@ class IOSConversationStore: ObservableObject {
     // MARK: - Daemon Conversation Sync
 
     private func setupDaemonCallbacks(_ daemon: DaemonClient) {
-        daemon.onConversationListResponse = { [weak self] response in
-            self?.handleConversationListResponse(response)
-        }
-        daemon.onHistoryResponse = { [weak self] response in
-            self?.handleHistoryResponse(response)
-        }
-        daemon.onScheduleConversationCreated = { [weak self] msg in
+        subscribeTask?.cancel()
+        subscribeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Avoid duplicates
-            guard !self.conversations.contains(where: { $0.conversationId == msg.conversationId }) else { return }
-            let conversation = IOSConversation(
-                title: msg.title,
-                conversationId: msg.conversationId,
-                scheduleJobId: msg.scheduleJobId
-            )
-            // Remove the empty placeholder conversation if it's still present (race:
-            // schedule_conversation_created can arrive before the first conversation_list_response).
-            if self.conversations.count == 1,
-               self.conversations[0].conversationId == nil,
-               self.viewModels[self.conversations[0].id]?.messages.isEmpty ?? true,
-               self.viewModels[self.conversations[0].id]?.conversationId == nil {
-                self.viewModels.removeValue(forKey: self.conversations[0].id)
-                self.conversations = [conversation]
-            } else {
-                self.conversations.insert(conversation, at: 0)
+            for await message in daemon.subscribe() {
+                if Task.isCancelled { break }
+                switch message {
+                case .scheduleConversationCreated(let msg):
+                    // Avoid duplicates
+                    guard !self.conversations.contains(where: { $0.conversationId == msg.conversationId }) else { break }
+                    let conversation = IOSConversation(
+                        title: msg.title,
+                        conversationId: msg.conversationId,
+                        scheduleJobId: msg.scheduleJobId
+                    )
+                    // Remove the empty placeholder conversation if it's still present (race:
+                    // schedule_conversation_created can arrive before the first conversation_list_response).
+                    if self.conversations.count == 1,
+                       self.conversations[0].conversationId == nil,
+                       self.viewModels[self.conversations[0].id]?.messages.isEmpty ?? true,
+                       self.viewModels[self.conversations[0].id]?.conversationId == nil {
+                        self.viewModels.removeValue(forKey: self.conversations[0].id)
+                        self.conversations = [conversation]
+                    } else {
+                        self.conversations.insert(conversation, at: 0)
+                    }
+                    self.isLoadingInitialConversations = false
+                    self.saveConnectedCache()
+                default:
+                    break
+                }
             }
-            self.isLoadingInitialConversations = false
-            self.saveConnectedCache()
         }
 
         // Fetch conversation list once connected. Try immediately if already connected,
@@ -530,18 +535,10 @@ class IOSConversationStore: ObservableObject {
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
         cancellables.removeAll()
 
-        // Nil out callbacks on the old daemon before replacing the reference.
-        // In-flight HTTP responses (conversation-list, history, subagent-detail) are launched
-        // in fire-and-forget Tasks and are not cancelled by disconnect.  Without this,
-        // a response arriving after the rebind would invoke the closures registered by
-        // the previous setupDaemonCallbacks call, which capture [weak self] and would
-        // still call back into this store — potentially corrupting the conversation list with
-        // stale conversations from the old connection.
-        if let oldDaemon = daemonClient as? DaemonClient {
-            oldDaemon.onConversationListResponse = nil
-            oldDaemon.onHistoryResponse = nil
-            oldDaemon.onScheduleConversationCreated = nil
-        }
+        // Cancel the old subscribe loop so SSE messages from the previous daemon
+        // are no longer processed. setupDaemonCallbacks will start a new loop.
+        subscribeTask?.cancel()
+        subscribeTask = nil
 
         daemonClient = newClient
 
