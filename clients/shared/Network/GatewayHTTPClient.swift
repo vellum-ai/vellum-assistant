@@ -97,12 +97,20 @@ public enum GatewayHTTPClient {
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
     ///   - json: A JSON-serializable dictionary used as the request body.
+    ///   - extraHeaders: Optional additional headers to include in the request.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func post(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
+    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await post(path: path, body: body, timeout: timeout)
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+            request.httpBody = body
+            if let extraHeaders {
+                for (key, value) in extraHeaders {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+        }
     }
 
     /// Performs an authenticated PATCH request against the gateway.

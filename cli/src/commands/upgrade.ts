@@ -27,7 +27,7 @@ import {
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
-import { loadGuardianToken } from "../lib/guardian-token";
+import { loadBootstrapSecret, loadGuardianToken } from "../lib/guardian-token";
 import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
@@ -322,6 +322,11 @@ async function upgradeDocker(
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
+  // Retrieve or generate a bootstrap secret for the gateway. The secret was
+  // persisted to disk during hatch; older instances won't have one yet.
+  const bootstrapSecret =
+    loadBootstrapSecret(instanceName) || randomBytes(32).toString("hex");
+
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
   // serviceDockerRunArgs are excluded to avoid duplicates.
@@ -356,6 +361,7 @@ async function upgradeDocker(
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
+      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
@@ -409,6 +415,7 @@ async function upgradeDocker(
 
         await startContainers(
           {
+            bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
             gatewayPort,

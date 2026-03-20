@@ -14,7 +14,7 @@ import {
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
-import { leaseGuardianToken } from "./guardian-token";
+import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
@@ -464,6 +464,7 @@ async function buildAllImages(
  * can be restarted independently.
  */
 export function serviceDockerRunArgs(opts: {
+  bootstrapSecret?: string;
   cesServiceToken?: string;
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
@@ -551,6 +552,9 @@ export function serviceDockerRunArgs(opts: {
       `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
       ...(cesServiceToken
         ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+        : []),
+      ...(opts.bootstrapSecret
+        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
         : []),
       imageTags.gateway,
     ],
@@ -1124,8 +1128,10 @@ export async function hatchDocker(
     ]);
 
     const cesServiceToken = randomBytes(32).toString("hex");
+    const bootstrapSecret = randomBytes(32).toString("hex");
+    saveBootstrapSecret(instanceName, bootstrapSecret);
     await startContainers(
-      { cesServiceToken, gatewayPort, imageTags, instanceName, res },
+      { bootstrapSecret, cesServiceToken, gatewayPort, imageTags, instanceName, res },
       log,
     );
 

@@ -42,6 +42,46 @@ function getPersistedDeviceIdPath(): string {
   return join(getXdgConfigHome(), "vellum", "device-id");
 }
 
+function getBootstrapSecretPath(assistantId: string): string {
+  return join(
+    getXdgConfigHome(),
+    "vellum",
+    "assistants",
+    assistantId,
+    "bootstrap-secret",
+  );
+}
+
+/**
+ * Load a previously saved bootstrap secret for the given assistant.
+ * Returns null if the file does not exist or is unreadable.
+ */
+export function loadBootstrapSecret(assistantId: string): string | null {
+  try {
+    const raw = readFileSync(getBootstrapSecretPath(assistantId), "utf-8").trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist a bootstrap secret for the given assistant so that the desktop
+ * client and upgrade/rollback paths can retrieve it later.
+ */
+export function saveBootstrapSecret(
+  assistantId: string,
+  secret: string,
+): void {
+  const path = getBootstrapSecretPath(assistantId);
+  const dir = dirname(path);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  writeFileSync(path, secret + "\n", { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
 function hashWithSalt(input: string): string {
   return createHash("sha256")
     .update(input + DEVICE_ID_SALT)
@@ -168,9 +208,14 @@ export async function leaseGuardianToken(
   assistantId: string,
 ): Promise<GuardianTokenData> {
   const deviceId = computeDeviceId();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const bootstrapSecret = loadBootstrapSecret(assistantId);
+  if (bootstrapSecret) {
+    headers["x-bootstrap-secret"] = bootstrapSecret;
+  }
   const response = await fetch(`${gatewayUrl}/v1/guardian/init`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ platform: "cli", deviceId }),
   });
 
