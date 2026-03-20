@@ -3,11 +3,13 @@ export const HEALTH_CHECK_TIMEOUT_MS = 1500;
 interface HealthResponse {
   status: string;
   message?: string;
+  version?: string;
 }
 
 export interface HealthCheckResult {
   status: string;
   detail: string | null;
+  version?: string;
 }
 
 export async function checkManagedHealth(
@@ -63,6 +65,7 @@ export async function checkManagedHealth(
     return {
       status,
       detail: status !== "healthy" ? (data.message ?? null) : null,
+      version: data.version,
     };
   } catch (error) {
     const status =
@@ -108,6 +111,7 @@ export async function checkHealth(
     return {
       status,
       detail: status !== "healthy" ? (data.message ?? null) : null,
+      version: data.version,
     };
   } catch (error) {
     const status =
