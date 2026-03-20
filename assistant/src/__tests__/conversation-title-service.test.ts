@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const mockRunBtwSidechain = mock(async () => ({
+const mockRunBtwSidechain = mock(async (_params: Record<string, unknown>) => ({
   text: "Project kickoff",
   hadTextDeltas: true,
   response: {
