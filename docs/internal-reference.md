@@ -4,6 +4,10 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 
 ## Table of Contents
 
+- [**Getting Started**](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Git Hooks](#git-hooks)
+  - [Assistant Runtime](#assistant-runtime)
 - [**Security & Permissions**](#security--permissions)
   - [Sandbox and Host Access Model](#sandbox-and-host-access-model)
   - [Credential Storage and Secret Security](#credential-storage-and-secret-security)
@@ -20,6 +24,47 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 - [**Development Workflow**](#development-workflow)
   - [Claude Code Workflow](#claude-code-workflow)
   - [Release Management](#release-management)
+
+## Getting Started
+
+### Prerequisites
+
+- **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure Docker is running before starting the assistant.
+
+### Git Hooks
+
+This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
+
+To manually install or update hooks:
+```bash
+./.githooks/install.sh
+```
+
+See [.githooks/README.md](../.githooks/README.md) for more details about available hooks.
+
+### Assistant Runtime
+
+The assistant runtime lives in `/assistant`. The recommended way to start it is via the `vellum` CLI:
+
+```bash
+vellum wake    # starts assistant + gateway from current checkout
+vellum ps      # check process status
+vellum sleep   # stop assistant + gateway
+```
+
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local assistant.
+
+#### Development: raw bun commands
+
+For low-level development (e.g., working on the assistant runtime itself):
+
+```bash
+cd assistant
+bun install
+bun run src/index.ts assistant start
+```
+
+> **Note:** Some dependencies (`agentmail`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
 
 ## Security & Permissions
 
