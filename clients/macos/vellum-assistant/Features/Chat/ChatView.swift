@@ -126,6 +126,8 @@ struct ChatView: View {
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
+    @State private var isDraggingInternalImage = false
+    @State private var dragEndMonitor: Any?
     @State private var containerWidth: CGFloat = 0
 
     // MARK: - In-Chat Search (Cmd+F)
@@ -321,8 +323,8 @@ struct ChatView: View {
             }
             .animation(VAnimation.fast, value: btwResponse != nil)
 
-            // Drop target overlay
-            if isDropTargeted {
+            // Drop target overlay — hidden for internal image drags
+            if isDropTargeted && !isDraggingInternalImage {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
                     .background(
@@ -398,6 +400,21 @@ struct ChatView: View {
                 return
             }
             activateSearch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
+            isDraggingInternalImage = true
+            // Install a one-shot mouse-up monitor to detect when the drag ends,
+            // regardless of where the drop lands (chat, Finder, Desktop, or cancel).
+            if dragEndMonitor == nil {
+                dragEndMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+                    isDraggingInternalImage = false
+                    if let monitor = dragEndMonitor {
+                        NSEvent.removeMonitor(monitor)
+                        dragEndMonitor = nil
+                    }
+                    return event
+                }
+            }
         }
         .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
             skeletonDebounceTask?.cancel()
@@ -477,6 +494,13 @@ struct ChatView: View {
         // reset reliably when AppKit's NSDraggingDestination (e.g. the
         // NSTextView inside the composer) intercepts the drag session.
         isDropTargeted = false
+
+        // Reject drops from internal image drags — the user is dragging an
+        // assistant-rendered image to Finder/Desktop, not uploading it back.
+        if isDraggingInternalImage {
+            isDraggingInternalImage = false
+            return false
+        }
 
         // Signal loading immediately so the "Processing…" chip appears without
         // waiting for NSItemProvider async callbacks to resolve.
