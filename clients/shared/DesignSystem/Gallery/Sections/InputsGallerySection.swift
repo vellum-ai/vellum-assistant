@@ -166,6 +166,32 @@ struct InputsGallerySection: View {
                                 maxWidth: 400
                             )
                         }
+
+                        Divider().background(VColor.borderBase)
+
+                        // --- Custom Font ---
+                        Text("Custom font").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Monospaced (VFont.mono)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Enter command...",
+                                    text: $textFieldValue,
+                                    font: VFont.mono
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Monospaced secure").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Enter secret...",
+                                    text: $secureFieldValue,
+                                    isSecure: true,
+                                    font: VFont.mono
+                                )
+                            }
+                        }
                     }
                 }
             }
