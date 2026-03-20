@@ -455,21 +455,21 @@ public final class MainWindow {
 
     private func repositionTrafficLights(_ window: NSWindow) {
         guard let closeButton = window.standardWindowButton(.closeButton),
-              let containerView = closeButton.superview else { return }
+              let containerView = closeButton.superview,
+              let contentView = window.contentView else { return }
         if defaultTrafficLightOrigin == nil {
             defaultTrafficLightOrigin = containerView.frame.origin
         }
         guard let origin = defaultTrafficLightOrigin else { return }
 
         // Vertically center the traffic light buttons in the 48pt custom toolbar.
-        // The default position centers them in the system titlebar; shift down
-        // by half the height difference so they sit centered in our taller bar.
-        // Clamp to a reasonable range in case Apple changes the private view
-        // hierarchy and the superview becomes the full theme frame.
-        let rawHeight = containerView.superview?.frame.height ?? 28
-        let systemTitlebarHeight = min(rawHeight, 60)
+        // Derive the system titlebar height from contentLayoutRect — a documented
+        // API that reports the area not obscured by the titlebar, staying correct
+        // across macOS versions without relying on the private view hierarchy.
+        let titlebarHeight = contentView.frame.height - window.contentLayoutRect.maxY
         let toolbarHeight: CGFloat = 48
-        let verticalShift = (toolbarHeight - systemTitlebarHeight) / 2
+        guard titlebarHeight > 0, titlebarHeight < toolbarHeight else { return }
+        let verticalShift = (toolbarHeight - titlebarHeight) / 2
 
         containerView.setFrameOrigin(NSPoint(
             x: origin.x + 2,
