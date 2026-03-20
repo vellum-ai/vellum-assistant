@@ -106,6 +106,7 @@ import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
+import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
@@ -503,6 +504,13 @@ export class RuntimeHttpServer {
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
     if (twilioResponse) return twilioResponse;
+
+    // Audio serving endpoint — before auth check because Twilio
+    // fetches these URLs directly. The audioId is an unguessable UUID.
+    const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
+    if (audioMatch && req.method === "GET") {
+      return handleGetAudio(audioMatch[1]);
+    }
 
     // Pairing endpoints (unauthenticated, secret-gated)
     if (path === "/v1/pairing/request" && req.method === "POST") {
