@@ -441,6 +441,7 @@ struct SettingsDeveloperTab: View {
                     isVersionIncompatible: isVersionIncompatible,
                     assistantVersionBehind: assistantVersionBehind,
                     isUpgradingInline: isUpgradingInline,
+                    isUpgradeSectionActive: isDockerOperationInProgress,
                     topology: topo,
                     onUpgradeTapped: { showingInlineUpgradeConfirmation = true }
                 )
@@ -1361,6 +1362,7 @@ private struct DeveloperUpdateProgressRow: View {
     let isVersionIncompatible: Bool
     let assistantVersionBehind: Bool
     let isUpgradingInline: Bool
+    let isUpgradeSectionActive: Bool
     let topology: AssistantTopology
     let onUpgradeTapped: () -> Void
 
@@ -1386,7 +1388,7 @@ private struct DeveloperUpdateProgressRow: View {
                         VButton(label: "Upgrade", style: .primary) {
                             onUpgradeTapped()
                         }
-                        .disabled(isUpgradingInline)
+                        .disabled(isUpgradingInline || isUpgradeSectionActive)
                     }
                 }
             }

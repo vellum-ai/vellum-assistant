@@ -83,7 +83,7 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if !availableReleases.isEmpty && topology != .remote {
+                if !availableReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
                         Text(isRollback ? "Roll back to:" : "Upgrade to:")
                             .font(VFont.caption)
