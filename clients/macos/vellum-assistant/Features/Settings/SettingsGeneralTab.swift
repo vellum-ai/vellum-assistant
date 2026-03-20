@@ -91,6 +91,7 @@ struct SettingsGeneralTab: View {
     // MARK: - Software Update
 
     private func fetchHealthz() async {
+        guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/\(selectedAssistantId)/healthz",

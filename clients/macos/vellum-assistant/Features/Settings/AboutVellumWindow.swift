@@ -6,8 +6,6 @@ import VellumAssistantShared
 /// label, commit SHA, architecture, and a "Check for Updates..." button.
 @MainActor
 struct AboutVellumView: View {
-    @Environment(\.dismiss) private var dismiss
-
     @State private var healthz: DaemonHealthz?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
@@ -74,8 +72,8 @@ struct AboutVellumView: View {
 
             // Check for Updates button
             VButton(label: "Check for Updates...", style: .outlined) {
+                AppDelegate.shared?.aboutWindow?.close()
                 AppDelegate.shared?.showSettingsTab("General")
-                dismiss()
             }
         }
         .frame(width: 320)
