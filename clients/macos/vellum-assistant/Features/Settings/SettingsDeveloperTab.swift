@@ -529,19 +529,31 @@ struct SettingsDeveloperTab: View {
         isUpgradingInline = true
         defer { isUpgradingInline = false }
 
-        do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
-            if response.isSuccess {
-                inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+        let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
+
+        if assistant?.isDocker == true {
+            do {
+                try await AppDelegate.shared?.vellumCli.upgrade(name: selectedAssistantId)
+                inlineUpgradeSuccess = "Upgrade complete."
                 await fetchHealthz()
-            } else {
-                inlineUpgradeError = "Upgrade failed (HTTP \(response.statusCode))"
+            } catch {
+                inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
             }
-        } catch let error as GatewayHTTPClient.ClientError {
-            inlineUpgradeError = error.localizedDescription
-        } catch {
-            inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
+        } else {
+            do {
+                let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+                if response.isSuccess {
+                    inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await fetchHealthz()
+                } else {
+                    inlineUpgradeError = "Upgrade failed (HTTP \(response.statusCode))"
+                }
+            } catch let error as GatewayHTTPClient.ClientError {
+                inlineUpgradeError = error.localizedDescription
+            } catch {
+                inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
+            }
         }
     }
 
