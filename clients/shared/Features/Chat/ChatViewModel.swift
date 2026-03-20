@@ -3110,6 +3110,7 @@ public final class ChatViewModel: ObservableObject {
         reconnectDebounceTask?.cancel()
         btwTask?.cancel()
         greetingTask?.cancel()
+        sendingWatchdogTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
