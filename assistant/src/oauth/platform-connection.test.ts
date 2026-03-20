@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
+import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError, VellumError } from "../util/errors.js";
 import {
   CredentialRequiredError,
@@ -7,40 +8,53 @@ import {
   ProviderUnreachableError,
 } from "./platform-connection.js";
 
+function makeMockClient(
+  fetchImpl?: typeof globalThis.fetch,
+): VellumPlatformClient {
+  const mockFetchFn =
+    fetchImpl ??
+    (mock(async () => {
+      return new Response(
+        JSON.stringify({ status: 200, headers: {}, body: null }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch);
+
+  return {
+    baseUrl: "https://platform.example.com",
+    assistantApiKey: "test-api-key",
+    platformAssistantId: "asst-abc",
+    fetch: mock(async (path: string, init?: RequestInit) => {
+      const url = `https://platform.example.com${path}`;
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", "Api-Key test-api-key");
+      return mockFetchFn(url, { ...init, headers });
+    }),
+  } as unknown as VellumPlatformClient;
+}
+
 const DEFAULT_OPTIONS = {
   id: "conn-1",
   providerKey: "integration:google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
-  assistantId: "asst-abc",
-  platformBaseUrl: "https://platform.example.com",
-  apiKey: "test-api-key",
+  client: makeMockClient(),
+  connectionId: "platform-conn-123",
 };
 
 describe("PlatformOAuthConnection", () => {
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   test("successful proxied request", async () => {
     const upstreamBody = { messages: [{ id: "msg-1", snippet: "Hello" }] };
 
-    globalThis.fetch = mock(
-      async (url: string | URL | Request, init?: RequestInit) => {
-        expect(url).toBe(
-          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
+    const client = makeMockClient(
+      mock(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe(
+          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/platform-conn-123/",
         );
         expect(init?.method).toBe("POST");
-        expect(init?.headers).toEqual({
-          Authorization: "Api-Key test-api-key",
-          "Content-Type": "application/json",
-        });
+        const headers = new Headers(init?.headers);
+        expect(headers.get("Authorization")).toBe("Api-Key test-api-key");
+        expect(headers.get("Content-Type")).toBe("application/json");
 
         const parsed = JSON.parse(init?.body as string);
         expect(parsed).toEqual({
@@ -61,10 +75,13 @@ describe("PlatformOAuthConnection", () => {
           }),
           { status: 200 },
         );
-      },
-    ) as unknown as typeof globalThis.fetch;
+      }) as unknown as typeof globalThis.fetch,
+    );
 
-    const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+    });
     const result = await conn.request({
       method: "GET",
       path: "/gmail/v1/users/me/messages",
@@ -77,8 +94,8 @@ describe("PlatformOAuthConnection", () => {
   });
 
   test("forwards baseUrl when provided", async () => {
-    globalThis.fetch = mock(
-      async (_url: string | URL | Request, init?: RequestInit) => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
         expect(parsed.request.baseUrl).toBe(
           "https://www.googleapis.com/calendar/v3",
@@ -88,10 +105,10 @@ describe("PlatformOAuthConnection", () => {
           JSON.stringify({ status: 200, headers: {}, body: {} }),
           { status: 200 },
         );
-      },
-    ) as unknown as typeof globalThis.fetch;
+      }) as unknown as typeof globalThis.fetch,
+    );
 
-    const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
     await conn.request({
       method: "GET",
       path: "/calendars/primary/events",
@@ -100,8 +117,8 @@ describe("PlatformOAuthConnection", () => {
   });
 
   test("omits baseUrl from envelope when not provided", async () => {
-    globalThis.fetch = mock(
-      async (_url: string | URL | Request, init?: RequestInit) => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
         expect("baseUrl" in parsed.request).toBe(false);
 
@@ -109,10 +126,10 @@ describe("PlatformOAuthConnection", () => {
           JSON.stringify({ status: 200, headers: {}, body: null }),
           { status: 200 },
         );
-      },
-    ) as unknown as typeof globalThis.fetch;
+      }) as unknown as typeof globalThis.fetch,
+    );
 
-    const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
     await conn.request({ method: "GET", path: "/some/path" });
   });
 
@@ -127,22 +144,26 @@ describe("PlatformOAuthConnection", () => {
   });
 
   test("424 response throws CredentialRequiredError", async () => {
-    globalThis.fetch = mock(async () => {
-      return new Response("", { status: 424 });
-    }) as unknown as typeof globalThis.fetch;
+    const client = makeMockClient(
+      mock(
+        async () => new Response("", { status: 424 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
 
-    const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
     await expect(
       conn.request({ method: "GET", path: "/test" }),
     ).rejects.toThrow(CredentialRequiredError);
   });
 
   test("502 response throws ProviderUnreachableError", async () => {
-    globalThis.fetch = mock(async () => {
-      return new Response("", { status: 502 });
-    }) as unknown as typeof globalThis.fetch;
+    const client = makeMockClient(
+      mock(
+        async () => new Response("", { status: 502 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
 
-    const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
     await expect(
       conn.request({ method: "GET", path: "/test" }),
     ).rejects.toThrow(ProviderUnreachableError);
@@ -155,36 +176,24 @@ describe("PlatformOAuthConnection", () => {
     );
   });
 
-  test("strips trailing slash from platformBaseUrl to avoid double slashes", async () => {
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      expect(String(url)).toBe(
-        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
-      );
-      return new Response(
-        JSON.stringify({ status: 200, headers: {}, body: null }),
-        { status: 200 },
-      );
-    }) as unknown as typeof globalThis.fetch;
+  test("uses connectionId in proxy URL regardless of providerKey format", async () => {
+    const client = makeMockClient(
+      mock(async (url: string | URL | Request) => {
+        expect(String(url)).toContain(
+          "/external-provider-proxy/slack-conn-456/",
+        );
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: null }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
 
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
-      platformBaseUrl: "https://platform.example.com/",
-    });
-    await conn.request({ method: "GET", path: "/test" });
-  });
-
-  test("strips integration: prefix from providerKey for slug", async () => {
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      expect(String(url)).toContain("/external-provider-proxy/slack/");
-      return new Response(
-        JSON.stringify({ status: 200, headers: {}, body: null }),
-        { status: 200 },
-      );
-    }) as unknown as typeof globalThis.fetch;
-
-    const conn = new PlatformOAuthConnection({
-      ...DEFAULT_OPTIONS,
+      client,
       providerKey: "integration:slack",
+      connectionId: "slack-conn-456",
     });
     await conn.request({ method: "GET", path: "/test" });
   });

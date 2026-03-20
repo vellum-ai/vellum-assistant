@@ -152,6 +152,7 @@ import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
+import { memoriesRouteDefinitions } from "./routes/memories-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
@@ -208,8 +209,8 @@ const log = getLogger("runtime-http");
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
 
-/** Global hard cap on request body size (150 MB — accommodates base64-encoded 100 MB attachments). */
-const MAX_REQUEST_BODY_BYTES = 150 * 1024 * 1024;
+/** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
+const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
@@ -923,6 +924,7 @@ export class RuntimeHttpServer {
       ...telemetryRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
+      ...memoriesRouteDefinitions(),
       ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...avatarRouteDefinitions(),

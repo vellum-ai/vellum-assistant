@@ -1,6 +1,16 @@
 #if os(macOS)
 import Foundation
 
+public struct ContainerInfo {
+    public let assistantImage: String?
+    public let gatewayImage: String?
+    public let cesImage: String?
+    public let assistantDigest: String?
+    public let gatewayDigest: String?
+    public let cesDigest: String?
+    public let networkName: String?
+}
+
 public struct LockfileAssistant {
     public let assistantId: String
     public let runtimeUrl: String?
@@ -15,6 +25,8 @@ public struct LockfileAssistant {
     public let daemonPort: Int?
     public let gatewayPort: Int?
     public let instanceDir: String?
+    public let serviceGroupVersion: String?
+    public let containerInfo: ContainerInfo?
 
     public init(
         assistantId: String,
@@ -29,7 +41,9 @@ public struct LockfileAssistant {
         baseDataDir: String?,
         daemonPort: Int?,
         gatewayPort: Int?,
-        instanceDir: String?
+        instanceDir: String?,
+        serviceGroupVersion: String? = nil,
+        containerInfo: ContainerInfo? = nil
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -44,6 +58,8 @@ public struct LockfileAssistant {
         self.daemonPort = daemonPort
         self.gatewayPort = gatewayPort
         self.instanceDir = instanceDir
+        self.serviceGroupVersion = serviceGroupVersion
+        self.containerInfo = containerInfo
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -120,6 +136,19 @@ public struct LockfileAssistant {
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
+            let serviceGroupVersion = entry["serviceGroupVersion"] as? String
+            var containerInfo: ContainerInfo? = nil
+            if let ci = entry["containerInfo"] as? [String: Any] {
+                containerInfo = ContainerInfo(
+                    assistantImage: ci["assistantImage"] as? String,
+                    gatewayImage: ci["gatewayImage"] as? String,
+                    cesImage: ci["cesImage"] as? String,
+                    assistantDigest: ci["assistantDigest"] as? String,
+                    gatewayDigest: ci["gatewayDigest"] as? String,
+                    cesDigest: ci["cesDigest"] as? String,
+                    networkName: ci["networkName"] as? String
+                )
+            }
             return LockfileAssistant(
                 assistantId: assistantId,
                 runtimeUrl: entry["runtimeUrl"] as? String,
@@ -133,7 +162,9 @@ public struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                instanceDir: resources?["instanceDir"] as? String
+                instanceDir: resources?["instanceDir"] as? String,
+                serviceGroupVersion: serviceGroupVersion,
+                containerInfo: containerInfo
             )
         }
     }

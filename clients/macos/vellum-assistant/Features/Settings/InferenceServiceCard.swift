@@ -105,22 +105,15 @@ struct InferenceServiceCard: View {
             title: "Inference",
             subtitle: "Configure which LLM provider and model to use to power your assistant",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: store.apiKeySaving,
-            onSave: { save() },
-            onReset: {
-                if isCustomProviderEnabled {
-                    store.clearAPIKeyForProvider(effectiveProvider)
-                } else {
-                    store.clearAPIKey()
-                }
-                apiKeyText = ""
-            },
-            showReset: isConnected,
-            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 if isLoggedIn {
-                    modelPicker
+                    PickerWithInlineSave(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() }
+                    ) {
+                        modelPicker
+                    }
                 } else {
                     managedLoginPrompt
                 }
@@ -136,6 +129,23 @@ struct InferenceServiceCard: View {
 
                     // API Key field
                     apiKeyField
+
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() },
+                        savingLabel: "Validating...",
+                        onReset: {
+                            if isCustomProviderEnabled {
+                                store.clearAPIKeyForProvider(effectiveProvider)
+                            } else {
+                                store.clearAPIKey()
+                            }
+                            apiKeyText = ""
+                        },
+                        showReset: isConnected
+                    )
                 }
             }
         )
@@ -299,7 +309,8 @@ struct InferenceServiceCard: View {
                 selection: $draftProvider,
                 options: store.dynamicProviderIds.map { provider in
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
-                }
+                },
+                maxWidth: 400
             )
         }
     }
@@ -321,11 +332,10 @@ struct InferenceServiceCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             SecureField(placeholder, text: $apiKeyText)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .disabled(store.apiKeySaving)
-                .frame(maxWidth: 400)
 
             if let error = store.apiKeySaveError {
                 Text(error)
@@ -357,7 +367,8 @@ struct InferenceServiceCard: View {
             selection: $draftModel,
             options: store.dynamicProviderModels("anthropic").map { model in
                 (label: model.displayName, value: model.id)
-            }
+            },
+            maxWidth: 400
         )
     }
 
@@ -369,7 +380,8 @@ struct InferenceServiceCard: View {
             selection: $draftModel,
             options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
-            }
+            },
+            maxWidth: 400
         )
     }
 

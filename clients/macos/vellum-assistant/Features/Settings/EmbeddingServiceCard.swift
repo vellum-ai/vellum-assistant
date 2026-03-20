@@ -165,7 +165,8 @@ struct EmbeddingServiceCard: View {
                         draftProvider = newValue
                     }
                 ),
-                options: providerOptions
+                options: providerOptions,
+                maxWidth: 400
             )
         }
     }
@@ -186,10 +187,9 @@ struct EmbeddingServiceCard: View {
                 .foregroundColor(VColor.contentSecondary)
             SecureField(placeholder, text: $apiKeyText)
                 .id("embedding-api-key-\(draftProvider)-\(placeholder)")
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: 400)
 
             if let error = store.embeddingKeySaveError {
                 Text(error)
@@ -207,10 +207,9 @@ struct EmbeddingServiceCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             TextField(defaultModelForProvider.isEmpty ? "Enter model name" : defaultModelForProvider, text: $draftModel)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: 400)
         }
     }
 

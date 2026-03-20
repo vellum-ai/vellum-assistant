@@ -444,6 +444,7 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "embedding-models",
   "data/qdrant",
   "data/attachments",
+  "data/sounds",
   "conversations",
 ]);
 

@@ -15,7 +15,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// The canonical product name shown in menus and the About panel.
     /// Use this instead of hardcoding "Vellum" so the name is defined
     /// in one place.
-    nonisolated(unsafe) public static let appName = "Vellum"
+    public static let appName = "Vellum"
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
@@ -154,6 +154,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Guards `.appOpen` sound so it fires only once per app session,
+    /// even if `proceedToApp()` is called again after assistant switches
+    /// or re-authentication flows.
+    private var hasPlayedAppOpenSound = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     // MARK: - App Menu Name Patching
@@ -200,6 +205,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             appMenuPatchDelegate?.patchTitles(menu: appMenu)
         }
 
+        // Capture outside @Sendable closures to avoid main-actor isolation warning.
+        let appName = AppDelegate.appName
+
         // Patch the menu bar title right when the user clicks the menu bar.
         if appMenuTrackingObserver == nil {
             appMenuTrackingObserver = NotificationCenter.default.addObserver(
@@ -207,8 +215,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: NSApp.mainMenu,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }
@@ -221,8 +229,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 object: nil,
                 queue: .main
             ) { _ in
-                if let item = NSApp.mainMenu?.items.first, item.title != AppDelegate.appName {
-                    item.title = AppDelegate.appName
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
                 }
             }
         }
@@ -315,10 +323,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
             SentrySDK.start { options in
                 options.dsn = MetricKitManager.macosDSN
                 options.releaseName = "vellum-macos@\(appVersion)"
-                options.dist = buildNumber
+                options.dist = commitSHA ?? buildNumber
                 options.environment = SentryDeviceInfo.sentryEnvironment
                 options.debug = false
                 options.tracesSampleRate = 0.1
@@ -469,6 +478,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupNotifications()
         setupAutoUpdate()
 
+        SoundManager.shared.start()
+        RandomSoundTimer.shared.start()
+        if !hasPlayedAppOpenSound {
+            hasPlayedAppOpenSound = true
+            SoundManager.shared.play(.appOpen)
+        }
+
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
@@ -583,6 +599,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
+        RandomSoundTimer.shared.stop()
+        SoundManager.shared.stop()
         #if !DEBUG
         keychainBroker?.stop()
         #endif
@@ -598,6 +616,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
     }
 
 }

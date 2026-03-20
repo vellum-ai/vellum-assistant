@@ -3,6 +3,7 @@
  * adapters.
  *
  * Backend selection (`resolveBackend`) is the single decision point:
+ *   - Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
  *   - Production (VELLUM_DEV unset or "0"): keychain backend when available.
  *   - Dev mode (VELLUM_DEV=1): encrypted file store always.
  *
@@ -16,7 +17,10 @@ import type {
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
 
+import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json" with { type: "json" };
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
+import { createCesCredentialBackend } from "./ces-credential-client.js";
 import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import {
   createEncryptedStoreBackend,
@@ -50,18 +54,39 @@ function getEncryptedStoreBackend(): CredentialBackend {
 
 /**
  * Resolve the primary credential backend for this process.
- * Production (VELLUM_DEV unset or "0") uses keychain when available.
- * Dev mode (VELLUM_DEV=1) always uses the encrypted file store.
+ *
+ * Priority:
+ *   1. Containerized + CES_CREDENTIAL_URL → CES HTTP client (skip keychain
+ *      and encrypted store entirely — the sidecar owns credential storage).
+ *   2. Production (VELLUM_DEV unset or "0") → keychain when available.
+ *   3. Dev mode (VELLUM_DEV=1) → encrypted file store always.
  *
  * Once resolved, the backend does not change during the process lifetime.
  * Call `_resetBackend()` in tests to clear the cached resolution.
  */
 function resolveBackend(): CredentialBackend {
   if (!_resolvedBackend) {
-    if (process.env.VELLUM_DEV !== "1" && getKeychainBackend().isAvailable()) {
-      _resolvedBackend = getKeychainBackend();
-    } else {
-      _resolvedBackend = getEncryptedStoreBackend();
+    if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
+      const ces = createCesCredentialBackend();
+      if (ces.isAvailable()) {
+        _resolvedBackend = ces;
+      } else {
+        log.warn(
+          "CES_CREDENTIAL_URL is set but CES backend is not available — " +
+            "falling back to local credential store",
+        );
+      }
+    }
+
+    if (!_resolvedBackend) {
+      if (
+        process.env.VELLUM_DEV !== "1" &&
+        getKeychainBackend().isAvailable()
+      ) {
+        _resolvedBackend = getKeychainBackend();
+      } else {
+        _resolvedBackend = getEncryptedStoreBackend();
+      }
     }
   }
   return _resolvedBackend;
@@ -69,6 +94,8 @@ function resolveBackend(): CredentialBackend {
 
 /**
  * List all account names across both backends (async).
+ *
+ * In CES mode, only the CES backend is queried — there are no local stores.
  *
  * When the primary backend is the keychain, this merges keys from the keychain
  * and the encrypted store (for legacy keys that haven't been migrated). The
@@ -78,6 +105,9 @@ function resolveBackend(): CredentialBackend {
 export async function listSecureKeysAsync(): Promise<string[]> {
   const backend = resolveBackend();
   const primaryKeys = await backend.list();
+
+  // CES mode — the sidecar is the single source of truth, no local merge.
+  if (backend.name === "ces-http") return primaryKeys;
 
   // If primary backend is NOT the encrypted store, also check
   // the encrypted store for legacy keys that haven't been migrated.
@@ -96,8 +126,10 @@ export async function listSecureKeysAsync(): Promise<string[]> {
 
 /**
  * Retrieve a secret from secure storage. Reads from the primary backend
- * first. If the primary backend is the keychain, falls back to the encrypted
- * store for legacy keys that haven't been migrated.
+ * first. In CES mode, the sidecar is the single source of truth — no
+ * local fallback. In local mode, if the primary backend is the keychain,
+ * falls back to the encrypted store for legacy keys that haven't been
+ * migrated.
  */
 export async function getSecureKeyAsync(
   account: string,
@@ -105,6 +137,9 @@ export async function getSecureKeyAsync(
   const backend = resolveBackend();
   const result = await backend.get(account);
   if (result != null) return result;
+
+  // CES mode — no local fallback.
+  if (backend.name === "ces-http") return undefined;
 
   // Legacy fallback: if primary backend is NOT the encrypted store,
   // check the encrypted store for keys that haven't been migrated.
@@ -135,13 +170,25 @@ export async function setSecureKeyAsync(
 }
 
 /**
- * Delete a secret from secure storage. Always attempts deletion on both
- * the keychain backend (if available) and the encrypted store backend,
- * regardless of routing mode. This cleans up legacy data from both stores.
+ * Delete a secret from secure storage.
+ *
+ * In containerized mode with CES, deletion is routed exclusively through the
+ * CES backend — there are no local stores to clean up.
+ *
+ * In local mode, always attempts deletion on both the keychain backend (if
+ * available) and the encrypted store backend, regardless of routing mode.
+ * This cleans up legacy data from both stores.
  */
 export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
+  const backend = resolveBackend();
+
+  // In CES mode, the sidecar is the only store — no local cleanup needed.
+  if (backend.name === "ces-http") {
+    return backend.delete(account);
+  }
+
   const keychain = getKeychainBackend();
   const enc = getEncryptedStoreBackend();
 
@@ -164,18 +211,14 @@ export async function deleteSecureKeyAsync(
 // ---------------------------------------------------------------------------
 
 /**
- * Env var names keyed by provider. The convention is `<PROVIDER>_API_KEY`.
- * Ollama is intentionally omitted — it doesn't require an API key.
+ * Env var names keyed by provider. Loaded from the shared registry at
+ * `meta/provider-env-vars.json` — the single source of truth also consumed
+ * by the CLI and the macOS client.
+ * Ollama is intentionally omitted from the registry — it doesn't require
+ * an API key.
  */
-const PROVIDER_ENV_VARS: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  fireworks: "FIREWORKS_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  brave: "BRAVE_API_KEY",
-  perplexity: "PERPLEXITY_API_KEY",
-};
+const PROVIDER_ENV_VARS: Record<string, string> =
+  providerEnvVarsRegistry.providers;
 
 /**
  * Retrieve a provider API key, checking secure storage first and falling

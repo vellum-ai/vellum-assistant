@@ -2,39 +2,23 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct MemoryItemCreateView: View {
-    @ObservedObject var store: MemoryItemsStore
+struct MemoryCreateView: View {
+    @ObservedObject var store: SimplifiedMemoryStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var kind: String = "identity"
-    @State private var subject: String = ""
-    @State private var statement: String = ""
-    @State private var importance: Double = 0.8
+    @State private var content: String = ""
     @State private var isCreating = false
     @State private var errorMessage: String?
 
     private var canCreate: Bool {
-        !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         Form {
-            Section("Kind") {
-                Picker("Kind", selection: $kind) {
-                    ForEach(MemoryKind.allCases) { memoryKind in
-                        Text(memoryKind.label).tag(memoryKind.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
             Section("Content") {
-                TextField("Brief topic or label", text: $subject)
-                    .font(VFont.body)
-
                 ZStack(alignment: .topLeading) {
-                    if statement.isEmpty {
+                    if content.isEmpty {
                         Text("What should the assistant remember?")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentTertiary)
@@ -42,24 +26,9 @@ struct MemoryItemCreateView: View {
                             .padding(.leading, 4)
                             .allowsHitTesting(false)
                     }
-                    TextEditor(text: $statement)
+                    TextEditor(text: $content)
                         .font(VFont.body)
                         .frame(minHeight: 100)
-                }
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack {
-                        Text("Importance")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Spacer()
-                        Text("\(Int(importance * 100))%")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                    }
-                    Slider(value: $importance, in: 0...1, step: 0.1)
                 }
             }
 
@@ -79,7 +48,7 @@ struct MemoryItemCreateView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Create") {
-                    createMemory()
+                    createObservation()
                 }
                 .disabled(!canCreate || isCreating)
             }
@@ -89,15 +58,12 @@ struct MemoryItemCreateView: View {
 
     // MARK: - Actions
 
-    private func createMemory() {
+    private func createObservation() {
         isCreating = true
         errorMessage = nil
         Task {
-            let result = await store.createItem(
-                kind: kind,
-                subject: subject.trimmingCharacters(in: .whitespacesAndNewlines),
-                statement: statement.trimmingCharacters(in: .whitespacesAndNewlines),
-                importance: importance
+            let result = await store.createObservation(
+                content: content.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             isCreating = false
             if result != nil {

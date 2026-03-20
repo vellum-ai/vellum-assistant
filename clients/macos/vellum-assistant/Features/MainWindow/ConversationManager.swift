@@ -2235,12 +2235,35 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             }
         }
         .removeDuplicates()
-        .sink { [weak self] state in
+        // Track previous state to detect transitions that trigger sounds.
+        // .dropFirst() prevents sounds from firing on initial subscription
+        // (e.g. a conversation that loads in an error state).
+        .scan((previous: ConversationInteractionState?.none, current: ConversationInteractionState.idle)) { accumulated, newState in
+            (previous: accumulated.current, current: newState)
+        }
+        .dropFirst()
+        .sink { [weak self] transition in
             guard let self else { return }
+            let state = transition.current
             if state == .idle {
                 self.conversationInteractionStates.removeValue(forKey: conversationId)
             } else {
                 self.conversationInteractionStates[conversationId] = state
+            }
+
+            // Play sounds on discrete state transitions. The .removeDuplicates()
+            // upstream ensures these only fire once per transition, not on every
+            // streaming delta.
+            let previous = transition.previous
+            switch state {
+            case .idle where previous == .processing:
+                SoundManager.shared.play(.taskComplete)
+            case .waitingForInput:
+                SoundManager.shared.play(.needsInput)
+            case .error:
+                SoundManager.shared.play(.taskFailed)
+            default:
+                break
             }
         }
         .store(in: &subs)

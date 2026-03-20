@@ -346,15 +346,10 @@ struct ChatBubble: View {
                 Button {
                     onForkFromMessage(daemonMessageId)
                 } label: {
-                    Label {
-                        Text("Fork from here")
-                            .font(VFont.caption)
-                    } icon: {
-                        VIconView(.gitBranch, size: 11)
-                    }
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(height: 24)
-                    .contentShape(Rectangle())
+                    VIconView(.gitBranch, size: 11)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()

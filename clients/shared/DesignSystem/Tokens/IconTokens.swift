@@ -15,6 +15,8 @@ public enum VIcon: String, CaseIterable, Sendable {
     case chevronUp = "lucide-chevron-up"
     case chevronLeft = "lucide-chevron-left"
     case chevronRight = "lucide-chevron-right"
+    case chevronsUpDown = "lucide-chevrons-up-down"
+    case chevronsDownUp = "lucide-chevrons-down-up"
     case arrowUp = "lucide-arrow-up"
     case arrowDown = "lucide-arrow-down"
     case arrowLeft = "lucide-arrow-left"

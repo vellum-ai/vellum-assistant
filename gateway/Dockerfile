@@ -30,6 +30,8 @@ RUN groupadd --system --gid 1001 gateway && \
 
 COPY --from=builder --chown=gateway:gateway /app /app
 
+RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
+
 USER gateway
 
 EXPOSE 7830

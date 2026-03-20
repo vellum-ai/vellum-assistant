@@ -41,14 +41,12 @@ mock.module("../memory/turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
-const mockResolveManagedProxyContext = mock(async () => ({
-  enabled: false,
-  platformBaseUrl: "",
-  assistantApiKey: "",
-}));
+let mockPlatformClient: Record<string, unknown> | null = null;
 
-mock.module("../providers/managed-proxy/context.js", () => ({
-  resolveManagedProxyContext: mockResolveManagedProxyContext,
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: async () => mockPlatformClient,
+  },
 }));
 
 const mockGetTelemetryPlatformUrl = mock(() => "https://platform.vellum.ai");
@@ -142,7 +140,7 @@ beforeEach(() => {
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
-  mockResolveManagedProxyContext.mockReset();
+  mockPlatformClient = null;
   mockGetTelemetryPlatformUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
   mockGetDeviceId.mockReset();
@@ -156,11 +154,6 @@ beforeEach(() => {
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
-  mockResolveManagedProxyContext.mockResolvedValue({
-    enabled: false,
-    platformBaseUrl: "",
-    assistantApiKey: "",
-  });
   mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.vellum.ai");
   mockGetTelemetryAppToken.mockReturnValue("default-test-token");
 
@@ -179,37 +172,31 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("UsageTelemetryReporter", () => {
-  test("authenticated flush uses Api-Key header and proxy URL", async () => {
-    mockResolveManagedProxyContext.mockResolvedValue({
-      enabled: true,
-      platformBaseUrl: "https://test.vellum.ai",
-      assistantApiKey: "test-key",
+  test("authenticated flush uses client.fetch with platform path", async () => {
+    const clientFetchMock = mock(async (_path: string, _init?: RequestInit) => {
+      return new Response('{"accepted":2}', { status: 200 });
     });
+    mockPlatformClient = {
+      baseUrl: "https://test.vellum.ai",
+      assistantApiKey: "test-key",
+      platformAssistantId: "asst-123",
+      fetch: clientFetchMock,
+    };
     const events = [makeUsageEvent(), makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(
-        new Response(`{"accepted":${events.length}}`, { status: 200 }),
-      ),
-    );
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://test.vellum.ai/v1/telemetry/ingest/");
-    expect((opts.headers as Record<string, string>)["Authorization"]).toBe(
-      "Api-Key test-key",
-    );
+    expect(clientFetchMock).toHaveBeenCalledTimes(1);
+    const [path] = clientFetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/v1/telemetry/ingest/");
+    // globalThis.fetch should NOT have been called directly
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   test("anonymous flush uses X-Telemetry-Token and default URL", async () => {
-    mockResolveManagedProxyContext.mockResolvedValue({
-      enabled: false,
-      platformBaseUrl: "",
-      assistantApiKey: "",
-    });
+    mockPlatformClient = null;
     mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.test.ai");
     mockGetTelemetryAppToken.mockReturnValue("anon-token");
 
@@ -375,9 +362,9 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
 
-    // Top-level: installation_id, app_version, and events array (no turn_events key)
+    // Top-level: installation_id, assistant_version, and events array (no turn_events key)
     expect(body.installation_id).toBe("test-device-id");
-    expect(body.app_version).toBe("1.2.3-test");
+    expect(body.assistant_version).toBe("1.2.3-test");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
     expect(body.turn_events).toBeUndefined();

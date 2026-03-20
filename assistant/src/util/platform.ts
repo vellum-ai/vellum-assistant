@@ -8,7 +8,11 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir } from "../config/env-registry.js";
+import {
+  getBaseDataDir,
+  getIsContainerized,
+  getWorkspaceDirOverride,
+} from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -238,6 +242,15 @@ export function getInterfacesDir(): string {
 }
 
 /**
+ * Returns the sounds directory (~/.vellum/workspace/data/sounds).
+ * Custom sound files and sound configuration live here. Sound files
+ * can be large, so this directory is excluded from diagnostic exports.
+ */
+export function getSoundsDir(): string {
+  return join(getWorkspaceDir(), "data", "sounds");
+}
+
+/**
  * Returns the TCP port the daemon should listen on for iOS clients.
  * Hardcoded default: 8765.
  */
@@ -356,13 +369,19 @@ export function getSignalsDir(): string {
 // Currently not used by call-sites; wired in later PRs.
 
 /**
- * Returns ~/.vellum/workspace — the workspace root for user-facing state.
+ * Returns the workspace root for user-facing state.
+ *
+ * When the WORKSPACE_DIR env var is set, returns that value (used in
+ * containerized deployments where the workspace is a separate volume).
+ * Otherwise falls back to ~/.vellum/workspace.
  *
  * WARNING: The entire workspace directory is included in diagnostic log exports
  * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
  * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
+  const override = getWorkspaceDirOverride();
+  if (override) return override;
   return join(getRootDir(), "workspace");
 }
 
@@ -413,13 +432,17 @@ export function ensureDataDir(): void {
   const root = getRootDir();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
+  const containerized = getIsContainerized();
   const dirs = [
-    // Root-level dirs (runtime / protected)
+    // Root-level dirs (runtime)
     root,
-    join(root, "protected"),
+    // protected, signals, hooks are local-only — skip in containerized mode
+    // (credentials via CES HTTP API, trust via gateway API, no IPC signals)
+    ...(containerized
+      ? []
+      : [join(root, "protected"), join(root, "signals"), join(root, "hooks")]),
     // Workspace dirs
     workspace,
-    join(root, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
@@ -432,6 +455,7 @@ export function ensureDataDir(): void {
     join(wsData, "memory", "knowledge"),
     join(wsData, "apps"),
     join(wsData, "interfaces"),
+    join(wsData, "sounds"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {

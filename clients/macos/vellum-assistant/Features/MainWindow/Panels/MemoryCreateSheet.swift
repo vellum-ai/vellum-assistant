@@ -1,46 +1,22 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct MemoryItemCreateSheet: View {
-    let store: MemoryItemsStore
+struct MemoryCreateSheet: View {
+    let store: SimplifiedMemoryStore
     let onDismiss: () -> Void
 
-    @State private var kind: String = "identity"
-    @State private var subject: String = ""
-    @State private var statement: String = ""
-    @State private var importance: Double = 0.8
+    @State private var content: String = ""
     @State private var isCreating = false
     @State private var errorMessage: String?
 
     var body: some View {
-        VModal(title: "New Memory") {
+        VModal(title: "Add Memory") {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Kind picker
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Kind")
+                    Text("Content")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                    VDropdown(
-                        placeholder: "Kind",
-                        selection: $kind,
-                        options: MemoryKind.allCases.map { ($0.label, $0.rawValue) }
-                    )
-                }
-
-                // Subject
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Subject")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                    VTextField(placeholder: "Brief topic or label", text: $subject)
-                }
-
-                // Statement
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Statement")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                    TextEditor(text: $statement)
+                    TextEditor(text: $content)
                         .font(VFont.body)
                         .foregroundColor(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
@@ -51,10 +27,10 @@ struct MemoryItemCreateSheet: View {
                             RoundedRectangle(cornerRadius: VRadius.md)
                                 .stroke(VColor.borderBase, lineWidth: 1)
                         )
-                        .frame(minHeight: 100)
+                        .frame(minHeight: 120)
                         .overlay(alignment: .topLeading) {
-                            if statement.isEmpty {
-                                Text("What should the assistant remember?")
+                            if content.isEmpty {
+                                Text("What should your assistant remember?")
                                     .font(VFont.body)
                                     .foregroundColor(VColor.contentTertiary)
                                     .padding(VSpacing.sm)
@@ -62,20 +38,6 @@ struct MemoryItemCreateSheet: View {
                                     .allowsHitTesting(false)
                             }
                         }
-                }
-
-                // Importance slider
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack {
-                        Text("Importance")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Spacer()
-                        Text("\(Int(importance * 100))%")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                    VSlider(value: $importance, range: 0...1, step: 0.1)
                 }
 
                 if let errorMessage {
@@ -95,7 +57,7 @@ struct MemoryItemCreateSheet: View {
                     onDismiss()
                 }
                 VButton(
-                    label: isCreating ? "Creating..." : "Create",
+                    label: isCreating ? "Adding..." : "Add",
                     leftIcon: isCreating ? nil : VIcon.plus.rawValue,
                     style: .primary,
                     isDisabled: !isFormValid || isCreating
@@ -104,14 +66,13 @@ struct MemoryItemCreateSheet: View {
                 }
             }
         }
-        .frame(width: 480, height: 460)
+        .frame(width: 480, height: 340)
     }
 
     // MARK: - Validation
 
     private var isFormValid: Bool {
-        !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions
@@ -120,17 +81,14 @@ struct MemoryItemCreateSheet: View {
         isCreating = true
         errorMessage = nil
         Task {
-            let result = await store.createItem(
-                kind: kind,
-                subject: subject.trimmingCharacters(in: .whitespacesAndNewlines),
-                statement: statement.trimmingCharacters(in: .whitespacesAndNewlines),
-                importance: importance
+            let result = await store.createObservation(
+                content: content.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             isCreating = false
             if result != nil {
                 onDismiss()
             } else {
-                errorMessage = "Failed to create memory. Please try again."
+                errorMessage = "Failed to add memory. Please try again."
             }
         }
     }

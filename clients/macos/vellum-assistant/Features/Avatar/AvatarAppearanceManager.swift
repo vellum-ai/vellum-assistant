@@ -135,10 +135,10 @@ final class AvatarAppearanceManager {
             IdentityInfo.load()?.name,
             fallback: "V"
         )
-        loadCustomAvatar()
-        loadAvatarComponents()
-        watchAvatarFile()
-        watchTraitsFile()
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
+        }
         updateDockLabel()
 
         // Fire-and-forget: fetch character component definitions from the
@@ -188,6 +188,64 @@ final class AvatarAppearanceManager {
         let port = assistant.resolvedDaemonPort()
         if let response = await AvatarComponentService.fetch(port: port) {
             AvatarComponentStore.shared.load(response)
+        }
+    }
+
+    // MARK: - Remote Avatar Fetch (Docker/remote instances)
+
+    /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
+    private func fetchAvatarViaHTTP() async {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/workspace/file/content",
+                params: ["path": "data/avatar/avatar-image.png"],
+                timeout: 10
+            )
+            guard response.isSuccess, !response.data.isEmpty else {
+                customAvatarImage = nil
+                cachedChatAvatar = nil
+                updateDockIcon()
+                return
+            }
+            cachedChatAvatar = nil
+            customAvatarImage = NSImage(data: response.data)
+            updateDockIcon()
+        } catch {
+            log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
+            customAvatarImage = nil
+            cachedChatAvatar = nil
+            updateDockIcon()
+        }
+    }
+
+    /// Fetches character-traits.json via HTTP through the gateway for Docker/remote instances.
+    private func fetchTraitsViaHTTP() async {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/workspace/file/content",
+                params: ["path": "data/avatar/character-traits.json"],
+                timeout: 10
+            )
+            guard response.isSuccess, !response.data.isEmpty else {
+                characterBodyShape = nil
+                characterEyeStyle = nil
+                characterColor = nil
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
+                return
+            }
+            guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
+                return
+            }
+            characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+            characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+            characterColor = AvatarColor(rawValue: components.color)
+            cachedFallbackAvatar = nil
+            cachedFullFallbackAvatar = nil
+            updateDockIcon()
+        } catch {
+            log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
         }
     }
 
@@ -251,12 +309,13 @@ final class AvatarAppearanceManager {
         updateDockIcon()
     }
 
-    /// Reloads the custom avatar from disk and refreshes the assistant name.
+    /// Reloads the custom avatar and refreshes the assistant name.
     /// Called when the daemon notifies that the avatar image has been
     /// regenerated (via `avatar_updated` event), after reconnection
     /// (`proceedToApp`), and after assistant switches.
     /// Invalidates all cached images so SwiftUI views pick up the new avatar,
     /// and re-reads the identity so the dock label reflects the current assistant.
+    /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
         assistantName = AssistantDisplayName.resolve(
             IdentityInfo.load()?.name,
@@ -267,8 +326,10 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
-        loadCustomAvatar()
-        loadAvatarComponents()
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
+        }
         updateDockLabel()
     }
 

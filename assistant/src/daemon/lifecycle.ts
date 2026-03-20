@@ -20,7 +20,7 @@ import { loadConfig } from "../config/loader.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
-import { closeSentry, initSentry } from "../instrument.js";
+import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -65,6 +65,7 @@ import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -178,6 +179,11 @@ export async function runDaemon(): Promise<void> {
 
     await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
     log.info("Daemon startup: workspace migrations complete");
+
+    // Now that workspace migrations have run (including 003-seed-device-id
+    // which may copy the legacy installationId into device.json), it is safe
+    // to read the device ID and set the Sentry tag.
+    setSentryDeviceId(getDeviceId());
 
     // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.

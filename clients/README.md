@@ -21,7 +21,7 @@ clients/
 │   ├── Features/Contacts/     # ContactsStore — cross-platform contacts data operations
 │   ├── Features/Directory/    # DirectoryStore — cross-platform apps and documents operations
 │   ├── Features/ChannelTrust/ # ChannelTrustStore — guardian state and channel trust management
-│   ├── Features/Memory/       # MemoryItemsStore — cross-platform memory item operations
+│   ├── Features/Memory/       # SimplifiedMemoryStore — cross-platform memory observations and episodes
 │   ├── Features/Settings/     # Shared settings logic
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
 │   ├── Features/Usage/        # UsageDashboardStore — usage data operations

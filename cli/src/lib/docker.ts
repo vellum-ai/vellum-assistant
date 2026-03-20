@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
 import { arch, platform } from "os";
 import { dirname, join } from "path";
@@ -11,7 +12,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { DEFAULT_GATEWAY_PORT } from "./constants";
+import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
@@ -282,10 +283,14 @@ export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
+    cesSecurityVolume: `${instanceName}-ces-sec`,
+    /** @deprecated Legacy — no longer created for new instances. Retained for migration of existing instances. */
     dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
+    gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
     socketVolume: `${instanceName}-socket`,
+    workspaceVolume: `${instanceName}-workspace`,
   };
 }
 
@@ -335,7 +340,13 @@ export async function retireDocker(name: string): Promise<void> {
   } catch {
     // network may not exist
   }
-  for (const vol of [res.dataVolume, res.socketVolume]) {
+  for (const vol of [
+    res.dataVolume,
+    res.socketVolume,
+    res.workspaceVolume,
+    res.cesSecurityVolume,
+    res.gatewaySecurityVolume,
+  ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
     } catch {
@@ -453,13 +464,21 @@ async function buildAllImages(
  * can be restarted independently.
  */
 export function serviceDockerRunArgs(opts: {
+  cesServiceToken?: string;
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
-  const { extraAssistantEnv, gatewayPort, imageTags, instanceName, res } = opts;
+  const {
+    cesServiceToken,
+    extraAssistantEnv,
+    gatewayPort,
+    imageTags,
+    instanceName,
+    res,
+  } = opts;
   return {
     assistant: () => {
       const args: string[] = [
@@ -470,15 +489,27 @@ export function serviceDockerRunArgs(opts: {
         res.assistantContainer,
         `--network=${res.network}`,
         "-v",
-        `${res.dataVolume}:/data`,
+        `${res.workspaceVolume}:/workspace`,
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
         "RUNTIME_HTTP_HOST=0.0.0.0",
+        "-e",
+        "WORKSPACE_DIR=/workspace",
+        "-e",
+        `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+        "-e",
+        `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
       ];
-      for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+      if (cesServiceToken) {
+        args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
+      }
+      for (const envVar of [
+        ...Object.values(PROVIDER_ENV_VAR_NAMES),
+        "VELLUM_PLATFORM_URL",
+      ]) {
         if (process.env[envVar]) {
           args.push("-e", `${envVar}=${process.env[envVar]}`);
         }
@@ -501,9 +532,13 @@ export function serviceDockerRunArgs(opts: {
       "-p",
       `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
       "-v",
-      `${res.dataVolume}:/data`,
+      `${res.workspaceVolume}:/workspace`,
+      "-v",
+      `${res.gatewaySecurityVolume}:/gateway-security`,
       "-e",
-      "BASE_DATA_DIR=/data",
+      "WORKSPACE_DIR=/workspace",
+      "-e",
+      "GATEWAY_SECURITY_DIR=/gateway-security",
       "-e",
       `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
       "-e",
@@ -512,6 +547,11 @@ export function serviceDockerRunArgs(opts: {
       `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       "-e",
       "RUNTIME_PROXY_ENABLED=true",
+      "-e",
+      `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+      ...(cesServiceToken
+        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+        : []),
       imageTags.gateway,
     ],
     "credential-executor": () => [
@@ -520,19 +560,169 @@ export function serviceDockerRunArgs(opts: {
       "-d",
       "--name",
       res.cesContainer,
+      `--network=${res.network}`,
       "-v",
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
-      `${res.dataVolume}:/data:ro`,
+      `${res.workspaceVolume}:/workspace:ro`,
+      "-v",
+      `${res.cesSecurityVolume}:/ces-security`,
       "-e",
       "CES_MODE=managed",
       "-e",
+      "WORKSPACE_DIR=/workspace",
+      "-e",
       "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
       "-e",
-      "CES_ASSISTANT_DATA_MOUNT=/data",
+      "CREDENTIAL_SECURITY_DIR=/ces-security",
+      ...(cesServiceToken
+        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+        : []),
       imageTags["credential-executor"],
     ],
   };
+}
+
+/**
+ * Check whether a Docker volume exists.
+ * Returns true if the volume exists, false otherwise.
+ */
+async function dockerVolumeExists(volumeName: string): Promise<boolean> {
+  try {
+    await execOutput("docker", ["volume", "inspect", volumeName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Migrate trust.json and actor-token-signing-key from the data volume
+ * (old location: /data/.vellum/protected/) to the gateway security volume
+ * (new location: /gateway-security/).
+ *
+ * Uses a temporary busybox container that mounts both volumes. The migration
+ * is idempotent: it only copies a file when the source exists on the data
+ * volume and the destination does not yet exist on the gateway security volume.
+ *
+ * Skips migration entirely if the data volume does not exist (new instances
+ * no longer create one).
+ */
+export async function migrateGatewaySecurityFiles(
+  res: ReturnType<typeof dockerResourceNames>,
+  log: (msg: string) => void,
+): Promise<void> {
+  // New instances don't have a data volume — nothing to migrate.
+  if (!(await dockerVolumeExists(res.dataVolume))) {
+    log("   No data volume found — skipping gateway security migration.");
+    return;
+  }
+
+  const migrationContainer = `${res.gatewayContainer}-migration`;
+  const filesToMigrate = ["trust.json", "actor-token-signing-key"];
+
+  // Remove any leftover migration container from a previous interrupted run.
+  try {
+    await exec("docker", ["rm", "-f", migrationContainer]);
+  } catch {
+    // container may not exist
+  }
+
+  for (const fileName of filesToMigrate) {
+    const src = `/data/.vellum/protected/${fileName}`;
+    const dst = `/gateway-security/${fileName}`;
+
+    try {
+      // Run a busybox container that checks source exists and destination
+      // does not, then copies. The shell exits 0 whether or not a copy
+      // happens, so the migration is always safe to re-run.
+      await exec("docker", [
+        "run",
+        "--rm",
+        "--name",
+        migrationContainer,
+        "-v",
+        `${res.dataVolume}:/data:ro`,
+        "-v",
+        `${res.gatewaySecurityVolume}:/gateway-security`,
+        "busybox",
+        "sh",
+        "-c",
+        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && echo "migrated"; else echo "skipped"; fi`,
+      ]);
+      log(`   ${fileName}: checked`);
+    } catch (err) {
+      // Non-fatal — log and continue. The gateway will create fresh files
+      // if they don't exist.
+      const message = err instanceof Error ? err.message : String(err);
+      log(`   ${fileName}: migration failed (${message}), continuing...`);
+    }
+  }
+}
+
+/**
+ * Migrate keys.enc and store.key from the data volume
+ * (old location: /data/.vellum/protected/) to the CES security volume
+ * (new location: /ces-security/).
+ *
+ * Uses a temporary busybox container that mounts both volumes. The migration
+ * is idempotent: it only copies a file when the source exists on the data
+ * volume and the destination does not yet exist on the CES security volume.
+ * Migrated files are chowned to 1001:1001 (the CES service user).
+ *
+ * Skips migration entirely if the data volume does not exist (new instances
+ * no longer create one).
+ */
+export async function migrateCesSecurityFiles(
+  res: ReturnType<typeof dockerResourceNames>,
+  log: (msg: string) => void,
+): Promise<void> {
+  // New instances don't have a data volume — nothing to migrate.
+  if (!(await dockerVolumeExists(res.dataVolume))) {
+    log("   No data volume found — skipping CES security migration.");
+    return;
+  }
+
+  const migrationContainer = `${res.cesContainer}-migration`;
+  const filesToMigrate = ["keys.enc", "store.key"];
+
+  // Remove any leftover migration container from a previous interrupted run.
+  try {
+    await exec("docker", ["rm", "-f", migrationContainer]);
+  } catch {
+    // container may not exist
+  }
+
+  for (const fileName of filesToMigrate) {
+    const src = `/data/.vellum/protected/${fileName}`;
+    const dst = `/ces-security/${fileName}`;
+
+    try {
+      // Run a busybox container that checks source exists and destination
+      // does not, then copies and sets ownership. The shell exits 0 whether
+      // or not a copy happens, so the migration is always safe to re-run.
+      await exec("docker", [
+        "run",
+        "--rm",
+        "--name",
+        migrationContainer,
+        "-v",
+        `${res.dataVolume}:/data:ro`,
+        "-v",
+        `${res.cesSecurityVolume}:/ces-security`,
+        "busybox",
+        "sh",
+        "-c",
+        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && chown 1001:1001 "${dst}" && echo "migrated"; else echo "skipped"; fi`,
+      ]);
+      log(`   ${fileName}: checked`);
+    } catch (err) {
+      // Non-fatal — log and continue. The CES will start without
+      // credentials if they don't exist.
+      const message = err instanceof Error ? err.message : String(err);
+      log(`   ${fileName}: migration failed (${message}), continuing...`);
+    }
+  }
 }
 
 /** The order in which services must be started. */
@@ -545,6 +735,7 @@ export const SERVICE_START_ORDER: ServiceName[] = [
 /** Start all three containers in dependency order. */
 export async function startContainers(
   opts: {
+    cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
@@ -567,6 +758,36 @@ export async function stopContainers(
   await removeContainer(res.cesContainer);
   await removeContainer(res.gatewayContainer);
   await removeContainer(res.assistantContainer);
+}
+
+/** Stop containers without removing them (preserves state for `docker start`). */
+export async function sleepContainers(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<void> {
+  for (const container of [
+    res.cesContainer,
+    res.gatewayContainer,
+    res.assistantContainer,
+  ]) {
+    try {
+      await exec("docker", ["stop", container]);
+    } catch {
+      // container may not exist or already stopped
+    }
+  }
+}
+
+/** Start existing stopped containers. */
+export async function wakeContainers(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<void> {
+  for (const container of [
+    res.assistantContainer,
+    res.gatewayContainer,
+    res.cesContainer,
+  ]) {
+    await exec("docker", ["start", container]);
+  }
 }
 
 /**
@@ -845,10 +1066,18 @@ export async function hatchDocker(
 
     log("📁 Creating network and volumes...");
     await exec("docker", ["network", "create", res.network]);
-    await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
+    await exec("docker", ["volume", "create", res.workspaceVolume]);
+    await exec("docker", ["volume", "create", res.cesSecurityVolume]);
+    await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
 
-    await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
+    const cesServiceToken = randomBytes(32).toString("hex");
+    await startContainers(
+      { cesServiceToken, gatewayPort, imageTags, instanceName, res },
+      log,
+    );
+
+    const imageDigests = await captureImageRefs(res);
 
     const runtimeUrl = `http://localhost:${gatewayPort}`;
     const dockerEntry: AssistantEntry = {
@@ -858,6 +1087,16 @@ export async function hatchDocker(
       species,
       hatchedAt: new Date().toISOString(),
       volume: res.dataVolume,
+      serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
+      containerInfo: {
+        assistantImage: imageTags.assistant,
+        gatewayImage: imageTags.gateway,
+        cesImage: imageTags["credential-executor"],
+        assistantDigest: imageDigests?.assistant,
+        gatewayDigest: imageDigests?.gateway,
+        cesDigest: imageDigests?.["credential-executor"],
+        networkName: res.network,
+      },
     };
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);

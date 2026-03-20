@@ -318,6 +318,7 @@ struct ComposerView: View {
         } else if canSend {
             sendPath = "normalSend"
             onSend()
+            SoundManager.shared.play(.messageSent)
         } else if hasPendingConfirmation
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sendPath = "pendingConfirmationApproval"
@@ -432,7 +433,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
                 .vTooltip("Type a message to send")
             } else if !hasPendingConfirmation {
@@ -456,7 +457,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
                 .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
@@ -487,7 +488,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
             }
         }
@@ -529,6 +530,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Cancel")
 
                     // Accept: stop dictation and keep transcribed text
                     VButton(
@@ -541,6 +543,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Done")
                 }
             }
         }
@@ -582,6 +585,7 @@ VStreamingWaveform(
                         action: { manager.toggleListening() }
                     )
                     .disabled(manager.state == .processing)
+                    .vTooltip(manager.state == .listening ? "Mute" : "Unmute")
 
                     VButton(
                         label: "End voice mode",
@@ -590,6 +594,7 @@ VStreamingWaveform(
                         iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }
                     )
+                    .vTooltip("Cancel Live Voice")
                 }
             }
             .padding(.vertical, VSpacing.md)

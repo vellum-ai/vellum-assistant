@@ -6,7 +6,7 @@ import { buildStartupScript, watchHatching } from "../commands/hatch";
 import type { PollResult } from "../commands/hatch";
 import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { GATEWAY_PORT } from "./constants";
+import { GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { generateInstanceName } from "./random-name";
@@ -410,10 +410,18 @@ export async function hatchAws(
 
     const sshUser = userInfo().username;
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicApiKey) {
+    const providerApiKeys: Record<string, string> = {};
+    for (const [, envVar] of Object.entries(PROVIDER_ENV_VAR_NAMES)) {
+      const value = process.env[envVar];
+      if (value) {
+        providerApiKeys[envVar] = value;
+      }
+    }
+    if (Object.keys(providerApiKeys).length === 0) {
       console.error(
-        "Error: ANTHROPIC_API_KEY environment variable is not set.",
+        "Error: No provider API key environment variable is set. " +
+          "Set at least one of: " +
+          Object.values(PROVIDER_ENV_VAR_NAMES).join(", "),
       );
       process.exit(1);
     }
@@ -437,7 +445,7 @@ export async function hatchAws(
     const startupScript = await buildStartupScript(
       species,
       sshUser,
-      anthropicApiKey,
+      providerApiKeys,
       instanceName,
       "aws",
     );

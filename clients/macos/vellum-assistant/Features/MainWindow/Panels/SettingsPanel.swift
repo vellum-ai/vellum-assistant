@@ -5,6 +5,7 @@ enum SettingsTab: String {
     case general = "General"
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
+    case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
     case archivedConversations = "Archived Conversations"
@@ -14,7 +15,7 @@ enum SettingsTab: String {
     static func primaryTabs(billingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general]
         tabs.append(contentsOf: [
-            .voice, .modelsAndServices,
+            .voice, .sounds, .modelsAndServices,
             .permissionsAndPrivacy,
         ])
         if billingEnabled {
@@ -362,6 +363,8 @@ struct SettingsPanel: View {
             integrationsContent
         case .voice:
             VoiceSettingsView(store: store)
+        case .sounds:
+            SettingsSoundsTab()
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
         case .billing:

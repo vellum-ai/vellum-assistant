@@ -49,6 +49,9 @@ COPY --from=builder --chown=ces:ces /app /app
 # when no PVC volume is mounted (e.g., direct docker run)
 RUN mkdir -p /ces-data && chown ces:ces /ces-data
 
+# Pre-create /ces-security for credential key storage (keys.enc, store.key)
+RUN mkdir -p /ces-security && chown ces:ces /ces-security
+
 USER ces
 
 EXPOSE 8090

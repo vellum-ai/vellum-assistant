@@ -19,6 +19,7 @@ extension MainWindowView {
 
     func startNewConversation() {
         conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let id = conversationManager.activeConversationId {
             windowState.selection = .conversation(id)
         } else {

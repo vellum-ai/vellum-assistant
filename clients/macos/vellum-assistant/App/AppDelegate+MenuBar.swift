@@ -24,7 +24,7 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
         patchTitles(menu: menu)
     }
 
-    func patchTitles(menu: NSMenu) {
+    @MainActor func patchTitles(menu: NSMenu) {
         let name = AppDelegate.appName
         // Patch the parent menu item title (the bold text in the menu bar).
         if let mainMenu = NSApp.mainMenu,
@@ -380,6 +380,7 @@ extension AppDelegate {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let id = mainWindow?.conversationManager.activeConversationId {
             mainWindow?.windowState.selection = .conversation(id)
         }
@@ -458,7 +459,7 @@ extension AppDelegate {
         }
     }
 
-    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = nil) {
+    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = .bugReport) {
         // If the window is already showing, just bring it forward.
         if let existing = logReportWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)

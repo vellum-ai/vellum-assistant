@@ -82,36 +82,47 @@ struct WebSearchServiceCard: View {
             title: "Web Search",
             subtitle: "Configure which web search provider to use for online research",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: false,
-            onSave: { save() },
-            onReset: {
-                if isPerplexity {
-                    store.clearPerplexityKey()
-                    perplexityKeyText = ""
-                } else if isBrave {
-                    store.clearBraveKey()
-                    braveKeyText = ""
-                }
-            },
-            showReset: draftMode == "your-own" && needsAPIKey
-                && (isPerplexity ? store.hasPerplexityKey : store.hasBraveKey),
-            hideButtons: draftMode == "managed" && (store.inferenceMode == "your-own" || !isLoggedIn),
             managedContent: {
                 if store.inferenceMode == "your-own" {
                     managedUnavailableMessage
                 } else if isLoggedIn {
-                    managedIncludedMessage
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        managedIncludedMessage
+                        if hasChanges {
+                            ServiceCardActions(hasChanges: hasChanges, onSave: { save() })
+                        }
+                    }
                 } else {
                     managedLoginPrompt
                 }
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    providerPicker
-
                     if needsAPIKey {
+                        providerPicker
                         apiKeySection
+
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            onSave: { save() },
+                            onReset: {
+                                if isPerplexity {
+                                    store.clearPerplexityKey()
+                                    perplexityKeyText = ""
+                                } else if isBrave {
+                                    store.clearBraveKey()
+                                    braveKeyText = ""
+                                }
+                            },
+                            showReset: isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
+                        )
+                    } else {
+                        PickerWithInlineSave(
+                            hasChanges: hasChanges,
+                            onSave: { save() }
+                        ) {
+                            providerPicker
+                        }
                     }
                 }
             }
@@ -184,7 +195,8 @@ struct WebSearchServiceCard: View {
                 selection: $draftProvider,
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
-                }
+                },
+                maxWidth: 400
             )
         }
     }
@@ -200,7 +212,7 @@ struct WebSearchServiceCard: View {
                 "Enter your API key",
                 text: isPerplexity ? $perplexityKeyText : $braveKeyText
             )
-            .vInputStyle()
+            .vInputStyle(maxWidth: 400)
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
 

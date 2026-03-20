@@ -23,7 +23,7 @@ struct OAuthProviderServiceCard: View {
         providerMeta?.display_name ?? "OAuth"
     }
 
-    /// Local draft of the mode selection — only persisted on Save.
+    /// Local draft of the mode selection — auto-persisted on change via onChange.
     @State private var draftMode: String = "your-own"
 
     // MARK: - Create App Sheet State
@@ -48,11 +48,6 @@ struct OAuthProviderServiceCard: View {
 
     @State private var hoveredAppId: String? = nil
 
-    /// True when the user has made changes worth saving.
-    private var hasChanges: Bool {
-        draftMode != store.managedOAuthModeFor(providerKey)
-    }
-
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
     }
@@ -66,12 +61,6 @@ struct OAuthProviderServiceCard: View {
             title: "\(displayName) OAuth",
             subtitle: "Configure \(displayName) OAuth\(providerMeta?.description.map { " for \($0)" } ?? "")",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: false,
-            onSave: { save() },
-            onReset: nil,
-            showReset: false,
-            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 managedBody
             },
@@ -85,6 +74,14 @@ struct OAuthProviderServiceCard: View {
             store.fetchYourOwnOAuthApps(providerKey: providerKey)
             if store.managedOAuthModeFor(providerKey) == "managed" {
                 Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
+            }
+        }
+        .onChange(of: draftMode) { _, newMode in
+            // Auto-persist mode changes immediately so there is no
+            // stranded unsaved state — the segmented control is the
+            // only editable affordance on this card.
+            if newMode != store.managedOAuthModeFor(providerKey) {
+                store.setManagedOAuthMode(newMode, providerKey: providerKey)
             }
         }
         .onChange(of: store.managedOAuthModeFor(providerKey)) { _, newValue in
@@ -504,11 +501,4 @@ struct OAuthProviderServiceCard: View {
         return formatter.string(from: date)
     }
 
-    // MARK: - Save
-
-    private func save() {
-        if draftMode != store.managedOAuthModeFor(providerKey) {
-            store.setManagedOAuthMode(draftMode, providerKey: providerKey)
-        }
-    }
 }

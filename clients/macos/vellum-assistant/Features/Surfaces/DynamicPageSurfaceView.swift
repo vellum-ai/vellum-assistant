@@ -446,34 +446,43 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
             let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
             let appDir = appsDirectory.appendingPathComponent(localDir)
-            let distIndex = appDir.appendingPathComponent("dist/index.html")
-            let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
+            let appDirExists = FileManager.default.fileExists(atPath: appDir.path)
 
-            if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
-                // Multifile app whose dist/ hasn't been compiled yet — show a
-                // "building" placeholder that auto-retries by navigating to the
-                // scheme URL (not reload, which would just re-render this inline HTML).
-                let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
+            if !appDirExists {
+                // App directory not on host (e.g. Docker instance) — load
+                // the HTML returned by the open API inline.
                 let origin = "vellumapp://\(localDir)/"
-                let buildingHTML = """
-                <!DOCTYPE html><html><head><meta charset="UTF-8">
-                <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
-                font-family:system-ui;color:#666;background:#fafafa}
-                .c{text-align:center}.spin{animation:r 1s linear infinite;font-size:24px;display:inline-block}
-                @keyframes r{to{transform:rotate(360deg)}}
-                button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
-                background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
-                </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
-                <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
-                <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
-                """
-                webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
+                webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
-                let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
-                    ? "dist/index.html"
-                    : "index.html"
-                let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
-                webView.load(URLRequest(url: schemeURL))
+                let distIndex = appDir.appendingPathComponent("dist/index.html")
+                let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
+
+                if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
+                    // Multifile app whose dist/ hasn't been compiled yet — show a
+                    // "building" placeholder that auto-retries by navigating to the
+                    // scheme URL (not reload, which would just re-render this inline HTML).
+                    let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
+                    let origin = "vellumapp://\(localDir)/"
+                    let buildingHTML = """
+                    <!DOCTYPE html><html><head><meta charset="UTF-8">
+                    <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
+                    font-family:system-ui;color:#666;background:#fafafa}
+                    .c{text-align:center}.spin{animation:r 1s linear infinite;font-size:24px;display:inline-block}
+                    @keyframes r{to{transform:rotate(360deg)}}
+                    button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
+                    background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
+                    </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
+                    <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
+                    <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
+                    """
+                    webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
+                } else {
+                    let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
+                        ? "dist/index.html"
+                        : "index.html"
+                    let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
+                    webView.load(URLRequest(url: schemeURL))
+                }
             }
         } else {
             // Ephemeral surface — inline HTML
