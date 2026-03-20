@@ -86,7 +86,7 @@ struct AssistantUpgradeSection: View {
     }
 
     var body: some View {
-        SettingsCard(title: "Software Update", subtitle: topologySubtitle) {
+        SettingsCard(title: "Assistant Version", subtitle: topologySubtitle) {
             // Version info — always visible
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if topology == .local {
@@ -203,7 +203,7 @@ struct AssistantUpgradeSection: View {
 
             HStack(spacing: VSpacing.md) {
                 if topology == .local {
-                    VButton(label: "Check for App Updates", style: .outlined) {
+                    VButton(label: "Check for Updates", style: .outlined) {
                         AppDelegate.shared?.updateManager.checkForUpdates()
                     }
                 } else if topology != .remote {

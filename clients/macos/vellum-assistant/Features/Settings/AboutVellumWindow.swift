@@ -1,14 +1,34 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// Result of an in-place update check in the About panel.
+private enum UpdateCheckResult {
+    case upToDate
+    case updateAvailable(version: String)
+    case error
+}
+
 /// Custom About Vellum panel that replaces the native macOS About panel.
 /// Shows the app icon, client version, service group version with topology
-/// label, commit SHA, architecture, and a "Check for Updates..." button.
+/// label, commit SHA, architecture, and an in-place "Check for Updates" button.
 @MainActor
 struct AboutVellumView: View {
     @State private var healthz: DaemonHealthz?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+    @State private var isCheckingForUpdates = false
+    @State private var updateCheckResult: UpdateCheckResult?
+
+    /// The current assistant's topology.
+    private var topology: AssistantTopology {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
+            return .local
+        }
+        return assistant.isDocker ? .docker
+            : assistant.isManaged ? .managed
+            : assistant.cloud.lowercased() == "local" ? .local
+            : .remote
+    }
 
     /// Whether the client and service group versions match.
     private var versionsMatch: Bool {
@@ -43,10 +63,16 @@ struct AboutVellumView: View {
                     .foregroundColor(VColor.contentSecondary)
             }
 
-            Divider()
+            // Service Group Version — only for non-local topologies
+            if topology != .local {
+                Divider()
+                serviceGroupRow
+            }
 
-            // Service Group Version with topology label
-            serviceGroupRow
+            // Update check result (Docker/managed only)
+            if topology != .local {
+                updateCheckResultView
+            }
 
             Divider()
 
@@ -67,11 +93,13 @@ struct AboutVellumView: View {
             }
             #endif
 
-            // Check for Updates button — uses topology-aware routing:
-            // local triggers Sparkle directly, Docker/managed opens Settings > General.
-            VButton(label: "Check for Updates...", style: .outlined) {
-                AppDelegate.shared?.aboutWindow?.close()
-                AppDelegate.shared?.checkForUpdates()
+            // Check for Updates button — handles check in-place
+            VButton(
+                label: isCheckingForUpdates ? "Checking..." : "Check for Updates",
+                style: .outlined,
+                isDisabled: isCheckingForUpdates
+            ) {
+                Task { await performUpdateCheck() }
             }
         }
         .frame(width: 320)
@@ -100,15 +128,9 @@ struct AboutVellumView: View {
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
-                if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
-                    let topo: AssistantTopology = assistant.isDocker ? .docker
-                        : assistant.isManaged ? .managed
-                        : assistant.cloud.lowercased() == "local" ? .local
-                        : .remote
-                    Text("(\(topologyLabel(topo)))")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
+                Text("(\(topologyLabel(topology)))")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
 
                 if versionsMatch {
                     VIconView(.circleCheck, size: 14)
@@ -116,8 +138,45 @@ struct AboutVellumView: View {
                 }
             } else {
                 Text("Not connected")
-                    .font(VFont.body)
+                    .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
+            }
+        }
+    }
+
+    // MARK: - Update Check Result
+
+    @ViewBuilder
+    private var updateCheckResultView: some View {
+        if let result = updateCheckResult {
+            switch result {
+            case .upToDate:
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.circleCheck, size: 12)
+                        .foregroundColor(VColor.systemPositiveStrong)
+                    Text("You are on the latest version.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemPositiveStrong)
+                }
+            case .updateAvailable(let version):
+                VStack(spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Update available:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text(version)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                    VButton(label: "Update in Settings", style: .outlined) {
+                        AppDelegate.shared?.aboutWindow?.close()
+                        AppDelegate.shared?.showSettingsTab("General")
+                    }
+                }
+            case .error:
+                Text("Could not check for updates.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
@@ -163,6 +222,40 @@ struct AboutVellumView: View {
         case .managed: return "Managed"
         case .local: return "Local"
         case .remote: return "Remote"
+        }
+    }
+
+    // MARK: - Update Check
+
+    private func performUpdateCheck() async {
+        updateCheckResult = nil
+
+        switch topology {
+        case .local:
+            // Local: delegate to Sparkle which handles its own UI
+            AppDelegate.shared?.updateManager.checkForUpdates()
+
+        case .docker, .managed:
+            // Docker/managed: check platform API and show result inline
+            isCheckingForUpdates = true
+            defer { isCheckingForUpdates = false }
+
+            await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
+
+            if let updateManager = AppDelegate.shared?.updateManager {
+                if updateManager.isServiceGroupUpdateAvailable,
+                   let version = updateManager.serviceGroupUpdateVersion {
+                    updateCheckResult = .updateAvailable(version: version)
+                } else {
+                    updateCheckResult = .upToDate
+                }
+            } else {
+                updateCheckResult = .error
+            }
+
+        case .remote:
+            // Remote: no automatic update mechanism
+            break
         }
     }
 
