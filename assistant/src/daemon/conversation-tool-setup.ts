@@ -23,7 +23,6 @@ import {
 import { isAllowDecision } from "../permissions/types.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getEffectiveMode } from "../runtime/conversation-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -233,110 +232,6 @@ export function createToolExecutor(
           params.allowedTools,
           params.allowedDomains,
         );
-      },
-      requestConfirmation: async (req) => {
-        // Check trust store before prompting
-        const existingRule = findHighestPriorityRule(
-          "cc:" + req.toolName,
-          [req.toolName, `cc:${req.toolName}`, "cc:*"],
-          ctx.workingDir,
-        );
-        if (existingRule && existingRule.decision !== "ask") {
-          return {
-            decision:
-              existingRule.decision === "allow"
-                ? ("allow" as const)
-                : ("deny" as const),
-          };
-        }
-        // Auto-approve sub-tool confirmations when a temporary approval
-        // override is active for this conversation (guardian only).
-        const guardianTrust = ctx.trustContext?.trustClass ?? "unknown";
-        if (
-          guardianTrust === "guardian" &&
-          getEffectiveMode(ctx.conversationId) !== undefined
-        ) {
-          return { decision: "allow" as const };
-        }
-        const allowlistOptions = [
-          {
-            label: `cc:${req.toolName}`,
-            description: `Claude Code ${req.toolName}`,
-            pattern: `cc:${req.toolName}`,
-          },
-          {
-            label: "cc:*",
-            description: "All Claude Code sub-tools",
-            pattern: "cc:*",
-          },
-        ];
-        const scopeOptions = generateScopeOptions(ctx.workingDir);
-        const response = await prompter.prompt(
-          `cc:${req.toolName}`,
-          req.input,
-          req.riskLevel,
-          allowlistOptions,
-          scopeOptions,
-          undefined,
-          undefined,
-          ctx.conversationId,
-          req.executionTarget,
-          undefined,
-          undefined,
-          undefined,
-          toolUseId,
-        );
-        if (
-          (response.decision === "always_allow" ||
-            response.decision === "always_allow_high_risk") &&
-          response.selectedPattern &&
-          response.selectedScope
-        ) {
-          log.info(
-            {
-              toolName: "cc:" + req.toolName,
-              pattern: response.selectedPattern,
-              scope: response.selectedScope,
-              highRisk: response.decision === "always_allow_high_risk",
-            },
-            "Persisting always-allow trust rule",
-          );
-          addRule(
-            "cc:" + req.toolName,
-            response.selectedPattern,
-            response.selectedScope,
-            "allow",
-            100,
-            response.decision === "always_allow_high_risk"
-              ? { allowHighRisk: true }
-              : undefined,
-          );
-        }
-        if (
-          response.decision === "always_deny" &&
-          response.selectedPattern &&
-          response.selectedScope
-        ) {
-          log.info(
-            {
-              toolName: "cc:" + req.toolName,
-              pattern: response.selectedPattern,
-              scope: response.selectedScope,
-            },
-            "Persisting always-deny trust rule",
-          );
-          addRule(
-            "cc:" + req.toolName,
-            response.selectedPattern,
-            response.selectedScope,
-            "deny",
-          );
-        }
-        return {
-          decision: isAllowDecision(response.decision)
-            ? ("allow" as const)
-            : ("deny" as const),
-        };
       },
     };
 
