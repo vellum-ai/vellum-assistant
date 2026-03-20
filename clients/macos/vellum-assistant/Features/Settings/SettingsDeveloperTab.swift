@@ -1045,9 +1045,14 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
             } else {
-                ForEach(filteredUnifiedFlags) { flag in
-                    unifiedFlagRow(flag: flag)
+                ScrollView {
+                    VStack(spacing: VSpacing.sm) {
+                        ForEach(filteredUnifiedFlags) { flag in
+                            unifiedFlagRow(flag: flag)
+                        }
+                    }
                 }
+                .frame(maxHeight: 400)
             }
         }
     }
