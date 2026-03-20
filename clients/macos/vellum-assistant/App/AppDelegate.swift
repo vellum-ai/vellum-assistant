@@ -463,9 +463,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
-        // Reload avatar after reconnecting so that logout→re-login cycles
-        // repopulate the dock icon (resetForDisconnect clears it on logout).
-        AvatarAppearanceManager.shared.reloadAvatar()
         setupMenuBar()
         setupFileMenu()
         patchAppMenuTitles()
@@ -517,6 +514,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let ready = await awaitDaemonReady(timeout: 15)
 
                 if ready {
+                    // Gateway is healthy — reload the avatar now so it
+                    // reflects the user's saved image instead of the
+                    // bundled Vellum logo.
+                    AvatarAppearanceManager.shared.reloadAvatar()
+
                     // Record lifecycle telemetry events (fire-and-forget).
                     Task { await self.telemetryClient.recordLifecycleEvent("hatch") }
                     Task { await self.telemetryClient.recordLifecycleEvent("app_open") }
@@ -553,6 +555,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             Task {
                 let ready = await awaitDaemonReady(timeout: 10)
                 if ready {
+                    // Gateway is healthy — reload the avatar so
+                    // logout→re-login cycles repopulate the dock icon.
+                    AvatarAppearanceManager.shared.reloadAvatar()
                     await self.telemetryClient.recordLifecycleEvent("app_open")
                 }
             }
