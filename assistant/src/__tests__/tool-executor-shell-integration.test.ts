@@ -330,7 +330,7 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     expect(patterns).toContain("action:git");
   });
 
-  test("pipeline command produces only exact option", async () => {
+  test("pipeline command produces exact + action-key options", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -343,9 +343,11 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
 
-    // Pipelines are complex commands — only exact option, no action keys
-    expect(allowlist!.length).toBe(1);
+    // Pipelines now produce exact option + action key options
+    expect(allowlist!.length).toBeGreaterThanOrEqual(2);
     expect(allowlist![0].pattern).toBe("cat file.txt | grep error");
     expect(allowlist![0].description).toContain("compound");
+    // Action keys from the first segment before the pipe
+    expect(allowlist!.some((o) => o.pattern.startsWith("action:"))).toBe(true);
   });
 });

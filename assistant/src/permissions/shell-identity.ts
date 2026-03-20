@@ -105,8 +105,10 @@ export async function analyzeShellCommand(
  *   - action:gh pr
  *   - action:gh
  *
- * Only "simple action" commands (optional setup prefix + one action) get
- * action keys. Pipelines and complex chains are marked non-simple.
+ * Simple actions (optional setup prefix + one action) and pipelines get
+ * action keys. Both are marked non-simple when they involve pipes, but
+ * pipelines extract keys from the first segment before the first pipe.
+ * Complex chains (semicolons, ||, &, newlines) get no action keys.
  */
 export function deriveShellActionKeys(
   analysis: ShellIdentityAnalysis,
@@ -117,17 +119,21 @@ export function deriveShellActionKeys(
     return { keys: [], isSimpleAction: false };
   }
 
-  // For multi-segment commands, only allow simple-action classification if
-  // ALL inter-segment operators are explicitly &&. Any other operator (|, ||,
-  // ;, &, empty/missing) means the separator is unknown or unsafe.
-  // This safely handles cases where the parser doesn't capture certain
-  // separators (;, newline, &) and leaves them as empty operators.
+  // For multi-segment commands, check operators to determine the command shape.
+  // Pipes (|) get special handling — we can extract action keys from the first
+  // segment before the pipe. Other complex operators (||, ;, &, empty/missing)
+  // are truly opaque and get no action keys.
   if (segments.length > 1) {
+    let hasPipe = false;
+
     for (const seg of segments) {
       const op = seg.operator;
-      // Non-empty operator that isn't && → definitely complex
-      if (op && op !== "&&") {
+      // Non-empty operator that isn't && or | → definitely complex, no keys
+      if (op && op !== "&&" && op !== "|") {
         return { keys: [], isSimpleAction: false };
+      }
+      if (op === "|") {
+        hasPipe = true;
       }
     }
     // Also check: if there are multiple segments but no operators at all
@@ -139,6 +145,42 @@ export function deriveShellActionKeys(
       if (!segments[i].operator) {
         return { keys: [], isSimpleAction: false };
       }
+    }
+
+    // For pipelines, extract action keys from the first non-setup-prefix segment
+    // before the first pipe. This enables broader "Any pdftotext command" rules
+    // that match pipelines like "pdftotext file | head -100".
+    if (hasPipe) {
+      const firstPipeIndex = segments.findIndex((s) => s.operator === "|");
+      if (firstPipeIndex > 0) {
+        const preSegments = segments.slice(0, firstPipeIndex);
+        const actionSegs = preSegments.filter(
+          (s) => !SETUP_PREFIX_PROGRAMS.has(s.program),
+        );
+        if (actionSegs.length === 1) {
+          const seg = actionSegs[0];
+          const tokens: string[] = [seg.program];
+          for (const arg of seg.args) {
+            if (tokens.length >= MAX_ACTION_KEY_DEPTH) break;
+            if (arg.startsWith("-")) continue;
+            if (arg.includes("/") || arg.startsWith(".")) continue;
+            if (/^\d+$/.test(arg)) continue;
+            if (arg.includes("$") || arg.includes('"') || arg.includes("'"))
+              continue;
+            tokens.push(arg);
+          }
+          const keys: ShellActionKey[] = [];
+          for (let depth = tokens.length; depth >= 1; depth--) {
+            keys.push({
+              key: `action:${tokens.slice(0, depth).join(" ")}`,
+              depth,
+            });
+          }
+          return { keys, isSimpleAction: false, primarySegment: seg };
+        }
+      }
+      // Pipeline but couldn't extract a single primary action — no keys
+      return { keys: [], isSimpleAction: false };
     }
   }
 
@@ -190,9 +232,10 @@ export function deriveShellActionKeys(
  * Candidate ordering:
  *   1. Raw command (most specific match — the full command as written)
  *   2. Canonical primary command (if simple action) — the full primary segment text
- *   3. Action keys from narrowest to broadest (if simple action)
+ *   3. Action keys from narrowest to broadest (if simple action or pipeline)
  *
- * Complex commands (pipelines, multi-action chains) only return the raw candidate.
+ * Complex non-pipeline commands (multi-action chains, semicolons, etc.) only
+ * return the raw candidate.
  */
 export async function buildShellCommandCandidates(
   command: string,
@@ -206,14 +249,15 @@ export async function buildShellCommandCandidates(
 
   const candidates: string[] = [trimmed];
 
-  if (actionResult.isSimpleAction && actionResult.primarySegment) {
-    // Add canonical primary command text (the actual segment, not the full command with setup prefixes)
-    const canonical = actionResult.primarySegment.command;
-    if (canonical !== trimmed) {
-      candidates.push(canonical);
+  // Add action keys as candidates if available (simple actions AND pipelines)
+  if (actionResult.keys.length > 0) {
+    // For simple actions, also add the canonical primary command text
+    if (actionResult.isSimpleAction && actionResult.primarySegment) {
+      const canonical = actionResult.primarySegment.command;
+      if (canonical !== trimmed) {
+        candidates.push(canonical);
+      }
     }
-
-    // Add action keys
     for (const actionKey of actionResult.keys) {
       candidates.push(actionKey.key);
     }
@@ -231,8 +275,9 @@ export async function buildShellCommandCandidates(
  *   2. Deepest action key (e.g. "action:gh pr view")
  *   3. Broader action keys (e.g. "action:gh pr", "action:gh")
  *
- * For complex commands (pipelines, multi-action chains), only the exact
- * command is offered (no broad options).
+ * For pipelines, the exact command plus action-key-based broader options
+ * are offered. For other complex commands (multi-action chains, semicolons,
+ * etc.), only the exact command is offered.
  */
 export async function buildShellAllowlistOptions(
   command: string,
@@ -244,14 +289,23 @@ export async function buildShellAllowlistOptions(
   const actionResult = deriveShellActionKeys(analysis);
 
   if (!actionResult.isSimpleAction || !actionResult.primarySegment) {
-    // Complex command — exact only
-    return [
+    const options: AllowlistOption[] = [
       {
         label: trimmed,
         description: "This exact compound command",
         pattern: trimmed,
       },
     ];
+    // If pipeline action keys were extracted, offer them as broader options
+    for (const actionKey of actionResult.keys) {
+      const keyTokens = actionKey.key.replace(/^action:/, "");
+      options.push({
+        label: `${keyTokens} *`,
+        description: `Any "${keyTokens}" command`,
+        pattern: actionKey.key,
+      });
+    }
+    return options;
   }
 
   const options: AllowlistOption[] = [];

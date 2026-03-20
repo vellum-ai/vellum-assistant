@@ -1606,13 +1606,15 @@ describe("Permission Checker", () => {
       expect(options[0].description).toContain("compound");
     });
 
-    test("compound command via pipeline yields exact-only allowlist option", async () => {
+    test("compound command via pipeline yields exact + action-key allowlist options", async () => {
       const options = await generateAllowlistOptions("bash", {
         command: "git log | grep fix",
       });
-      expect(options).toHaveLength(1);
+      expect(options.length).toBeGreaterThanOrEqual(2);
       expect(options[0].description).toContain("compound");
       expect(options[0].pattern).toBe("git log | grep fix");
+      // Pipeline action keys should be offered as broader options
+      expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
     });
 
     test("compound command via && yields exact-only allowlist option", async () => {
