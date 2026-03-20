@@ -304,6 +304,14 @@
       "label": "Sounds",
       "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
       "defaultEnabled": true
+    },
+    {
+      "id": "message-tts",
+      "scope": "assistant",
+      "key": "feature_flags.message-tts.enabled",
+      "label": "Message Text-to-Speech",
+      "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
+      "defaultEnabled": false
     }
   ]
 }
