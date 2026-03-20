@@ -64,7 +64,7 @@ mock.module("../memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 4000,
 }));
 mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => emptyRecall,
+  buildMemoryRecall: async () => _emptyRecall,
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
