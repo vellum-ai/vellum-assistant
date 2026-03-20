@@ -224,6 +224,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
+      "platform/client.ts", // platform client keychain fallback for standalone CLI auth
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
       "runtime/routes/integrations/slack/share.ts", // Slack share routes credential lookup
       "mcp/client.ts", // MCP client cached-token lookup
