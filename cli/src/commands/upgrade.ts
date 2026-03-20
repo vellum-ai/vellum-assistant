@@ -285,20 +285,6 @@ async function upgradeDocker(
   await exec("docker", ["pull", imageTags["credential-executor"]]);
   console.log("✅ Docker images pulled\n");
 
-  // Notify connected clients that an upgrade is about to begin.
-  console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "starting",
-    targetVersion: versionTag,
-    expectedDowntimeSeconds: 60,
-  });
-  // Brief pause to allow SSE delivery before containers stop.
-  await new Promise((r) => setTimeout(r, 500));
-
-  console.log("🛑 Stopping existing containers...");
-  await stopContainers(res);
-  console.log("✅ Containers stopped\n");
-
   // Parse gateway port from entry's runtimeUrl, fall back to default
   let gatewayPort = GATEWAY_INTERNAL_PORT;
   try {
@@ -320,11 +306,27 @@ async function upgradeDocker(
 
   // Retrieve or generate a bootstrap secret for the gateway. The secret was
   // persisted to disk during hatch; older instances won't have one yet.
+  // This runs BEFORE stopping containers so a write failure (disk full,
+  // permissions) doesn't leave the assistant offline.
   const loadedSecret = loadBootstrapSecret(instanceName);
   const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
   if (!loadedSecret) {
     saveBootstrapSecret(instanceName, bootstrapSecret);
   }
+
+  // Notify connected clients that an upgrade is about to begin.
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "starting",
+    targetVersion: versionTag,
+    expectedDowntimeSeconds: 60,
+  });
+  // Brief pause to allow SSE delivery before containers stop.
+  await new Promise((r) => setTimeout(r, 500));
+
+  console.log("🛑 Stopping existing containers...");
+  await stopContainers(res);
+  console.log("✅ Containers stopped\n");
 
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
