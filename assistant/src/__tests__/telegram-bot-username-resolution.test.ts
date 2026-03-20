@@ -38,7 +38,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (_keyId: string) => mockSecureKey,
+  getSecureKeyAsync: async (_keyId: string) => ({
+    value: mockSecureKey,
+    unreachable: false,
+  }),
 }));
 
 // Suppress logger output during tests

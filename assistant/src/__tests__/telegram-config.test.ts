@@ -33,8 +33,10 @@ mock.module("../daemon/handlers/shared.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (account: string) =>
-    secureKeyStore[account] ?? undefined,
+  getSecureKeyAsync: async (account: string) => ({
+    value: secureKeyStore[account],
+    unreachable: false,
+  }),
   setSecureKeyAsync: async (account: string, value: string) => {
     secureKeyStore[account] = value;
     return true;

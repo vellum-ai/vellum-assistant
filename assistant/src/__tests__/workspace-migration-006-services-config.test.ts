@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => null,
-  getSecureKeyAsync: async () => null,
+  getSecureKeyAsync: async () => ({ value: undefined, unreachable: false }),
 }));
 
 import { servicesConfigMigration } from "../workspace/migrations/006-services-config.js";

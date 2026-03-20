@@ -154,7 +154,10 @@ mock.module("../oauth/oauth-store.js", () => ({
 
 // Stub out transitive dependencies that token-manager would normally pull in
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (account: string) => mockGetSecureKey(account),
+  getSecureKeyAsync: async (account: string) => ({
+    value: await mockGetSecureKey(account),
+    unreachable: false,
+  }),
   setSecureKeyAsync: async () => true,
   deleteSecureKeyAsync: async (account: string) => {
     if (secureKeyStore.has(account)) {

@@ -103,7 +103,7 @@ mock.module("../calls/twilio-config.js", () => ({
 
 // Mock secure keys
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => null,
+  getSecureKeyAsync: async () => ({ value: undefined, unreachable: false }),
 }));
 
 mock.module("../calls/voice-ingress-preflight.js", () => ({

@@ -34,7 +34,10 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
   setSecureKeyAsync: mockSetSecureKeyAsync,
   getSecureKeyAsync: (account: string) =>
-    Promise.resolve(secureKeyValues.get(account)),
+    Promise.resolve({
+      value: secureKeyValues.get(account),
+      unreachable: false,
+    }),
 }));
 
 import { eq } from "drizzle-orm";
