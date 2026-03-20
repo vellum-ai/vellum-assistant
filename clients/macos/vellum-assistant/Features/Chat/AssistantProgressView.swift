@@ -152,7 +152,7 @@ struct AssistantProgressView: View {
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
-    @State private var isExpanded: Bool = false
+    @State private var isExpanded: Bool
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
@@ -196,6 +196,12 @@ struct AssistantProgressView: View {
             toolCalls: toolCalls,
             decidedConfirmations: decidedConfirmations
         ))
+        let derived = _derived.wrappedValue
+        let isComplete = derived.hasTools && derived.allComplete
+        let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
+        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        let shouldAutoExpand = (isComplete || isDenied) && expandFlag
+        _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
     }
 
     // MARK: - Derived State (reads from cached DerivedProgressState)
