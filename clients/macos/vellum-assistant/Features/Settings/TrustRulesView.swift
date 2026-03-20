@@ -40,9 +40,9 @@ struct TrustRulesView: View {
                 Spacer()
                 VStack(spacing: VSpacing.sm) {
                     VIconView(.shieldOff, size: 32)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("No trust rules configured")
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 Spacer()
             } else {
@@ -152,14 +152,14 @@ private struct TrustRuleRow: View {
                 }
                 Text(rule.pattern)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                 HStack(spacing: VSpacing.sm) {
                     Text(rule.scope == "" || rule.scope == "*" ? "everywhere" : rule.scope)
                     Text("priority \(rule.priority)")
                 }
                     .font(VFont.small)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(1)
             }
             .textSelection(.enabled)

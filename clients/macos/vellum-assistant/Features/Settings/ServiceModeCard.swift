@@ -43,7 +43,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
             HStack {
                 Text(title)
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
                 Spacer()
                 VSegmentedControl(
                     items: [
@@ -57,7 +57,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
             }
             Text(subtitle)
                 .font(VFont.sectionDescription)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 }
