@@ -24,9 +24,10 @@ import { getRootDir } from "../util/platform.js";
 const log = getLogger("keychain-broker-client");
 
 const REQUEST_TIMEOUT_MS = 5_000;
+const CONNECT_TIMEOUT_MS = 3_000;
 
-/** Cooldown periods (ms) after consecutive connection failures: 30s, 60s, 2min, 5min, then cap at 5min. */
-const RECONNECT_COOLDOWN_MS = [30_000, 60_000, 120_000, 300_000];
+/** Cooldown periods (ms) after consecutive connection failures: 5s, 15s, 30s, 60s, 5min, then cap at 5min. */
+const RECONNECT_COOLDOWN_MS = [5_000, 15_000, 30_000, 60_000, 300_000];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,7 +192,13 @@ export function createBrokerClient(): KeychainBrokerClient {
 
       const sock = createConnection({ path: socketPath });
 
+      const connectTimer = setTimeout(() => {
+        sock.destroy();
+        reject(new Error("Connect timeout"));
+      }, CONNECT_TIMEOUT_MS);
+
       sock.on("connect", () => {
+        clearTimeout(connectTimer);
         socket = sock;
         consecutiveFailures = 0;
         unavailableSince = null;
@@ -199,6 +206,7 @@ export function createBrokerClient(): KeychainBrokerClient {
       });
 
       sock.on("error", (err) => {
+        clearTimeout(connectTimer);
         log.warn({ err }, "Keychain broker socket error");
         cleanupSocket();
         reject(err);
@@ -213,7 +221,7 @@ export function createBrokerClient(): KeychainBrokerClient {
   }
 
   /** Compute the cooldown duration for the current failure count. The first
-   *  two failures (initial + immediate retry) map to index 0 (30s). */
+   *  two failures (initial + immediate retry) map to index 0 (5s). */
   function getCooldownMs(): number {
     const idx = Math.min(
       Math.max(consecutiveFailures - 2, 0),
