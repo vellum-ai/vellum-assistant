@@ -83,7 +83,7 @@ ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
-USER assistant
+USER root
 
 EXPOSE 3001
 
