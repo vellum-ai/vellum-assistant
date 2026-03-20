@@ -28,8 +28,8 @@ const logger = getLogger("messages-fts");
  * ## Auto-recovery from corruption
  *
  * After creating (or finding an existing) messages_fts table, we probe it
- * with an `integrity-check` command that validates the FTS index shadow
- * tables (_idx, _docsize, _content, etc.). If the probe throws
+ * with the FTS5 `integrity-check` command (no-rank form, which always
+ * throws on corruption rather than returning rows). If the probe throws
  * SQLITE_CORRUPT_VTAB or SQLITE_CORRUPT, we drop the virtual table and
  * recreate it. The subsequent `migrateMessagesFtsBackfill` call in
  * db-init.ts will repopulate the index from the messages table — no
@@ -50,7 +50,7 @@ export function createMessagesFts(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
   try {
     raw.exec(
-      `INSERT INTO messages_fts(messages_fts, rank) VALUES ('integrity-check', 1)`,
+      `INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')`,
     );
   } catch (err: unknown) {
     const code =
