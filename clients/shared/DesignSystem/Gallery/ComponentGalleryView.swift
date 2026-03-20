@@ -170,7 +170,7 @@ struct ComponentGalleryView: View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 Text("Component Gallery")
-                    .font(VFont.headlineMedium)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentDefault)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.md)
