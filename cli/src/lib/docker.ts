@@ -17,6 +17,7 @@ import type { Species } from "./constants";
 import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
+import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner";
 import {
   closeLogFile,
@@ -1074,14 +1075,16 @@ export async function hatchDocker(
     } else {
       const version = cliPkg.version;
       const versionTag = version ? `v${version}` : "latest";
-      imageTags.assistant = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
-      imageTags.gateway = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
+      log("🔍 Resolving image references...");
+      const resolved = await resolveImageRefs(versionTag, log);
+      imageTags.assistant = resolved.imageTags.assistant;
+      imageTags.gateway = resolved.imageTags.gateway;
       imageTags["credential-executor"] =
-        `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
+        resolved.imageTags["credential-executor"];
 
       log(`🥚 Hatching Docker assistant: ${instanceName}`);
       log(`   Species: ${species}`);
-      log(`   Images:`);
+      log(`   Images (${resolved.source}):`);
       log(`     assistant:            ${imageTags.assistant}`);
       log(`     gateway:              ${imageTags.gateway}`);
       log(`     credential-executor:  ${imageTags["credential-executor"]}`);
@@ -1132,7 +1135,14 @@ export async function hatchDocker(
     const bootstrapSecret = randomBytes(32).toString("hex");
     saveBootstrapSecret(instanceName, bootstrapSecret);
     await startContainers(
-      { bootstrapSecret, cesServiceToken, gatewayPort, imageTags, instanceName, res },
+      {
+        bootstrapSecret,
+        cesServiceToken,
+        gatewayPort,
+        imageTags,
+        instanceName,
+        res,
+      },
       log,
     );
 
