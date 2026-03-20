@@ -139,13 +139,13 @@ final class AvatarAppearanceManager {
         }
         updateDockLabel()
 
-        // Fire-and-forget: fetch character component definitions from the
-        // daemon and populate AvatarComponentStore.shared so downstream
+        // Fire-and-forget: fetch character component definitions via the
+        // gateway and populate AvatarComponentStore.shared so downstream
         // code can look up definitions by ID. Avatar rendering requires
         // the component store to be populated; safe defaults are used
         // during the pre-fetch window.
         Task { [weak self] in
-            await self?.fetchComponentsFromDaemon()
+            await self?.fetchComponents()
         }
 
         // Refresh assistantName and invalidate cached fallback avatars when
@@ -171,20 +171,13 @@ final class AvatarAppearanceManager {
         }
     }
 
-    // MARK: - Daemon Component Fetch
+    // MARK: - Component Fetch
 
-    /// Fetches the canonical character component definitions from the daemon
+    /// Fetches the canonical character component definitions via the gateway
     /// and populates `AvatarComponentStore.shared` for O(1) lookups.
     /// Fails silently — avatar rendering uses safe defaults until the store is populated.
-    private func fetchComponentsFromDaemon() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-              let assistant = LockfileAssistant.loadByName(assistantId) else {
-            log.info("No connected assistant — skipping daemon component fetch")
-            return
-        }
-
-        let port = assistant.resolvedDaemonPort()
-        if let response = await AvatarComponentService.fetch(port: port) {
+    private func fetchComponents() async {
+        if let response = await AvatarComponentService.fetch() {
             AvatarComponentStore.shared.load(response)
         }
     }
