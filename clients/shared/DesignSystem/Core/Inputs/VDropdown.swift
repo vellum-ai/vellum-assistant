@@ -13,6 +13,8 @@ public struct VDropdown<T: Hashable>: View {
     public var label: String? = nil
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
+    /// Size variant controlling height, font, padding, and corner radius.
+    public var size: VInputSize = .regular
     /// The maximum width of the dropdown. Defaults to .infinity (fills available width).
     public var maxWidth: CGFloat = .infinity
     /// Optional leading icon displayed before the label text.
@@ -21,8 +23,6 @@ public struct VDropdown<T: Hashable>: View {
     public var optionIcon: ((T) -> VIcon?)? = nil
     /// Optional error message displayed below the dropdown.
     public var errorMessage: String? = nil
-    /// Size variant controlling height, font, padding, and corner radius.
-    public var size: VInputSize = .regular
 
     @Environment(\.isEnabled) private var isEnabled
 
@@ -32,22 +32,22 @@ public struct VDropdown<T: Hashable>: View {
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
+        size: VInputSize = .regular,
         maxWidth: CGFloat = .infinity,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
-        errorMessage: String? = nil,
-        size: VInputSize = .regular
+        errorMessage: String? = nil
     ) {
         self.label = label
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
+        self.size = size
         self.maxWidth = maxWidth
         self.icon = icon
         self.optionIcon = optionIcon
         self.errorMessage = errorMessage
-        self.size = size
     }
 
     private var selectedLabel: String? {
