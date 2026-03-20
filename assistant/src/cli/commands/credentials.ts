@@ -15,6 +15,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
+  getSecureKeyResultAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -608,10 +609,19 @@ Examples:
             return;
           }
 
-          const secret = await getSecureKeyAsync(storageKey);
+          const { value: secret, unreachable } =
+            await getSecureKeyResultAsync(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
-            writeOutput(cmd, { ok: false, error: "Credential not found" });
+            if (unreachable) {
+              writeOutput(cmd, {
+                ok: false,
+                error:
+                  "Keychain broker is unreachable — is the macOS app running?",
+              });
+            } else {
+              writeOutput(cmd, { ok: false, error: "Credential not found" });
+            }
             process.exitCode = 1;
             return;
           }
@@ -646,10 +656,21 @@ Examples:
 
           const connection = safeGetConnectionByProvider(metadata.service);
           const output = buildCredentialOutput(metadata, secret, connection);
+
+          if (unreachable && (secret == null || secret.length === 0)) {
+            output.scrubbedValue = "(broker unreachable)";
+            output.brokerUnreachable = true;
+          }
+
           writeOutput(cmd, output);
 
           if (!shouldOutputJson(cmd)) {
             printCredentialHuman(output);
+            if (unreachable && (secret == null || secret.length === 0)) {
+              log.info(
+                "    \u26A0 Keychain broker unreachable — secret may exist but cannot be retrieved",
+              );
+            }
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -725,10 +746,19 @@ Examples:
             return;
           }
 
-          const secret = await getSecureKeyAsync(storageKey);
+          const { value: secret, unreachable } =
+            await getSecureKeyResultAsync(storageKey);
 
           if (secret == null || secret.length === 0) {
-            writeOutput(cmd, { ok: false, error: "Credential not found" });
+            if (unreachable) {
+              writeOutput(cmd, {
+                ok: false,
+                error:
+                  "Keychain broker is unreachable — is the macOS app running?",
+              });
+            } else {
+              writeOutput(cmd, { ok: false, error: "Credential not found" });
+            }
             process.exitCode = 1;
             return;
           }

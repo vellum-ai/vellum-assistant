@@ -12,6 +12,7 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 let secureKeyStore = new Map<string, string>();
 let metadataStore: CredentialMetadata[] = [];
 let idCounter = 0;
+let mockBrokerUnreachable = false;
 
 function nextUUID(): string {
   idCounter += 1;
@@ -45,6 +46,12 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
     return secureKeyStore.get(account);
   },
+  getSecureKeyResultAsync: async (
+    account: string,
+  ): Promise<{ value: string | undefined; unreachable: boolean }> => ({
+    value: secureKeyStore.get(account),
+    unreachable: mockBrokerUnreachable,
+  }),
   _resetBackend: (): void => {},
 }));
 
@@ -264,6 +271,7 @@ describe("assistant credentials CLI", () => {
     secureKeyStore = new Map();
     metadataStore = [];
     idCounter = 0;
+    mockBrokerUnreachable = false;
     disconnectOAuthProviderCalls = [];
     disconnectOAuthProviderResult = "not-found";
     process.exitCode = 0;
@@ -870,6 +878,42 @@ describe("assistant credentials CLI", () => {
       expect(parsed.hasSecret).toBe(false);
       expect(parsed.scrubbedValue).toBe("(not set)");
     });
+
+    test("shows broker unreachable when metadata exists but broker is down", async () => {
+      seedMetadataOnly("twilio", "account_sid");
+      mockBrokerUnreachable = true;
+
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.scrubbedValue).toBe("(broker unreachable)");
+      expect(parsed.brokerUnreachable).toBe(true);
+    });
+
+    test("shows unreachable error when no metadata and broker is down", async () => {
+      mockBrokerUnreachable = true;
+
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "nonexistent",
+        "--field",
+        "field",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Keychain broker is unreachable");
+    });
   });
 
   // =========================================================================
@@ -968,6 +1012,40 @@ describe("assistant credentials CLI", () => {
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
+    });
+
+    test("returns unreachable error when broker is down", async () => {
+      mockBrokerUnreachable = true;
+
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Keychain broker is unreachable");
+    });
+
+    test("returns credential-not-found when broker is up", async () => {
+      mockBrokerUnreachable = false;
+
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "nonexistent",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toBe("Credential not found");
     });
   });
 
