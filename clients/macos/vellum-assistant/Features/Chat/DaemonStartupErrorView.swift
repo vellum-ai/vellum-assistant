@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 /// Shown when the daemon fails to start with a structured error.
 /// Displays a category-specific message, expandable technical details,
-/// and retry / send-logs actions.
+/// and retry / report-to-Vellum actions.
 struct DaemonStartupErrorView: View {
     let error: DaemonStartupError
     let onRetry: () -> Void
@@ -86,17 +86,17 @@ struct DaemonStartupErrorView: View {
     private func subtitleForCategory(_ category: String) -> String {
         switch category {
         case "MIGRATION_FAILED":
-            return "A database update failed. Sending logs will help us fix this."
+            return "A database update failed. Reporting to Vellum will help us fix this."
         case "PORT_IN_USE":
             return "Another process is using the assistant\u{2019}s port. Try quitting other apps and retrying."
         case "DB_LOCKED":
             return "The database is locked by another process. Try retrying in a moment."
         case "DB_CORRUPT":
-            return "The database appears to be corrupted. Please send logs so we can help."
+            return "The database appears to be corrupted. Reporting to Vellum will help us fix this."
         case "ENV_VALIDATION":
-            return "There\u{2019}s a configuration issue. Please send logs so we can help."
+            return "There\u{2019}s a configuration issue. Please report to Vellum so we can help."
         default:
-            return "Something unexpected happened. Sending logs will help us investigate."
+            return "Something unexpected happened. Reporting to Vellum will help us investigate."
         }
     }
 }
