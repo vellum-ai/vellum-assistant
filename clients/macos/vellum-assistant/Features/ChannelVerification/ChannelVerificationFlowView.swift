@@ -295,18 +295,9 @@ struct ChannelVerificationFlowView: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
 
-                        Button {
+                        VButton(label: "Open in Telegram", leftIcon: VIcon.externalLink.rawValue, style: .ghost, size: .inline) {
                             NSWorkspace.shared.open(url)
-                        } label: {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.externalLink, size: 12)
-                                Text("Open in Telegram")
-                                    .font(VFont.caption)
-                            }
-                            .foregroundColor(VColor.primaryBase)
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
                     }
                 }
             }
@@ -439,17 +430,11 @@ struct ChannelVerificationFlowView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
 
-                    Button {
+                    VButton(label: "Find yours \u{2192}", style: .ghost, size: .inline) {
                         if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
                             NSWorkspace.shared.open(url)
                         }
-                    } label: {
-                        Text("Find yours \u{2192}")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.primaryBase)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
                 }
             } else if state.channel == "phone" {
                 Text("This is your personal phone number")

@@ -3,8 +3,8 @@ import SwiftUI
 /// Renders a guardian decision prompt with actionable buttons in the chat UI.
 /// Supports multiple request kinds: `tool_approval`, `pending_question`, and
 /// `access_request`, each with a distinct header and accent color.
-/// Uses shared `ApprovalActionButton`, `GuardianApprovalActionRow`, and
-/// `ApprovalStatusRow` primitives from the unified approval UI layer.
+/// Uses `GuardianApprovalActionRow` (backed by `VButton`) and
+/// `ApprovalStatusRow` from the unified approval UI layer.
 public struct GuardianDecisionBubble: View {
     public let decision: GuardianDecisionData
     public let onAction: (String, String) -> Void
