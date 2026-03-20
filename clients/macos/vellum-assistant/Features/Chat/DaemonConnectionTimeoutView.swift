@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 /// Shown when the daemon loading skeleton times out without connecting.
 /// Displays an "unreachable" message with actions to retry, navigate to
-/// the developer settings tab, or send logs.
+/// the developer settings tab, or report to Vellum.
 struct DaemonConnectionTimeoutView: View {
     let onRetry: () -> Void
     let onGoToDeveloper: () -> Void

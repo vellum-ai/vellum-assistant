@@ -623,7 +623,7 @@ private struct ChatBootstrapLoadingView: View {
 
 /// Shown during first-launch bootstrap when the daemon fails to connect
 /// within the timeout window. Mirrors the hatch-failure pattern from
-/// onboarding: a centered error message with an option to send logs.
+/// onboarding: a centered error message with an option to report to Vellum.
 private struct ChatBootstrapTimeoutView: View {
     var onSendLogs: (() -> Void)?
 

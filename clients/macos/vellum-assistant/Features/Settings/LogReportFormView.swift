@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A sheet displayed before sending logs, letting the user pick a reason
+/// A sheet displayed for sharing feedback, letting the user pick a reason
 /// category, describe the issue, and provide an email for follow-up.
 @MainActor
 struct LogReportFormView: View {

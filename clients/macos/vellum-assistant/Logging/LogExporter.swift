@@ -67,9 +67,9 @@ enum LogExporter {
             let errorTitle: String
             switch formData.scope {
             case .conversation(_, let conversationTitle, _, _):
-                errorTitle = "\(formData.reason.displayName) log report (conversation: \(conversationTitle))"
+                errorTitle = "\(formData.reason.displayName) feedback (conversation: \(conversationTitle))"
             case .global:
-                errorTitle = "\(formData.reason.displayName) log report"
+                errorTitle = "\(formData.reason.displayName) feedback"
             }
             event.message = SentryMessage(formatted: errorTitle)
             // Set error so Sentry displays the error message (not "No error message provided").
