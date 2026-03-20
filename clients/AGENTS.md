@@ -26,11 +26,19 @@ When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), con
 ## SwiftUI and Apple Platform Practices
 - Follow SwiftUI data flow and state ownership; keep state minimal and localized.
 - Keep UI work on the main actor; use async/await and structured concurrency when possible.
-- Avoid deprecated APIs; use availability checks for multi-platform code.
+- Avoid deprecated APIs; use availability checks for multi-platform code. See the [Deprecated API Watchlist](#deprecated-api-watchlist) below for specific APIs to avoid.
 - Respect HIG defaults for layout, typography, and controls; only customize when user value is clear.
 - Accessibility is required: labels for icon-only controls, Dynamic Type support, VoiceOver-friendly order.
 - Localize user-facing strings; format dates/units with locale-aware formatters.
 - Privacy: request the minimum permissions; never log sensitive user content.
+
+### Deprecated API Watchlist
+
+APIs that still compile without warning but are deprecated by Apple. Do not introduce new usages; migrate existing usages opportunistically.
+
+| Deprecated | Replacement | Since | Why |
+|---|---|---|---|
+| `.foregroundColor()` | `.foregroundStyle()` | macOS 12 / iOS 15 | `.foregroundStyle()` accepts any `ShapeStyle` (gradients, materials, hierarchical styles), not just `Color`. Drop-in replacement for `Color` values. |
 
 ### State Management: @Observable vs ObservableObject
 
@@ -232,6 +240,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
 | `@Observable` dictionary as per-entity store | Any key mutation invalidates all views reading the dictionary | Use per-entity `@Observable` wrapper objects; mutate their properties instead of the dictionary |
 | GeometryReader on ScrollView `.background` measuring parent frame | Measures the ScrollView's proposed size (parent frame), not content intrinsic height — creates feedback loop where state derived from the measurement drives the frame that's being measured | Place GeometryReader on the *inner content* (inside the ScrollView), and reset all derived state (`contentHeight`, `isExpanded`) atomically when content clears |
+| `.foregroundColor(VColor.xxx)` | Deprecated since macOS 12 / iOS 15; compiles silently but doesn't support gradients or materials | Use `.foregroundStyle(VColor.xxx)` — drop-in replacement for `Color` values |
 
 </details>
 
