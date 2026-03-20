@@ -85,6 +85,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vTextEditor", "VTextEditor", ["text editor", "multiline"]),
                 ("vToggle", "VToggle", ["toggle", "switch"]),
                 ("vDropdown", "VDropdown", ["dropdown", "select", "picker"]),
+                ("combinedForm", "Combined Form", ["form", "combined"]),
             ]
         case .layout:
             return [
