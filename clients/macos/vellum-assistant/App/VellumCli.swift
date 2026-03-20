@@ -354,6 +354,45 @@ final class VellumCli {
         log.info("CLI sleep completed successfully for '\(name, privacy: .public)'")
     }
 
+    /// Upgrade a specific assistant via the CLI.
+    func upgrade(name: String, version: String? = nil) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping upgrade (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        let versionSuffix = version.map { " to \($0)" } ?? ""
+        log.info("Running upgrade via CLI for '\(name, privacy: .public)'\(versionSuffix, privacy: .public)")
+        var arguments = ["upgrade", name]
+        if let version {
+            arguments += ["--version", version]
+        }
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
+
+        if status != 0 {
+            log.error("CLI upgrade failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI upgrade completed successfully for '\(name, privacy: .public)'")
+    }
+
+    /// Roll back a specific Docker assistant to its previous version via the CLI.
+    func rollback(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping rollback (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        log.info("Running rollback via CLI for '\(name, privacy: .public)'")
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["rollback", name])
+
+        if status != 0 {
+            log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI rollback completed successfully for '\(name, privacy: .public)'")
+    }
+
     // MARK: - Remote Hatch (pass-through to CLI)
 
     struct RemoteHatchConfig {
