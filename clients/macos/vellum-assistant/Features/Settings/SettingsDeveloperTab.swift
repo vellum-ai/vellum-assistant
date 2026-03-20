@@ -561,8 +561,12 @@ struct SettingsDeveloperTab: View {
             dockerOperationLabel = "Upgrading assistant..."
             isDockerOperationInProgress = true
             defer { isDockerOperationInProgress = false }
+            guard let cli = AppDelegate.shared?.vellumCli else {
+                inlineUpgradeError = "CLI not available"
+                return
+            }
             do {
-                try await AppDelegate.shared?.vellumCli.upgrade(name: selectedAssistantId)
+                try await cli.upgrade(name: selectedAssistantId)
                 inlineUpgradeSuccess = "Upgrade complete."
                 await fetchHealthz()
             } catch {
@@ -598,8 +602,12 @@ struct SettingsDeveloperTab: View {
             dockerOperationLabel = "Rolling back assistant..."
             isDockerOperationInProgress = true
             defer { isDockerOperationInProgress = false }
+            guard let cli = AppDelegate.shared?.vellumCli else {
+                rollbackError = "CLI not available"
+                return
+            }
             do {
-                try await AppDelegate.shared?.vellumCli.rollback(name: selectedAssistantId)
+                try await cli.rollback(name: selectedAssistantId)
                 rollbackSuccess = "Rollback complete."
                 await fetchHealthz()
             } catch {
