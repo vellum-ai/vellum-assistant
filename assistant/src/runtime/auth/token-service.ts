@@ -59,24 +59,39 @@ function getSigningKeyPath(): string {
 }
 
 /**
+ * Load a signing key from disk. Returns the key buffer if found and valid,
+ * or undefined if the file does not exist or is invalid.
+ *
+ * Used in the Docker 403-fallback path where generating a new key would
+ * create a mismatch with the gateway's already-bootstrapped key.
+ */
+export function loadSigningKey(): Buffer | undefined {
+  const keyPath = getSigningKeyPath();
+  if (!existsSync(keyPath)) {
+    return undefined;
+  }
+  try {
+    const raw = readFileSync(keyPath);
+    if (raw.length === 32) {
+      log.info("Auth signing key loaded from disk");
+      return raw;
+    }
+    log.warn("Signing key file has unexpected length");
+    return undefined;
+  } catch (err) {
+    log.warn({ err }, "Failed to read signing key file");
+    return undefined;
+  }
+}
+
+/**
  * Load a signing key from disk or generate and persist a new one.
  * Uses atomic-write + chmod 0o600 for safe persistence.
  */
 export function loadOrCreateSigningKey(): Buffer {
-  const keyPath = getSigningKeyPath();
-
-  // Try to load existing key
-  if (existsSync(keyPath)) {
-    try {
-      const raw = readFileSync(keyPath);
-      if (raw.length === 32) {
-        log.info("Auth signing key loaded from disk");
-        return raw;
-      }
-      log.warn("Signing key file has unexpected length, regenerating");
-    } catch (err) {
-      log.warn({ err }, "Failed to read signing key file, regenerating");
-    }
+  const existing = loadSigningKey();
+  if (existing) {
+    return existing;
   }
 
   // Generate and persist a new key
@@ -209,7 +224,18 @@ export async function resolveSigningKey(): Promise<Buffer> {
     } catch (err) {
       if (err instanceof BootstrapAlreadyCompleted) {
         // Gateway already bootstrapped (daemon restart) — load from disk.
-        return loadOrCreateSigningKey();
+        // Use load-only: if the key file is missing (e.g. container was
+        // recreated), generating a new key would create a mismatch with
+        // the gateway's already-bootstrapped key. Fail fast instead.
+        const key = loadSigningKey();
+        if (!key) {
+          throw new Error(
+            "Signing key bootstrap already completed but no local key found. " +
+              "The container may have been recreated, losing the persisted key. " +
+              "Restart the gateway to allow re-bootstrap.",
+          );
+        }
+        return key;
       }
       throw err;
     }
