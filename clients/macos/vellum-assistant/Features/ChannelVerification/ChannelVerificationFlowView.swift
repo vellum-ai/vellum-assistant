@@ -142,10 +142,7 @@ struct ChannelVerificationFlowView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                     if let url = URL(string: "https://web.telegram.org/a/#\(identity)") {
-                        Link(identity, destination: url)
-                            .font(VFont.caption)
-                            .lineLimit(1)
-                            .pointerCursor()
+                        VLink(identity, destination: url)
                     } else {
                         Text(identity)
                             .font(VFont.caption)

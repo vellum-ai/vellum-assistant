@@ -127,6 +127,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vSegmentedControl", "VSegmentedControl", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
                 GalleryComponent("vSidebarRow", "VSidebarRow", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
                 GalleryComponent("vTabBar", "VTabBar + VTab", keywords: ["tab bar", "tabs"], description: "Horizontal scrollable tab bar with pill, flat, and rectangular styles. Tabs support selection, close, and icons."),
+                GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
             ]
         case .tokens:
