@@ -74,7 +74,7 @@ extension ComposerView {
                     .foregroundColor(VColor.contentTertiary)
             }
             .contentShape(Rectangle())
-            .if(isImage) { view in
+            .vIf(isImage) { view in
                 view
                     .onTapGesture { openAttachmentPreview(attachment) }
                     .pointerCursor()

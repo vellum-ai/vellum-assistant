@@ -28,7 +28,7 @@ struct OnboardingButton: View {
             Text(title)
                 .font(isGhost ? VFont.caption : .system(size: 15, weight: .medium))
                 .foregroundColor(foregroundColor)
-                .if(!isGhost) { $0.frame(maxWidth: .infinity) }
+                .vIf(!isGhost) { $0.frame(maxWidth: .infinity) }
                 .padding(.horizontal, isGhost ? VSpacing.sm : VSpacing.xl)
                 .padding(.vertical, isGhost ? VSpacing.xs : VSpacing.lg)
                 .contentShape(Rectangle())

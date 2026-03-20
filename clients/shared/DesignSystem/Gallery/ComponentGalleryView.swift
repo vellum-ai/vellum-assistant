@@ -102,7 +102,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("nativeTooltip", ".nativeTooltip()", ["native tooltip", "help"]),
                 ("vTooltip", ".vTooltip()", ["tooltip", "popover"]),
                 ("vPanelBackground", ".vPanelBackground()", ["panel background"]),
-                ("ifMod", ".if()", ["conditional modifier"]),
+                ("vIf", ".vIf()", ["conditional modifier"]),
                 ("vShimmer", ".vShimmer()", ["shimmer", "loading animation"]),
                 ("inlineWidgetCard", ".inlineWidgetCard()", ["inline widget", "card"]),
             ]

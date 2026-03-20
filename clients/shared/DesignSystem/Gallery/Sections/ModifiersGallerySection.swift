@@ -238,13 +238,13 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "ifMod" {
+            if filter == nil || filter == "vIf" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - .if()
+                // MARK: - .vIf()
                 GallerySectionHeader(
-                    title: ".if(_:transform:)",
+                    title: ".vIf(_:transform:)",
                     description: "Conditionally applies a transformation to a view. When the condition is true, the transform closure is applied; otherwise the view is returned unchanged."
                 )
 
@@ -257,7 +257,7 @@ struct ModifiersGallerySection: View {
                         Text("Hello, world!")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
-                            .if(true) { view in
+                            .vIf(true) { view in
                                 view.bold()
                             }
 
@@ -270,7 +270,7 @@ struct ModifiersGallerySection: View {
                         Text("Hello, world!")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
-                            .if(false) { view in
+                            .vIf(false) { view in
                                 view.bold()
                             }
                     }
@@ -351,7 +351,7 @@ extension ModifiersGallerySection {
         case "nativeTooltip": ModifiersGallerySection(filter: "nativeTooltip")
         case "vTooltip": ModifiersGallerySection(filter: "vTooltip")
         case "vPanelBackground": ModifiersGallerySection(filter: "vPanelBackground")
-        case "ifMod": ModifiersGallerySection(filter: "ifMod")
+        case "vIf": ModifiersGallerySection(filter: "vIf")
         case "vShimmer": ModifiersGallerySection(filter: "vShimmer")
         case "inlineWidgetCard": ModifiersGallerySection(filter: "inlineWidgetCard")
         default: EmptyView()

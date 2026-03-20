@@ -343,7 +343,7 @@ private struct SkillNodeView: View {
                 isHovered = hovering
             }
         }
-        .if(isTappable) { view in
+        .vIf(isTappable) { view in
             view.pointerCursor()
         }
         .onTapGesture(count: 2) {
@@ -1092,7 +1092,7 @@ struct ConstellationView: View {
     @ViewBuilder
     private func centerAvatarView(showGlow: Bool) -> some View {
         VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
-            .if(showGlow) { view in
+            .vIf(showGlow) { view in
                 view.background(
                     ZStack {
                         // Outer glow ring
