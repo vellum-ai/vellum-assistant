@@ -14,6 +14,10 @@ struct APIKeyStepView: View {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
+    private var platformHostedEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("platform_hosted_enabled")
+    }
+
     var body: some View {
         Text("Hosting")
             .font(.system(size: 32, weight: .regular, design: .serif))
@@ -87,7 +91,8 @@ struct APIKeyStepView: View {
     private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
         switch mode {
         case .vellumCloud:
-            return state.skippedAuth ? "Requires Account" : "Coming Soon"
+            if state.skippedAuth { return "Requires Account" }
+            return platformHostedEnabled ? nil : "Coming Soon"
         case .docker:
             return userHostedEnabled ? nil : "Coming Soon"
         default:
@@ -206,7 +211,10 @@ struct APIKeyStepView: View {
     // MARK: - Helpers
 
     private var canContinue: Bool {
-        state.selectedHostingMode != .vellumCloud
+        if state.selectedHostingMode == .vellumCloud {
+            return platformHostedEnabled && !state.skippedAuth
+        }
+        return true
     }
 
     private var continueButtonTitle: String {
@@ -224,6 +232,12 @@ struct APIKeyStepView: View {
             state.cloudProvider = OnboardingState.HostingMode.docker.rawValue
         } else {
             state.cloudProvider = state.selectedHostingMode.rawValue
+        }
+
+        if isAuthenticated && state.selectedHostingMode == .vellumCloud {
+            // Platform-hosted: trigger managed bootstrap directly
+            onHatchManaged?()
+            return
         }
 
         if isAuthenticated {
