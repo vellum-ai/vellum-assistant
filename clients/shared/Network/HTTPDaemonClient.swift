@@ -94,6 +94,13 @@ public struct WorkspaceFileResponse: Codable, Sendable {
     }
 }
 
+/// Minimal decode of the healthz response to extract the version field.
+/// The full `DaemonHealthz` model lives in Settings and includes disk/memory/cpu;
+/// this struct intentionally only decodes what the transport layer needs.
+private struct HealthzVersionResponse: Decodable {
+    let version: String?
+}
+
 // MARK: - HTTP Transport
 
 /// Internal helper that handles HTTP REST + SSE communication with a remote
@@ -147,6 +154,10 @@ public final class HTTPTransport {
 
     /// Whether the SSE stream is active and receiving events.
     private(set) var isSSEConnected: Bool = false
+
+    /// The daemon's self-reported version from the most recent health check.
+    /// Updated on every successful health check that includes a version.
+    private(set) var daemonVersion: String?
 
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
@@ -644,6 +655,10 @@ public final class HTTPTransport {
                     }
                 }
                 throw HTTPTransportError.healthCheckFailed
+            }
+            // Extract daemon version from response body (best-effort, never fails the health check)
+            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: data) {
+                daemonVersion = decoded.version
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
             // When the daemon comes back during a planned update, reset the
