@@ -89,6 +89,24 @@ struct AssistantUpgradeSection: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
+    /// Whether the client and service group versions are incompatible (different major.minor).
+    private var isVersionIncompatible: Bool {
+        guard let sgVersion = currentVersion, !sgVersion.isEmpty,
+              let clientVersion = appVersion else { return false }
+        return !VersionCompat.isCompatible(clientVersion: clientVersion, serviceGroupVersion: sgVersion)
+    }
+
+    /// Whether the service group version is older than the client version.
+    private var isServiceGroupBehind: Bool {
+        guard let sgVersion = currentVersion, !sgVersion.isEmpty,
+              let clientVersion = appVersion,
+              let sgParsed = VersionCompat.parse(sgVersion),
+              let clientParsed = VersionCompat.parse(clientVersion) else { return false }
+        if sgParsed.major != clientParsed.major { return sgParsed.major < clientParsed.major }
+        if sgParsed.minor != clientParsed.minor { return sgParsed.minor < clientParsed.minor }
+        return sgParsed.patch < clientParsed.patch
+    }
+
     var body: some View {
         SettingsCard(title: "Assistant Version", subtitle: topologySubtitle) {
             // Version info — always visible
@@ -124,13 +142,28 @@ struct AssistantUpgradeSection: View {
                         if let sgVersion = currentVersion, !sgVersion.isEmpty {
                             Text(sgVersion)
                                 .font(VFont.mono)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                         } else {
                             Text("Loading...")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }
+                }
+            }
+
+            // Version mismatch warning (non-local topologies only)
+            if isVersionIncompatible && topology != .local {
+                if isServiceGroupBehind {
+                    VInlineMessage(
+                        "Your assistant is on an older version and may not work correctly with this app. Upgrade to match.",
+                        tone: .warning
+                    )
+                } else {
+                    VInlineMessage(
+                        "Your app is older than the assistant. Update the app to ensure compatibility.",
+                        tone: .warning
+                    )
                 }
             }
 
