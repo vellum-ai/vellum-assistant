@@ -135,6 +135,38 @@ private enum ImageActions {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
 
+        Divider()
+
+        Menu {
+            let shareImage: NSImage = {
+                if let base64Data, !base64Data.isEmpty,
+                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
+                   let fullRes = NSImage(data: decoded) {
+                    return fullRes
+                } else {
+                    return image
+                }
+            }()
+            let services = NSSharingService.sharingServices(forItems: [shareImage])
+            ForEach(Array(services.enumerated()), id: \.offset) { _, service in
+                Button {
+                    service.perform(withItems: [shareImage])
+                } label: {
+                    if let serviceImage = service.image {
+                        Label {
+                            Text(service.title)
+                        } icon: {
+                            Image(nsImage: serviceImage)
+                        }
+                    } else {
+                        Text(service.title)
+                    }
+                }
+            }
+        } label: {
+            Label { Text("Share") } icon: { VIconView(.share, size: 12) }
+        }
+
     }
 }
 
