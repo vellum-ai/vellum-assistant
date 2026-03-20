@@ -334,10 +334,12 @@ extension AppDelegate {
             }
         }
 
-        // Handle avatar_updated from daemon: reload the avatar image from disk
-        daemonClient.onAvatarUpdated = { _ in
+        // Handle avatar_updated from daemon: reload the avatar image from disk.
+        // Pass the avatarPath so the dock icon updates immediately from the
+        // local file before the HTTP fetch completes.
+        daemonClient.onAvatarUpdated = { msg in
             Task { @MainActor in
-                AvatarAppearanceManager.shared.reloadAvatar()
+                AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
             }
         }
 
