@@ -129,9 +129,14 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
   }
 
   // -- Workspace root for command execution cwd ------------------------------
-  const assistantDataMount =
-    process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
-  const mountedVellumRoot = join(assistantDataMount, ".vellum");
+  // Prefer WORKSPACE_DIR when set (new Docker layout mounts workspace at
+  // /workspace). Fall back to the legacy path derived from the assistant
+  // data mount for backwards compatibility.
+  const defaultWorkspaceDir = process.env["WORKSPACE_DIR"] ?? (() => {
+    const assistantDataMount =
+      process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
+    return join(join(assistantDataMount, ".vellum"), "workspace");
+  })();
 
   // -- Build handler registry ------------------------------------------------
   // NOTE: local_static credential handles are NOT supported in managed mode.
@@ -243,7 +248,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
-    defaultWorkspaceDir: join(mountedVellumRoot, "workspace"),
+    defaultWorkspaceDir,
   });
 
   // Register manage_secure_command_tool handler
