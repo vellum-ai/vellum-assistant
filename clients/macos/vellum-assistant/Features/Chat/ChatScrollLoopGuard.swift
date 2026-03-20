@@ -206,6 +206,14 @@ final class ChatScrollLoopGuard {
         }
         return counts
     }
+
+    /// Returns true when the guard has tripped for this conversation and is
+    /// still in cooldown. Callers can use this as a circuit breaker to suppress
+    /// further scroll-to calls until the cascade subsides.
+    func isTripped(conversationId: String) -> Bool {
+        guard let state = states[conversationId] else { return false }
+        return state.inCooldown
+    }
 }
 
 // MARK: - Hashable conformance for EventKind (dictionary key)

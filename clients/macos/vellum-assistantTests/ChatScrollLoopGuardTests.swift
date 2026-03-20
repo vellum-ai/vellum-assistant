@@ -528,4 +528,43 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         let counts = guard_.currentCounts(conversationId: "nonexistent")
         XCTAssertTrue(counts.isEmpty)
     }
+
+    // MARK: - isTripped
+
+    func testIsTrippedReturnsFalseForUnknownConversation() {
+        XCTAssertFalse(guard_.isTripped(conversationId: "nonexistent"))
+    }
+
+    func testIsTrippedReturnsTrueAfterThresholdExceeded() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Fire enough events to trip the guard.
+        for _ in 0..<50 {
+            guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.03
+        }
+
+        XCTAssertTrue(guard_.isTripped(conversationId: conversationId),
+                       "isTripped should return true immediately after threshold is exceeded")
+    }
+
+    func testIsTrippedReturnsFalseAfterCooldownAndQuietWindow() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Trip the guard.
+        for _ in 0..<50 {
+            guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.03
+        }
+        XCTAssertTrue(guard_.isTripped(conversationId: conversationId))
+
+        // Advance past the cooldown duration with no events.
+        timestamp += ChatScrollLoopGuard.cooldownDuration + 0.1
+
+        // Record a single event to trigger the cooldown re-arm check.
+        guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+
+        XCTAssertFalse(guard_.isTripped(conversationId: conversationId),
+                        "isTripped should return false after cooldown expires and quiet window elapses")
+    }
 }
