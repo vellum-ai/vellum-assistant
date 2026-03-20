@@ -14,6 +14,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { escapeXmlContent } from "../util/xml.js";
 import type { InlineCommandExpansion } from "./inline-command-expansions.js";
 import type { InlineCommandResult } from "./inline-command-runner.js";
 import { runInlineCommand } from "./inline-command-runner.js";
@@ -91,7 +92,10 @@ export async function renderInlineCommands(
 
     let replacement: string;
     if (commandResult.ok) {
-      replacement = wrapInXml(expansion.placeholderId, commandResult.output);
+      replacement = wrapInXml(
+        expansion.placeholderId,
+        escapeXmlContent(commandResult.output),
+      );
       expandedCount++;
     } else {
       const stub = failureReasonToStub(commandResult);
