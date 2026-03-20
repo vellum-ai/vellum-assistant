@@ -9,6 +9,24 @@ public struct ContainerInfo {
     public let gatewayDigest: String?
     public let cesDigest: String?
     public let networkName: String?
+
+    public init(
+        assistantImage: String? = nil,
+        gatewayImage: String? = nil,
+        cesImage: String? = nil,
+        assistantDigest: String? = nil,
+        gatewayDigest: String? = nil,
+        cesDigest: String? = nil,
+        networkName: String? = nil
+    ) {
+        self.assistantImage = assistantImage
+        self.gatewayImage = gatewayImage
+        self.cesImage = cesImage
+        self.assistantDigest = assistantDigest
+        self.gatewayDigest = gatewayDigest
+        self.cesDigest = cesDigest
+        self.networkName = networkName
+    }
 }
 
 public struct LockfileAssistant {
