@@ -759,7 +759,7 @@ describe("fetchSigningKeyFromGateway", () => {
       new Response(JSON.stringify({ key: VALID_HEX_KEY }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     const key = await fetchSigningKeyFromGateway();
     expect(key).toBeInstanceOf(Buffer);
@@ -769,7 +769,7 @@ describe("fetchSigningKeyFromGateway", () => {
 
   test("throws BootstrapAlreadyCompleted on 403 response", async () => {
     globalThis.fetch = (async () =>
-      new Response("Forbidden", { status: 403 })) as typeof fetch;
+      new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
 
     await expect(fetchSigningKeyFromGateway()).rejects.toBeInstanceOf(
       BootstrapAlreadyCompleted,
@@ -785,7 +785,7 @@ describe("fetchSigningKeyFromGateway", () => {
     globalThis.fetch = (async () => {
       callCount++;
       throw new Error("ECONNREFUSED");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await expect(fetchSigningKeyFromGateway()).rejects.toThrow(
@@ -810,7 +810,7 @@ describe("fetchSigningKeyFromGateway", () => {
       new Response(JSON.stringify({ key: "aabb" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     await expect(fetchSigningKeyFromGateway()).rejects.toThrow(
       "Invalid signing key length",
@@ -831,7 +831,7 @@ describe("fetchSigningKeyFromGateway", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const key = await fetchSigningKeyFromGateway();
