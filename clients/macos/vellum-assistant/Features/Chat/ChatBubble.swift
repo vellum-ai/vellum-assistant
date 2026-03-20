@@ -429,7 +429,7 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
-                .nativeTooltip(showCopyConfirmation ? "Copied" : "Copy")
+                .vTooltip(showCopyConfirmation ? "Copied" : "Copy")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
             if !isUser && hasCopyableText && isTTSEnabled && message.daemonMessageId != nil {
@@ -447,7 +447,7 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Report message")
-                .nativeTooltip("Report")
+                .vTooltip("Report")
             }
             if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
                 Button {
@@ -461,7 +461,7 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Fork from here")
-                .nativeTooltip("Fork from here")
+                .vTooltip("Fork from here")
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
                 Button {
@@ -475,7 +475,7 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Inspect LLM context")
-                .nativeTooltip("Inspect")
+                .vTooltip("Inspect")
             }
         }
     }
@@ -518,7 +518,7 @@ struct ChatBubble: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .accessibilityLabel("Play as audio")
-            .nativeTooltip(audioPlayer.error ?? "Read aloud")
+            .vTooltip(audioPlayer.error ?? "Read aloud")
         }
     }
 
