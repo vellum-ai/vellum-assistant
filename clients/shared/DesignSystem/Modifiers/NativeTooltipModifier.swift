@@ -56,9 +56,9 @@ public extension View {
 /// ```
 public extension View {
     /// Attaches a floating tooltip that appears on hover after `delay` seconds.
-    func vTooltip(_ text: String, delay: TimeInterval = 0.2) -> some View {
+    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 0.2) -> some View {
         self.overlay(
-            VTooltipTracker(text: text, delay: delay)
+            VTooltipTracker(text: text, edge: edge, delay: delay)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
         )
@@ -70,17 +70,20 @@ public extension View {
 /// using AppKit's native coordinate conversion.
 private struct VTooltipTracker: NSViewRepresentable {
     let text: String
+    let edge: Edge
     let delay: TimeInterval
 
     func makeNSView(context: Context) -> VTooltipTrackerView {
         let view = VTooltipTrackerView()
         view.tooltipText = text
+        view.tooltipEdge = edge
         view.showDelay = delay
         return view
     }
 
     func updateNSView(_ nsView: VTooltipTrackerView, context: Context) {
         nsView.tooltipText = text
+        nsView.tooltipEdge = edge
         nsView.showDelay = delay
     }
 }
@@ -91,6 +94,7 @@ private struct VTooltipTracker: NSViewRepresentable {
 /// so it never interferes with interaction.
 private final class VTooltipTrackerView: NSView {
     var tooltipText: String = ""
+    var tooltipEdge: Edge = .top
     var showDelay: TimeInterval = 0.2
     private var showTimer: Timer?
     private var panel: NSPanel?
@@ -156,13 +160,14 @@ private final class VTooltipTrackerView: NSView {
 
         // Use AppKit's native coordinate conversion — works on any display
         let viewFrameInWindow = convert(bounds, to: nil)
+        let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
         let screenPoint = window.convertPoint(toScreen: NSPoint(
             x: viewFrameInWindow.midX,
-            y: viewFrameInWindow.maxY
+            y: anchorY
         ))
 
         let x = screenPoint.x - host.fittingSize.width / 2
-        let y = screenPoint.y + 4
+        let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
@@ -209,7 +214,7 @@ public extension View {
     }
 
     /// On non-macOS platforms, falls back to the standard `.help()` modifier.
-    func vTooltip(_ text: String, delay: TimeInterval = 0.2) -> some View {
+    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 0.2) -> some View {
         self.help(text)
     }
 }
