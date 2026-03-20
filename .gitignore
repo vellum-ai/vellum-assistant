@@ -60,6 +60,8 @@ CLAUDE.md
 .codex
 .vellum
 
+# IDE
+.idea/
 
 # debug
 npm-debug.log*
@@ -77,6 +79,7 @@ yarn-error.log*
 # xcode / spm build artifacts
 .derivedData/
 *.xcactivitylog
+*.o
 DerivedData/
 **/Library/Logs/CoreSimulator/
 .build-ios/
@@ -104,5 +107,3 @@ vellum-assistant-safe-do-permissions
 
 # macOS binary
 clients/macos/assistant-bin/vellum-assistant
-
-.agents/
