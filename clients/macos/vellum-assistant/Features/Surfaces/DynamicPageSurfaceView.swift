@@ -450,8 +450,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
             if !appDirExists {
                 // App directory not on host (e.g. Docker instance) — load
-                // the HTML returned by the open API inline.
-                let origin = "vellumapp://\(localDir)/"
+                // the HTML returned by the open API inline. Use the same
+                // https:// origin that updateNSView uses so localStorage
+                // persists across HTML updates and relative assets don't
+                // try to load via the scheme handler.
+                let origin = "https://\(appId).vellum.local/"
+                context.coordinator.isInlineFallback = true
                 webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
                 let distIndex = appDir.appendingPathComponent("dist/index.html")
@@ -550,7 +554,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 context.coordinator.pendingStatus = status
                 context.coordinator.lastStatus = status
             }
-            webView.reload()
+            if context.coordinator.isInlineFallback {
+                // Inline fallback: webView.reload() would replay stale HTML.
+                // Re-load the current data.html so the update is visible.
+                context.coordinator.currentHTML = data.html
+                let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
+                webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+            } else {
+                webView.reload()
+            }
             return
         }
         // Reload if the HTML content has changed.
@@ -682,6 +694,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var hasCapturedSnapshot = false
         var morphGeneration: Int = 0
         var lastReloadGeneration: Int = 0
+        /// True when the app directory is missing and content is loaded inline via data.html.
+        var isInlineFallback: Bool = false
         var lastStatus: String?
         /// Status message to inject after the next page reload completes.
         var pendingStatus: String?
