@@ -13,6 +13,26 @@ struct SettingsGeneralTab: View {
 
     @State private var showingPairingQR: Bool = false
 
+    // -- Software Update state --
+    @State private var healthz: DaemonHealthz?
+    @State private var isDockerOperationInProgress = false
+    @State private var dockerOperationLabel: String = ""
+    @State private var sparkleUpdateAvailable: Bool = false
+    @State private var sparkleUpdateVersion: String?
+    @State private var lockfileAssistants: [LockfileAssistant] = []
+    @State private var selectedAssistantId: String = ""
+
+    /// Derive the topology for the currently selected assistant.
+    private var topology: AssistantTopology {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
+            return .local
+        }
+        return assistant.isDocker ? .docker
+            : assistant.isManaged ? .managed
+            : assistant.cloud.lowercased() == "local" ? .local
+            : .remote
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
@@ -20,16 +40,65 @@ struct SettingsGeneralTab: View {
                 mobilePairingCard
             }
             SettingsAppearanceTab(store: store)
+            if !lockfileAssistants.isEmpty {
+                AssistantUpgradeSection(
+                    currentVersion: healthz?.version,
+                    topology: topology,
+                    isDockerOperationInProgress: $isDockerOperationInProgress,
+                    dockerOperationLabel: $dockerOperationLabel,
+                    sparkleUpdateAvailable: sparkleUpdateAvailable,
+                    sparkleUpdateVersion: sparkleUpdateVersion
+                )
+            }
         }
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshApprovedDevices()
+            lockfileAssistants = LockfileAssistant.loadAll()
+            selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+            Task { await fetchHealthz() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
                 gatewayUrl: store.resolvedIosGatewayUrl,
                 daemonClient: daemonClient
             )
+        }
+        .sheet(isPresented: $isDockerOperationInProgress) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text(dockerOperationLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentDefault)
+                Text("This may take a minute. The assistant will be briefly unavailable.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
+        }
+    }
+
+    // MARK: - Software Update
+
+    private func fetchHealthz() async {
+        do {
+            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/\(selectedAssistantId)/healthz",
+                timeout: 10
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            healthz = decoded ?? DaemonHealthz()
+        } catch {
+            healthz = DaemonHealthz()
         }
     }
 
