@@ -437,7 +437,7 @@ describe("AssistantConfigSchema", () => {
 
   test("defaults permissions.mode to workspace", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: "workspace" });
+    expect(result.permissions).toEqual({ mode: "workspace", dangerouslySkipPermissions: false });
   });
 
   test("accepts explicit permissions.mode strict", () => {
@@ -1139,7 +1139,7 @@ describe("loadConfig with schema validation", () => {
   test("defaults permissions.mode to workspace when not specified", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: "workspace" });
+    expect(config.permissions).toEqual({ mode: "workspace", dangerouslySkipPermissions: false });
   });
 
   test("loads explicit permissions.mode strict", () => {

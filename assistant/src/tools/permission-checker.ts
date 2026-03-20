@@ -137,6 +137,18 @@ export class PermissionChecker {
       }
 
       if (result.decision === "prompt") {
+        // dangerouslySkipPermissions: when enabled, auto-approve all prompts
+        // without user interaction. Deny rules are still respected (they
+        // return before reaching this block).
+        const cfg = getConfig();
+        if (cfg.permissions.dangerouslySkipPermissions) {
+          log.info(
+            { toolName: name, riskLevel },
+            "dangerouslySkipPermissions active — auto-approving without prompt",
+          );
+          return { allowed: true, decision: "dangerously_skip_permissions", riskLevel };
+        }
+
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
         // able to use bundled tools without interactive approval. The guardian
         // is the owner - prompting makes no sense when there is no client.
