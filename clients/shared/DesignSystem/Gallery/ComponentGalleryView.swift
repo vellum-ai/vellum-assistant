@@ -107,6 +107,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .navigation:
             return [
                 ("vSegmentedControl", "VSegmentedControl"),
+                ("vSidebarRow", "VSidebarRow"),
                 ("vTabBar", "VTabBar + VTab"),
                 ("vThemeToggle", "VThemeToggle"),
             ]
