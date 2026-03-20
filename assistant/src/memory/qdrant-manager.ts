@@ -28,7 +28,7 @@ export interface QdrantManagerConfig {
   storagePath?: string;
   /** Override readyz poll interval (ms). Default: 200 */
   readyzPollIntervalMs?: number;
-  /** Override readyz timeout (ms). Default: 30 000 */
+  /** Override readyz timeout (ms). Default: 60 000 */
   readyzTimeoutMs?: number;
   /** Override SIGTERM→SIGKILL grace period (ms). Default: 5 000 */
   shutdownGraceMs?: number;
