@@ -85,7 +85,7 @@ function resetAllMocks() {
   isProviderConnectedMock.mockImplementation(async () => false);
   resolveOAuthConnectionMock.mockReset();
   resolveOAuthConnectionMock.mockImplementation(
-    async () => ({ accessToken: "oauth-token" }) as OAuthConnection,
+    async () => ({ accessToken: "oauth-token" }) as unknown as OAuthConnection,
   );
   getConnectionByProviderMock.mockReset();
   getConnectionByProviderMock.mockImplementation(() => undefined);
