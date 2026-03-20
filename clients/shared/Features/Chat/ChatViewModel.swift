@@ -194,12 +194,30 @@ public final class ChatViewModel: ObservableObject {
         set {
             messageManager.isSending = newValue
             if newValue {
-                // Start watchdog: log a warning if isSending is still true after 60s
+                // Start watchdog: if isSending is still true after 60s, auto-recover
+                // by resetting transient state so the user can send new messages.
+                // Without this, a missed messageComplete (e.g. server-side error with
+                // the SSE stream still alive) leaves the chat permanently stuck.
                 sendingWatchdogTask?.cancel()
                 sendingWatchdogTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(60))
                     guard !Task.isCancelled, let self, self.isSending else { return }
-                    log.warning("isSending watchdog: still true after 60s, conversationId=\(self.conversationId ?? "nil")")
+                    log.error("isSending watchdog: still true after 60s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    self.isThinking = false
+                    self.isCancelling = false
+                    if let existingId = self.currentAssistantMessageId,
+                       let index = self.messages.firstIndex(where: { $0.id == existingId }) {
+                        self.messages[index].isStreaming = false
+                        self.messages[index].streamingCodePreview = nil
+                        self.messages[index].streamingCodeToolName = nil
+                    }
+                    self.currentAssistantMessageId = nil
+                    self.discardStreamingBuffer()
+                    self.discardPartialOutputBuffer()
+                    // Setting isSending = false triggers the setter again which
+                    // cancels this watchdog task — use the backing store directly.
+                    self.messageManager.isSending = false
+                    self.sendingWatchdogTask = nil
                 }
             } else {
                 sendingWatchdogTask?.cancel()
