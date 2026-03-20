@@ -247,8 +247,8 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### Naming & File Placement
 
-- Design system types: `V` prefix (VButton, VColor, VTab, etc.)
-- Feature views: Place in `Features/<Module>/`. New feature modules get their own directory.
+- Design system types: `V` prefix (VButton, VColor, VTab, etc.). The `V` prefix is exclusively for design system types — feature views, composite application views, and regular views must NOT use it.
+- Feature views: Place in `Features/<Module>/` without the `V` prefix. New feature modules get their own directory.
 - **Extension files**: Use `TypeName+Purpose.swift` naming (e.g., `MainWindowView+Sidebar.swift`). This is the standard Swift convention for splitting a type across files. Place extension files in the same directory as the primary file.
 - **Standalone child views**: Extract into their own file when the view has its own identity and state (e.g., `SidebarConversationItem.swift`). Group related views in a subdirectory (e.g., `Sidebar/`).
 - **Helper/state types**: Extract into a separate file named after the type (e.g., `MainWindowGroupedState.swift` for `SharingState`, `SidebarInteractionState`, etc.).

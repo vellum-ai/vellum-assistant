@@ -310,6 +310,8 @@ All design system types — structs, enums, and view modifiers — **must** use 
 
 The `V` prefix makes design system components immediately recognizable in code, avoids naming collisions with SwiftUI built-ins (e.g., `VToggle` vs `Toggle`), and enables easy search/filtering across the codebase.
 
+**The `V` prefix is exclusively for design system types.** Feature views (`ChatView`, `OnboardingFlowView`, `SettingsCard`), composite application views, and regular views must NOT use the `V` prefix — it would blur the boundary between design system primitives and application-level code. If a view lives in `Features/`, it does not get the prefix. If a view lives in `DesignSystem/`, it does.
+
 ### Adding New Shared Components
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow the `V` prefix naming convention described above. Use descriptive names (for example `VProgressBar`, `VAvatar`).
