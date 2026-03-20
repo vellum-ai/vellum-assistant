@@ -14,10 +14,15 @@
  *   5. Calls `runReducer` with the assembled input.
  *   6. Applies the result transactionally via `applyReducerResult`.
  *
- * If the reducer fails or returns the {@link EMPTY_REDUCER_RESULT} sentinel
+ * If the reducer returns the {@link EMPTY_REDUCER_RESULT} sentinel
  * (unparseable output), the checkpoint is NOT advanced — the dirty tail stays
  * in place so the next run retries. A valid-but-empty model response (e.g.
  * `{}`) returns a normal empty result that advances the checkpoint normally.
+ *
+ * If the reducer **throws** (e.g. a permanent provider error like "prompt too
+ * long"), the dirty tail is force-advanced via {@link forceAdvanceDirtyTail}
+ * to break the infinite re-enqueue loop. The error is re-thrown so the job
+ * worker can log and classify it.
  */
 
 import { and, asc, eq, gte } from "drizzle-orm";
@@ -30,10 +35,11 @@ import type { MemoryJob } from "../jobs-store.js";
 import { type ReducerPromptInput, runReducer } from "../reducer.js";
 import {
   applyReducerResult,
+  forceAdvanceDirtyTail,
   getActiveOpenLoops,
   getActiveTimeContexts,
 } from "../reducer-store.js";
-import { EMPTY_REDUCER_RESULT } from "../reducer-types.js";
+import { EMPTY_REDUCER_RESULT, type ReducerResult } from "../reducer-types.js";
 import { messages } from "../schema.js";
 
 const log = getLogger("reduce-conversation-memory-job");
@@ -116,7 +122,28 @@ export async function reduceConversationMemoryJob(
   };
 
   // ── 5. Run the reducer ──────────────────────────────────────────
-  const result = await runReducer(reducerInput);
+  let result: ReducerResult | typeof EMPTY_REDUCER_RESULT;
+  try {
+    result = await runReducer(reducerInput);
+  } catch (err) {
+    // Permanent error (e.g. "prompt too long"): force-advance the dirty
+    // tail to break the infinite re-enqueue loop. The unreduced messages
+    // are lost to memory extraction, but that is better than burning API
+    // credits and CPU indefinitely.
+    const lastMessage = unreducedMessages[unreducedMessages.length - 1];
+    forceAdvanceDirtyTail(conversationId, lastMessage.id);
+    log.error(
+      {
+        err,
+        jobId: job.id,
+        conversationId,
+        skippedMessages: unreducedMessages.length,
+        reducedThroughMessageId: lastMessage.id,
+      },
+      "Reducer failed permanently — force-advanced dirty tail to break retry loop",
+    );
+    throw err;
+  }
 
   // If the reducer returns the empty sentinel, skip applying — the dirty
   // tail stays in place so a future run can retry.

@@ -33,11 +33,13 @@ import type { ReducerResult } from "../memory/reducer-types.js";
 import { EMPTY_REDUCER_RESULT } from "../memory/reducer-types.js";
 
 let mockReducerResult: ReducerResult = EMPTY_REDUCER_RESULT;
+let mockReducerError: Error | null = null;
 let lastReducerInput: ReducerPromptInput | null = null;
 
 mock.module("../memory/reducer.js", () => ({
   runReducer: async (input: ReducerPromptInput) => {
     lastReducerInput = input;
+    if (mockReducerError) throw mockReducerError;
     return mockReducerResult;
   },
 }));
@@ -152,6 +154,7 @@ afterAll(() => {
 beforeEach(() => {
   resetTestTables("messages", "conversations", "time_contexts", "open_loops");
   mockReducerResult = EMPTY_REDUCER_RESULT;
+  mockReducerError = null;
   lastReducerInput = null;
 });
 
@@ -438,7 +441,41 @@ describe("reduceConversationMemoryJob", () => {
       expect(conv.memory_dirty_tail_since_message_id).toBe("msg-1");
     });
 
-    test("does not advance checkpoint when reducer throws", async () => {
+    test("force-advances dirty tail and re-throws on permanent reducer error", async () => {
+      insertConversation("conv-1", { dirtyTailMessageId: "msg-1" });
+      insertMessage({
+        id: "msg-1",
+        conversationId: "conv-1",
+        role: "user",
+        content: "Hello",
+        createdAt: NOW,
+      });
+      insertMessage({
+        id: "msg-2",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "Hi there",
+        createdAt: NOW + 1000,
+      });
+
+      const err = new Error(
+        "prompt is too long: 214185 tokens > 200000 maximum",
+      );
+      (err as any).status = 400;
+      mockReducerError = err;
+
+      await expect(
+        reduceConversationMemoryJob(makeJob("conv-1")),
+      ).rejects.toThrow("prompt is too long");
+
+      // Dirty tail should be cleared (force-advanced)
+      const conv = getRawConversation("conv-1");
+      expect(conv.memory_dirty_tail_since_message_id).toBeNull();
+      // Checkpoint should advance to the last message
+      expect(conv.memory_reduced_through_message_id).toBe("msg-2");
+    });
+
+    test("leaves dirty tail in place on transient EMPTY_REDUCER_RESULT", async () => {
       insertConversation("conv-1", { dirtyTailMessageId: "msg-1" });
       insertMessage({
         id: "msg-1",
@@ -448,32 +485,16 @@ describe("reduceConversationMemoryJob", () => {
         createdAt: NOW,
       });
 
-      // Temporarily replace the mock to throw
-      mock.module("../memory/reducer.js", () => ({
-        runReducer: async (input: ReducerPromptInput) => {
-          lastReducerInput = input;
-          throw new Error("Provider timeout");
-        },
-      }));
+      mockReducerResult = EMPTY_REDUCER_RESULT;
 
-      try {
-        await reduceConversationMemoryJob(makeJob("conv-1"));
-      } catch {
-        // Error propagation is expected — the job worker handles classification
-      }
+      // Should NOT throw — transient empty result is not an error
+      await reduceConversationMemoryJob(makeJob("conv-1"));
 
-      // Restore the normal mock for subsequent tests
-      mock.module("../memory/reducer.js", () => ({
-        runReducer: async (input: ReducerPromptInput) => {
-          lastReducerInput = input;
-          return mockReducerResult;
-        },
-      }));
-
-      // Regardless of error handling, checkpoint must not advance
+      // Dirty tail should remain in place for retry
       const conv = getRawConversation("conv-1");
-      expect(conv.memory_reduced_through_message_id).toBeNull();
       expect(conv.memory_dirty_tail_since_message_id).toBe("msg-1");
+      // Checkpoint should NOT have advanced
+      expect(conv.memory_reduced_through_message_id).toBeNull();
     });
 
     test("partial dirty tail preserved when more messages arrive during reduction", async () => {
