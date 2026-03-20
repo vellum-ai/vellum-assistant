@@ -18,7 +18,22 @@ export function createSigningKeyBootstrapHandler(_config: GatewayConfig) {
   let inFlight = false;
 
   return {
-    async handleGetSigningKey(_req: Request): Promise<Response> {
+    async handleGetSigningKey(req: Request): Promise<Response> {
+      // When GUARDIAN_BOOTSTRAP_SECRET is set (Docker mode), require the
+      // caller to present the matching secret. This prevents unauthenticated
+      // remote callers from fetching the raw signing key through the gateway.
+      const bootstrapSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
+      if (bootstrapSecret) {
+        const provided = req.headers.get("x-bootstrap-secret");
+        if (provided !== bootstrapSecret) {
+          log.warn("Signing key bootstrap rejected — invalid or missing bootstrap secret");
+          return Response.json(
+            { error: "Invalid bootstrap secret" },
+            { status: 403 },
+          );
+        }
+      }
+
       const lockDir = process.env.GATEWAY_SECURITY_DIR || getRootDir();
       const lockPath = join(lockDir, "signing-key-bootstrap.lock");
 
