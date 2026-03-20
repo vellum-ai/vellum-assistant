@@ -500,6 +500,8 @@ export function serviceDockerRunArgs(opts: {
         "WORKSPACE_DIR=/workspace",
         "-e",
         `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+        "-e",
+        `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
       ];
       if (cesServiceToken) {
         args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
