@@ -33,7 +33,7 @@ struct AssistantBackupsSection: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.contentDefault)
 
-            if assistant.isManaged || assistant.isRemote {
+            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
                 managedBackupContent
             } else {
                 localBackupContent
@@ -56,7 +56,7 @@ struct AssistantBackupsSection: View {
         .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
-            if assistant.isManaged || assistant.isRemote {
+            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
                 await loadManagedBackupsQuietly()
             }
         }
@@ -186,10 +186,10 @@ struct AssistantBackupsSection: View {
         isExporting = true
         defer { isExporting = false }
 
-        let port = assistant.resolvedDaemonPort()
+        let baseURL = assistant.resolvedRuntimeBaseURL
         let token = ActorTokenManager.getToken()
 
-        guard let url = URL(string: "http://localhost:\(port)/v1/migrations/export") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/export") else {
             errorMessage = "Invalid assistant URL"
             return
         }
@@ -362,10 +362,10 @@ extension AssistantBackupsSection {
         isImporting = true
         defer { isImporting = false }
 
-        let port = assistant.resolvedDaemonPort()
+        let baseURL = assistant.resolvedRuntimeBaseURL
         let token = ActorTokenManager.getToken()
 
-        guard let url = URL(string: "http://localhost:\(port)/v1/migrations/import") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/import") else {
             errorMessage = "Invalid assistant URL"
             return
         }
@@ -395,8 +395,13 @@ extension AssistantBackupsSection {
 
                     // Auto-restart the assistant so restored state takes effect
                     let assistantName = assistant.assistantId
+                    let isDocker = assistant.isDocker
                     Task {
-                        AppDelegate.shared?.vellumCli.stop(name: assistantName)
+                        if isDocker {
+                            try? await AppDelegate.shared?.vellumCli.sleep(name: assistantName)
+                        } else {
+                            AppDelegate.shared?.vellumCli.stop(name: assistantName)
+                        }
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
                         // Reload avatar after restart so the restored avatar is displayed
