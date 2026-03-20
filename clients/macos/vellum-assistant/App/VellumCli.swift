@@ -447,6 +447,10 @@ final class VellumCli {
 
         var env = Self.makeBaseEnvironment()
 
+        if env["VELLUM_PLATFORM_URL"] == nil {
+            env["VELLUM_PLATFORM_URL"] = "https://dev-platform.vellum.ai"
+        }
+
         for (envVar, value) in config.providerApiKeys where !value.isEmpty {
             env[envVar] = value
         }
