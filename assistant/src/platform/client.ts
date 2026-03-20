@@ -7,6 +7,8 @@
 
 import { getPlatformAssistantId } from "../config/env.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
@@ -26,21 +28,47 @@ export class VellumPlatformClient {
   /**
    * Create a platform client by resolving managed proxy context.
    *
+   * First tries the in-memory managed proxy context (available when the daemon
+   * has rehydrated env overrides). Falls back to reading platform credentials
+   * directly from the secure keychain so that standalone CLI invocations work
+   * without the daemon having run its rehydration step.
+   *
    * Returns `null` when auth prerequisites are missing (not logged in, no API
    * key). The assistant ID is resolved but not required — callers that need it
    * should check `platformAssistantId` themselves.
    */
   static async create(): Promise<VellumPlatformClient | null> {
     const ctx = await resolveManagedProxyContext();
-    if (!ctx.enabled) return null;
 
-    const assistantId = getPlatformAssistantId();
+    let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";
+    let apiKey = ctx.enabled ? ctx.assistantApiKey : "";
+    let assistantId = getPlatformAssistantId();
 
-    return new VellumPlatformClient(
-      ctx.platformBaseUrl,
-      ctx.assistantApiKey,
-      assistantId,
-    );
+    // Fall back to keychain for values not yet rehydrated (standalone CLI).
+    if (!baseUrl) {
+      baseUrl =
+        (await getSecureKeyAsync(
+          credentialKey("vellum", "platform_base_url"),
+        )) ?? "";
+    }
+    if (!apiKey) {
+      apiKey =
+        (await getSecureKeyAsync(
+          credentialKey("vellum", "assistant_api_key"),
+        )) ?? "";
+    }
+    if (!assistantId) {
+      assistantId =
+        (
+          await getSecureKeyAsync(
+            credentialKey("vellum", "platform_assistant_id"),
+          )
+        )?.trim() ?? "";
+    }
+
+    if (!baseUrl || !apiKey) return null;
+
+    return new VellumPlatformClient(baseUrl, apiKey, assistantId);
   }
 
   /**

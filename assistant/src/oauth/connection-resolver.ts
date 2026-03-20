@@ -156,10 +156,12 @@ async function resolvePlatformConnectionId(
     );
   }
 
-  const body = (await response.json()) as {
-    results?: Array<{ id: string; account_label?: string }>;
-  };
-  const connections = body.results ?? [];
+  const body = (await response.json()) as unknown;
+  const connections = (
+    Array.isArray(body)
+      ? body
+      : ((body as Record<string, unknown>).results ?? [])
+  ) as Array<{ id: string; account_label?: string }>;
 
   if (connections.length === 0) {
     throw new Error(
