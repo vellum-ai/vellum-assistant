@@ -48,6 +48,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+import { buildCliProgram } from "../cli/program.js";
 import { classifyRisk } from "../permissions/checker.js";
 import { RiskLevel } from "../permissions/types.js";
 
@@ -68,37 +69,21 @@ function expectLowRisk(command: string, actual: RiskLevel): void {
   expect(actual).toBe(RiskLevel.Low);
 }
 
-// Comprehensive list of all known `assistant` CLI subcommands.
-const ASSISTANT_SUBCOMMANDS = [
-  "auth",
-  "avatar",
-  "bash",
-  "browser",
-  "channel-verification-sessions",
-  "completions",
-  "config",
-  "contacts",
-  "conversations",
-  "credential-execution",
-  "credentials",
-  "doctor",
-  "email",
-  "hooks",
-  "keys",
-  "mcp",
-  "memory",
-  "notifications",
-  "oauth",
-  "platform",
-  "sequence",
-  "shotgun",
-  "skills",
-  "trust",
-  "usage",
-  "autonomy",
-];
+// Dynamically extract subcommand names from the CLI program definition.
+// This ensures new commands added to program.ts are automatically covered
+// by this guard test without manual list maintenance.
+const program = buildCliProgram();
+const ASSISTANT_SUBCOMMANDS = program.commands.map((c) => c.name());
 
 describe("CLI command risk guard: assistant commands", () => {
+  test("subcommand discovery found a reasonable number of commands", () => {
+    // Sanity check: if mocking breaks and no commands are registered,
+    // the risk guard would vacuously pass. Require a minimum count to
+    // catch that failure mode. Update this threshold when commands are
+    // removed (but it should only grow).
+    expect(ASSISTANT_SUBCOMMANDS.length).toBeGreaterThanOrEqual(20);
+  });
+
   test("all assistant CLI subcommands classify as Low risk", async () => {
     for (const subcommand of ASSISTANT_SUBCOMMANDS) {
       const command = `assistant ${subcommand}`;
