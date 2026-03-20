@@ -557,10 +557,13 @@ export class CallController {
     const synthesizeAndPlay = async (text: string): Promise<void> => {
       if (!this.isCurrentRun(runVersion)) return;
       try {
-        // Fish Audio S2 requires a stop event to emit FinishEvent, which
-        // closes the session. Create a fresh session for each sentence.
-        fishSession = await FishAudioSession.create(config.fishAudio);
-        this.activeFishSession = fishSession;
+        // Reuse the session across sentences — a single WebSocket
+        // connection for the entire call turn avoids rate-limit
+        // rejections from rapid reconnection.
+        if (!fishSession || fishSession.closed) {
+          fishSession = await FishAudioSession.create(config.fishAudio);
+          this.activeFishSession = fishSession;
+        }
         const audioBuffer = await fishSession.synthesize(text);
         const format = config.fishAudio.format ?? "mp3";
         const audioId = storeAudio(
@@ -575,6 +578,8 @@ export class CallController {
           { err, textLength: text.length },
           "Fish Audio synthesis failed for sentence — skipping",
         );
+        // Reset session so next sentence tries a fresh connection.
+        fishSession = null;
         // Don't re-throw: skip this sentence rather than crashing the
         // entire daemon with an unhandled rejection.
       }

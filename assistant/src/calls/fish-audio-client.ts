@@ -51,19 +51,33 @@ interface FinishEvent {
 type InboundEvent = AudioEvent | FinishEvent;
 
 // ---------------------------------------------------------------------------
-// FishAudioSession — manages a single WebSocket connection
+// FishAudioSession — persistent session for an entire call
 // ---------------------------------------------------------------------------
+
+/**
+ * Fish Audio S2 streams audio chunks after receiving text + flush, but does
+ * NOT send a FinishEvent until a StopEvent is sent (which terminates the
+ * session). To keep a single session alive across multiple sentences, we
+ * detect synthesis completion by an idle timeout: once the first audio chunk
+ * arrives, if no more chunks arrive within IDLE_TIMEOUT_MS we consider that
+ * sentence done. A separate FIRST_CHUNK_TIMEOUT_MS guards against the server
+ * never responding at all.
+ */
+const IDLE_TIMEOUT_MS = 800;
+const FIRST_CHUNK_TIMEOUT_MS = 10_000;
 
 interface PendingSynthesis {
   chunks: Uint8Array[];
   resolve: (buffer: Buffer) => void;
   reject: (error: Error) => void;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  firstChunkReceived: boolean;
 }
 
 export class FishAudioSession {
   private ws: WebSocket;
   private pending: PendingSynthesis | null = null;
-  private closed = false;
+  closed = false;
 
   private constructor(ws: WebSocket) {
     this.ws = ws;
@@ -72,7 +86,8 @@ export class FishAudioSession {
 
   /**
    * Open a WebSocket connection to Fish Audio S2 and send the initial
-   * StartEvent with the provided configuration.
+   * StartEvent with the provided configuration. The session stays alive
+   * for multiple synthesize() calls until close() is called.
    */
   static async create(config: FishAudioConfig): Promise<FishAudioSession> {
     const apiKey = await getSecureKeyAsync(
@@ -80,7 +95,7 @@ export class FishAudioSession {
     );
     if (!apiKey) {
       throw new Error(
-        "Fish Audio API key not configured. Store it via: assistant credentials set fish-audio api_key",
+        "Fish Audio API key not configured. Store it via: assistant credentials set --service fish-audio --field api_key <key>",
       );
     }
 
@@ -110,9 +125,7 @@ export class FishAudioSession {
             chunk_length: config.chunkLength,
             latency: "balanced",
             prosody:
-              config.speed !== 1.0
-                ? { speed: config.speed }
-                : undefined,
+              config.speed !== 1.0 ? { speed: config.speed } : undefined,
           },
         };
 
@@ -136,15 +149,14 @@ export class FishAudioSession {
 
   /**
    * Send text for synthesis and wait for the complete audio response.
-   * Sends TextEvent + FlushEvent + StopEvent, then collects AudioEvent
-   * chunks until FinishEvent. Fish Audio S2 only emits FinishEvent after
-   * a StopEvent, so each synthesize() call terminates the session.
+   * Sends TextEvent + FlushEvent, then collects AudioEvent chunks until
+   * an idle timeout (no new chunks for IDLE_TIMEOUT_MS) indicates the
+   * server has finished streaming audio for this text. The session remains
+   * alive for subsequent calls.
    */
   synthesize(text: string): Promise<Buffer> {
     if (this.closed) {
-      return Promise.reject(
-        new Error("FishAudioSession is closed"),
-      );
+      return Promise.reject(new Error("FishAudioSession is closed"));
     }
 
     if (this.pending) {
@@ -156,7 +168,13 @@ export class FishAudioSession {
     }
 
     return new Promise<Buffer>((resolve, reject) => {
-      this.pending = { chunks: [], resolve, reject };
+      this.pending = {
+        chunks: [],
+        resolve,
+        reject,
+        idleTimer: null,
+        firstChunkReceived: false,
+      };
 
       const textEvent: TextEvent = { event: "text", text };
       this.ws.send(encode(textEvent));
@@ -164,12 +182,18 @@ export class FishAudioSession {
       const flushEvent: FlushEvent = { event: "flush" };
       this.ws.send(encode(flushEvent));
 
-      // Fish Audio S2 only sends FinishEvent after receiving StopEvent.
-      // This closes the session, so a new session is needed for the next sentence.
-      const stopEvent: StopEvent = { event: "stop" };
-      this.ws.send(encode(stopEvent));
+      // Start a long initial timer — if no audio chunk arrives at all
+      // within FIRST_CHUNK_TIMEOUT_MS, reject. Once the first chunk
+      // arrives, we switch to the shorter idle timeout.
+      this.pending.idleTimer = setTimeout(() => {
+        if (this.pending && !this.pending.firstChunkReceived) {
+          this.rejectPending(
+            new Error("Fish Audio did not respond with audio within timeout"),
+          );
+        }
+      }, FIRST_CHUNK_TIMEOUT_MS);
 
-      log.debug({ textLength: text.length }, "Sent text+flush+stop for synthesis");
+      log.debug({ textLength: text.length }, "Sent text+flush for synthesis");
     });
   }
 
@@ -179,6 +203,14 @@ export class FishAudioSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+
+    this.clearIdleTimer();
+
+    // If there's a pending synthesis, resolve it with whatever we have
+    // rather than rejecting — the audio collected so far is still usable.
+    if (this.pending) {
+      this.resolvePending();
+    }
 
     try {
       const closeEvent: StopEvent = { event: "stop" };
@@ -192,8 +224,43 @@ export class FishAudioSession {
   }
 
   // -------------------------------------------------------------------------
-  // Internal message handling
+  // Internal
   // -------------------------------------------------------------------------
+
+  private resetIdleTimer(): void {
+    if (this.pending?.idleTimer) {
+      clearTimeout(this.pending.idleTimer);
+    }
+    if (this.pending) {
+      this.pending.idleTimer = setTimeout(() => {
+        // No audio chunk received within the idle window — synthesis is done.
+        this.resolvePending();
+      }, IDLE_TIMEOUT_MS);
+    }
+  }
+
+  private clearIdleTimer(): void {
+    if (this.pending?.idleTimer) {
+      clearTimeout(this.pending.idleTimer);
+      this.pending.idleTimer = null;
+    }
+  }
+
+  private resolvePending(): void {
+    if (!this.pending) return;
+    const { chunks, resolve } = this.pending;
+    this.clearIdleTimer();
+    this.pending = null;
+    const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+    const merged = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    log.debug({ bytes: totalLength }, "Synthesis complete (idle timeout)");
+    resolve(Buffer.from(merged));
+  }
 
   private setupHandlers(): void {
     this.ws.addEventListener("message", (ev) => {
@@ -206,10 +273,7 @@ export class FishAudioSession {
         const decoded = decode(data) as InboundEvent;
         this.handleMessage(decoded);
       } catch (err) {
-        log.error(
-          { err },
-          "Failed to decode Fish Audio message",
-        );
+        log.error({ err }, "Failed to decode Fish Audio message");
         this.rejectPending(
           new Error(
             `Failed to decode Fish Audio message: ${err instanceof Error ? err.message : String(err)}`,
@@ -228,15 +292,25 @@ export class FishAudioSession {
     this.ws.addEventListener("close", (ev) => {
       this.closed = true;
       if (this.pending) {
-        log.warn(
-          { code: ev.code, reason: ev.reason },
-          "Fish Audio WebSocket closed with pending synthesis",
-        );
-        this.rejectPending(
-          new Error(
-            `Fish Audio WebSocket closed unexpectedly (code: ${ev.code})`,
-          ),
-        );
+        // If we have audio chunks, resolve with what we have rather than
+        // rejecting — partial audio is better than no audio.
+        if (this.pending.chunks.length > 0) {
+          log.warn(
+            { code: ev.code },
+            "Fish Audio WebSocket closed with buffered audio — resolving with partial data",
+          );
+          this.resolvePending();
+        } else {
+          log.warn(
+            { code: ev.code, reason: ev.reason },
+            "Fish Audio WebSocket closed with pending synthesis (no audio)",
+          );
+          this.rejectPending(
+            new Error(
+              `Fish Audio WebSocket closed unexpectedly (code: ${ev.code})`,
+            ),
+          );
+        }
       }
     });
   }
@@ -246,26 +320,19 @@ export class FishAudioSession {
       case "audio": {
         if (this.pending) {
           this.pending.chunks.push(msg.audio);
+          this.pending.firstChunkReceived = true;
+          // Reset idle timer — more audio may follow. The first chunk
+          // cancels the initial FIRST_CHUNK_TIMEOUT and switches to the
+          // shorter IDLE_TIMEOUT for inter-chunk gaps.
+          this.resetIdleTimer();
         }
         break;
       }
       case "finish": {
-        if (this.pending) {
-          const { chunks, resolve } = this.pending;
-          this.pending = null;
-          const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-          const merged = new Uint8Array(totalLength);
-          let offset = 0;
-          for (const chunk of chunks) {
-            merged.set(chunk, offset);
-            offset += chunk.byteLength;
-          }
-          log.debug(
-            { reason: msg.reason, bytes: totalLength },
-            "Synthesis complete",
-          );
-          resolve(Buffer.from(merged));
-        }
+        // FinishEvent arrives after StopEvent (session teardown). In
+        // persistent-session mode we don't send stop between sentences,
+        // so this only fires during close(). Resolve if still pending.
+        this.resolvePending();
         break;
       }
     }
@@ -274,6 +341,7 @@ export class FishAudioSession {
   private rejectPending(error: Error): void {
     if (this.pending) {
       const { reject } = this.pending;
+      this.clearIdleTimer();
       this.pending = null;
       reject(error);
     }
