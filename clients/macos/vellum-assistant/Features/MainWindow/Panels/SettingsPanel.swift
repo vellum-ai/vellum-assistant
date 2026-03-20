@@ -13,12 +13,12 @@ enum SettingsTab: String {
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, schedulesEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general]
-        tabs.append(contentsOf: [
-            .voice, .sounds, .modelsAndServices,
-            .permissionsAndPrivacy,
-        ])
+        var middle: [SettingsTab] = [.voice]
+        if soundsEnabled { middle.append(.sounds) }
+        middle.append(contentsOf: [.modelsAndServices, .permissionsAndPrivacy])
+        tabs.append(contentsOf: middle)
         if billingEnabled {
             tabs.append(.billing)
         }
@@ -79,7 +79,7 @@ struct SettingsPanel: View {
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
             // Contacts and developer flags load asynchronously, so default
             // to false at init time — those tabs aren't visible yet.
-            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, schedulesEnabled: false)
+            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: false)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
@@ -111,6 +111,7 @@ struct SettingsPanel: View {
     @State private var isBillingEnabled: Bool = false
     @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
+    @State private var isSoundsEnabled: Bool = true
     @State private var isGoogleOAuthEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
@@ -123,6 +124,7 @@ struct SettingsPanel: View {
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
     private static let embeddingProviderFeatureFlagKey = "feature_flags.settings-embedding-provider.enabled"
+    private static let soundsFeatureFlagKey = "feature_flags.sounds.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -178,6 +180,7 @@ struct SettingsPanel: View {
         }
         .onAppear {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+            isSoundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
             store.refreshAPIKeyState()
             store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
@@ -197,7 +200,7 @@ struct SettingsPanel: View {
                 // the flag manager directly avoids a stale billingVisible.
                 let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
                 let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, schedulesEnabled: isSchedulesEnabled)
+                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
                     + (isDeveloperEnabled ? [.developer] : [])
                 if visibleTabs.contains(tab) {
                     selectedTab = tab
@@ -233,6 +236,11 @@ struct SettingsPanel: View {
                     isGoogleOAuthEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
+                } else if key == Self.soundsFeatureFlagKey {
+                    isSoundsEnabled = enabled
+                    if !enabled && selectedTab == .sounds {
+                        selectedTab = .general
+                    }
                 } else if key == Self.schedulesFeatureFlagKey {
                     isSchedulesEnabled = enabled
                     if !enabled && selectedTab == .schedules {
@@ -316,7 +324,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, schedulesEnabled: isSchedulesEnabled)
+        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -331,7 +339,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -578,6 +586,9 @@ struct SettingsPanel: View {
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
+                if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
+                    isSoundsEnabled = soundsFlag.enabled
+                }
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
                 }
@@ -604,6 +615,9 @@ struct SettingsPanel: View {
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
+        }
+        if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
+            isSoundsEnabled = soundsEnabled
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
