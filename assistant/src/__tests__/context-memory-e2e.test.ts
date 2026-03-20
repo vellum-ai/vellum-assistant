@@ -41,7 +41,8 @@ mock.module("../memory/qdrant-client.js", () => ({
   initQdrantClient: () => {},
 }));
 
-// Stub deleted legacy modules so imports resolve (full cleanup in follow-up PR)
+// The legacy retriever, query-builder, and retrieval-budget modules have been
+// deleted.  Define stub implementations as local constants.
 const emptyRecall = {
   enabled: true,
   degraded: false,
@@ -54,17 +55,14 @@ const emptyRecall = {
   latencyMs: 0,
   topCandidates: [],
 };
-mock.module("../memory/inject.js", () => ({
-  injectMemoryRecallAsUserBlock: (msgs: unknown[]) => msgs,
-}));
+const buildMemoryRecall = async () => emptyRecall;
+const buildMemoryQuery = (userRequest: string, _msgs: unknown[]) => userRequest;
+const computeRecallBudget = (_opts: Record<string, unknown>) => 4000;
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { buildMemoryQuery } from "../memory/query-builder.js";
-import { computeRecallBudget } from "../memory/retrieval-budget.js";
-import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
   memoryItems,

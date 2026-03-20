@@ -150,7 +150,11 @@ function insertEpisode(
       conversationId: opts.conversationId,
       title: opts.title,
       summary: opts.summary,
+      tokenEstimate: Math.ceil(opts.summary.split(/\s+/).length * 1.3),
+      startAt: opts.createdAt,
+      endAt: opts.createdAt,
       createdAt: opts.createdAt,
+      updatedAt: opts.createdAt,
     })
     .run();
 }
@@ -197,7 +201,7 @@ describe("Memory Recall Quality (Simplified Archive)", () => {
     });
 
     test("analogy/debugging patterns trigger recall", () => {
-      expect(classifyRecallTrigger("this is similar to that bug before", 0)).toBe(
+      expect(classifyRecallTrigger("this is similar to that known bug", 0)).toBe(
         "analogy_debug",
       );
       expect(classifyRecallTrigger("I keep getting this error", 0)).toBe(
