@@ -449,7 +449,7 @@ final class VellumCli {
 
         if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
-            env["VELLUM_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://platform-assistant.vellum.ai"
             #else
             env["VELLUM_PLATFORM_URL"] = "https://vellum.ai"
             #endif

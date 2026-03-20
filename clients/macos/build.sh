@@ -723,7 +723,7 @@ done
 
 # Default VELLUM_PLATFORM_URL for `run` builds (local dev against dev platform)
 if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
-    export VELLUM_PLATFORM_URL="https://dev-assistant.vellum.ai"
+    export VELLUM_PLATFORM_URL="https://platform-assistant.vellum.ai"
 fi
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
