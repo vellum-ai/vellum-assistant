@@ -45,6 +45,7 @@ import {
   stopLocalProcesses,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import { getPlatformUrl } from "../lib/platform-client";
 import { httpHealthCheck } from "../lib/http-client";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
@@ -100,7 +101,7 @@ export async function buildStartupScript(
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
-  const platformUrl = process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
+  const platformUrl = getPlatformUrl();
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"

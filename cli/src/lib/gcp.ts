@@ -11,6 +11,7 @@ import {
 } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
+import { getPlatformUrl } from "./platform-client";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
@@ -640,7 +641,7 @@ export async function hatchGcp(
           species === "vellum" &&
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
-          const installScriptUrl = `${process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai"}/install.sh`;
+          const installScriptUrl = `${getPlatformUrl()}/install.sh`;
           console.log(
             `\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`,
           );
