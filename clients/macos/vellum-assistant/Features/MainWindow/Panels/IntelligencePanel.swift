@@ -190,7 +190,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(daemonClient: daemonClient, focusedMemoryId: $pendingMemoryId)
+            MemoriesPanel(focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
