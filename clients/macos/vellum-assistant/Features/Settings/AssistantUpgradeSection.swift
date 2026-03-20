@@ -248,6 +248,9 @@ struct AssistantUpgradeSection: View {
 struct AssistantRelease: Decodable, Identifiable {
     let version: String
     let releasedAt: String?
+    let assistantImageRef: String?
+    let gatewayImageRef: String?
+    let credentialExecutorImageRef: String?
 
     var id: String { version }
 }
