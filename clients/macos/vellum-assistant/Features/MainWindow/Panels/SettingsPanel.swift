@@ -416,22 +416,22 @@ struct SettingsPanel: View {
             // Managed services billing info banner
             HStack(spacing: VSpacing.sm) {
                 VIconView(.info, size: 14)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 Text("Managed services are metered and deducted from your Vellum account balance.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 Button {
                     NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/pricing")!)
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: VSpacing.xs) {
                         Text("View pricing")
                             .underline()
                         VIconView(.arrowUpRight, size: 10)
                     }
                     .font(VFont.body)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
             }
