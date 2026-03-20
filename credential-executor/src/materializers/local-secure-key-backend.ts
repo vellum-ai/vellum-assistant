@@ -230,9 +230,9 @@ function readStore(storePath: string): StoreFile | null {
 /**
  * Create a SecureKeyBackend backed by the assistant's encrypted key store.
  *
- * Supports `get` and `set` operations. `set` is needed for persisting
- * refreshed OAuth tokens. `delete` remains unsupported (returns "error")
- * because CES never needs to remove keys.
+ * Supports `get`, `set`, and `delete` operations. `set` is needed for
+ * persisting refreshed OAuth tokens. `delete` removes a key from the
+ * encrypted store.
  *
  * @param vellumRoot - The Vellum root directory (e.g. `~/.vellum`).
  * @param options.entropyOverride - If provided, used instead of local
@@ -310,9 +310,19 @@ export function createLocalSecureKeyBackend(
       }
     },
 
-    // CES never deletes keys — only reads and writes (for token refresh).
-    async delete(_key: string): Promise<SecureKeyDeleteResult> {
-      return "error";
+    async delete(key: string): Promise<SecureKeyDeleteResult> {
+      try {
+        const store = readStore(storePath);
+        if (!store) return "error";
+
+        if (!(key in store.entries)) return "not-found";
+
+        delete store.entries[key];
+        writeStore(store, storePath);
+        return "deleted";
+      } catch {
+        return "error";
+      }
     },
 
     async list(): Promise<string[]> {
