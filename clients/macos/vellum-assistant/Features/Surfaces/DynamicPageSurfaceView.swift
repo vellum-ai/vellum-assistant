@@ -479,6 +479,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
                     <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
                     """
+                    context.coordinator.isShowingBuildPlaceholder = true
                     webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
                 } else {
                     let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
@@ -585,6 +586,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
                     <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
                     """
+                    context.coordinator.isShowingBuildPlaceholder = true
                     webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
                 } else {
                     let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
@@ -749,6 +751,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var lastReloadGeneration: Int = 0
         /// True when the app directory is missing and content is loaded inline via data.html.
         var isInlineFallback: Bool = false
+        /// True while the "Building app…" placeholder is displayed, before the real dist page loads.
+        /// Prevents the placeholder's didFinish from counting as a snapshot capture.
+        var isShowingBuildPlaceholder: Bool = false
         var lastStatus: String?
         /// Status message to inject after the next page reload completes.
         var pendingStatus: String?
@@ -1147,6 +1152,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.info("[WebView] Page detected from URL: \(pageName, privacy: .public)")
                     onPageChanged?(pageName)
                 }
+            }
+
+            // When the build placeholder finishes loading, clear the flag but skip
+            // snapshot capture so the real dist page load triggers it instead.
+            if isShowingBuildPlaceholder {
+                isShowingBuildPlaceholder = false
+                return
             }
 
             // Capture a preview screenshot after the page has rendered (once per load).
