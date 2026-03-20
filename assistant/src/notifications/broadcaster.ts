@@ -271,6 +271,7 @@ export class NotificationBroadcaster {
         sourceEventName: signal.sourceEventName,
         copy,
         deepLinkTarget,
+        contextPayload: signal.contextPayload,
       };
 
       // Compute conversation decision audit fields for the delivery record
