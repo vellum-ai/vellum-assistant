@@ -165,6 +165,14 @@ export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
       return keyBuf;
     }
 
+    if (resp.status === 401) {
+      // Invalid or missing bootstrap secret — configuration mismatch.
+      throw new Error(
+        "Signing key bootstrap rejected: invalid or missing bootstrap secret " +
+          "(GUARDIAN_BOOTSTRAP_SECRET mismatch between daemon and gateway)",
+      );
+    }
+
     if (resp.status === 403) {
       // Bootstrap already completed — fall through to file-based load.
       // This happens on daemon restart when the gateway lockfile persists.
