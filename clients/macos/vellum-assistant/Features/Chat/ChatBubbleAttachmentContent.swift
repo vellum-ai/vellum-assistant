@@ -166,6 +166,7 @@ private struct InlineToolCallImageView: View {
                         return nil
                     }
                 }
+                provider.suggestedName = "image.png"
                 return provider
             }
             .pointerCursor()
@@ -245,7 +246,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             .onDrag {
                                 let provider = NSItemProvider()
                                 // Prefer full-res base64 data
-                                if !attachment.data.isEmpty,
+                                let hasFullData = !attachment.data.isEmpty
+                                if hasFullData,
                                    let decoded = Data(base64Encoded: attachment.data), !decoded.isEmpty {
                                     let mimeType = attachment.mimeType
                                     let utType = UTType(mimeType: mimeType) ?? .png
@@ -254,7 +256,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                         return nil
                                     }
                                 } else if let nsImage = loadedImages[attachment.id] {
-                                    // Fallback to thumbnail
+                                    // Fallback to thumbnail — re-encoded as PNG
                                     if let tiff = nsImage.tiffRepresentation,
                                        let rep = NSBitmapImageRep(data: tiff),
                                        let pngData = rep.representation(using: .png, properties: [:]) {
@@ -264,8 +266,14 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                         }
                                     }
                                 }
-                                // Also provide a suggested filename
-                                provider.suggestedName = attachment.filename
+                                // Force .png extension when falling back to PNG encoding
+                                // so the filename matches the actual content type.
+                                let filename = attachment.filename
+                                if hasFullData {
+                                    provider.suggestedName = filename
+                                } else {
+                                    provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
+                                }
                                 return provider
                             }
                             .pointerCursor()
