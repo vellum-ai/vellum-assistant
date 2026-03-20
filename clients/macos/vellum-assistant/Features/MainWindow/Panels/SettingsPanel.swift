@@ -181,6 +181,7 @@ struct SettingsPanel: View {
         .onAppear {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
+            isSchedulesEnabled = AssistantFeatureFlagResolver.isEnabled(Self.schedulesFeatureFlagKey)
             store.refreshAPIKeyState()
             store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
