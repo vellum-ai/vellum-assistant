@@ -71,6 +71,14 @@ extension AppDelegate {
             guard let self else { return }
             self.surfaceManager.dismissSurface(msg)
         }
+        daemonClient.onSurfaceComplete = { [weak self] msg in
+            guard let self else { return }
+            self.surfaceManager.dismissSurface(UiSurfaceDismissMessage(
+                type: "ui_surface_dismiss",
+                conversationId: msg.conversationId ?? "",
+                surfaceId: msg.surfaceId
+            ))
+        }
 
         // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
@@ -208,12 +216,13 @@ extension AppDelegate {
     func setupSecretPromptManager() {
         daemonClient.onSecretRequest = { [weak self] msg in
             self?.secretPromptManager.showPrompt(msg)
+            // Secret/credential prompts require user input — play the needs-input sound.
+            Task { @MainActor in
+                SoundManager.shared.play(.needsInput)
+            }
         }
         secretPromptManager.onResponse = { requestId, value, delivery in
-            Task {
-                await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
-            }
-            return true
+            await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
         }
     }
 }
@@ -678,6 +687,7 @@ extension AppDelegate {
         creditsString.append(NSAttributedString(string: archLabel, attributes: archAttributes))
 
         options[.credits] = creditsString
+        options[.applicationName] = Self.appName
 
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: options)
@@ -694,7 +704,14 @@ extension AppDelegate {
     public func showSettingsTab(_ tab: String) {
         // Don't gate on feature flags here — let SettingsPanel decide visibility
         // based on its own flag state when it processes pendingSettingsTab.
-        if let settingsTab = SettingsTab(rawValue: tab) {
+        // Use a switch to resolve legacy tab names (e.g. "Archived Threads")
+        // without gating on feature flags.
+        let settingsTab: SettingsTab?
+        switch tab {
+        case "Archived Threads": settingsTab = .archivedConversations
+        default: settingsTab = SettingsTab(rawValue: tab)
+        }
+        if let settingsTab {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)

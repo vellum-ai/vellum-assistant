@@ -20,14 +20,8 @@ import * as acpStatus from "./bundled-skills/acp/tools/acp-status.js";
 // ── app-builder ────────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
-import * as appFileEdit from "./bundled-skills/app-builder/tools/app-file-edit.js";
-import * as appFileList from "./bundled-skills/app-builder/tools/app-file-list.js";
-import * as appFileRead from "./bundled-skills/app-builder/tools/app-file-read.js";
-import * as appFileWrite from "./bundled-skills/app-builder/tools/app-file-write.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
-import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
-import * as appQuery from "./bundled-skills/app-builder/tools/app-query.js";
-import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
+import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
 // ── browser ────────────────────────────────────────────────────────────────────
 import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
 import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
@@ -193,14 +187,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // app-builder
   ["app-builder:tools/app-create.ts", appCreate],
-  ["app-builder:tools/app-list.ts", appList],
-  ["app-builder:tools/app-query.ts", appQuery],
-  ["app-builder:tools/app-update.ts", appUpdate],
   ["app-builder:tools/app-delete.ts", appDelete],
-  ["app-builder:tools/app-file-list.ts", appFileList],
-  ["app-builder:tools/app-file-read.ts", appFileRead],
-  ["app-builder:tools/app-file-edit.ts", appFileEdit],
-  ["app-builder:tools/app-file-write.ts", appFileWrite],
+  ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
 
   // browser

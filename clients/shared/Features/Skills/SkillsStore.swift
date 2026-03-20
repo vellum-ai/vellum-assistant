@@ -362,13 +362,16 @@ public final class SkillsStore: ObservableObject {
 
     public func fetchSkillDetail(skillId: String) {
         skillDetailTask?.cancel()
+        if currentDetailSkillId != skillId {
+            selectedSkillDetail = nil
+        }
         currentDetailSkillId = skillId
         isLoadingSkillDetail = true
         skillDetailError = nil
-        selectedSkillDetail = nil
 
         skillDetailTask = Task {
             let result = await skillsClient.fetchSkillDetail(skillId: skillId)
+            guard !Task.isCancelled else { return }
             guard self.currentDetailSkillId == skillId else { return }
             if let result {
                 selectedSkillDetail = result
@@ -383,13 +386,16 @@ public final class SkillsStore: ObservableObject {
 
     public func fetchSkillFiles(skillId: String) {
         skillFilesTask?.cancel()
+        if currentFilesSkillId != skillId {
+            selectedSkillFiles = nil
+        }
         currentFilesSkillId = skillId
         isLoadingSkillFiles = true
         skillFilesError = nil
-        selectedSkillFiles = nil
 
         skillFilesTask = Task {
             let result = await skillsClient.fetchSkillFiles(skillId: skillId)
+            guard !Task.isCancelled else { return }
             guard self.currentFilesSkillId == skillId else { return }
             if let result {
                 selectedSkillFiles = result

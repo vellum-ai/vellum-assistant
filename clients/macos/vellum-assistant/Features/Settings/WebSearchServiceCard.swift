@@ -15,7 +15,7 @@ struct WebSearchServiceCard: View {
     var authManager: AuthManager
     @Binding var perplexityKeyText: String
     @Binding var braveKeyText: String
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -82,35 +82,47 @@ struct WebSearchServiceCard: View {
             title: "Web Search",
             subtitle: "Configure which web search provider to use for online research",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: false,
-            onSave: { save() },
-            onReset: {
-                if isPerplexity {
-                    store.clearPerplexityKey()
-                    perplexityKeyText = ""
-                } else if isBrave {
-                    store.clearBraveKey()
-                    braveKeyText = ""
-                }
-            },
-            showReset: draftMode == "your-own" && needsAPIKey
-                && (isPerplexity ? store.hasPerplexityKey : store.hasBraveKey),
             managedContent: {
                 if store.inferenceMode == "your-own" {
                     managedUnavailableMessage
                 } else if isLoggedIn {
-                    managedIncludedMessage
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        managedIncludedMessage
+                        if hasChanges {
+                            ServiceCardActions(hasChanges: hasChanges, onSave: { save() })
+                        }
+                    }
                 } else {
                     managedLoginPrompt
                 }
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    providerPicker
-
                     if needsAPIKey {
+                        providerPicker
                         apiKeySection
+
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            onSave: { save() },
+                            onReset: {
+                                if isPerplexity {
+                                    store.clearPerplexityKey()
+                                    perplexityKeyText = ""
+                                } else if isBrave {
+                                    store.clearBraveKey()
+                                    braveKeyText = ""
+                                }
+                            },
+                            showReset: isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
+                        )
+                    } else {
+                        PickerWithInlineSave(
+                            hasChanges: hasChanges,
+                            onSave: { save() }
+                        ) {
+                            providerPicker
+                        }
                     }
                 }
             }
@@ -165,11 +177,7 @@ struct WebSearchServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    if let showToast {
-                        await authManager.loginWithToast(showToast: showToast)
-                    } else {
-                        await authManager.startWorkOSLogin()
-                    }
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }
@@ -187,7 +195,8 @@ struct WebSearchServiceCard: View {
                 selection: $draftProvider,
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
-                }
+                },
+                maxWidth: 400
             )
         }
     }
@@ -203,7 +212,7 @@ struct WebSearchServiceCard: View {
                 "Enter your API key",
                 text: isPerplexity ? $perplexityKeyText : $braveKeyText
             )
-            .vInputStyle()
+            .vInputStyle(maxWidth: 400)
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
 

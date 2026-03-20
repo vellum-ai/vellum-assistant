@@ -5,14 +5,15 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { computeChunkContentHash } from "./archive-store.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import {
-  extractMediaBlocks,
+  extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import { memorySegments } from "./schema.js";
+import { memoryChunks, memoryObservations, memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
@@ -53,7 +54,12 @@ export async function indexMessageNow(
     input.provenanceTrustClass === undefined;
 
   const text = extractTextFromStoredMessageContent(input.content);
-  if (text.length === 0) {
+  const hasText = text.length > 0;
+  const candidateMediaMeta = extractMediaBlockMeta(input.content).filter(
+    (b) => b.type === "image",
+  );
+  const hasMedia = candidateMediaMeta.length > 0;
+  if (!hasText && !hasMedia) {
     enqueueMemoryJob("build_conversation_summary", {
       conversationId: input.conversationId,
     });
@@ -62,31 +68,35 @@ export async function indexMessageNow(
 
   const db = getDb();
   const now = Date.now();
-  const segments = segmentText(
-    text,
-    config.segmentation.targetTokens,
-    config.segmentation.overlapTokens,
-  );
+  const segments = hasText
+    ? segmentText(
+        text,
+        config.segmentation.targetTokens,
+        config.segmentation.overlapTokens,
+      )
+    : [];
   const shouldExtract =
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
   // Check if the message has any image blocks before probing the backend.
-  // extractMediaBlocks is synchronous and cheap, while
-  // selectedBackendSupportsMultimodal requires async key resolution that
-  // would add unnecessary latency for text-only messages.
-  const candidateMediaBlocks = extractMediaBlocks(input.content).filter(
-    (b) => b.type === "image",
-  );
+  // extractMediaBlockMeta is synchronous and lightweight — it detects image
+  // blocks without decoding base64 data into Buffers, avoiding CPU/memory
+  // overhead for messages on non-multimodal backends.
+  // selectedBackendSupportsMultimodal requires async key resolution, so we
+  // skip it entirely for text-only messages.
   const mediaBlocks =
-    candidateMediaBlocks.length > 0 &&
+    candidateMediaMeta.length > 0 &&
     (await selectedBackendSupportsMultimodal(getConfig()))
-      ? candidateMediaBlocks
+      ? candidateMediaMeta
       : [];
 
   // Wrap all segment inserts and job enqueues in a single transaction so they
   // either all succeed or all roll back, preventing partial/orphaned state.
   let skippedEmbedJobs = 0;
+  let skippedChunkEmbedJobs = 0;
+  const scopeId = input.scopeId ?? "default";
   db.transaction((tx) => {
+    // ── Legacy segment path (kept intact for parallel validation) ───
     for (const segment of segments) {
       const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
       const hash = createHash("sha256").update(segment.text).digest("hex");
@@ -107,7 +117,7 @@ export async function indexMessageNow(
           segmentIndex: segment.segmentIndex,
           text: segment.text,
           tokenEstimate: segment.tokenEstimate,
-          scopeId: input.scopeId ?? "default",
+          scopeId,
           contentHash: hash,
           createdAt: input.createdAt,
           updatedAt: now,
@@ -117,7 +127,7 @@ export async function indexMessageNow(
           set: {
             text: segment.text,
             tokenEstimate: segment.tokenEstimate,
-            scopeId: input.scopeId ?? "default",
+            scopeId,
             contentHash: hash,
             updatedAt: now,
           },
@@ -128,6 +138,65 @@ export async function indexMessageNow(
         skippedEmbedJobs++;
       } else {
         enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
+      }
+    }
+
+    // ── Archive chunk dual-write (mirrors segment boundaries) ──────
+    // Create a single observation per message, then create one chunk per
+    // segment using the same segmentation boundaries. Chunks are
+    // deduplicated by (scopeId, contentHash) via onConflictDoNothing so
+    // unchanged content does not enqueue duplicate embed_chunk jobs.
+    const observationId = buildObservationId(input.messageId);
+    tx.insert(memoryObservations)
+      .values({
+        id: observationId,
+        scopeId,
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        role: input.role,
+        content: hasText ? text : input.content,
+        modality: hasMedia ? "multimodal" : "text",
+        source: null,
+        createdAt: input.createdAt,
+      })
+      .onConflictDoNothing({ target: memoryObservations.id })
+      .run();
+
+    for (const segment of segments) {
+      const chunkId = buildChunkId(input.messageId, segment.segmentIndex);
+      const chunkHash = computeChunkContentHash(scopeId, segment.text);
+
+      // Check if this chunk already exists with the same content hash
+      const existingChunk = tx
+        .select({ contentHash: memoryChunks.contentHash })
+        .from(memoryChunks)
+        .where(eq(memoryChunks.id, chunkId))
+        .get();
+
+      tx.insert(memoryChunks)
+        .values({
+          id: chunkId,
+          scopeId,
+          observationId,
+          content: segment.text,
+          tokenEstimate: segment.tokenEstimate,
+          contentHash: chunkHash,
+          createdAt: input.createdAt,
+        })
+        .onConflictDoUpdate({
+          target: memoryChunks.id,
+          set: {
+            content: segment.text,
+            tokenEstimate: segment.tokenEstimate,
+            contentHash: chunkHash,
+          },
+        })
+        .run();
+
+      if (existingChunk?.contentHash === chunkHash) {
+        skippedChunkEmbedJobs++;
+      } else {
+        enqueueMemoryJob("embed_chunk", { chunkId, scopeId }, Date.now(), tx);
       }
     }
 
@@ -145,7 +214,7 @@ export async function indexMessageNow(
     if (shouldExtract && isTrustedActor && !input.automated) {
       enqueueMemoryJob(
         "extract_items",
-        { messageId: input.messageId, scopeId: input.scopeId ?? "default" },
+        { messageId: input.messageId, scopeId },
         Date.now(),
         tx,
       );
@@ -164,6 +233,12 @@ export async function indexMessageNow(
     );
   }
 
+  if (skippedChunkEmbedJobs > 0) {
+    log.debug(
+      `Skipped ${skippedChunkEmbedJobs}/${segments.length} embed_chunk jobs (content unchanged)`,
+    );
+  }
+
   if (!isTrustedActor && shouldExtract) {
     log.info(
       `Skipping extraction jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
@@ -175,9 +250,11 @@ export async function indexMessageNow(
   }
 
   const extractionGated = !isTrustedActor || !!input.automated;
+  const segmentEmbedJobs = segments.length - skippedEmbedJobs;
+  const chunkEmbedJobs = segments.length - skippedChunkEmbedJobs;
   const enqueuedJobs =
-    segments.length -
-    skippedEmbedJobs +
+    segmentEmbedJobs +
+    chunkEmbedJobs +
     mediaBlocks.length +
     (shouldExtract && !extractionGated ? 2 : 1);
   return {
@@ -210,4 +287,20 @@ export function getRecentSegmentsForConversation(
 
 function buildSegmentId(messageId: string, segmentIndex: number): string {
   return `${messageId}:${segmentIndex}`;
+}
+
+/**
+ * Deterministic observation ID derived from the messageId so repeated
+ * indexer runs for the same message converge on the same observation row.
+ */
+function buildObservationId(messageId: string): string {
+  return `obs:${messageId}`;
+}
+
+/**
+ * Deterministic chunk ID derived from the messageId and segment index so
+ * the dual-write path mirrors the legacy segment identity scheme exactly.
+ */
+function buildChunkId(messageId: string, segmentIndex: number): string {
+  return `chunk:${messageId}:${segmentIndex}`;
 }

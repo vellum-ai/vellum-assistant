@@ -15,11 +15,16 @@ import type {
 } from "../channels/types.js";
 import {
   addMessage,
+  getConversation,
   getMessageById,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import {
+  backfillMessageIdOnLogs,
+  recordRequestLog,
+} from "../memory/llm-request-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -48,6 +53,8 @@ export interface EventHandlerState {
   llmCallStartedEmitted: boolean;
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
+  /** Most recent resolved provider for the current exchange's usage accounting. */
+  exchangeProviderName: string | undefined;
   exchangeInputTokens: number;
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
@@ -114,6 +121,7 @@ export function createEventHandlerState(): EventHandlerState {
     llmCallStartedEmitted: false,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
+    exchangeProviderName: undefined,
     exchangeInputTokens: 0,
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
@@ -167,6 +175,12 @@ export function emitLlmCallStartedIfNeeded(
   );
 }
 
+// ── Client Payload Size Caps ─────────────────────────────────────────
+// tool_input_delta streams accumulated JSON as tools run. For non-app
+// tools the client discards it (extractCodePreview only handles app tools),
+// so we skip forwarding entirely to avoid transport/decode overhead.
+const APP_TOOL_NAMES = new Set(["app_create"]);
+
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
@@ -183,11 +197,9 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   browser_scroll: "browser",
   browser_wait: "browser",
   app_create: "app",
-  app_update: "app",
+  app_refresh: "app refresh",
   skill_load: "skill",
   skill_execute: "skill",
-  app_file_edit: "app file",
-  app_file_write: "app file",
 };
 
 function friendlyToolName(name: string): string {
@@ -267,7 +279,12 @@ export function handleToolUse(
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
-  const statusText = `Running ${friendlyToolName(event.name)}`;
+  const statusText =
+    event.name === "skill_execute" &&
+    typeof event.input.activity === "string" &&
+    event.input.activity.length > 0
+      ? event.input.activity
+      : `Running ${friendlyToolName(event.name)}`;
   deps.ctx.emitActivityState(
     "tool_running",
     "tool_use_start",
@@ -385,6 +402,10 @@ export function handleInputJsonDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
+  // Only forward input deltas for app tools — the client only uses this
+  // stream for app_create code previews. Non-app tools would send large
+  // cumulative JSON on every delta with no benefit.
+  if (!APP_TOOL_NAMES.has(event.toolName)) return;
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
@@ -627,12 +648,21 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    await addMessage(
+    const toolResultMsg = await addMessage(
       deps.ctx.conversationId,
       "user",
       JSON.stringify(toolResultBlocks),
       toolResultMetadata,
     );
+    // Sync tool-result user message to disk view
+    const convForToolResult = getConversation(deps.ctx.conversationId);
+    if (convForToolResult) {
+      syncMessageToDisk(
+        deps.ctx.conversationId,
+        toolResultMsg.id,
+        convForToolResult.createdAt,
+      );
+    }
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
     }
@@ -697,6 +727,18 @@ export async function handleMessageComplete(
   );
   state.lastAssistantMessageId = assistantMsg.id;
 
+  // Backfill message_id on all LLM request logs from this turn.
+  // The agent loop is single-threaded per conversation, so all rows with
+  // message_id IS NULL belong to the current turn.
+  try {
+    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMsg.id);
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill message_id on LLM request logs (non-fatal)",
+    );
+  }
+
   deps.ctx.currentTurnSurfaces = [];
 
   // Emit trace event
@@ -724,6 +766,8 @@ export function handleUsage(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
+  const providerName = event.actualProvider ?? deps.ctx.provider.name;
+  state.exchangeProviderName = providerName;
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
@@ -739,6 +783,8 @@ export function handleUsage(
         deps.ctx.conversationId,
         JSON.stringify(event.rawRequest),
         JSON.stringify(event.rawResponse),
+        undefined,
+        providerName,
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -749,12 +795,12 @@ export function handleUsage(
 
   deps.ctx.traceEmitter.emit(
     "llm_call_finished",
-    `LLM call to ${deps.ctx.provider.name} finished`,
+    `LLM call to ${providerName} finished`,
     {
       requestId: deps.reqId,
       status: "success",
       attributes: {
-        provider: deps.ctx.provider.name,
+        provider: providerName,
         model: event.model,
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,

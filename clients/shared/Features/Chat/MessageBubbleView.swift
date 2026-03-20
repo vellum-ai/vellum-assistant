@@ -22,6 +22,8 @@ public struct MessageBubbleView: View {
     public let onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
     public let onRetryConversationError: (() -> Void)?
+    /// Called when the user wants to fork the conversation from this persisted message.
+    public let onForkFromMessage: ((String) -> Void)?
 
     public init(
         message: ChatMessage,
@@ -32,7 +34,8 @@ public struct MessageBubbleView: View {
         onGuardianAction: ((String, String) -> Void)? = nil,
         onSurfaceRefetch: ((String, String) -> Void)? = nil,
         onRetryFailedMessage: ((UUID) -> Void)? = nil,
-        onRetryConversationError: (() -> Void)? = nil
+        onRetryConversationError: (() -> Void)? = nil,
+        onForkFromMessage: ((String) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
@@ -43,6 +46,7 @@ public struct MessageBubbleView: View {
         self.onSurfaceRefetch = onSurfaceRefetch
         self.onRetryFailedMessage = onRetryFailedMessage
         self.onRetryConversationError = onRetryConversationError
+        self.onForkFromMessage = onForkFromMessage
     }
 
     public var body: some View {
@@ -111,6 +115,14 @@ public struct MessageBubbleView: View {
                                 },
                                 onRefetch: onSurfaceRefetch
                             )
+                        }
+                    }
+                }
+
+                if !message.attachmentWarnings.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(Array(message.attachmentWarnings.enumerated()), id: \.offset) { _, warning in
+                            VInlineMessage(warning, tone: .warning)
                         }
                     }
                 }
@@ -184,6 +196,10 @@ public struct MessageBubbleView: View {
         return false
     }
 
+    var canForkFromMessage: Bool {
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+    }
+
     private enum ContentGroup {
         case text(Int)
         case toolCalls([Int])
@@ -255,6 +271,9 @@ public struct MessageBubbleView: View {
                 .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .textSelection(.enabled)
+                .contextMenu {
+                    sharedContextMenu()
+                }
         } else if message.isError {
             InlineChatErrorAlert(
                 message: text,
@@ -262,13 +281,7 @@ public struct MessageBubbleView: View {
                 onRetry: onRetryConversationError
             )
             .contextMenu {
-                if let onRegenerate {
-                    Button {
-                        onRegenerate()
-                    } label: {
-                        Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
-                    }
-                }
+                sharedContextMenu()
             }
         } else {
             MarkdownRenderer(text: text)
@@ -276,14 +289,27 @@ public struct MessageBubbleView: View {
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .contextMenu {
-                    if let onRegenerate {
-                        Button {
-                            onRegenerate()
-                        } label: {
-                            Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
-                        }
-                    }
+                    sharedContextMenu()
                 }
+        }
+    }
+
+    @ViewBuilder
+    private func sharedContextMenu() -> some View {
+        if let onRegenerate {
+            Button {
+                onRegenerate()
+            } label: {
+                Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
+            }
+        }
+
+        if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
+            Button {
+                onForkFromMessage(daemonMessageId)
+            } label: {
+                Label { Text("Fork from here") } icon: { VIconView(.gitBranch, size: 14) }
+            }
         }
     }
 
@@ -304,6 +330,4 @@ public struct MessageBubbleView: View {
         return 1.0 + 0.4 * sin(normalized * 2 * .pi)
     }
 }
-
-
 

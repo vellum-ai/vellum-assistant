@@ -35,6 +35,7 @@ export interface ScheduleJob {
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  quiet: boolean;
   status: ScheduleStatus;
   createdAt: number;
   updatedAt: number;
@@ -91,6 +92,7 @@ export function createSchedule(params: {
   mode?: ScheduleMode;
   routingIntent?: RoutingIntent;
   routingHints?: Record<string, unknown>;
+  quiet?: boolean;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -118,6 +120,7 @@ export function createSchedule(params: {
   const mode = params.mode ?? "execute";
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
+  const quiet = params.quiet ?? false;
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -144,6 +147,7 @@ export function createSchedule(params: {
     mode,
     routingIntent,
     routingHintsJson: JSON.stringify(routingHints),
+    quiet,
     status: "active" as ScheduleStatus,
     createdAt: now,
     updatedAt: now,
@@ -202,6 +206,27 @@ export function listSchedules(options?: {
   return rows.map(parseJobRow);
 }
 
+/**
+ * Return enabled schedules whose next run falls within a time window.
+ * Used by the memory brief compiler to surface due-soon schedule entries.
+ */
+export function getDueSoonSchedules(
+  now: number,
+  horizonMs: number,
+): ScheduleJob[] {
+  const db = getDb();
+  const cutoff = now + horizonMs;
+  const rows = db
+    .select()
+    .from(scheduleJobs)
+    .where(
+      and(eq(scheduleJobs.enabled, true), lte(scheduleJobs.nextRunAt, cutoff)),
+    )
+    .orderBy(asc(scheduleJobs.nextRunAt))
+    .all();
+  return rows.map(parseJobRow);
+}
+
 export function updateSchedule(
   id: string,
   updates: {
@@ -215,6 +240,7 @@ export function updateSchedule(
     mode?: ScheduleMode;
     routingIntent?: RoutingIntent;
     routingHints?: Record<string, unknown>;
+    quiet?: boolean;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -269,6 +295,7 @@ export function updateSchedule(
     set.routingIntent = updates.routingIntent;
   if (updates.routingHints !== undefined)
     set.routingHintsJson = JSON.stringify(updates.routingHints);
+  if (updates.quiet !== undefined) set.quiet = updates.quiet;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -750,6 +777,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
     routingHints: safeParseJson(row.routingHintsJson),
+    quiet: row.quiet ?? false,
     status: (row.status ?? "active") as ScheduleStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

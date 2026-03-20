@@ -25,6 +25,7 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   },
   openai: {
     "gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15 },
+    "gpt-5.4-mini": { inputPer1M: 0.5, outputPer1M: 3 },
     "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
     "gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14 },
     "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },

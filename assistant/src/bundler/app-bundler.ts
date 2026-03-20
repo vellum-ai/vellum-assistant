@@ -14,7 +14,7 @@ import { join } from "node:path";
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { compileApp } from "./app-compiler.js";
@@ -79,7 +79,7 @@ export async function packageApp(
   // Compile the app and bundle the output.
   const compiledFiles: { name: string; data: Buffer }[] = [];
 
-  const appDir = join(getAppsDir(), appId);
+  const appDir = getAppDirPath(appId);
 
   if (multifile) {
     // Multi-file TSX app: compile src/ -> dist/
@@ -154,7 +154,7 @@ export async function packageApp(
     }
 
     // Include app icon if one was generated
-    const iconPath = join(getAppsDir(), appId, "icon.png");
+    const iconPath = join(getAppDirPath(appId), "icon.png");
     if (existsSync(iconPath)) {
       archive.append(readFileSync(iconPath), { name: "icon.png" });
     }
@@ -202,7 +202,7 @@ export async function packageApp(
 
   // Read icon for inclusion in the response
   let iconImageBase64: string | undefined;
-  const iconFilePath = join(getAppsDir(), appId, "icon.png");
+  const iconFilePath = join(getAppDirPath(appId), "icon.png");
   if (existsSync(iconFilePath)) {
     iconImageBase64 = readFileSync(iconFilePath).toString("base64");
   }

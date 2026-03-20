@@ -4,10 +4,10 @@ import * as path from "node:path";
 import { v4 as uuid } from "uuid";
 
 import {
-  linkAttachmentToMessage,
-  uploadFileBackedAttachment,
+  attachFileBackedAttachmentToMessage,
 } from "../../memory/attachments-store.js";
-import { addMessage } from "../../memory/conversation-crud.js";
+import { addMessage, getConversation } from "../../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { type HandlerContext, log } from "./shared.js";
 
@@ -616,23 +616,6 @@ export async function finalizeAndPublishRecording(params: {
     const ext = filename.split(".").pop()?.toLowerCase();
     const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
 
-    // Store as file-backed attachment (avoids reading large files into memory)
-    const attachment = uploadFileBackedAttachment(
-      filename,
-      mimeType,
-      resolvedPath,
-      sizeBytes,
-    );
-    log.info(
-      {
-        recordingId,
-        attachmentId: attachment.id,
-        sizeBytes,
-        filePath: resolvedPath,
-      },
-      "Created attachment for standalone recording",
-    );
-
     // Always create a new assistant message for the recording attachment.
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
@@ -648,11 +631,33 @@ export async function finalizeAndPublishRecording(params: {
       "Created assistant message for recording attachment",
     );
 
-    linkAttachmentToMessage(messageId, attachment.id, 0);
+    const attachment = attachFileBackedAttachmentToMessage(
+      messageId,
+      0,
+      filename,
+      mimeType,
+      resolvedPath,
+      sizeBytes,
+    );
+    log.info(
+      {
+        recordingId,
+        attachmentId: attachment.id,
+        sizeBytes,
+        filePath: resolvedPath,
+      },
+      "Created attachment for standalone recording",
+    );
     log.info(
       { recordingId, messageId, attachmentId: attachment.id },
       "Linked recording attachment to assistant message",
     );
+
+    // Sync the recording message (with attachment) to the disk view
+    const convForDisk = getConversation(conversationId);
+    if (convForDisk) {
+      syncMessageToDisk(conversationId, messageId, convForDisk.createdAt);
+    }
 
     // Skip server-side thumbnail generation for recordings — the client
     // generates thumbnails natively from the local file path using

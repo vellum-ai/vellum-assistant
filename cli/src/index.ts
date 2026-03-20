@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import cliPkg from "../package.json";
+import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
@@ -8,6 +9,7 @@ import { login, logout, whoami } from "./commands/login";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
+import { restore } from "./commands/restore";
 import { retire } from "./commands/retire";
 import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
@@ -26,6 +28,7 @@ import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
 
 const commands = {
+  backup,
   clean,
   client,
   hatch,
@@ -34,6 +37,7 @@ const commands = {
   pair,
   ps,
   recover,
+  restore,
   retire,
   setup,
   sleep,
@@ -51,6 +55,7 @@ function printHelp(): void {
   console.log("Usage: vellum <command> [options]");
   console.log("");
   console.log("Commands:");
+  console.log("  backup   Export a backup of a running assistant");
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  hatch    Create a new assistant instance");
@@ -61,6 +66,7 @@ function printHelp(): void {
     "  ps       List assistants (or processes for a specific assistant)",
   );
   console.log("  recover  Restore a previously retired local assistant");
+  console.log("  restore  Restore a .vbundle backup into a running assistant");
   console.log("  retire   Delete an assistant instance");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");

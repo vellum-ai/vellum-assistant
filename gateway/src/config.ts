@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getRootDir, getWorkspaceDir } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -43,7 +43,7 @@ type RoutingEntry = {
  */
 function readWorkspaceConfig(): Record<string, unknown> {
   try {
-    const configPath = join(getRootDir(), "workspace", "config.json");
+    const configPath = join(getWorkspaceDir(), "config.json");
     if (!existsSync(configPath)) return {};
     const raw = readFileSync(configPath, "utf-8");
     const data = JSON.parse(raw);
@@ -52,6 +52,19 @@ function readWorkspaceConfig(): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * Directory containing gateway security files (trust.json, actor-token-signing-key).
+ *
+ * In Docker, this is a dedicated volume mounted at /gateway-security via the
+ * GATEWAY_SECURITY_DIR env var. In local (non-Docker) mode, falls back to
+ * ~/.vellum/protected/ for backwards compatibility.
+ */
+export function getGatewaySecurityDir(): string {
+  const override = process.env.GATEWAY_SECURITY_DIR?.trim();
+  if (override) return override;
+  return join(getRootDir(), "protected");
 }
 
 function parseRoutingEntries(raw: unknown): RoutingEntry[] {
@@ -137,7 +150,8 @@ export function loadConfig(): GatewayConfig {
     gatewayInternalBaseUrl,
     logFile,
     maxAttachmentBytes: {
-      telegram: 20 * 1024 * 1024, // Telegram Bot API getFile limit
+      telegram: 20 * 1024 * 1024, // Telegram Bot API getFile (download) limit
+      telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
       default: 100 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (100 MB)

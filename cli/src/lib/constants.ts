@@ -1,3 +1,5 @@
+import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json";
+
 /**
  * Canonical internal assistant ID used as the default/fallback across the CLI
  * and daemon. Mirrors `DAEMON_INTERNAL_ASSISTANT_ID` from
@@ -14,6 +16,16 @@ export const GATEWAY_PORT = process.env.GATEWAY_PORT
 export const DEFAULT_DAEMON_PORT = 7821;
 export const DEFAULT_GATEWAY_PORT = 7830;
 export const DEFAULT_QDRANT_PORT = 6333;
+export const DEFAULT_CES_PORT = 8090;
+
+/**
+ * Environment variable names for provider API keys, keyed by provider ID.
+ * Loaded from the shared registry at `meta/provider-env-vars.json` — the
+ * single source of truth also consumed by the assistant runtime and the
+ * macOS client.
+ */
+export const PROVIDER_ENV_VAR_NAMES: Record<string, string> =
+  providerEnvVarsRegistry.providers;
 
 export const VALID_REMOTE_HOSTS = [
   "local",

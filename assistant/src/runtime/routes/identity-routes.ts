@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getBaseDataDir } from "../../config/env-registry.js";
+import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -149,41 +150,7 @@ export function handleGetIdentity(): Response {
   }
 
   const content = readFileSync(identityPath, "utf-8");
-  const fields: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    const lower = trimmed.toLowerCase();
-    const extract = (prefix: string): string | null => {
-      if (!lower.startsWith(prefix)) return null;
-      return trimmed.split(":**").pop()?.trim() ?? null;
-    };
-
-    const name = extract("- **name:**");
-    if (name) {
-      fields.name = name;
-      continue;
-    }
-    const role = extract("- **role:**");
-    if (role) {
-      fields.role = role;
-      continue;
-    }
-    const personality = extract("- **personality:**") ?? extract("- **vibe:**");
-    if (personality) {
-      fields.personality = personality;
-      continue;
-    }
-    const emoji = extract("- **emoji:**");
-    if (emoji) {
-      fields.emoji = emoji;
-      continue;
-    }
-    const home = extract("- **home:**");
-    if (home) {
-      fields.home = home;
-      continue;
-    }
-  }
+  const fields = parseIdentityFields(content);
 
   const version = getPackageVersion();
 

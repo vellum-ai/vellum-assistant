@@ -3,7 +3,7 @@ import { buildOpenclawRuntimeServer } from "../lib/openclaw-runtime-server";
 
 export async function buildOpenclawStartupScript(
   sshUser: string,
-  anthropicApiKey: string,
+  providerApiKeys: Record<string, string>,
   timestampRedirect: string,
   userSetup: string,
   ownershipFixup: string,
@@ -110,7 +110,9 @@ echo -n "\$OPENCLAW_GW_TOKEN" > /tmp/openclaw-gateway-token
 chmod 600 /tmp/openclaw-gateway-token
 
 mkdir -p /root/.openclaw
-openclaw config set env.ANTHROPIC_API_KEY "${anthropicApiKey}"
+${Object.entries(providerApiKeys)
+  .map(([envVar, value]) => `openclaw config set env.${envVar} "${value}"`)
+  .join("\n")}
 openclaw config set agents.defaults.model.primary "anthropic/claude-opus-4-6"
 openclaw config set gateway.auth.token "\$OPENCLAW_GW_TOKEN"
 

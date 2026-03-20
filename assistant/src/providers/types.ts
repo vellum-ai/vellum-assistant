@@ -93,6 +93,8 @@ export type ModelIntent =
 export interface ProviderResponse {
   content: ContentBlock[];
   model: string;
+  /** Provider that actually produced this response, which may differ from a wrapper provider name. */
+  actualProvider?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;

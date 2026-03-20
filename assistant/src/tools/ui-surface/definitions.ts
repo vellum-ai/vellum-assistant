@@ -91,7 +91,7 @@ export const uiShowTool: Tool = {
             type: "string",
             enum: ["inline", "panel"],
             description:
-              'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline".',
+              'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when the user explicitly asks for a separate window.',
           },
           await_action: {
             type: "boolean",

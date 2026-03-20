@@ -27,11 +27,11 @@ public struct GuardianDecisionBubble: View {
         case "pending_question":
             return (.circleAlert, "Question Pending", VColor.primaryBase)
         case "access_request":
-            return (.circleUser, "Access Request", VColor.systemNegativeHover)
+            return (.circleUser, "Access Request", VColor.systemMidStrong)
         case "tool_approval":
-            return (.shieldAlert, "Tool Approval Required", VColor.systemNegativeHover)
+            return (.shieldAlert, "Tool Approval Required", VColor.systemMidStrong)
         default:
-            return (.shieldAlert, "Guardian Approval Required", VColor.systemNegativeHover)
+            return (.shieldAlert, "Guardian Approval Required", VColor.systemMidStrong)
         }
     }
 

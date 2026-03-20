@@ -4,19 +4,14 @@ import VellumAssistantShared
 /// Reusable card for services with a Managed/Your Own mode toggle.
 ///
 /// Provides the outer card chrome (title, subtitle, segmented control,
-/// divider, action buttons) and delegates mode-specific content to callers
-/// via ViewBuilder closures.
+/// divider) and delegates mode-specific content — including any action
+/// buttons — to callers via ViewBuilder closures. Each card is responsible
+/// for placing its own save/reset actions contextually within its content.
 @MainActor
 struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
     let title: String
     let subtitle: String
     @Binding var draftMode: String
-    let hasChanges: Bool
-    let isSaving: Bool
-    let onSave: () -> Void
-    /// Optional reset action -- shown only in Your Own mode when `showReset` is true.
-    let onReset: (() -> Void)?
-    let showReset: Bool
     @ViewBuilder let managedContent: () -> ManagedContent
     @ViewBuilder let yourOwnContent: () -> YourOwnContent
 
@@ -29,15 +24,12 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .fill(VColor.surfaceBase)
                 .frame(height: 1)
 
-            // Mode-specific content
+            // Mode-specific content (including any action buttons)
             if draftMode == "managed" {
                 managedContent()
             } else {
                 yourOwnContent()
             }
-
-            // Action buttons
-            actionButtons
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,29 +60,62 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .foregroundColor(VColor.contentTertiary)
         }
     }
+}
 
-    // MARK: - Action Buttons
+// MARK: - Reusable Action Buttons
 
-    private var actionButtons: some View {
+/// Reusable save/reset action buttons for service cards.
+///
+/// Use this within service card content closures to provide consistent
+/// action button styling without duplicating button logic across cards.
+@MainActor
+struct ServiceCardActions: View {
+    let hasChanges: Bool
+    var isSaving: Bool = false
+    let onSave: () -> Void
+    var saveLabel: String = "Save"
+    var savingLabel: String = "Saving..."
+    var onReset: (() -> Void)? = nil
+    var showReset: Bool = false
+
+    var body: some View {
         HStack(spacing: VSpacing.sm) {
-            if draftMode == "managed" {
-                VButton(
-                    label: isSaving ? "Saving..." : "Save",
-                    style: .primary,
-                    isDisabled: !hasChanges || isSaving
-                ) { onSave() }
-            } else {
-                VButton(
-                    label: isSaving ? "Validating..." : "Save",
-                    style: .primary,
-                    isDisabled: !hasChanges || isSaving
-                ) { onSave() }
-                if showReset, let onReset {
-                    VButton(label: "Reset", style: .danger, isDisabled: isSaving) {
-                        onReset()
-                    }
+            VButton(
+                label: isSaving ? savingLabel : saveLabel,
+                style: .primary,
+                isDisabled: !hasChanges || isSaving
+            ) { onSave() }
+
+            if showReset, let onReset {
+                VButton(label: "Reset", style: .danger, isDisabled: isSaving) {
+                    onReset()
                 }
             }
+        }
+    }
+}
+
+/// A picker (dropdown) with an inline save button that adapts to available width.
+///
+/// At wider sizes, the save button sits to the right of the dropdown. At narrow
+/// widths, it falls below the dropdown via `VAdaptiveStack`.
+@MainActor
+struct PickerWithInlineSave<PickerContent: View>: View {
+    let hasChanges: Bool
+    var isSaving: Bool = false
+    let onSave: () -> Void
+    var saveLabel: String = "Save"
+    var savingLabel: String = "Saving..."
+    @ViewBuilder let picker: () -> PickerContent
+
+    var body: some View {
+        VAdaptiveStack(horizontalAlignment: .bottom) {
+            picker()
+            VButton(
+                label: isSaving ? savingLabel : saveLabel,
+                style: .primary,
+                isDisabled: !hasChanges || isSaving
+            ) { onSave() }
         }
     }
 }

@@ -101,10 +101,16 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 - **Hard-delete trimmed objects; don't just clear their content.** Stripping a `ChatMessage`'s text/data in-place leaves the object allocated. Use `removeSubrange` (or equivalent) so the objects are fully deallocated and ARC can reclaim the memory. Keep a `hasMoreHistory` flag set to `true` after eviction so pagination can reload the trimmed pages.
 - **Register a memory pressure handler.** Long-lived managers that hold large in-memory collections should observe `DispatchSource.makeMemoryPressureSource` (or `ProcessInfo.processInfo.performExpiringActivity`) and proactively evict non-visible data before the OS kills the process. This API works on both macOS and iOS.
 
+### Loading States
+
+- **Use skeleton placeholders, not spinners, for complex data loads.** When loading structured or composite content — lists, cards, detail views, dashboards, multi-section screens — always use skeleton placeholders that approximate the final layout. Skeletons give users a spatial preview of what's coming, reduce perceived wait time, and eliminate layout shift when real content appears. Use `VSkeletonBone` with `.vShimmer()` for individual placeholder bones and compose them to mirror the target layout's alignment, dimensions, spacing, and shapes. See `ChatLoadingSkeleton` for the reference pattern.
+- **Reserve spinners for simple, inline loading states.** `VLoadingIndicator` and `VBusyIndicator` are appropriate only for small, contained actions where the final content shape is unknown or trivial — button loading states, toolbar actions, single-value refreshes. If the loading region occupies more than ~one line of content or will render a repeating/structured layout, use a skeleton instead.
+- **Match skeleton anatomy to the real content.** A skeleton should have the same number of visual "rows" or blocks, the same horizontal alignment (leading text, trailing metadata), and similar height proportions as the loaded state. Avoid generic gray rectangles that don't correspond to any real element — they look lazy and don't help the user anticipate the layout.
+- **Transition gracefully from skeleton to content.** Swap skeletons for real content without jarring jumps. Prefer a short crossfade (`.transition(.opacity)` with `VAnimation.fast`) over an abrupt replacement. Never show a spinner *and* a skeleton simultaneously.
+
 ### Platform-Specific
 
 - **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
-- **Skeleton placeholders over spinners for content areas.** When a region will display structured content (chat messages, lists, cards), use a skeleton placeholder that mirrors the real layout — matching alignment, dimensions, spacing, and bubble shapes — instead of a generic spinner (`VLoadingIndicator`). This reduces perceived load time and prevents layout shift when real content appears. Use `VSkeletonBone` with `.vShimmer()` for individual bones. Reserve `VLoadingIndicator` / `VBusyIndicator` for small, inline loading states (buttons, toolbar actions) where the final content shape is unknown. See `ChatLoadingSkeleton` for the reference pattern.
 - **Profile before optimizing, but follow known patterns.** Use Instruments (Time Profiler, Allocations, SwiftUI view body counters) to validate. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
 - **(macOS only) Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
 - **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
@@ -141,7 +147,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 |------|----------|----------|
 | Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
 | Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
-| Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Syntax-highlighted code views use `HighlightedTextView` (pure SwiftUI, `AttributedString` + `Text`) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Editable code views use `HighlightedTextView` with `CodeTextView` (`NSViewRepresentable`). Read-only code views use `VCodeView` (design system), which wraps a non-editable `NSTextView` for native text selection and copy | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
@@ -242,8 +248,8 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 - The design system is organized into layers:
   - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`, `IconTokens` (`VIcon` enum), `IconBundle`. Always use tokens instead of raw literals.
   - **Core** — `Core/` contains foundational controls: `VButton`, `VIconButton`, `VIconView`, `VTextField`, `VTextEditor`, `VToggle`, `VSlider`, `VDropdown`, `VSearchBar`, `VBadge`, `VToast`, `VLoadingIndicator`, `VListRow`, `VDisclosureSection`, `VTab`, etc.
-  - **Components** — `Components/` contains composed, higher-level components: `VCard`, `VEmptyState`, `VSplitView`, `VSidePanel`, `VToolbar`, `VTabBar`, `VSegmentedControl`, `VWaveformView`, etc.
-  - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `HoverEffect`, `PanelBackground`, `InlineWidgetCardModifier`.
+  - **Components** — `Components/` contains composed, higher-level components: `VCard`, `VEmptyState`, `VSplitView`, `VSidePanel`, `VTabBar`, `VSegmentedControl`, `VWaveformView`, etc.
+  - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `PanelBackground`, `InlineWidgetCardModifier`, `NativeTooltipModifier` (`.nativeTooltip()` for system-delay tooltips, `.vTooltip()` for fast 200ms tooltips that escape clipping and never steal clicks).
   - **Gallery** — `Gallery/` is a live preview catalog of all components. Update it when adding new components.
 - Use the `V`-prefixed components (for example `VButton`, `VCard`, `VTextField`) rather than rolling custom equivalents.
 - Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VFont.*`, `VShadow.*`, `VIcon.*`) instead of hardcoded values.
@@ -294,9 +300,17 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 
 </details>
 
+### Naming Convention: `V` Prefix
+All design system types — structs, enums, and view modifiers — **must** use the `V` prefix to distinguish them from native SwiftUI types and feature-level views:
+- **Views and controls:** `VButton`, `VCard`, `VTextField`, `VSidebarRow`, `VLoadingIndicator`
+- **Tokens:** `VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, `VIcon`
+- **View modifiers:** `.vCard()`, `.vTooltip()`, `.vShimmer()`, `.vPanelBackground()`
+
+The `V` prefix makes design system components immediately recognizable in code, avoids naming collisions with SwiftUI built-ins (e.g., `VToggle` vs `Toggle`), and enables easy search/filtering across the codebase.
+
 ### Adding New Shared Components
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
-- Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
+- Follow the `V` prefix naming convention described above. Use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
 - Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog. See the [Preview Policy](#preview-policy--component-gallery) section below for rationale.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.

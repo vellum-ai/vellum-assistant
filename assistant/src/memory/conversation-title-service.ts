@@ -10,6 +10,7 @@
 import { getConfig } from "../config/loader.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
+import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
@@ -129,30 +130,16 @@ export async function generateAndPersistConversationTitle(
 
   const config = getConfig();
   const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
-  const timeoutSignal = AbortSignal.timeout(10_000);
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, timeoutSignal])
-    : timeoutSignal;
-
-  const response = await provider.sendMessage(
-    [{ role: "user", content: [{ type: "text", text: prompt }] }],
-    [],
-    undefined,
-    {
-      config: {
-        max_tokens: config.daemon.titleGenerationMaxTokens,
-        modelIntent: "latency-optimized",
-      },
-      signal: combinedSignal,
-    },
-  );
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (textBlock && textBlock.type === "text") {
-    let title = normalizeTitle(textBlock.text);
-    if (!title) {
-      title = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-    }
-
+  const result = await runBtwSidechain({
+    content: prompt,
+    provider,
+    maxTokens: config.daemon.titleGenerationMaxTokens,
+    modelIntent: "latency-optimized",
+    signal,
+    timeoutMs: 10_000,
+  });
+  const title = normalizeTitle(result.text);
+  if (title) {
     // Re-check replaceability before persisting (race guard)
     const current = getConversation(conversationId);
     if (current && !isReplaceableTitle(current.title)) {
@@ -246,31 +233,16 @@ export async function regenerateConversationTitle(
 
   const prompt = buildRegenerationPrompt(recentMessages);
   const config = getConfig();
-  const timeoutSignal = AbortSignal.timeout(10_000);
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, timeoutSignal])
-    : timeoutSignal;
-
-  const response = await provider.sendMessage(
-    [{ role: "user", content: [{ type: "text", text: prompt }] }],
-    [],
-    undefined,
-    {
-      config: {
-        max_tokens: config.daemon.titleGenerationMaxTokens,
-        modelIntent: "latency-optimized",
-      },
-      signal: combinedSignal,
-    },
-  );
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (textBlock && textBlock.type === "text") {
-    const title = normalizeTitle(textBlock.text);
-    if (!title) {
-      return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
-    }
-
+  const result = await runBtwSidechain({
+    content: prompt,
+    provider,
+    maxTokens: config.daemon.titleGenerationMaxTokens,
+    modelIntent: "latency-optimized",
+    signal,
+    timeoutMs: 10_000,
+  });
+  const title = normalizeTitle(result.text);
+  if (title) {
     // Re-check isAutoTitle before persisting (race guard against manual rename)
     const current = getConversation(conversationId);
     if (!current || !current.isAutoTitle) {

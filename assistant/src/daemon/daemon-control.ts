@@ -11,6 +11,7 @@ import {
 import { join, resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -157,6 +158,7 @@ export async function isHttpHealthy(): Promise<boolean> {
 }
 
 function readPid(): number | null {
+  if (getIsContainerized()) return null; // Docker manages process lifecycle
   const pidPath = getPidPath();
   if (!existsSync(pidPath)) return null;
   try {
@@ -168,10 +170,12 @@ function readPid(): number | null {
 }
 
 export function writePid(pid: number): void {
+  if (getIsContainerized()) return; // Docker manages process lifecycle
   writeFileSync(getPidPath(), String(pid));
 }
 
 export function cleanupPidFile(): void {
+  if (getIsContainerized()) return; // Docker manages process lifecycle
   const pidPath = getPidPath();
   if (existsSync(pidPath)) {
     unlinkSync(pidPath);
@@ -181,6 +185,7 @@ export function cleanupPidFile(): void {
 /** Only remove the PID file if it belongs to the given process. Prevents a
  *  failing second startup from deleting the PID of an already-running daemon. */
 export function cleanupPidFileIfOwner(ownerPid: number): void {
+  if (getIsContainerized()) return; // Docker manages process lifecycle
   const currentPid = readPid();
   if (currentPid === ownerPid) {
     cleanupPidFile();
@@ -188,6 +193,7 @@ export function cleanupPidFileIfOwner(ownerPid: number): void {
 }
 
 export function isDaemonRunning(): boolean {
+  if (getIsContainerized()) return true; // Container orchestrator manages lifecycle
   const pid = readPid();
   if (pid == null) return false;
   if (!isProcessRunning(pid)) {
@@ -201,6 +207,7 @@ export async function getDaemonStatus(): Promise<{
   running: boolean;
   pid?: number;
 }> {
+  if (getIsContainerized()) return { running: true, pid: process.pid }; // Container orchestrator manages lifecycle
   const pid = readPid();
   if (pid == null) return { running: false };
   if (!isProcessRunning(pid)) {

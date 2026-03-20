@@ -56,23 +56,10 @@ public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
-    func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
     func stopSSE()
-    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
-}
-
-extension DaemonClientProtocol {
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        try send(signal)
-    }
-
-    /// Default no-op implementation for clients that don't support btw side-chain.
-    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish() }
-    }
 }
 
 // MARK: - Usage Response Models
@@ -216,16 +203,6 @@ extension Notification.Name {
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
-    // MARK: - Static Helpers
-
-    /// Character set for percent-encoding query-string values, excluding
-    /// query-string metacharacters that would break parameter parsing.
-    private static let queryValueAllowed: CharacterSet = {
-        var cs = CharacterSet.urlQueryAllowed
-        cs.remove(charactersIn: "&=+#")
-        return cs
-    }()
-
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
@@ -253,6 +230,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
+
+    /// Whether the connected daemon's major.minor version differs from this client's version.
+    /// Set automatically when `daemon_status` is received. Does not block the connection.
+    @Published public internal(set) var versionMismatch: Bool = false
+
+    /// Whether a planned service group update is in progress.
+    /// Set when a `service_group_update_starting` event is received,
+    /// cleared when reconnected and `daemon_status` confirms the new version.
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+
+    /// The version being upgraded to, if an update is in progress.
+    @Published public internal(set) var updateTargetVersion: String?
+
+    /// Deadline after which `isUpdateInProgress` is considered stale.
+    /// Computed from `expectedDowntimeSeconds` (with a 2x safety buffer)
+    /// when a `service_group_update_starting` event arrives. If the update
+    /// hasn't completed by this time, auto-wake suppression expires so the
+    /// client can recover from a crashed update.
+    var updateExpiresAt: Date?
 
     /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
     /// Used to detect instance switches — if this changes, the stored actor token is stale.
@@ -340,6 +336,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
+    /// Called when the daemon broadcasts that a service group update is starting.
+    public var onServiceGroupUpdateStarting: ((ServiceGroupUpdateStartingMessage) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update has completed.
+    public var onServiceGroupUpdateComplete: ((ServiceGroupUpdateCompleteMessage) -> Void)?
+
     /// Called when the server-assigned conversation ID differs from the
     /// client-local ID. Parameters: (localId, serverId).
     public var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
@@ -370,12 +372,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `platform_config_response` message.
     public var onPlatformConfigResponse: ((PlatformConfigResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `vercel_api_config_response` message.
-    public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `channel_verification_session_response` message.
-    public var onChannelVerificationSessionResponse: ((ChannelVerificationSessionResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
@@ -466,7 +462,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Auto-Wake
 
     /// Optional closure invoked when a connection attempt fails because the daemon process
-    /// is not alive. The macOS app sets this to call `assistantCli.wake(name:)` so the
+    /// is not alive. The macOS app sets this to call `vellumCli.wake(name:)` so the
     /// daemon is automatically restarted before retrying the connection.
     /// Set by the app layer — `DaemonClient` never imports platform-specific types.
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
@@ -542,12 +538,43 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         isAuthenticated = false
         httpPort = nil
         daemonVersion = nil
+        versionMismatch = false
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
+    }
+
+    /// Extract (major, minor) from a semver string like "1.2.3" or "v1.2.3".
+    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
+        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
+        let components = cleaned.split(separator: ".").compactMap { Int($0) }
+        guard components.count >= 2 else { return nil }
+        return (components[0], components[1])
+    }
+
+    /// Compare client and daemon major.minor versions. Logs a warning and sets
+    /// `versionMismatch` if they differ. Patch version differences are tolerated.
+    func checkVersionCompatibility(daemonVersion: String) {
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
+            return
+        }
+        guard let (daemonMajor, daemonMinor) = parseMajorMinor(daemonVersion),
+              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
+            return
+        }
+        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        if mismatch != versionMismatch {
+            versionMismatch = mismatch
+        }
+        if mismatch {
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public) — major.minor differs, features may not work correctly")
+        }
     }
 
     deinit {
@@ -635,232 +662,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        if let override = sendOverride {
-            try override(signal)
-            return
-        }
-
-        guard let httpTransport else {
-            throw SendError.notConnected
-        }
-        guard httpTransport.isConnected else {
-            throw SendError.notConnected
-        }
-        try await httpTransport.sendConversationUnread(signal)
-    }
-
-    // MARK: - BTW Side-Chain
-
-    /// Send a /btw side-chain question and stream the response text.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
-        if let httpTransport {
-            return httpTransport.sendBtwMessage(content: content, conversationKey: conversationKey)
-        }
-
-        // Local daemon path — stream SSE from the daemon's /v1/btw endpoint.
-        return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-
-                guard var request = self.buildLocalRequest(
-                    target: .daemon,
-                    path: "v1/btw",
-                    method: "POST",
-                    timeout: 120
-                ) else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-
-                let body: [String: String] = [
-                    "conversationKey": conversationKey,
-                    "content": content,
-                ]
-
-                do {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
-                        ])
-                    }
-
-                    var currentEventType: String?
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-
-                        if line.hasPrefix("event: ") {
-                            currentEventType = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            let jsonString = String(line.dropFirst(6))
-                            if let data = jsonString.data(using: .utf8),
-                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                if currentEventType == "btw_error" {
-                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
-                                    throw URLError(.badServerResponse, userInfo: [
-                                        NSLocalizedDescriptionKey: errorMessage
-                                    ])
-                                }
-                                if let text = parsed["text"] as? String {
-                                    continuation.yield(text)
-                                }
-                                if currentEventType == "btw_complete" {
-                                    break
-                                }
-                            }
-                            currentEventType = nil
-                        } else if line.isEmpty {
-                            currentEventType = nil
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { @Sendable _ in task.cancel() }
-        }
-    }
-
-    // MARK: - Queue Management
-
-    /// Delete a specific queued message by its requestId.
-    public func sendDeleteQueuedMessage(conversationId: String, requestId: String) throws {
-        try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
-    }
-
-    // MARK: - Regenerate
-
-    /// Regenerate the last assistant response for a conversation.
-    public func sendRegenerate(conversationId: String) throws {
-        try send(RegenerateMessage(conversationId: conversationId))
-    }
-
     // MARK: - Conversations
-
-
-    /// Get, set, or delete the Vercel API token configuration.
-    public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
-        try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
-    }
-
-    /// Channel verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
-    public func sendChannelVerificationSession(
-        action: String,
-        channel: String? = nil,
-        conversationId: String? = nil,
-        rebind: Bool? = nil,
-        destination: String? = nil,
-        originConversationId: String? = nil,
-        purpose: String? = nil,
-        contactChannelId: String? = nil
-    ) throws {
-        try send(ChannelVerificationSessionRequestMessage(
-            action: action,
-            channel: channel,
-            conversationId: conversationId,
-            rebind: rebind,
-            destination: destination,
-            originConversationId: originConversationId,
-            purpose: purpose,
-            contactChannelId: contactChannelId
-        ))
-    }
-
-    // MARK: - Local Daemon HTTP Helpers
-
-    /// Which local server a request should target.
-    private enum LocalHTTPTarget {
-        /// The daemon runtime HTTP server (port from httpPort, default 7821).
-        case daemon
-        /// The gateway server (port resolved via LockfilePaths: env > lockfile > 7830).
-        case gateway
-    }
-
-    /// Build an authenticated URLRequest for a local HTTP endpoint.
-    ///
-    /// Token resolution order:
-    /// 1. `tokenOverride` (for callers that need a specific token)
-    /// 2. JWT from `ActorTokenManager.getToken()` — persisted in Keychain, so available
-    ///    across app restarts once the initial bootstrap has completed. On first-ever
-    ///    launch the bootstrap endpoint is unprotected (pre-auth), so the lack of a
-    ///    token at that point is expected and harmless.
-    ///
-    /// Returns `nil` when the required port is unavailable.
-    private func buildLocalRequest(
-        target: LocalHTTPTarget,
-        path: String,
-        method: String = "GET",
-        timeout: TimeInterval = 10,
-        tokenOverride: String? = nil
-    ) -> URLRequest? {
-        let baseURL: String
-        switch target {
-        case .daemon:
-            guard let port = httpPort else { return nil }
-            baseURL = "http://localhost:\(port)"
-        case .gateway:
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
-            baseURL = "http://127.0.0.1:\(port)"
-        }
-
-        guard let url = URL(string: "\(baseURL)/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = timeout
-
-        let token = tokenOverride.flatMap { $0.isEmpty ? nil : $0 }
-            ?? ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
-        if let token, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        return request
-    }
-
-
-    // MARK: - Interface Files
-
-    /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
-    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
-    /// Returns the file content as a string, or `nil` if the file does not exist.
-    public func fetchInterfaceFile(path: String) async -> String? {
-        let request: URLRequest
-
-        if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/v1/interfaces/\(path)") else { return nil }
-            var r = URLRequest(url: url)
-            r.timeoutInterval = 5
-            if let token = httpTransport.bearerToken, !token.isEmpty {
-                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            request = r
-        } else if let r = buildLocalRequest(target: .daemon, path: "v1/interfaces/\(path)", timeout: 5) {
-            request = r
-        } else {
-            return nil
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
 
 
 }

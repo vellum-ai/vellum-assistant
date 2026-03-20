@@ -35,34 +35,22 @@ struct ImproveExperienceStepView: View {
                 // Privacy toggles card
                 VStack(spacing: VSpacing.lg) {
                     // Usage analytics toggle
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Share Analytics")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentSecondary)
-                            Text("Send anonymous product usage data. Your conversations and personal data are never included.")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        Spacer()
-                        VToggle(isOn: $collectUsageData)
-                    }
+                    VToggle(
+                        isOn: $collectUsageData,
+                        label: "Share Analytics",
+                        helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     SettingsDivider()
 
                     // Diagnostics toggle
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Share Diagnostics")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentSecondary)
-                            Text("Send crash reports and performance metrics. Your conversations and personal data are never included.")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        Spacer()
-                        VToggle(isOn: $sendDiagnostics)
-                    }
+                    VToggle(
+                        isOn: $sendDiagnostics,
+                        label: "Share Diagnostics",
+                        helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(VSpacing.lg)
                 .overlay(

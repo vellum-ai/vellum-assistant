@@ -1,8 +1,10 @@
 /**
  * Read-only reader for the assistant's credential stores.
  *
- * Tries the keychain broker (UDS) first, then falls back to the
- * encrypted-at-rest file (~/.vellum/protected/keys.enc).
+ * Resolution order:
+ * 1. CES HTTP API (when CES_CREDENTIAL_URL is set — containerized mode)
+ * 2. Keychain broker (UDS — native macOS/Linux)
+ * 3. Encrypted-at-rest file (~/.vellum/protected/keys.enc)
  */
 
 import { createDecipheriv, pbkdf2Sync, randomUUID } from "node:crypto";
@@ -137,18 +139,25 @@ export function getRootDir(): string {
   );
 }
 
+/**
+ * Returns the workspace root for user-facing state.
+ *
+ * When the WORKSPACE_DIR env var is set, returns that value (used in
+ * containerized deployments where the workspace is a separate volume).
+ * Otherwise falls back to ~/.vellum/workspace.
+ */
+export function getWorkspaceDir(): string {
+  const override = process.env.WORKSPACE_DIR?.trim();
+  if (override) return override;
+  return join(getRootDir(), "workspace");
+}
+
 export function getEncryptedStorePath(): string {
   return join(getRootDir(), "protected", "keys.enc");
 }
 
 export function getMetadataPath(): string {
-  return join(
-    getRootDir(),
-    "workspace",
-    "data",
-    "credentials",
-    "metadata.json",
-  );
+  return join(getWorkspaceDir(), "data", "credentials", "metadata.json");
 }
 
 // ---------------------------------------------------------------------------
@@ -308,19 +317,94 @@ async function readBrokerCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Public credential reader — tries broker, then encrypted store
+// CES HTTP credential reader (containerized mode)
+// ---------------------------------------------------------------------------
+
+const CES_HTTP_TIMEOUT_MS = 5_000;
+
+/**
+ * Try to read a credential from the CES managed service over HTTP.
+ *
+ * Activated when `CES_CREDENTIAL_URL` is set (e.g. `http://ces-host:8090`).
+ * Requires `CES_SERVICE_TOKEN` for bearer auth.
+ *
+ * Returns `undefined` if the env vars are not set, the CES is unreachable,
+ * or the credential doesn't exist (404).
+ */
+async function readCesCredential(
+  account: string,
+): Promise<string | undefined> {
+  const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
+  if (!baseUrl) return undefined;
+
+  const serviceToken = process.env.CES_SERVICE_TOKEN?.trim();
+  if (!serviceToken) {
+    log.warn("CES_CREDENTIAL_URL is set but CES_SERVICE_TOKEN is missing");
+    return undefined;
+  }
+
+  const url = `${baseUrl}/v1/credentials/${encodeURIComponent(account)}`;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CES_HTTP_TIMEOUT_MS);
+
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${serviceToken}`,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    if (resp.status === 404) return undefined;
+
+    if (!resp.ok) {
+      log.warn(
+        { account, status: resp.status },
+        "CES credential read returned non-OK status",
+      );
+      return undefined;
+    }
+
+    const body = (await resp.json()) as { account?: string; value?: string };
+    if (typeof body.value === "string") return body.value;
+
+    log.debug({ account }, "CES credential response missing 'value' field");
+    return undefined;
+  } catch (err) {
+    log.debug({ err, account }, "Failed to read credential from CES");
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public credential reader — tries CES, broker, then encrypted store
 // ---------------------------------------------------------------------------
 
 /**
  * Read a single credential by account key.
- * Tries the keychain broker first (when available), then falls back
- * to the encrypted-at-rest store.
+ *
+ * Resolution order:
+ * 1. CES HTTP API (when CES_CREDENTIAL_URL is set)
+ * 2. Keychain broker (UDS)
+ * 3. Encrypted-at-rest store (keys.enc)
  */
 export async function readCredential(
   account: string,
 ): Promise<string | undefined> {
+  // CES HTTP backend (containerized mode)
+  const cesValue = await readCesCredential(account);
+  if (cesValue !== undefined) return cesValue;
+
+  // Keychain broker (native mode)
   const brokerValue = await readBrokerCredential(account);
   if (brokerValue !== undefined) return brokerValue;
+
+  // Encrypted file fallback
   return readEncryptedCredential(account);
 }
 

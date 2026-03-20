@@ -36,21 +36,10 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            HStack {
-                Text("Contacts")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentEmphasized)
-                Spacer()
-                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
-                    viewModel.isCreatingContact = true
-                }
-                .accessibilityLabel("Add contact")
-            }
-
-            // Sticky system contacts (always visible, not affected by search)
+            // System contacts (always visible, not affected by search)
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 contactListRow(
-                    name: cachedAssistantDisplayName,
+                    name: "Your Assistant",
                     role: "assistant",
                     isSelected: selection == .assistant,
                     isHovered: isAssistantHovered,
@@ -60,7 +49,7 @@ struct ContactsListView: View {
 
                 if let guardian = viewModel.guardianContact {
                     contactListRow(
-                        name: "\(guardian.displayName) (You)",
+                        name: "You",
                         role: guardian.role,
                         isSelected: selection == .contact(guardian.id),
                         isHovered: hoveredContactId == guardian.id,
@@ -73,9 +62,17 @@ struct ContactsListView: View {
             Divider()
 
             if viewModel.regularContacts.isEmpty {
-                regularContactsEmptyState
+                // No contacts yet — full-width add button matching contact row height
+                addContactButton
             } else {
-                searchBar
+                // Search + Add button
+                HStack(spacing: VSpacing.sm) {
+                    searchBar
+                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
+                        viewModel.isCreatingContact = true
+                    }
+                    .accessibilityLabel("Add contact")
+                }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -106,9 +103,9 @@ struct ContactsListView: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
+        .padding(.trailing, VSpacing.lg)
+        .padding(.bottom, VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
-        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
     }
 
     /// Whether a name matches the current search query (or query is empty).
@@ -116,6 +113,34 @@ struct ContactsListView: View {
         let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
         return name.lowercased().contains(query.lowercased())
+    }
+
+    // MARK: - Add Contact Button
+
+    @State private var isAddContactHovered = false
+
+    private var addContactButton: some View {
+        Button {
+            viewModel.isCreatingContact = true
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "person.badge.plus")
+                    .font(.system(size: 14))
+                Text("Add Contact")
+                    .font(VFont.bodyMedium)
+            }
+            .foregroundColor(VColor.primaryBase)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(isAddContactHovered ? 1 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isAddContactHovered = $0 }
     }
 
     // MARK: - Contact List Row
@@ -182,25 +207,7 @@ struct ContactsListView: View {
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
-        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         .accessibilityHidden(true)
-    }
-
-    // MARK: - Empty State
-
-    private var regularContactsEmptyState: some View {
-        VStack(spacing: VSpacing.md) {
-            VIconView(.users, size: 24)
-                .foregroundColor(VColor.contentTertiary)
-            Text("No contacts yet")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary, size: .compact) {
-                viewModel.isCreatingContact = true
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, VSpacing.xl)
     }
 
     // MARK: - Helpers

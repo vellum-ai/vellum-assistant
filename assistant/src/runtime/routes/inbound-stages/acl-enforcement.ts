@@ -80,13 +80,28 @@ export interface AclResult {
 }
 
 /**
+ * Strip Slack/Telegram mrkdwn formatting wrappers from a raw message.
+ * When users copy-paste a verification code from the desktop app with
+ * rich-text formatting (e.g. bold), Slack preserves it as `*code*` in
+ * the message text, which would otherwise fail the strict bare-code regex.
+ */
+function stripMrkdwnFormatting(text: string): string {
+  // Bold (*…*), italic (_…_), strikethrough (~…~), inline code (`…`)
+  return text.replace(/^[*_~`]+/, "").replace(/[*_~`]+$/, "");
+}
+
+/**
  * Parse a guardian verification code from message content.
  * Accepts a bare code as the entire message: 6-digit numeric OR 64-char hex
  * (hex is retained for compatibility with unbound inbound/bootstrap sessions
  * that intentionally use high-entropy secrets).
+ *
+ * Strips surrounding mrkdwn formatting characters first so that codes
+ * pasted with bold/italic/code formatting are still recognized.
  */
 function parseGuardianVerifyCode(content: string): string | undefined {
-  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  const stripped = stripMrkdwnFormatting(content);
+  const bareMatch = stripped.match(/^([0-9a-fA-F]{64}|\d{6})$/);
   if (bareMatch) return bareMatch[1];
 
   return undefined;

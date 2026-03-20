@@ -449,16 +449,6 @@ extension ConversationListRequest {
     }
 }
 
-/// Sent to regenerate the last assistant response.
-/// Backed by generated `RegenerateRequest`.
-public typealias RegenerateMessage = RegenerateRequest
-
-extension RegenerateRequest {
-    public init(conversationId: String) {
-        self.init(type: "regenerate", conversationId: conversationId)
-    }
-}
-
 /// Sent to request message history for a specific conversation.
 /// Backed by generated `HistoryRequest`.
 public typealias HistoryRequestMessage = HistoryRequest
@@ -673,8 +663,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, messageId: messageId)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
     }
 }
 
@@ -840,8 +830,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, messageId: messageId)
+    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
     }
 }
 
@@ -1295,6 +1285,14 @@ public struct ConversationErrorMessage: Decodable, Sendable {
 /// Generic notification intent from daemon.
 /// Backed by generated `NotificationIntent`.
 public typealias NotificationIntentMessage = NotificationIntent
+
+/// Broadcast when a service group update is starting.
+/// Backed by generated `ServiceGroupUpdateStarting`.
+public typealias ServiceGroupUpdateStartingMessage = ServiceGroupUpdateStarting
+
+/// Broadcast when a service group update has completed.
+/// Backed by generated `ServiceGroupUpdateComplete`.
+public typealias ServiceGroupUpdateCompleteMessage = ServiceGroupUpdateComplete
 
 /// Watch session started notification from daemon.
 /// Backed by generated `WatchStarted`.
@@ -1852,16 +1850,6 @@ public typealias ModelInfoMessage = ModelInfo
 
 // MARK: - Vercel API Config Messages
 
-/// Sent to get/set/delete the Vercel API token.
-/// Backed by generated `VercelApiConfigRequest`.
-public typealias VercelApiConfigRequestMessage = VercelApiConfigRequest
-
-extension VercelApiConfigRequest {
-    public init(action: String, apiToken: String? = nil) {
-        self.init(type: "vercel_api_config", action: action, apiToken: apiToken)
-    }
-}
-
 /// Response from Vercel API config operations.
 /// Backed by generated `VercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = VercelApiConfigResponse
@@ -1907,35 +1895,6 @@ public struct TwilioNumberInfo: Codable, Sendable {
 }
 
 // MARK: - Channel Verification Session Messages
-
-/// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
-/// Backed by generated `ChannelVerificationSessionRequest`.
-public typealias ChannelVerificationSessionRequestMessage = ChannelVerificationSessionRequest
-
-extension ChannelVerificationSessionRequest {
-    public init(
-        action: String,
-        channel: String? = nil,
-        conversationId: String? = nil,
-        rebind: Bool? = nil,
-        destination: String? = nil,
-        originConversationId: String? = nil,
-        purpose: String? = nil,
-        contactChannelId: String? = nil
-    ) {
-        self.init(
-            type: "channel_verification_session",
-            action: action,
-            channel: channel,
-            conversationId: conversationId,
-            rebind: rebind,
-            destination: destination,
-            originConversationId: originConversationId,
-            purpose: purpose,
-            contactChannelId: contactChannelId
-        )
-    }
-}
 
 /// Channel verification session response.
 /// Backed by generated `ChannelVerificationSessionResponse`.
@@ -2215,6 +2174,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileRequest(HostFileRequest)
     case hostCuRequest(HostCuRequest)
     case usageUpdate(UsageUpdate)
+    case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
+    case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case pong
     case unknown(String)
 
@@ -2641,6 +2602,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
+        case "service_group_update_starting":
+            let message = try ServiceGroupUpdateStartingMessage(from: decoder)
+            self = .serviceGroupUpdateStarting(message)
+        case "service_group_update_complete":
+            let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
+            self = .serviceGroupUpdateComplete(message)
         case "pong":
             self = .pong
         default:

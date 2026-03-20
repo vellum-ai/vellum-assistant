@@ -1,7 +1,9 @@
 /**
  * Route handlers for conversation management operations.
  *
+ * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
+ * POST   /v1/conversations/fork           — fork an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -15,13 +17,17 @@
 import {
   batchSetDisplayOrders,
   deleteConversation,
+  PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
+import { updateConversationTitle } from "../../memory/conversation-crud.js";
 import {
+  getOrCreateConversation,
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -33,6 +39,10 @@ const log = getLogger("conversation-management-routes");
 // ---------------------------------------------------------------------------
 
 export interface ConversationManagementDeps {
+  forkConversation?: (params: {
+    conversationId: string;
+    throughMessageId?: string;
+  }) => Promise<Record<string, unknown>> | Record<string, unknown>;
   switchConversation: (conversationId: string) => Promise<{
     conversationId: string;
     title: string;
@@ -59,6 +69,105 @@ export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
+    {
+      endpoint: "conversations",
+      method: "POST",
+      policyKey: "conversations",
+      handler: async ({ req }) => {
+        let body: { conversationKey?: string; conversationType?: string } = {};
+        try {
+          body = (await req.json()) as typeof body;
+        } catch {
+          // Empty or malformed body — fall through with defaults.
+        }
+        const conversationKey = body.conversationKey ?? crypto.randomUUID();
+        const requestedType =
+          body.conversationType === "private" ? "private" : "standard";
+        const result = getOrCreateConversation(conversationKey, {
+          conversationType: requestedType,
+        });
+        if (result.created) {
+          updateConversationTitle(result.conversationId, "New Conversation");
+        }
+        log.info(
+          {
+            conversationId: result.conversationId,
+            conversationKey,
+            created: result.created,
+          },
+          "Created conversation via POST",
+        );
+        return Response.json(
+          {
+            id: result.conversationId,
+            conversationKey,
+            conversationType: result.conversationType,
+          },
+          { status: result.created ? 201 : 200 },
+        );
+      },
+    },
+    {
+      endpoint: "conversations/fork",
+      method: "POST",
+      policyKey: "conversations/fork",
+      handler: async ({ req }) => {
+        if (!deps.forkConversation) {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Conversation forking not available",
+            500,
+          );
+        }
+
+        const rawBody = (await req.json()) as unknown;
+        if (
+          rawBody == null ||
+          typeof rawBody !== "object" ||
+          Array.isArray(rawBody)
+        ) {
+          return httpError("BAD_REQUEST", "Invalid request body", 400);
+        }
+
+        const body = rawBody as {
+          conversationId?: string;
+          throughMessageId?: string;
+        };
+        const conversationId = body.conversationId;
+        if (!conversationId || typeof conversationId !== "string") {
+          return httpError("BAD_REQUEST", "Missing conversationId", 400);
+        }
+        if (
+          body.throughMessageId !== undefined &&
+          typeof body.throughMessageId !== "string"
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            "throughMessageId must be a string",
+            400,
+          );
+        }
+
+        const resolvedConversationId =
+          resolveConversationId(conversationId) ?? conversationId;
+
+        try {
+          const conversation = await deps.forkConversation({
+            conversationId: resolvedConversationId,
+            throughMessageId: body.throughMessageId,
+          });
+          return Response.json({ conversation });
+        } catch (err) {
+          if (err instanceof UserError) {
+            if (err.message === PRIVATE_CONVERSATION_FORK_ERROR) {
+              return httpError("FORBIDDEN", err.message, 403);
+            }
+            return httpError("NOT_FOUND", err.message, 404);
+          }
+          throw err;
+        }
+      },
+    },
     {
       endpoint: "conversations/switch",
       method: "POST",
@@ -117,8 +226,17 @@ export function conversationManagementRouteDefinitions(
     {
       endpoint: "conversations",
       method: "DELETE",
-      policyKey: "conversations",
-      handler: () => {
+      policyKey: "conversations/clear-all",
+      handler: ({ req }) => {
+        const confirm = req.headers.get("x-confirm-destructive");
+        if (confirm !== "clear-all-conversations") {
+          return httpError(
+            "BAD_REQUEST",
+            "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
+              "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
+            400,
+          );
+        }
         deps.clearAllConversations();
         return new Response(null, { status: 204 });
       },
@@ -155,6 +273,24 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "summary",
             targetId: summaryId,
+          });
+        }
+        for (const obsId of result.deletedObservationIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "observation",
+            targetId: obsId,
+          });
+        }
+        for (const chunkId of result.deletedChunkIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "chunk",
+            targetId: chunkId,
+          });
+        }
+        for (const episodeId of result.deletedEpisodeIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "episode",
+            targetId: episodeId,
           });
         }
         log.info(
@@ -205,6 +341,30 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "item",
             targetId: itemId,
+          });
+        }
+        for (const summaryId of deleted.deletedSummaryIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "summary",
+            targetId: summaryId,
+          });
+        }
+        for (const obsId of deleted.deletedObservationIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "observation",
+            targetId: obsId,
+          });
+        }
+        for (const chunkId of deleted.deletedChunkIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "chunk",
+            targetId: chunkId,
+          });
+        }
+        for (const episodeId of deleted.deletedEpisodeIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "episode",
+            targetId: episodeId,
           });
         }
         log.info({ conversationId: resolvedId }, "Deleted conversation");

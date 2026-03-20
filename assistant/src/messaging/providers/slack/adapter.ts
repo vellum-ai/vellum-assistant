@@ -1,11 +1,15 @@
 /**
  * Slack messaging provider adapter.
  *
- * Maps Slack API responses to the platform-agnostic messaging types
- * and implements the MessagingProvider interface.
+ * Maps Slack API responses to the platform-agnostic messaging types and
+ * implements the MessagingProvider interface.
  */
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
+import { isProviderConnected } from "../../../oauth/oauth-store.js";
+import { credentialKey } from "../../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
@@ -111,6 +115,29 @@ export const slackProvider: MessagingProvider = {
   displayName: "Slack",
   credentialService: "integration:slack",
   capabilities: new Set(["reactions", "threads", "leave_channel"]),
+
+  async isConnected(): Promise<boolean> {
+    // Socket Mode: check for bot token directly in credential store.
+    // The token is the source of truth; the slack_channel connection row
+    // is advisory (backfill can fail non-fatally on startup).
+    const botToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    if (botToken) return true;
+    // Preserve existing OAuth path (integration:slack) for backwards compat.
+    return isProviderConnected("integration:slack");
+  },
+
+  async resolveConnection(account?: string): Promise<OAuthConnection | string> {
+    // Socket Mode: return raw bot token if available.
+    // Token presence is sufficient — no connection row required.
+    const botToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    if (botToken) return botToken;
+    // Preserve existing OAuth path (integration:slack) for backwards compat.
+    return resolveOAuthConnection("integration:slack", { account });
+  },
 
   async testConnection(
     connectionOrToken: OAuthConnection | string,

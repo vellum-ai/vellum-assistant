@@ -15,7 +15,7 @@ public class APIKeyManager {
 
     public func getAPIKey(provider: String = "anthropic") -> String? {
         #if os(macOS) || targetEnvironment(simulator)
-        return UserDefaults.standard.string(forKey: udKey(provider))
+        return SharedUserDefaults.standard.string(forKey: udKey(provider))
         #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -39,7 +39,7 @@ public class APIKeyManager {
 
     public func setAPIKey(_ key: String, provider: String = "anthropic") -> Bool {
         #if os(macOS) || targetEnvironment(simulator)
-        UserDefaults.standard.set(key, forKey: udKey(provider))
+        SharedUserDefaults.standard.set(key, forKey: udKey(provider))
         return true
         #else
         guard let data = key.data(using: .utf8) else { return false }
@@ -67,7 +67,7 @@ public class APIKeyManager {
 
     public func deleteAPIKey(provider: String = "anthropic") -> Bool {
         #if os(macOS) || targetEnvironment(simulator)
-        UserDefaults.standard.removeObject(forKey: udKey(provider))
+        SharedUserDefaults.standard.removeObject(forKey: udKey(provider))
         return true
         #else
         let query: [String: Any] = [

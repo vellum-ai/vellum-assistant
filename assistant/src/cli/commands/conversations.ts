@@ -375,6 +375,24 @@ Examples:
           targetId: summaryId,
         });
       }
+      for (const obsId of result.deletedObservationIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "observation",
+          targetId: obsId,
+        });
+      }
+      for (const chunkId of result.deletedChunkIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "chunk",
+          targetId: chunkId,
+        });
+      }
+      for (const episodeId of result.deletedEpisodeIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "episode",
+          targetId: episodeId,
+        });
+      }
 
       log.info(
         `Wiped conversation "${conversation.title ?? "Untitled"}". ` +

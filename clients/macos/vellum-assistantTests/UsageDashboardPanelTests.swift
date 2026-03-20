@@ -224,12 +224,20 @@ struct UsageDashboardPanelPopulatedTests {
 
 /// Dumps the panel's content view tree (bypassing the VSidePanel closure wrapper)
 /// so that all Text content is captured as strings in the dump output.
+/// SettingsCard stores its content as @ViewBuilder closures which dump() shows as
+/// "(Function)". We additionally evaluate each section's body to expand those
+/// closures so the actual content (stat labels, empty states, error messages,
+/// data values) appears in the output.
 @MainActor
 private func collectPanelContent(store: UsageDashboardStore) -> String {
     let panel = UsageDashboardPanel(store: store, onClose: {})
     let content = panel.contentView(store: store)
     var output = ""
     dump(content, to: &output)
+    // Evaluate each section's SettingsCard body to expand closure content
+    dump(panel.totalsSection(store: store).body, to: &output)
+    dump(panel.dailySection(store: store).body, to: &output)
+    dump(panel.breakdownSection(store: store).body, to: &output)
     return output
 }
 
@@ -260,8 +268,8 @@ struct UsageDashboardPanelViewIdleTests {
         store.updateClient(client)
         let joined = collectPanelContent(store: store)
 
-        // Idle state shows loading indicators for all sections
-        #expect(joined.contains("Loading"))
+        // Idle state shows skeleton loading indicators for all sections
+        #expect(joined.contains("VSkeletonBone"))
     }
 }
 

@@ -1,5 +1,8 @@
 import { getConfig } from "../config/loader.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
+import { buildArchiveRecall } from "../memory/archive-recall.js";
+import { compileMemoryBrief } from "../memory/brief.js";
+import { getDb } from "../memory/db.js";
 import { buildMemoryQuery } from "../memory/query-builder.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import {
@@ -9,7 +12,10 @@ import {
 import type { ScopePolicyOverride } from "../memory/search/types.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
+
+const log = getLogger("conversation-memory");
 
 export interface MemoryRecallResult {
   runMessages: Message[];
@@ -115,6 +121,14 @@ export async function prepareMemoryContext(
 
   const runtimeConfig = getConfig();
 
+  // ── Simplified memory path ──────────────────────────────────────────
+  // When `memory.simplified.enabled` is true, inject the brief and
+  // optional archive recall instead of the legacy hybrid pipeline.
+  if (runtimeConfig.memory?.simplified?.enabled) {
+    return prepareSimplifiedMemoryContext(ctx, content, userMessageId, onEvent);
+  }
+
+  // ── Legacy memory path (fallback) ──────────────────────────────────
   // Memory recall via the V2 hybrid pipeline
   const recallQuery = buildMemoryQuery(content, ctx.messages);
   const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
@@ -206,4 +220,107 @@ export async function prepareMemoryContext(
     runMessages,
     recall,
   };
+}
+
+// ── Simplified memory injection ─────────────────────────────────────────
+
+/**
+ * Build simplified memory context for a turn: compiles the `<memory_brief>`
+ * block and conditionally appends `<supporting_recall>` from the archive.
+ *
+ * Non-empty blocks are injected as text content blocks prepended to the
+ * last user message, following the same injection pattern as the legacy
+ * pipeline. Stripping is handled by `RUNTIME_INJECTION_PREFIXES` which
+ * already includes `<memory_brief>`.
+ */
+function prepareSimplifiedMemoryContext(
+  ctx: MemoryPrepareContext,
+  content: string,
+  userMessageId: string,
+  onEvent: (msg: ServerMessage) => void,
+): MemoryRecallResult {
+  const start = Date.now();
+
+  // Build a no-op recall result matching the legacy shape.
+  const noopRecall = (): Awaited<ReturnType<typeof buildMemoryRecall>> =>
+    ({
+      enabled: true,
+      degraded: false,
+      injectedText: "",
+      semanticHits: 0,
+      recencyHits: 0,
+      mergedCount: 0,
+      selectedCount: 0,
+      injectedTokens: 0,
+      latencyMs: 0,
+      topCandidates: [],
+      tier1Count: 0,
+      tier2Count: 0,
+    }) as Awaited<ReturnType<typeof buildMemoryRecall>>;
+
+  try {
+    const db = getDb();
+
+    // Step 1: Build the memory brief
+    const briefResult = compileMemoryBrief(db, ctx.scopeId, userMessageId);
+
+    // Step 2: Conditionally build supporting recall from the archive
+    const archiveResult = buildArchiveRecall(ctx.scopeId, content);
+
+    // Step 3: Assemble the injection blocks (non-empty only)
+    const blocks: string[] = [];
+    if (briefResult.text.length > 0) {
+      blocks.push(briefResult.text);
+    }
+    if (archiveResult.text.length > 0) {
+      blocks.push(archiveResult.text);
+    }
+
+    const latencyMs = Date.now() - start;
+
+    // Emit memory status for the simplified path
+    onEvent({
+      type: "memory_status",
+      enabled: true,
+      degraded: false,
+    });
+
+    // Inject non-empty blocks into the last user message
+    let runMessages = ctx.messages;
+    if (blocks.length > 0) {
+      const injectedText = blocks.join("\n\n");
+      const userTail = ctx.messages[ctx.messages.length - 1];
+      if (userTail && userTail.role === "user") {
+        runMessages = injectMemoryRecallAsUserBlock(ctx.messages, injectedText);
+      }
+
+      log.debug(
+        {
+          briefLength: briefResult.text.length,
+          recallTrigger: archiveResult.trigger,
+          recallBullets: archiveResult.bullets.length,
+          latencyMs,
+        },
+        "Simplified memory injection completed",
+      );
+    }
+
+    return {
+      runMessages,
+      recall: {
+        ...noopRecall(),
+        injectedText: blocks.length > 0 ? blocks.join("\n\n") : "",
+        latencyMs,
+      },
+    };
+  } catch (err) {
+    log.warn({ err }, "Simplified memory injection failed, returning no-op");
+    return {
+      runMessages: ctx.messages,
+      recall: {
+        ...noopRecall(),
+        latencyMs: Date.now() - start,
+      },
+    };
+  }
 }

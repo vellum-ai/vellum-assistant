@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getConversationDirName } from "../memory/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +83,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
+    createdAt: Date.parse("2026-03-19T12:00:00.000Z"),
     contextSummary: null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
@@ -175,7 +180,7 @@ import { Conversation } from "../daemon/conversation.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeConversation(): Conversation {
+function makeConversation(workingDir = "/tmp"): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -193,9 +198,16 @@ function makeConversation(): Conversation {
     "system prompt",
     4096,
     () => {},
-    "/tmp",
+    workingDir,
   );
 }
+
+const conversationDirName = getConversationDirName(
+  "conv-1",
+  Date.parse("2026-03-19T12:00:00.000Z"),
+);
+const conversationPath = `conversations/${conversationDirName}/`;
+const conversationAttachmentsPath = `${conversationPath}attachments/`;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -223,6 +235,12 @@ describe("Conversation workspace cache state", () => {
     );
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "</workspace_top_level>",
+    );
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
+      `Current conversation folder: ${conversationPath}`,
+    );
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
+      `Attachment files: ${conversationAttachmentsPath}`,
     );
   });
 
@@ -256,5 +274,29 @@ describe("Conversation workspace cache state", () => {
       "<workspace_top_level>",
     );
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+  });
+
+  test("workspace hints follow the resolved legacy directory when canonical is absent", () => {
+    const workspaceRoot = mkdtempSync(
+      join(tmpdir(), "conversation-workspace-cache-state-"),
+    );
+    const legacyDirName = `conv-1_2026-03-19T12-00-00.000Z`;
+    mkdirSync(join(workspaceRoot, "conversations", legacyDirName), {
+      recursive: true,
+    });
+
+    try {
+      const tempConversation = makeConversation(workspaceRoot);
+      tempConversation.refreshWorkspaceTopLevelContextIfNeeded();
+
+      expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
+        `Current conversation folder: conversations/${legacyDirName}/`,
+      );
+      expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
+        `Attachment files: conversations/${legacyDirName}/attachments/`,
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 });

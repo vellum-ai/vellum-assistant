@@ -16,12 +16,14 @@ mock.module("../../registry.js", () => ({
 
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
-    webSearchProvider: mockWebSearchProvider,
+    services: {
+      "web-search": { provider: mockWebSearchProvider },
+    },
   }),
 }));
 
 mock.module("../../../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (provider: string) => {
+  getProviderKeyAsync: async (provider: string) => {
     if (provider === "brave") return mockBraveSecureKey;
     if (provider === "perplexity") return mockPerplexitySecureKey;
     return undefined;

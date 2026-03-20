@@ -805,8 +805,8 @@ export function isAssistantWatchModeAvailable(): boolean {
  */
 export function isGatewayWatchModeAvailable(): boolean {
   try {
-    resolveGatewayDir();
-    return true;
+    const dir = resolveGatewayDir();
+    return existsSync(join(dir, "src", "index.ts"));
   } catch {
     return false;
   }

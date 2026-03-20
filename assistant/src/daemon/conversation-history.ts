@@ -29,6 +29,16 @@ function isToolResultBlock(
   );
 }
 
+function isSystemNoticeBlock(
+  block: ContentBlock | Record<string, unknown>,
+): boolean {
+  if (block.type !== "text") return false;
+  const text = (block as { text?: string }).text ?? "";
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
+}
+
 function isUndoableUserMessage(message: Message): boolean {
   if (message.role !== "user") return false;
   if (getSummaryFromContextMessage(message) != null) return false;
@@ -37,8 +47,9 @@ function isUndoableUserMessage(message: Message): boolean {
   // responses) are not undoable. Messages that have both tool_result and text blocks
   // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
   // undoable because they contain real user content.
+  // System notice text blocks (retry nudges, progress checks) are not user content.
   const hasNonToolResultContent = message.content.some(
-    (block) => !isToolResultBlock(block),
+    (block) => !isToolResultBlock(block) && !isSystemNoticeBlock(block),
   );
   if (!hasNonToolResultContent) return false;
   return true;
@@ -131,10 +142,10 @@ export async function cleanupQdrantVectors(
 export function consolidateAssistantMessages(
   conversationId: string,
   userMessageId: string,
-): void {
+): boolean {
   const allMessages = getMessages(conversationId);
   const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
-  if (userMsgIndex === -1) return;
+  if (userMsgIndex === -1) return false;
 
   const messagesToConsolidate: typeof allMessages = [];
   const internalToolResultMessages: typeof allMessages = [];
@@ -171,12 +182,14 @@ export function consolidateAssistantMessages(
 
   // Only consolidate if there are multiple assistant messages
   if (messagesToConsolidate.length <= 1) {
+    let didMutate = false;
     // Still delete internal tool_result messages even if only one assistant message,
     // and collect IDs for vector cleanup
     const allSegmentIds: string[] = [];
     const allOrphanedItemIds: string[] = [];
     for (const id of messagesToDelete) {
       const deleted = deleteMessageById(id);
+      didMutate = true;
       allSegmentIds.push(...deleted.segmentIds);
       allOrphanedItemIds.push(...deleted.orphanedItemIds);
     }
@@ -194,7 +207,7 @@ export function consolidateAssistantMessages(
         );
       });
     }
-    return;
+    return didMutate;
   }
 
   log.info(
@@ -339,6 +352,7 @@ export function consolidateAssistantMessages(
     },
     "Assistant messages consolidated",
   );
+  return true;
 }
 
 // ── Undo ─────────────────────────────────────────────────────────────

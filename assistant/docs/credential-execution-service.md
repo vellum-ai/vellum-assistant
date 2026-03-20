@@ -46,7 +46,7 @@ CES exposes exactly three tools to the assistant, registered as a **deliberate e
 
 ### Tool registration
 
-CES tools use the standard `class ... implements Tool` registration pattern. This is explicitly approved as a deliberate exception to the no-new-tools policy because:
+CES tools use the standard `class ... implements Tool` registration pattern. These are justified exceptions to the general preference for skills because:
 
 - The security boundary requires that credential materialization happens in a separate process
 - Skill scripts run inside the assistant process and cannot enforce the hard isolation invariant
@@ -223,7 +223,7 @@ These invariants are enforced by guard tests and code review:
 
 1. **No cross-package source imports**: `assistant/` must not import from `credential-executor/` and vice versa. Communication is RPC only. Shared types flow through `packages/` only.
 2. **No credential values in assistant process memory**: The assistant sends credential handles (not values) to CES. CES materializes and uses them internally.
-3. **CES tools are the only approved exception to the no-new-tools policy** for credential-bearing execution. All other credential use continues through the existing broker for local deployments.
+3. **CES tools justify tool registrations over skills** for credential-bearing execution because of the hard process-boundary isolation requirement. All other credential use continues through the existing broker for local deployments.
 4. **Grants and audit logs are CES-internal**: The assistant cannot read CES grant tables or audit logs directly. CES exposes grant status and audit summaries via RPC responses.
 5. **No generic authenticated HTTP clients in secure commands**: `curl`, `wget`, `httpie`, interpreters, and shell trampolines are structurally denied as secure command entrypoints. This is checked at manifest validation and re-checked at execution time.
 6. **Managed CES container runs as non-root**: The CES Docker image runs as `uid 1001` (user `ces`). The CES data volume is owned by this user.
@@ -400,5 +400,5 @@ The following capabilities are intentionally deferred beyond v1:
 
 - [Security architecture](architecture/security.md) — existing credential broker and permission model
 - [AGENTS.md](../../AGENTS.md) — tooling direction and CES exception
-- [Tools AGENTS.md](../src/tools/AGENTS.md) — no-new-tools policy and CES exception
+- [Tools AGENTS.md](../src/tools/AGENTS.md) — tooling direction and CES exception
 - [Network traffic matrix](../../../vellum-assistant-platform/docs/network-traffic-matrix.md) — managed pod network policies

@@ -1,16 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir } from "../../config/env-registry.js";
+import { getDeviceIdBaseDir } from "../../util/device-id.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const seedDeviceIdMigration: WorkspaceMigration = {
   id: "003-seed-device-id",
   description:
-    "Seed ~/.vellum/device.json deviceId from the most recent lockfile installationId for continuity",
+    "Seed device.json deviceId from the most recent lockfile installationId for continuity",
   run(_workspaceDir: string): void {
-    const base = getBaseDataDir() || homedir();
+    const base = getDeviceIdBaseDir();
     const vellumDir = join(base, ".vellum");
     const devicePath = join(vellumDir, "device.json");
 
