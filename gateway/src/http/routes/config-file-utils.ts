@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { getRootDir } from "../../credential-reader.js";
+import { getWorkspaceDir } from "../../credential-reader.js";
 
 /**
  * Serializes config writes so concurrent PATCH requests don't race on
@@ -28,7 +28,7 @@ export function enqueueConfigWrite(fn: () => void): void {
 }
 
 export function getConfigPath(): string {
-  return join(getRootDir(), "workspace", "config.json");
+  return join(getWorkspaceDir(), "config.json");
 }
 
 export type ConfigReadResult =
