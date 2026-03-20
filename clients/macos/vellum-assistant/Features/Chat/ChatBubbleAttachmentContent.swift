@@ -135,13 +135,14 @@ private enum ImageActions {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
 
-        Divider()
-
         // Query sharing services using the lightweight thumbnail image to
         // keep the view builder fast. Full-res decode is deferred to when
         // the user actually picks a service.
+        // NSSharingService.sharingServices is deprecated in macOS 13 but has
+        // no functional replacement for custom share UI (see AppSharePanelView).
         let services = NSSharingService.sharingServices(forItems: [image])
         if !services.isEmpty {
+            Divider()
             Menu {
                 ForEach(Array(services.enumerated()), id: \.offset) { _, service in
                     Button {
