@@ -16,6 +16,8 @@
  * via the environment.
  */
 
+import { timingSafeEqual } from "node:crypto";
+
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +45,9 @@ function checkAuth(req: Request, serviceToken: string): Response | null {
     );
   }
 
-  if (parts[1] !== serviceToken) {
+  const provided = Buffer.from(parts[1]!);
+  const expected = Buffer.from(serviceToken);
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
     return new Response(
       JSON.stringify({ error: "Invalid service token" }),
       { status: 403, headers: { "Content-Type": "application/json" } },
