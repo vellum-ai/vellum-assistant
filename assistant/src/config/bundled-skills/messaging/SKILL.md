@@ -81,7 +81,7 @@ Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which 
 
 The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering bot commands, and storing credentials securely via the secure credential prompt flow. **Never accept a Telegram bot token pasted in plaintext chat - always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
 
-The telegram-setup skill also includes **guardian verification**, which links your Telegram account for verified message delivery.
+The telegram-setup skill also includes **channel verification**, which links your Telegram account for verified message delivery.
 
 ### Channel Verification (Voice or Telegram)
 
