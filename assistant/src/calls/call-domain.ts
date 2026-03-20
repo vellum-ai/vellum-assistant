@@ -85,6 +85,7 @@ export type StartCallInput = {
   conversationId: string;
   assistantId?: string;
   callerIdentityMode?: "assistant_number" | "user_number";
+  skipDisclosure?: boolean;
 };
 
 export type CancelCallInput = {
@@ -364,6 +365,7 @@ export async function startCall(
     context: callContext,
     conversationId,
     callerIdentityMode,
+    skipDisclosure,
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = input;
 
@@ -440,6 +442,7 @@ export async function startCall(
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
+      skipDisclosure,
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;

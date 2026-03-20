@@ -41,6 +41,7 @@ import {
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
+  migrateCallSessionSkipDisclosure,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateCapabilityCardColumns,
@@ -491,6 +492,9 @@ export function initializeDb(): void {
 
   // 86. Drop simplified-memory tables and reducer checkpoint columns
   migrateDropSimplifiedMemory(database);
+
+  // 87. Add skip_disclosure column to call_sessions for per-call disclosure control
+  migrateCallSessionSkipDisclosure(database);
 
   validateMigrationState(database);
 

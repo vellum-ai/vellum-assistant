@@ -128,6 +128,7 @@ export { migrateConversationForkLineage } from "./183-add-conversation-fork-line
 export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
 export { migrateScheduleQuietFlag } from "./188-schedule-quiet-flag.js";
 export { migrateDropSimplifiedMemory } from "./189-drop-simplified-memory.js";
+export { migrateCallSessionSkipDisclosure } from "./190-call-session-skip-disclosure.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

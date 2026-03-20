@@ -41,6 +41,10 @@ const parseCallSession = createRowMapper<
   inviteGuardianName: "inviteGuardianName",
   callerIdentityMode: "callerIdentityMode",
   callerIdentitySource: "callerIdentitySource",
+  skipDisclosure: {
+    from: "skipDisclosure",
+    transform: (v: unknown) => v === 1,
+  },
   initiatedFromConversationId: "initiatedFromConversationId",
   startedAt: "startedAt",
   endedAt: "endedAt",
@@ -87,11 +91,13 @@ export function createCallSession(opts: {
   inviteGuardianName?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
+  skipDisclosure?: boolean;
   initiatedFromConversationId?: string;
 }): CallSession {
   const db = getDb();
   const now = Date.now();
-  const session = {
+  const skipDisclosure = opts.skipDisclosure ?? false;
+  const row = {
     id: uuid(),
     conversationId: opts.conversationId,
     provider: opts.provider,
@@ -106,6 +112,7 @@ export function createCallSession(opts: {
     inviteGuardianName: opts.inviteGuardianName ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
+    skipDisclosure: skipDisclosure ? 1 : 0,
     initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
     startedAt: null,
     endedAt: null,
@@ -113,8 +120,8 @@ export function createCallSession(opts: {
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(callSessions).values(session).run();
-  return session;
+  db.insert(callSessions).values(row).run();
+  return { ...row, skipDisclosure };
 }
 
 export function getCallSession(id: string): CallSession | null {

@@ -119,6 +119,8 @@ export class CallController {
   private task: string | null;
   /** True when the call session was created via the inbound path (no outbound task). */
   private isInbound: boolean;
+  /** When true, the disclosure announcement is skipped for this call. */
+  private skipDisclosure: boolean;
   /** Instructions queued while an LLM turn is in-flight or during pending guardian input */
   private pendingInstructions: string[] = [];
   /** Ensures the call opener is triggered at most once per call. */
@@ -170,9 +172,10 @@ export class CallController {
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.trustContext = opts?.trustContext ?? null;
 
-    // Resolve the conversation ID from the call session
+    // Resolve the conversation ID and skipDisclosure from the call session
     const session = getCallSession(callSessionId);
     this.conversationId = session?.conversationId ?? callSessionId;
+    this.skipDisclosure = session?.skipDisclosure ?? false;
 
     this.startDurationTimer();
     this.resetSilenceTimer();
@@ -673,6 +676,7 @@ export class CallController {
         trustContext: this.trustContext ?? undefined,
         isInbound: this.isInbound,
         task: this.task,
+        skipDisclosure: this.skipDisclosure,
         onTextDelta,
         onComplete,
         onError,
