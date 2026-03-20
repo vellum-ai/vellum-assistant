@@ -45,6 +45,8 @@ public struct LockfileAssistant {
     public let instanceDir: String?
     public let serviceGroupVersion: String?
     public let containerInfo: ContainerInfo?
+    public let previousServiceGroupVersion: String?
+    public let previousContainerInfo: ContainerInfo?
 
     public init(
         assistantId: String,
@@ -61,7 +63,9 @@ public struct LockfileAssistant {
         gatewayPort: Int?,
         instanceDir: String?,
         serviceGroupVersion: String? = nil,
-        containerInfo: ContainerInfo? = nil
+        containerInfo: ContainerInfo? = nil,
+        previousServiceGroupVersion: String? = nil,
+        previousContainerInfo: ContainerInfo? = nil
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -78,6 +82,8 @@ public struct LockfileAssistant {
         self.instanceDir = instanceDir
         self.serviceGroupVersion = serviceGroupVersion
         self.containerInfo = containerInfo
+        self.previousServiceGroupVersion = previousServiceGroupVersion
+        self.previousContainerInfo = previousContainerInfo
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -182,6 +188,19 @@ public struct LockfileAssistant {
                     networkName: ci["networkName"] as? String
                 )
             }
+            let previousServiceGroupVersion = entry["previousServiceGroupVersion"] as? String
+            var previousContainerInfo: ContainerInfo? = nil
+            if let pci = entry["previousContainerInfo"] as? [String: Any] {
+                previousContainerInfo = ContainerInfo(
+                    assistantImage: pci["assistantImage"] as? String,
+                    gatewayImage: pci["gatewayImage"] as? String,
+                    cesImage: pci["cesImage"] as? String,
+                    assistantDigest: pci["assistantDigest"] as? String,
+                    gatewayDigest: pci["gatewayDigest"] as? String,
+                    cesDigest: pci["cesDigest"] as? String,
+                    networkName: pci["networkName"] as? String
+                )
+            }
             return LockfileAssistant(
                 assistantId: assistantId,
                 runtimeUrl: entry["runtimeUrl"] as? String,
@@ -197,7 +216,9 @@ public struct LockfileAssistant {
                 gatewayPort: resources?["gatewayPort"] as? Int,
                 instanceDir: resources?["instanceDir"] as? String,
                 serviceGroupVersion: serviceGroupVersion,
-                containerInfo: containerInfo
+                containerInfo: containerInfo,
+                previousServiceGroupVersion: previousServiceGroupVersion,
+                previousContainerInfo: previousContainerInfo
             )
         }
     }
