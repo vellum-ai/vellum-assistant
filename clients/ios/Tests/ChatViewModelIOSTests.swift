@@ -156,12 +156,14 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until conversation_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Poll until bootstrap completes — the new bootstrap flow sets
+        // conversationId directly (to the correlation ID) without waiting
+        // for a server conversation_info response.
+        let expectation = XCTestExpectation(description: "bootstrap completes")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if viewModel.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -171,15 +173,9 @@ final class ChatViewModelIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent conversation_create message
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = conversationCreates.first?.correlationId
-
-        // Conversation info arrives with matching correlation ID
-        let info = ConversationInfoMessage(conversationId: "new-sess", title: "Test", correlationId: correlationId)
-        viewModel.handleServerMessage(.conversationInfo(info))
-
-        XCTAssertEqual(viewModel.conversationId, "new-sess")
+        // Bootstrap should have created a conversation ID locally and cleared bootstrap state
+        XCTAssertNotNil(viewModel.conversationId)
+        XCTAssertNil(viewModel.bootstrapCorrelationId)
     }
 
     // MARK: - Streaming Deltas
@@ -310,12 +306,13 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until conversation_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Poll until bootstrap completes — the new bootstrap flow sets
+        // conversationId directly without a server conversation_info round-trip.
+        let expectation = XCTestExpectation(description: "bootstrap completes")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if viewModel.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -325,14 +322,8 @@ final class ChatViewModelIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent conversation_create message
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = conversationCreates.first?.correlationId
-
-        // 2. Conversation info arrives with matching correlation ID
-        let info = ConversationInfoMessage(conversationId: "cycle-sess", title: "iOS Chat", correlationId: correlationId)
-        viewModel.handleServerMessage(.conversationInfo(info))
-        XCTAssertEqual(viewModel.conversationId, "cycle-sess")
+        // 2. Bootstrap should have created a conversation ID locally
+        XCTAssertNotNil(viewModel.conversationId)
 
         // 3. Assistant starts streaming
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "iOS is ")))
