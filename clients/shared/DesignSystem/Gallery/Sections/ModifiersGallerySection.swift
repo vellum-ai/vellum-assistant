@@ -156,8 +156,8 @@ struct ModifiersGallerySection: View {
                 }
                 // MARK: - .vTooltip()
                 GallerySectionHeader(
-                    title: ".vTooltip(_:delay:)",
-                    description: "Fast floating tooltip (200ms default). Uses an NSPanel so it escapes clipping, never steals clicks, and works on any view — buttons, icons, text, containers. Falls back to .help() on non-macOS."
+                    title: ".vTooltip(_:edge:delay:)",
+                    description: "Fast floating tooltip (200ms default). Uses an NSPanel so it escapes clipping, never steals clicks, and works on any view — buttons, icons, text, containers. Supports edge placement (.top default, .bottom). Falls back to .help() on non-macOS."
                 )
 
                 VCard {
@@ -182,6 +182,18 @@ struct ModifiersGallerySection: View {
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                 .vTooltip("Works on any view, not just buttons")
+                        }
+
+                        Text("Bottom edge placement:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+
+                        HStack(spacing: VSpacing.lg) {
+                            VButton(label: "Copy", iconOnly: VIcon.copy.rawValue, style: .ghost) {}
+                                .vTooltip("Copy message", edge: .bottom)
+
+                            VButton(label: "Fork", iconOnly: VIcon.gitBranch.rawValue, style: .ghost) {}
+                                .vTooltip("Fork from here", edge: .bottom)
                         }
                     }
                 }
