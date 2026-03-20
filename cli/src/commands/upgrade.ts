@@ -26,7 +26,7 @@ import {
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
-import { loadBootstrapSecret, loadGuardianToken } from "../lib/guardian-token";
+import { loadBootstrapSecret, saveBootstrapSecret, loadGuardianToken } from "../lib/guardian-token";
 import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
@@ -320,8 +320,11 @@ async function upgradeDocker(
 
   // Retrieve or generate a bootstrap secret for the gateway. The secret was
   // persisted to disk during hatch; older instances won't have one yet.
-  const bootstrapSecret =
-    loadBootstrapSecret(instanceName) || randomBytes(32).toString("hex");
+  const loadedSecret = loadBootstrapSecret(instanceName);
+  const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
+  if (!loadedSecret) {
+    saveBootstrapSecret(instanceName, bootstrapSecret);
+  }
 
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
