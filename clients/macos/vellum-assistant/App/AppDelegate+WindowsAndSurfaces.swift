@@ -591,56 +591,30 @@ extension AppDelegate {
 extension AppDelegate {
 
     public func showAboutPanel() {
-        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
-
-        let creditsString = NSMutableAttributedString()
-
-        #if DEBUG
-        let bundlePath = Bundle.main.bundlePath
-
-        let headerAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.systemOrange
-        ]
-        creditsString.append(NSAttributedString(string: "Local Development Build\n", attributes: headerAttributes))
-
-        let pathAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        creditsString.append(NSAttributedString(string: bundlePath, attributes: pathAttributes))
-        creditsString.append(NSAttributedString(string: "\n", attributes: pathAttributes))
-        #endif
-
-        if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
-            let commitAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-            let shortSHA = String(commitSHA.prefix(7))
-            creditsString.append(NSAttributedString(string: "Commit: \(shortSHA)\n", attributes: commitAttributes))
+        // Focus existing window if it's still open
+        if let existing = aboutWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
 
-        let archLabel: String
-        #if arch(arm64)
-        archLabel = "Apple Silicon (arm64)"
-        #elseif arch(x86_64)
-        archLabel = "Intel (x86_64)"
-        #else
-        archLabel = "Unknown architecture"
-        #endif
+        let aboutView = AboutVellumView()
+        let hostingController = NSHostingController(rootView: aboutView)
 
-        let archAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        creditsString.append(NSAttributedString(string: archLabel, attributes: archAttributes))
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "About \(Self.appName)"
+        window.isReleasedWhenClosed = false
+        window.center()
 
-        options[.credits] = creditsString
-        options[.applicationName] = Self.appName
-
+        aboutWindow = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 
     /// Opens the settings panel in the main window.

@@ -78,6 +78,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var e2eStatusOverlayWindow: E2EStatusOverlayWindow?
 
     var onboardingWindow: OnboardingWindow?
+    var aboutWindow: NSWindow?
     var authWindow: NSWindow?
     public var authManager: AuthManager { services.authManager }
     public var mainWindow: MainWindow?
