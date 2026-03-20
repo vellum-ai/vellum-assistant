@@ -39,6 +39,18 @@ final class MockSettingsClient: SettingsClientProtocol {
     var setSlackWebhookConfigResponse: Bool = true
     var channelVerificationResponses: [String: ChannelVerificationSessionResponseMessage] = [:]
     var sendChannelVerificationSessionResponse: ChannelVerificationSessionResponseMessage?
+    var updateVoiceConfigCalls: [VoiceConfigUpdateRequest] = []
+    var updateVoiceConfigResponse: Bool = true
+    var startOAuthConnectCalls: [OAuthConnectStartRequest] = []
+    var startOAuthConnectResponse: Bool = true
+    var registerDeviceTokenCalls: [(token: String, platform: String)] = []
+    var registerDeviceTokenResponse: Bool = true
+    var fetchIngressConfigCallCount = 0
+    var fetchIngressConfigResponse: IngressConfigResponseMessage?
+    var updateIngressConfigCalls: [(publicBaseUrl: String?, enabled: Bool?)] = []
+    var updateIngressConfigResponse: IngressConfigResponseMessage?
+    var fetchSuggestionCalls: [(conversationId: String, requestId: String)] = []
+    var fetchSuggestionResponse: SuggestionResponseMessage?
 
     // MARK: - Protocol Methods
 
@@ -128,5 +140,35 @@ final class MockSettingsClient: SettingsClientProtocol {
             purpose: purpose, contactChannelId: contactChannelId
         ))
         return sendChannelVerificationSessionResponse
+    }
+
+    func updateVoiceConfig(_ config: VoiceConfigUpdateRequest) async -> Bool {
+        updateVoiceConfigCalls.append(config)
+        return updateVoiceConfigResponse
+    }
+
+    func startOAuthConnect(_ request: OAuthConnectStartRequest) async -> Bool {
+        startOAuthConnectCalls.append(request)
+        return startOAuthConnectResponse
+    }
+
+    func registerDeviceToken(token: String, platform: String) async -> Bool {
+        registerDeviceTokenCalls.append((token: token, platform: platform))
+        return registerDeviceTokenResponse
+    }
+
+    func fetchIngressConfig() async -> IngressConfigResponseMessage? {
+        fetchIngressConfigCallCount += 1
+        return fetchIngressConfigResponse
+    }
+
+    func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage? {
+        updateIngressConfigCalls.append((publicBaseUrl: publicBaseUrl, enabled: enabled))
+        return updateIngressConfigResponse
+    }
+
+    func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? {
+        fetchSuggestionCalls.append((conversationId: conversationId, requestId: requestId))
+        return fetchSuggestionResponse
     }
 }
