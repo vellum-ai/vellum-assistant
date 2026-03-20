@@ -436,6 +436,22 @@ struct AssistantProgressView: View {
                     isExpanded = true
                 }
             }
+
+            // Rehydrate stripped tool calls for cards that start expanded.
+            // When isExpanded is set to true in init(), onChange(of: isExpanded)
+            // never fires (no false→true transition), so we must check here.
+            if isExpanded, onRehydrate != nil {
+                let hasStrippedToolCall = toolCalls.contains { tc in
+                    tc.isComplete
+                        && tc.inputFull.isEmpty
+                        && tc.result == nil
+                        && tc.inputRawDict == nil
+                        && tc.cachedImage == nil
+                }
+                if hasStrippedToolCall {
+                    onRehydrate?()
+                }
+            }
         }
     }
 
