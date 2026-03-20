@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "voice_config_update",
-      "description": "Update a voice configuration setting (TTS voice ID, PTT activation key, conversation timeout). Changes take effect immediately.",
+      "description": "Update a voice configuration setting (TTS provider, TTS voice ID, Fish Audio reference ID, PTT activation key, conversation timeout). Changes take effect immediately.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -11,7 +11,7 @@
         "properties": {
           "setting": {
             "type": "string",
-            "enum": ["activation_key", "conversation_timeout", "tts_voice_id"],
+            "enum": ["activation_key", "conversation_timeout", "fish_audio_reference_id", "tts_provider", "tts_voice_id"],
             "description": "The voice setting to change"
           },
           "value": {
