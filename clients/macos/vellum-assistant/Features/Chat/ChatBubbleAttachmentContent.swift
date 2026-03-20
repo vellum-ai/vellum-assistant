@@ -137,34 +137,39 @@ private enum ImageActions {
 
         Divider()
 
-        Menu {
-            let shareImage: NSImage = {
-                if let base64Data, !base64Data.isEmpty,
-                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
-                   let fullRes = NSImage(data: decoded) {
-                    return fullRes
-                } else {
-                    return image
-                }
-            }()
-            let services = NSSharingService.sharingServices(forItems: [shareImage])
-            ForEach(Array(services.enumerated()), id: \.offset) { _, service in
-                Button {
-                    service.perform(withItems: [shareImage])
-                } label: {
-                    if let serviceImage = service.image {
-                        Label {
+        // Query sharing services using the lightweight thumbnail image to
+        // keep the view builder fast. Full-res decode is deferred to when
+        // the user actually picks a service.
+        let services = NSSharingService.sharingServices(forItems: [image])
+        if !services.isEmpty {
+            Menu {
+                ForEach(Array(services.enumerated()), id: \.offset) { _, service in
+                    Button {
+                        // Defer full-res decode to action time (off the render path)
+                        let itemToShare: NSImage = {
+                            if let base64Data, !base64Data.isEmpty,
+                               let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
+                               let fullRes = NSImage(data: decoded) {
+                                return fullRes
+                            }
+                            return image
+                        }()
+                        service.perform(withItems: [itemToShare])
+                    } label: {
+                        if let serviceImage = service.image {
+                            Label {
+                                Text(service.title)
+                            } icon: {
+                                Image(nsImage: serviceImage)
+                            }
+                        } else {
                             Text(service.title)
-                        } icon: {
-                            Image(nsImage: serviceImage)
                         }
-                    } else {
-                        Text(service.title)
                     }
                 }
+            } label: {
+                Label { Text("Share") } icon: { VIconView(.share, size: 12) }
             }
-        } label: {
-            Label { Text("Share") } icon: { VIconView(.share, size: 12) }
         }
 
     }
