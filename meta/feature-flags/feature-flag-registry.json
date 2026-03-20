@@ -66,14 +66,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "logfire",
-      "scope": "assistant",
-      "key": "feature_flags.logfire.enabled",
-      "label": "Logfire LLM Observability",
-      "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
-      "defaultEnabled": false
-    },
-    {
       "id": "ces-tools",
       "scope": "assistant",
       "key": "feature_flags.ces-tools.enabled",
