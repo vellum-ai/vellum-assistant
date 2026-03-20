@@ -56,8 +56,8 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   initAuthSigningKey,
-  loadOrCreateSigningKey,
   mintPairingBearerToken,
+  resolveSigningKey,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -147,7 +147,7 @@ export async function runDaemon(): Promise<void> {
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
     // protected directory.
-    const signingKey = loadOrCreateSigningKey();
+    const signingKey = await resolveSigningKey();
     initAuthSigningKey(signingKey);
 
     seedInterfaceFiles();
