@@ -134,8 +134,13 @@ enum LogExporter {
                     }
                 }
             }
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let connectedAssistantForTags = connectedAssistantId.flatMap { LockfileAssistant.loadByName($0) }
+            if let assistantId = connectedAssistantId {
                 tags["assistant_id"] = assistantId
+            }
+            if let assistantVersion = connectedAssistantForTags?.serviceGroupVersion {
+                tags["assistant_version"] = assistantVersion
             }
             if !extra.isEmpty {
                 event.extra = extra
@@ -297,6 +302,12 @@ enum LogExporter {
             if daemonUnreachable {
                 metadata["daemon-unreachable"] = true
             }
+            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
+                metadata["assistant_version"] = assistantVersion
+            }
+            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                metadata["client_version"] = clientVersion
+            }
             if let data = try? JSONSerialization.data(
                 withJSONObject: metadata,
                 options: [.prettyPrinted, .sortedKeys]
@@ -306,7 +317,13 @@ enum LogExporter {
         } else if daemonUnreachable {
             // Write a minimal manifest when no form data is available so the
             // receiving end still knows these are raw filesystem reads.
-            let manifest: [String: Any] = ["daemon-unreachable": true]
+            var manifest: [String: Any] = ["daemon-unreachable": true]
+            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
+                manifest["assistant_version"] = assistantVersion
+            }
+            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                manifest["client_version"] = clientVersion
+            }
             if let data = try? JSONSerialization.data(
                 withJSONObject: manifest,
                 options: [.prettyPrinted, .sortedKeys]
