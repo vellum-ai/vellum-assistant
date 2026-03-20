@@ -47,8 +47,8 @@ let cachedStarterBundleAccepted: boolean | null = null;
 // Used by the permission checker to invalidate dependent caches.
 const rulesChangedListeners: Array<() => void> = [];
 
-/** Register a callback to be invoked whenever trust rules change. */
-export function onRulesChanged(listener: () => void): void {
+/** Register a callback to be invoked whenever trust rules change (file backend). */
+function fileOnRulesChanged(listener: () => void): void {
   rulesChangedListeners.push(listener);
 }
 
@@ -90,10 +90,10 @@ function getCompiledPattern(pattern: string): Minimatch | null {
 }
 
 /**
- * Check whether a minimatch pattern matches a candidate string.
+ * Check whether a minimatch pattern matches a candidate string (file backend).
  * Reuses the compiled pattern cache from trust rule evaluation.
  */
-export function patternMatchesCandidate(
+function filePatternMatchesCandidate(
   pattern: string,
   candidate: string,
 ): boolean {
@@ -376,7 +376,7 @@ function getRules(): TrustRule[] {
   return cachedRules;
 }
 
-export function addRule(
+function fileAddRule(
   tool: string,
   pattern: string,
   scope: string,
@@ -418,7 +418,7 @@ export function addRule(
   return rule;
 }
 
-export function updateRule(
+function fileUpdateRule(
   id: string,
   updates: {
     tool?: string;
@@ -457,7 +457,7 @@ export function updateRule(
   return rule;
 }
 
-export function removeRule(id: string): boolean {
+function fileRemoveRule(id: string): boolean {
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   if (defaultIds.has(id))
     throw new Error(`Cannot remove default trust rule: ${id}`);
@@ -515,14 +515,14 @@ function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
 }
 
 /**
- * Find the highest-priority rule that matches any of the command candidates.
+ * Find the highest-priority rule that matches any of the command candidates (file backend).
  * Rules are pre-sorted by priority descending, so the first match wins.
  *
  * When a `PolicyContext` is provided, rules that specify executionTarget
  * constraints are filtered accordingly. Rules without those constraints
  * act as wildcards and match any context.
  */
-export function findHighestPriorityRule(
+function fileFindHighestPriorityRule(
   tool: string,
   commands: string[],
   scope: string,
@@ -557,7 +557,7 @@ export function findHighestPriorityRule(
   return null;
 }
 
-export function findMatchingRule(
+function fileFindMatchingRule(
   tool: string,
   command: string,
   scope: string,
@@ -565,7 +565,7 @@ export function findMatchingRule(
   return findRuleByDecision(tool, command, scope, "allow");
 }
 
-export function findDenyRule(
+function fileFindDenyRule(
   tool: string,
   command: string,
   scope: string,
@@ -573,11 +573,11 @@ export function findDenyRule(
   return findRuleByDecision(tool, command, scope, "deny");
 }
 
-export function getAllRules(): TrustRule[] {
+function fileGetAllRules(): TrustRule[] {
   return [...getRules()];
 }
 
-export function clearAllRules(): void {
+function fileClearAllRules(): void {
   // Reset the starter bundle flag so the bundle can be re-accepted after clear.
   cachedStarterBundleAccepted = false;
   // Re-backfill default rules so protected directory stays guarded.
@@ -591,7 +591,7 @@ export function clearAllRules(): void {
   log.info("Cleared all user trust rules (default rules preserved)");
 }
 
-export function clearCache(): void {
+function fileClearCache(): void {
   cachedRules = null;
   cachedStarterBundleAccepted = null;
   compiledPatterns.clear();
@@ -606,11 +606,11 @@ export function clearCache(): void {
 // explicitly opt-in.
 
 /**
- * Returns the starter bundle rule definitions.  These cover read-only and
+ * Returns the starter bundle rule definitions (file backend).  These cover read-only and
  * information-gathering tools that never mutate the filesystem or execute
  * arbitrary code.
  */
-export function getStarterBundleRules(): StarterBundleRule[] {
+function fileGetStarterBundleRules(): StarterBundleRule[] {
   return [
     // Use standalone "**" globstar — minimatch only treats ** as globstar when
     // it is its own path segment, so a "tool:**" prefix would collapse to
@@ -667,21 +667,21 @@ export function getStarterBundleRules(): StarterBundleRule[] {
   ];
 }
 
-/** Whether the user has previously accepted the starter bundle. */
-export function isStarterBundleAccepted(): boolean {
+/** Whether the user has previously accepted the starter bundle (file backend). */
+function fileIsStarterBundleAccepted(): boolean {
   // Ensure rules are loaded (which also loads the flag from disk)
   getRules();
   return cachedStarterBundleAccepted === true;
 }
 
 /**
- * Seed the trust store with the starter bundle rules.
+ * Seed the trust store with the starter bundle rules (file backend).
  *
  * Idempotent: if the bundle was already accepted, no rules are added and
  * `alreadyAccepted` is returned as true.  Rules whose IDs already exist
  * (e.g. from a previous partial acceptance) are skipped individually.
  */
-export function acceptStarterBundle(): AcceptStarterBundleResult {
+function fileAcceptStarterBundle(): AcceptStarterBundleResult {
   // Re-read from disk to avoid lost updates.
   cachedRules = null;
   cachedStarterBundleAccepted = null;
@@ -694,7 +694,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   const existingIds = new Set(rules.map((r) => r.id));
   let added = 0;
 
-  for (const template of getStarterBundleRules()) {
+  for (const template of fileGetStarterBundleRules()) {
     if (existingIds.has(template.id)) continue;
     rules.push({
       id: template.id,
@@ -726,20 +726,20 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
  * `TrustStoreBackend` so callers can program against the interface.
  */
 const fileTrustStoreBackend: TrustStoreBackend = {
-  getAllRules,
-  findHighestPriorityRule,
-  findMatchingRule,
-  findDenyRule,
-  addRule,
-  updateRule,
-  removeRule,
-  clearAllRules,
-  acceptStarterBundle,
-  isStarterBundleAccepted,
-  onRulesChanged,
-  clearCache,
-  patternMatchesCandidate,
-  getStarterBundleRules,
+  getAllRules: fileGetAllRules,
+  findHighestPriorityRule: fileFindHighestPriorityRule,
+  findMatchingRule: fileFindMatchingRule,
+  findDenyRule: fileFindDenyRule,
+  addRule: fileAddRule,
+  updateRule: fileUpdateRule,
+  removeRule: fileRemoveRule,
+  clearAllRules: fileClearAllRules,
+  acceptStarterBundle: fileAcceptStarterBundle,
+  isStarterBundleAccepted: fileIsStarterBundleAccepted,
+  onRulesChanged: fileOnRulesChanged,
+  clearCache: fileClearCache,
+  patternMatchesCandidate: filePatternMatchesCandidate,
+  getStarterBundleRules: fileGetStarterBundleRules,
 };
 
 // ─── Gateway-backed trust store adapter ─────────────────────────────────────
@@ -787,7 +787,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       this.rebuildPatternCache();
       // Infer starterBundleAccepted from the fetched rules — if any starter
       // rule IDs are present, the bundle was accepted.
-      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      const starterIds = new Set(fileGetStarterBundleRules().map((r) => r.id));
       this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
     } catch (err) {
       log.error(
@@ -823,7 +823,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       this.rules = fresh;
       this.rebuildPatternCache();
       // Detect starter bundle acceptance
-      const starterIds = new Set(getStarterBundleRules().map((r) => r.id));
+      const starterIds = new Set(fileGetStarterBundleRules().map((r) => r.id));
       this.starterBundleAccepted = this.rules.some((r) => starterIds.has(r.id));
       if (JSON.stringify(fresh) !== oldJson) {
         this.notifyListeners();
@@ -1080,7 +1080,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   getStarterBundleRules(): StarterBundleRule[] {
     // Starter bundle definitions are static — same regardless of backend.
-    return getStarterBundleRules();
+    return fileGetStarterBundleRules();
   }
 }
 
@@ -1109,4 +1109,101 @@ export function getTrustStore(): TrustStoreBackend {
     return getGatewayTrustStore();
   }
   return fileTrustStoreBackend;
+}
+
+// ─── Module-level exports that delegate through getTrustStore() ─────────────
+//
+// All existing callers import these functions directly. By delegating through
+// getTrustStore(), they automatically get the right backend (file-based or
+// gateway-backed) without changing their imports.
+
+export function addRule(
+  tool: string,
+  pattern: string,
+  scope: string,
+  decision: "allow" | "deny" | "ask" = "allow",
+  priority: number = 100,
+  options?: {
+    allowHighRisk?: boolean;
+    executionTarget?: string;
+  },
+): TrustRule {
+  return getTrustStore().addRule(tool, pattern, scope, decision, priority, options);
+}
+
+export function updateRule(
+  id: string,
+  updates: {
+    tool?: string;
+    pattern?: string;
+    scope?: string;
+    decision?: "allow" | "deny" | "ask";
+    priority?: number;
+  },
+): TrustRule {
+  return getTrustStore().updateRule(id, updates);
+}
+
+export function removeRule(id: string): boolean {
+  return getTrustStore().removeRule(id);
+}
+
+export function clearAllRules(): void {
+  getTrustStore().clearAllRules();
+}
+
+export function getAllRules(): TrustRule[] {
+  return getTrustStore().getAllRules();
+}
+
+export function findHighestPriorityRule(
+  tool: string,
+  commands: string[],
+  scope: string,
+  ctx?: PolicyContext,
+): TrustRule | null {
+  return getTrustStore().findHighestPriorityRule(tool, commands, scope, ctx);
+}
+
+export function findMatchingRule(
+  tool: string,
+  command: string,
+  scope: string,
+): TrustRule | null {
+  return getTrustStore().findMatchingRule(tool, command, scope);
+}
+
+export function findDenyRule(
+  tool: string,
+  command: string,
+  scope: string,
+): TrustRule | null {
+  return getTrustStore().findDenyRule(tool, command, scope);
+}
+
+export function acceptStarterBundle(): AcceptStarterBundleResult {
+  return getTrustStore().acceptStarterBundle();
+}
+
+export function isStarterBundleAccepted(): boolean {
+  return getTrustStore().isStarterBundleAccepted();
+}
+
+export function getStarterBundleRules(): StarterBundleRule[] {
+  return getTrustStore().getStarterBundleRules();
+}
+
+export function onRulesChanged(listener: () => void): void {
+  getTrustStore().onRulesChanged(listener);
+}
+
+export function clearCache(): void {
+  getTrustStore().clearCache();
+}
+
+export function patternMatchesCandidate(
+  pattern: string,
+  candidate: string,
+): boolean {
+  return getTrustStore().patternMatchesCandidate(pattern, candidate);
 }
