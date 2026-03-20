@@ -24,6 +24,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
+import { storeAudio } from "./audio-store.js";
 import {
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
@@ -43,14 +44,12 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
-import { storeAudio } from "./audio-store.js";
 import { finalizeCall } from "./finalize-call.js";
 import { FishAudioSession } from "./fish-audio-client.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
-import { isFishAudioTts } from "./voice-quality.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
   CALL_OPENING_ACK_MARKER,
@@ -61,6 +60,7 @@ import {
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
+import { isFishAudioTts } from "./voice-quality.js";
 import {
   startVoiceTurn,
   type VoiceTurnHandle,
@@ -71,9 +71,9 @@ const log = getLogger("call-controller");
 const SENTENCE_END_RE = /[.!?]\s+/;
 function splitAtSentenceBoundary(
   text: string,
-): { complete: string; remainder: string } | null {
+): { complete: string; remainder: string } | undefined {
   const match = SENTENCE_END_RE.exec(text);
-  if (!match) return null;
+  if (!match) return undefined;
   const splitIdx = match.index + match[0].length;
   return {
     complete: text.slice(0, splitIdx).trim(),
@@ -579,7 +579,7 @@ export class CallController {
       if (useFishAudio) {
         sentenceBuffer += safeText;
         let split: ReturnType<typeof splitAtSentenceBoundary>;
-        while ((split = splitAtSentenceBoundary(sentenceBuffer)) !== null) {
+        while ((split = splitAtSentenceBoundary(sentenceBuffer)) !== undefined) {
           fishPendingQueue.push(synthesizeAndPlay(split.complete));
           sentenceBuffer = split.remainder;
         }
