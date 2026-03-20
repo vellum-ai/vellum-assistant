@@ -579,9 +579,13 @@ export class CallController {
       if (useFishAudio) {
         sentenceBuffer += safeText;
         let split: ReturnType<typeof splitAtSentenceBoundary>;
-        while ((split = splitAtSentenceBoundary(sentenceBuffer)) !== undefined) {
+        while (
+          (split = splitAtSentenceBoundary(sentenceBuffer)) !== undefined
+        ) {
           const sentence = split.complete;
-          fishSynthesisChain = fishSynthesisChain.then(() => synthesizeAndPlay(sentence));
+          fishSynthesisChain = fishSynthesisChain.then(() =>
+            synthesizeAndPlay(sentence),
+          );
           sentenceBuffer = split.remainder;
         }
       } else {
@@ -700,7 +704,9 @@ export class CallController {
     // all in-flight synthesis to finish before signaling end-of-turn.
     if (useFishAudio) {
       if (sentenceBuffer.trim().length > 0) {
-        fishSynthesisChain = fishSynthesisChain.then(() => synthesizeAndPlay(sentenceBuffer.trim()));
+        fishSynthesisChain = fishSynthesisChain.then(() =>
+          synthesizeAndPlay(sentenceBuffer.trim()),
+        );
         sentenceBuffer = "";
       }
       await fishSynthesisChain;
@@ -710,7 +716,11 @@ export class CallController {
       }
     }
 
-    // Signal end of this turn's speech
+    // Signal end of this turn's speech.  An empty token with `last: true`
+    // tells ConversationRelay to start listening — it does NOT trigger TTS
+    // synthesis.  This is required even when Fish Audio handled all audio
+    // playback, because ConversationRelay still needs the end-of-turn signal
+    // to transition from "assistant speaking" to "caller speaking" state.
     this.relay.sendTextToken("", true);
 
     // Mark the greeting's first response as awaiting ack
