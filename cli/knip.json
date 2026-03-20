@@ -2,7 +2,8 @@
   "entry": [
     "src/**/*.test.ts",
     "src/**/__tests__/**/*.ts",
-    "src/adapters/openclaw-http-server.ts"
+    "src/adapters/openclaw-http-server.ts",
+    "src/lib/version-compat.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx"]
 }
