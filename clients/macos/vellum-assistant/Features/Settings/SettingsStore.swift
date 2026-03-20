@@ -88,6 +88,10 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
 
+    // MARK: - Permissions Settings
+
+    @Published var dangerouslySkipPermissions: Bool
+
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
@@ -404,6 +408,10 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(from: configPath)
+
+        // Load permissions settings from workspace config
+        let permissionsConfig = WorkspaceConfigIO.read(from: configPath)["permissions"] as? [String: Any]
+        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
 
         // Load web search provider from workspace config
         let config = WorkspaceConfigIO.read(from: configPath)
@@ -2928,6 +2936,19 @@ public final class SettingsStore: ObservableObject {
             guard mediaEmbedsEnabled else { return }
             mediaEmbedsEnabled = false
             persistMediaEmbedState()
+        }
+    }
+
+    func setDangerouslySkipPermissions(_ enabled: Bool) {
+        dangerouslySkipPermissions = enabled
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var permissions = existingConfig["permissions"] as? [String: Any] ?? [:]
+        permissions["dangerouslySkipPermissions"] = enabled
+        do {
+            try WorkspaceConfigIO.merge(["permissions": permissions], into: configPath)
+        } catch {
+            log.error("Failed to persist dangerouslySkipPermissions: \(error)")
         }
     }
 

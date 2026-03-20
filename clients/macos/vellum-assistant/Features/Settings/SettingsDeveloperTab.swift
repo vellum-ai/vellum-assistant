@@ -132,6 +132,26 @@ struct SettingsDeveloperTab: View {
                 revokeAssistantApiKeySection
             }
 
+            // Dangerously Skip Permissions
+            SettingsCard(title: "Dangerously Skip Permissions", subtitle: "Auto-accept all permission prompts without asking. The assistant will never pause for approval — use with caution.") {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    VToggle(isOn: Binding(
+                        get: { store.dangerouslySkipPermissions },
+                        set: { store.setDangerouslySkipPermissions($0) }
+                    ))
+                    .accessibilityLabel("Dangerously Skip Permissions")
+                    .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Skip all permission prompts")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentSecondary)
+                        Text("When enabled, tools execute immediately without asking for approval. Explicit deny rules are still respected.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+            }
+
             // Permission Simulator
             if let model = testerModel {
                 ToolPermissionTesterView(model: model)
