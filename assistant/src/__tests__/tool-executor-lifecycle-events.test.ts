@@ -32,6 +32,10 @@ const mockConfig = {
     action: "warn" as const,
     entropyThreshold: 4.0,
   },
+  permissions: {
+    mode: "workspace" as const,
+    dangerouslySkipPermissions: false,
+  },
 };
 
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
