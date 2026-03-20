@@ -185,7 +185,25 @@ async function searchItemsSemantic(
     );
 
     const ids = results.map((r) => r.payload.target_id);
-    return { ids, total: ids.length };
+
+    // Use SQL COUNT(*) for accurate pagination total — Qdrant results are
+    // capped by fetchLimit and would undercount when more matches exist.
+    const db = getDb();
+    const countConditions = [ne(memoryItems.kind, "capability")];
+    if (statusFilter && statusFilter !== "all") {
+      countConditions.push(eq(memoryItems.status, statusFilter));
+    }
+    if (kindFilter) {
+      countConditions.push(eq(memoryItems.kind, kindFilter));
+    }
+    const countResult = db
+      .select({ count: count() })
+      .from(memoryItems)
+      .where(and(...countConditions))
+      .get();
+    const total = countResult?.count ?? 0;
+
+    return { ids, total };
   } catch (err) {
     log.warn({ err }, "Semantic memory search failed, falling back to SQL");
     return null;
@@ -249,11 +267,27 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
         offsetParam + limitParam,
       );
 
-      // Batch-fetch full rows from SQLite
+      if (pageIds.length === 0) {
+        return Response.json({ items: [], total: semanticResult.total });
+      }
+
+      // Re-apply the same DB-side filters used in the SQL path as defense-
+      // in-depth against stale Qdrant payloads leaking deleted/mismatched rows.
+      const hydrationConditions = [
+        inArray(memoryItems.id, pageIds),
+        ne(memoryItems.kind, "capability"),
+      ];
+      if (statusParam && statusParam !== "all") {
+        hydrationConditions.push(eq(memoryItems.status, statusParam));
+      }
+      if (kindParam) {
+        hydrationConditions.push(eq(memoryItems.kind, kindParam));
+      }
+
       const rows = db
         .select()
         .from(memoryItems)
-        .where(inArray(memoryItems.id, pageIds))
+        .where(and(...hydrationConditions))
         .all();
 
       // Preserve Qdrant relevance ordering
