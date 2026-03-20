@@ -37,6 +37,7 @@ import {
   getWorkspaceConfigPath,
   getWorkspaceDir,
 } from "../../util/platform.js";
+import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -264,12 +265,16 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       ? {
           type: "conversation-export" as const,
           conversationId,
+          assistantVersion: APP_VERSION,
+          commitSha: COMMIT_SHA,
           ...(startTime !== undefined ? { startTime } : {}),
           ...(endTime !== undefined ? { endTime } : {}),
           exportedAt: new Date().toISOString(),
         }
       : {
           type: "global-export" as const,
+          assistantVersion: APP_VERSION,
+          commitSha: COMMIT_SHA,
           exportedAt: new Date().toISOString(),
         };
     writeFileSync(
