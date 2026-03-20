@@ -567,6 +567,57 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/audio/{audioId}": {
+        get: {
+          summary: "Retrieve synthesized audio",
+          description:
+            "Serves a previously synthesized TTS audio segment. Unauthenticated — the audioId is an unguessable UUID that acts as a capability token. Used by Twilio to fetch audio for playback during voice calls.",
+          operationId: "getAudio",
+          parameters: [
+            {
+              name: "audioId",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Unique identifier of the audio segment",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Audio content",
+              content: {
+                "audio/*": {
+                  schema: { type: "string", format: "binary" },
+                },
+              },
+            },
+            "404": {
+              description: "Audio not found or expired",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to reach upstream runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "504": {
+              description: "Upstream runtime timed out",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/deliver/whatsapp": {
         post: {
           summary: "WhatsApp delivery (internal)",

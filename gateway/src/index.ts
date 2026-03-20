@@ -29,6 +29,7 @@ import {
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
+import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
@@ -296,6 +297,8 @@ async function main() {
   const handleTrustRulesMatch = createTrustRulesMatchHandler();
   const handleTrustRulesStarterBundle = createTrustRulesStarterBundleHandler();
 
+  const audioProxy = createAudioProxyHandler(config);
+
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
     : null;
@@ -351,6 +354,13 @@ async function main() {
       path: "/webhooks/whatsapp",
       precondition: requireWhatsApp,
       handler: (req) => handleWhatsAppWebhook(req),
+    },
+
+    // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
+    {
+      path: /^\/v1\/audio\/([^/]+)$/,
+      method: "GET",
+      handler: (_req, params) => audioProxy.handleGetAudio(_req, params[0]),
     },
     {
       path: "/webhooks/oauth/callback",
