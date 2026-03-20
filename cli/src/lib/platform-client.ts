@@ -60,14 +60,15 @@ interface OrganizationListResponse {
 }
 
 export async function fetchOrganizationId(token: string): Promise<string> {
-  const url = `${getPlatformUrl()}/v1/organizations/`;
+  const platformUrl = getPlatformUrl();
+  const url = `${platformUrl}/v1/organizations/`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch organizations (${response.status}). Try logging in again.`,
+      `Failed to fetch organizations from ${platformUrl} (${response.status}). Try logging in again.`,
     );
   }
 
