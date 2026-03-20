@@ -313,11 +313,13 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                     try? await self.clientProvider.client.connect()
                 }
                 if self.clientProvider.client.isConnected, let sid = conversationId {
-                    try? self.clientProvider.client.send(UserMessageMessage(
-                        conversationId: sid,
+                    self.clientProvider.client.sendUserMessage(
                         content: replyText,
-                        attachments: nil
-                    ))
+                        conversationId: sid,
+                        attachments: nil,
+                        conversationType: nil,
+                        automated: nil
+                    )
                 }
                 // Call completionHandler inside the Task so iOS keeps the app alive
                 // until connect() and send() complete. Calling it via defer (outside

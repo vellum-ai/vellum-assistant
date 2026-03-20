@@ -67,11 +67,8 @@ final class DaemonClientReconfigureTests: XCTestCase {
         XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
     }
 
-    func testReconfigurePreservesCallbacks() {
-        var callbackInvoked = false
-        client.onOpenUrl = { _ in
-            callbackInvoked = true
-        }
+    func testReconfigurePreservesIsConnectedAsFalse() {
+        client.isConnected = true
 
         let newConfig = DaemonConfig(transport: .http(
             baseURL: "http://localhost:9999",
@@ -80,12 +77,8 @@ final class DaemonClientReconfigureTests: XCTestCase {
         ))
         client.reconfigure(config: newConfig)
 
-        // The callback closure should still be set after reconfigure
-        XCTAssertNotNil(client.onOpenUrl, "Callbacks should be preserved after reconfigure")
-
-        // Invoke the callback to verify it still works
-        client.onOpenUrl?(OpenUrlMessage(type: "open_url", url: "https://example.com"))
-        XCTAssertTrue(callbackInvoked, "Preserved callback should still be invocable")
+        // After reconfigure, isConnected should be reset to false
+        XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
     }
 
     func testReconfigureBetweenHTTPEndpoints() {

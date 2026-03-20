@@ -2176,6 +2176,7 @@ public enum ServerMessage: Decodable, Sendable {
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
+    case conversationIdResolved(localId: String, serverId: String)
     case pong
     case unknown(String)
 

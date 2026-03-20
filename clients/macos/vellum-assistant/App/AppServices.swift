@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// that were previously declared directly on `AppDelegate`.
 @MainActor
 public final class AppServices {
-    public private(set) var daemonClient: DaemonClient
+    public private(set) var daemonClient: DaemonStatus
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
@@ -18,11 +18,11 @@ public final class AppServices {
     )
 
     init() {
-        self.daemonClient = DaemonClient()
+        self.daemonClient = DaemonStatus()
     }
 
     /// Reconfigure the daemon client's transport in place (e.g., for HTTP transport).
-    /// This preserves the DaemonClient object identity so long-lived holders
+    /// This preserves the DaemonStatus object identity so long-lived holders
     /// (ConversationManager, ChatViewModel, RecordingManager, SettingsStore) continue
     /// to reference the same instance after an assistant switch.
     func reconfigureDaemonClient(config: DaemonConfig) {

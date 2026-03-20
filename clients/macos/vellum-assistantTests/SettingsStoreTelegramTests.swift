@@ -5,28 +5,18 @@ import XCTest
 @MainActor
 final class SettingsStoreTelegramTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
-    private var sentMessages: [Any] = []
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
 
     override func setUp() {
         super.setUp()
-        sentMessages = []
-        daemonClient = DaemonClient()
-        daemonClient.isConnected = true
-        daemonClient.sendOverride = { [weak self] message in
-            self?.sentMessages.append(message)
-        }
         mockSettingsClient = MockSettingsClient()
-        store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
+        store = SettingsStore(settingsClient: mockSettingsClient)
     }
 
     override func tearDown() {
         store = nil
-        daemonClient = nil
         mockSettingsClient = nil
-        sentMessages = []
         super.tearDown()
     }
 
@@ -44,6 +34,18 @@ final class SettingsStoreTelegramTests: XCTestCase {
     // MARK: - saveTelegramToken
 
     func testSaveTelegramTokenSetsSaveInProgress() {
+        // Configure response so the Task completes
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: true,
+            hasBotToken: true,
+            botUsername: nil,
+            connected: false,
+            hasWebhookSecret: false,
+            lastError: nil,
+            error: nil
+        )
+
         store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
         XCTAssertTrue(store.telegramSaveInProgress)
@@ -52,6 +54,17 @@ final class SettingsStoreTelegramTests: XCTestCase {
     func testSaveTelegramTokenClearsError() {
         store.telegramError = "previous error"
 
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: true,
+            hasBotToken: true,
+            botUsername: nil,
+            connected: false,
+            hasWebhookSecret: false,
+            lastError: nil,
+            error: nil
+        )
+
         store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
         XCTAssertNil(store.telegramError)
@@ -59,52 +72,76 @@ final class SettingsStoreTelegramTests: XCTestCase {
     }
 
     func testSaveTelegramTokenSendsSetAction() {
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: true,
+            hasBotToken: true,
+            botUsername: nil,
+            connected: false,
+            hasWebhookSecret: false,
+            lastError: nil,
+            error: nil
+        )
+
         store.saveTelegramToken(botToken: "  123456:ABC-DEF  ")
 
-        // Init sends model_get, telegram get, vercel get.
-        // saveTelegramToken adds a telegram_config set message.
-        let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        // Should have at least the init "get" + the "set" call
-        let setMessages = telegramMessages.filter { $0.action == "set" }
-        XCTAssertEqual(setMessages.count, 1)
-        XCTAssertEqual(setMessages.first?.botToken, "123456:ABC-DEF")
+        let predicate = NSPredicate { _, _ in !self.mockSettingsClient.setTelegramConfigCalls.isEmpty }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let setCalls = mockSettingsClient.setTelegramConfigCalls.filter { $0.action == "set" }
+        XCTAssertEqual(setCalls.count, 1)
+        XCTAssertEqual(setCalls.first?.botToken, "123456:ABC-DEF")
     }
 
     func testSaveTelegramTokenTrimsWhitespace() {
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: true,
+            hasBotToken: true,
+            botUsername: nil,
+            connected: false,
+            hasWebhookSecret: false,
+            lastError: nil,
+            error: nil
+        )
+
         store.saveTelegramToken(botToken: "  \n  123456:TOKEN  \n  ")
 
-        let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let setMessages = telegramMessages.filter { $0.action == "set" }
-        XCTAssertEqual(setMessages.count, 1)
-        XCTAssertEqual(setMessages.first?.botToken, "123456:TOKEN")
+        let predicate = NSPredicate { _, _ in !self.mockSettingsClient.setTelegramConfigCalls.isEmpty }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let setCalls = mockSettingsClient.setTelegramConfigCalls.filter { $0.action == "set" }
+        XCTAssertEqual(setCalls.count, 1)
+        XCTAssertEqual(setCalls.first?.botToken, "123456:TOKEN")
     }
 
     func testSaveTelegramTokenIgnoresEmptyToken() {
         store.saveTelegramToken(botToken: "   ")
 
         XCTAssertFalse(store.telegramSaveInProgress)
-        let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let setMessages = telegramMessages.filter { $0.action == "set" }
-        XCTAssertTrue(setMessages.isEmpty)
+        XCTAssertTrue(mockSettingsClient.setTelegramConfigCalls.isEmpty)
     }
 
-    func testSaveTelegramTokenWithNilDaemonClient() {
-        // Create a store without a daemon client
-        let orphanStore = SettingsStore()
+    func testSaveTelegramTokenWithNilResponse() {
+        // When settingsClient returns nil, saveInProgress is reset and error is set
+        mockSettingsClient.setTelegramConfigResponse = nil
 
-        orphanStore.saveTelegramToken(botToken: "123456:ABC-DEF")
+        store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
-        // Should reset saveInProgress since there is no daemon client
-        XCTAssertFalse(orphanStore.telegramSaveInProgress)
+        let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertFalse(store.telegramSaveInProgress)
+        XCTAssertEqual(store.telegramError, "Failed to save Telegram config")
     }
 
     // MARK: - Successful telegram_config_response callback
 
     func testSuccessfulResponseUpdatesTelegramState() {
-        store.telegramSaveInProgress = true
-
-        // Simulate the daemon sending a successful response
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: true,
             hasBotToken: true,
@@ -113,9 +150,11 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: true,
             lastError: nil,
             error: nil
-        ))
+        )
 
-        // Wait for the callback to complete on MainActor
+        store.telegramSaveInProgress = true
+        store.saveTelegramToken(botToken: "123456:ABC-DEF")
+
         let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
@@ -129,10 +168,10 @@ final class SettingsStoreTelegramTests: XCTestCase {
     }
 
     func testSuccessfulResponseClearsPreviousError() {
-        store.telegramSaveInProgress = true
         store.telegramError = "old error"
+        store.telegramSaveInProgress = true
 
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: true,
             hasBotToken: true,
@@ -141,7 +180,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: true,
             lastError: nil,
             error: nil
-        ))
+        )
+
+        store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
         let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -155,7 +196,7 @@ final class SettingsStoreTelegramTests: XCTestCase {
     func testFailureResponseSetsError() {
         store.telegramSaveInProgress = true
 
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: false,
             hasBotToken: false,
@@ -164,7 +205,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: false,
             lastError: nil,
             error: "Telegram API validation failed"
-        ))
+        )
+
+        store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
         let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -182,7 +225,7 @@ final class SettingsStoreTelegramTests: XCTestCase {
         store.telegramHasWebhookSecret = true
         store.telegramSaveInProgress = true
 
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: false,
             hasBotToken: false,
@@ -191,7 +234,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: false,
             lastError: nil,
             error: "Some error"
-        ))
+        )
+
+        store.saveTelegramToken(botToken: "123456:ABC-DEF")
 
         let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -209,21 +254,37 @@ final class SettingsStoreTelegramTests: XCTestCase {
     // MARK: - clearTelegramCredentials
 
     func testClearTelegramCredentialsSendsClearAction() {
-        let telegramMessagesBefore = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let clearBefore = telegramMessagesBefore.filter { $0.action == "clear" }
-        XCTAssertTrue(clearBefore.isEmpty)
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: true,
+            hasBotToken: false,
+            botUsername: nil,
+            connected: false,
+            hasWebhookSecret: false,
+            lastError: nil,
+            error: nil
+        )
 
         store.clearTelegramCredentials()
 
-        let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let clearMessages = telegramMessages.filter { $0.action == "clear" }
-        XCTAssertEqual(clearMessages.count, 1)
+        let predicate = NSPredicate { _, _ in !self.mockSettingsClient.setTelegramConfigCalls.isEmpty }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let clearCalls = mockSettingsClient.setTelegramConfigCalls.filter { $0.action == "clear" }
+        XCTAssertEqual(clearCalls.count, 1)
     }
 
-    func testClearTelegramCredentialsWithNilDaemonClient() {
-        let orphanStore = SettingsStore()
-        // Should not crash
-        orphanStore.clearTelegramCredentials()
+    func testClearTelegramCredentialsWithNilResponse() {
+        // When settingsClient returns nil, should not crash
+        mockSettingsClient.setTelegramConfigResponse = nil
+        store.clearTelegramCredentials()
+
+        let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertFalse(store.telegramSaveInProgress)
     }
 
     // MARK: - refreshTelegramStatus
@@ -242,19 +303,25 @@ final class SettingsStoreTelegramTests: XCTestCase {
         XCTAssertGreaterThan(mockSettingsClient.fetchTelegramConfigCallCount, callCountBefore)
     }
 
-    func testRefreshTelegramStatusWithNilDaemonClient() {
-        let orphanStore = SettingsStore()
-        // Should not crash
-        orphanStore.refreshTelegramStatus()
+    func testRefreshTelegramStatusWithNilResponse() {
+        // When settingsClient returns nil, should not crash
+        mockSettingsClient.telegramConfigResponse = nil
+        store.refreshTelegramStatus()
+
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.fetchTelegramConfigCallCount > 0
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        // No state change expected when response is nil
+        XCTAssertFalse(store.telegramHasBotToken)
     }
 
     // MARK: - No raw token in observable state
 
     func testNoRawTokenInObservableState() {
-        // Simulate a successful save flow
-        store.saveTelegramToken(botToken: "123456:SECRET-TOKEN-VALUE")
-
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: true,
             hasBotToken: true,
@@ -263,7 +330,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: true,
             lastError: nil,
             error: nil
-        ))
+        )
+
+        store.saveTelegramToken(botToken: "123456:SECRET-TOKEN-VALUE")
 
         let predicate = NSPredicate { _, _ in !self.store.telegramSaveInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -280,7 +349,7 @@ final class SettingsStoreTelegramTests: XCTestCase {
     // MARK: - Response with partial state (only bot token, no webhook secret)
 
     func testResponseWithPartialState() {
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        mockSettingsClient.telegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: true,
             hasBotToken: true,
@@ -289,7 +358,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: false,
             lastError: nil,
             error: nil
-        ))
+        )
+
+        store.refreshTelegramStatus()
 
         let predicate = NSPredicate { _, _ in self.store.telegramHasBotToken }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -310,8 +381,8 @@ final class SettingsStoreTelegramTests: XCTestCase {
         store.telegramConnected = true
         store.telegramHasWebhookSecret = true
 
-        // Simulate clear response
-        daemonClient.onTelegramConfigResponse?(TelegramConfigResponseMessage(
+        // Configure clear response
+        mockSettingsClient.setTelegramConfigResponse = TelegramConfigResponseMessage(
             type: "telegram_config_response",
             success: true,
             hasBotToken: false,
@@ -320,7 +391,9 @@ final class SettingsStoreTelegramTests: XCTestCase {
             hasWebhookSecret: false,
             lastError: nil,
             error: nil
-        ))
+        )
+
+        store.clearTelegramCredentials()
 
         let predicate = NSPredicate { _, _ in !self.store.telegramHasBotToken }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)

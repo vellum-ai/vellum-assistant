@@ -19,7 +19,6 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { _ in }
         viewModel = ChatViewModel(daemonClient: daemonClient)
     }
 

@@ -267,8 +267,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         enterDraftMode()
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
-        daemonClient.onConversationIdResolved = { [weak self] localId, serverId in
-            self?.resolveConversationId(from: localId, to: serverId)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in self.daemonClient.subscribe() {
+                switch message {
+                case .conversationIdResolved(let localId, let serverId):
+                    self.resolveConversationId(from: localId, to: serverId)
+                default:
+                    break
+                }
+            }
         }
     }
 

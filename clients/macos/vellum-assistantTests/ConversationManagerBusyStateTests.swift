@@ -12,12 +12,10 @@ final class ConversationManagerBusyStateTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { _ in }
         conversationManager = ConversationManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
-        daemonClient?.sendOverride = nil
         conversationManager = nil
         daemonClient = nil
         super.tearDown()

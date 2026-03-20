@@ -17,7 +17,7 @@ struct PrivateConversationPersistenceTests {
     func privateConversationCreatedAndRestoredAsPrivate() {
         let dc = DaemonClient()
         dc.isConnected = true
-        dc.sendOverride = { _ in }
+
 
         let manager = ConversationManager(daemonClient: dc)
 
@@ -88,7 +88,7 @@ struct PrivateConversationPersistenceTests {
     func standardConversationCreatedAndRestoredAsStandard() {
         let dc = DaemonClient()
         dc.isConnected = true
-        dc.sendOverride = { _ in }
+
 
         let manager = ConversationManager(daemonClient: dc)
         // ConversationManager.init enters draft mode — no conversations in the array yet
@@ -226,10 +226,6 @@ struct PrivateConversationPersistenceTests {
     func privateConversationPersistsImmediatelyViaConversationCreate() {
         let dc = DaemonClient()
         dc.isConnected = true
-        var captured: [Any] = []
-        dc.sendOverride = { msg in
-            captured.append(msg)
-        }
 
         let manager = ConversationManager(daemonClient: dc)
         manager.createPrivateConversation()
@@ -250,7 +246,7 @@ struct PrivateConversationPersistenceTests {
     func privateConversationKindSurvivesIdBackfill() {
         let dc = DaemonClient()
         dc.isConnected = true
-        dc.sendOverride = { _ in }
+
 
         let manager = ConversationManager(daemonClient: dc)
         manager.createPrivateConversation()

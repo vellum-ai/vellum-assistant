@@ -16,7 +16,6 @@ final class VoiceModeManagerTests: XCTestCase {
         manager = VoiceModeManager(voiceService: mockVoiceService)
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { _ in }
         chatViewModel = ChatViewModel(daemonClient: daemonClient)
     }
 

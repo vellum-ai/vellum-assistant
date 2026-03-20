@@ -284,14 +284,17 @@ public final class MainWindow {
         self.usageDashboardStore = UsageDashboardStore()
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
-        services.daemonClient.onTraceEvent = { [weak self] msg in
-            Task { @MainActor in
-                self?.traceStore.ingest(msg)
-            }
-        }
-        services.daemonClient.onUsageUpdate = { [weak self] _ in
-            Task { @MainActor in
-                self?.usageDashboardStore.reset()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in self.daemonClient.subscribe() {
+                switch message {
+                case .traceEvent(let msg):
+                    self.traceStore.ingest(msg)
+                case .usageUpdate:
+                    self.usageDashboardStore.reset()
+                default:
+                    break
+                }
             }
         }
         observeDaemonReconnects()

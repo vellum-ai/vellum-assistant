@@ -154,203 +154,11 @@ extension AppDelegate {
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
 
-        daemonClient.onNotificationIntent = { [weak self] msg in
-            self?.deliverNotificationIntent(msg)
-        }
+        // Subscribe to SSE event stream for UI event routing.
+        // Replaces individual onX callbacks — each event type is handled
+        // in a single switch statement.
+        startDaemonEventSubscription()
 
-        // Refresh skills cache whenever skill state changes through any path
-        daemonClient.onSkillStateChanged = { [weak self] _ in
-            self?.refreshSkillsCache()
-        }
-
-        // Open URL: daemon -> Swift -> interstitial -> browser
-        daemonClient.onOpenUrl = { msg in
-            guard let url = URL(string: msg.url) else { return }
-            let alert = NSAlert()
-            alert.messageText = "Open External Link?"
-            alert.informativeText = msg.url
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Open in Browser")
-            alert.addButton(withTitle: "Cancel")
-            if alert.runModal() == .alertFirstButtonReturn {
-                NSWorkspace.shared.open(url)
-            }
-        }
-
-        daemonClient.onNavigateSettings = { [weak self] msg in
-            Task { @MainActor in
-                self?.showSettingsTab(msg.tab)
-            }
-        }
-
-        daemonClient.onPairingApprovalRequest = { [weak self] msg in
-            guard let self else { return }
-            if self.pairingApprovalWindow == nil {
-                self.pairingApprovalWindow = PairingApprovalWindow()
-            }
-            self.pairingApprovalWindow?.show(
-                pairingRequestId: msg.pairingRequestId,
-                deviceName: msg.deviceName
-            )
-        }
-
-        // Automatically surface conversations created by scheduled task runs so
-        // the user sees them in the sidebar without restarting the app.
-        daemonClient.onTaskRunConversationCreated = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.conversationManager.createTaskRunConversation(
-                conversationId: msg.conversationId,
-                workItemId: msg.workItemId,
-                title: msg.title
-            )
-        }
-
-        // Schedule conversations — created when the scheduler fires and creates a conversation.
-        daemonClient.onScheduleConversationCreated = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.conversationManager.createScheduleConversation(
-                conversationId: msg.conversationId,
-                scheduleJobId: msg.scheduleJobId,
-                title: msg.title
-            )
-        }
-
-        // Notification conversations — created when the notification pipeline delivers
-        // to the vellum channel with start_new_conversation strategy.
-        daemonClient.onNotificationConversationCreated = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.handleNotificationConversationCreated(msg)
-        }
-
-        daemonClient.onDocumentEditorShow = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.handleDocumentEditorShow(msg)
-        }
-        daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.handleDocumentEditorUpdate(msg)
-        }
-        daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.handleDocumentSaveResponse(msg)
-        }
-        daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            guard let self, !self.isBootstrapping else { return }
-            self.ensureMainWindowExists()
-            self.mainWindow?.handleDocumentLoadResponse(msg)
-        }
-
-        // Handle diagnostics export response — show a toast in the main window
-        daemonClient.onDiagnosticsExportResponse = { [weak self] response in
-            guard let self else { return }
-            Task { @MainActor in
-                if response.success, let filePath = response.filePath {
-                    self.mainWindow?.windowState.showToast(
-                        message: "Report exported successfully.",
-                        style: .success,
-                        primaryAction: VToastAction(label: "Reveal in Finder") {
-                            NSWorkspace.shared.selectFile(filePath, inFileViewerRootedAtPath: "")
-                        }
-                    )
-                } else {
-                    let errorDetail = response.error ?? "Unknown error"
-                    self.mainWindow?.windowState.showToast(
-                        message: "Failed to export report: \(errorDetail)",
-                        style: .error
-                    )
-                }
-            }
-        }
-
-        // Handle recording_start from daemon: check permission, then start recording
-        daemonClient.onRecordingStart = { [weak self] msg in
-            guard let self else { return }
-            self.handleRecordingStart(msg)
-        }
-
-        // Handle recording_stop from daemon
-        daemonClient.onRecordingStop = { [weak self] msg in
-            guard let self else { return }
-            Task {
-                _ = await self.recordingManager.stop(sessionId: msg.recordingId)
-                self.recordingHUDWindow?.dismiss()
-            }
-        }
-
-        // Handle recording_pause from daemon
-        daemonClient.onRecordingPause = { [weak self] msg in
-            guard let self else { return }
-            self.handleRecordingPause(msg)
-        }
-
-        // Handle recording_resume from daemon
-        daemonClient.onRecordingResume = { [weak self] msg in
-            guard let self else { return }
-            self.handleRecordingResume(msg)
-        }
-
-        // Handle client_settings_update from daemon: route specific keys to their
-        // override properties; write all other keys to UserDefaults as before.
-        daemonClient.onClientSettingsUpdate = { msg in
-            if msg.key == "ttsVoiceId" {
-                Task { @MainActor in
-                    OpenAIVoiceService.overrideVoiceId = msg.value
-                }
-                UserDefaults.standard.set(msg.value, forKey: msg.key)
-            } else if msg.key == "voiceConversationTimeoutSeconds" {
-                let parsed = Int(msg.value)
-                if let parsed {
-                    UserDefaults.standard.set(parsed, forKey: msg.key)
-                }
-                Task { @MainActor in
-                    VoiceModeManager.conversationTimeoutOverride = parsed
-                }
-            } else {
-                UserDefaults.standard.set(msg.value, forKey: msg.key)
-            }
-            if msg.key == "activationKey" {
-                NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
-            }
-        }
-
-        daemonClient.onIdentityChanged = { msg in
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .identityChanged,
-                    object: nil,
-                    userInfo: [
-                        "name": msg.name,
-                        "role": msg.role,
-                        "personality": msg.personality,
-                        "emoji": msg.emoji,
-                        "home": msg.home
-                    ]
-                )
-            }
-        }
-
-        // Handle avatar_updated from daemon: reload the avatar image from disk.
-        // Pass the avatarPath so the dock icon updates immediately from the
-        // local file before the HTTP fetch completes.
-        daemonClient.onAvatarUpdated = { msg in
-            Task { @MainActor in
-                AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
-            }
-        }
-
-        // Register host CU handler so incoming host_cu_request messages
-        // execute locally (verify -> execute -> observe -> post result).
-        // The overlay provider lazily creates a session overlay on the first
-        // host_cu_request for each conversation.
-        HostCuExecutor.register(on: daemonClient) { [weak self] conversationId, request in
-            guard let self else { return nil }
-            return self.getOrCreateHostCuOverlay(conversationId: conversationId, request: request)
-        }
 
         Task {
             if !isCurrentAssistantRemote {
@@ -471,6 +279,182 @@ extension AppDelegate {
                 // close Sentry if diagnostics are disabled, and sync both
                 // keys to the daemon.
                 syncPrivacyConfig()
+            }
+        }
+    }
+
+    // MARK: - SSE Event Subscription
+
+    /// Subscribe to the daemon event stream and dispatch events to their handlers.
+    /// Replaces the ~20 individual onX callback assignments that were previously set
+    /// on DaemonClient. Each event type is handled in a single switch statement.
+    private func startDaemonEventSubscription() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = self.daemonClient.subscribe()
+            for await message in stream {
+                switch message {
+                case .notificationIntent(let msg):
+                    self.deliverNotificationIntent(msg)
+                case .skillStateChanged:
+                    self.refreshSkillsCache()
+                case .openUrl(let msg):
+                    guard let url = URL(string: msg.url) else { break }
+                    let alert = NSAlert()
+                    alert.messageText = "Open External Link?"
+                    alert.informativeText = msg.url
+                    alert.alertStyle = .informational
+                    alert.addButton(withTitle: "Open in Browser")
+                    alert.addButton(withTitle: "Cancel")
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        NSWorkspace.shared.open(url)
+                    }
+                case .navigateSettings(let msg):
+                    self.showSettingsTab(msg.tab)
+                case .pairingApprovalRequest(let msg):
+                    if self.pairingApprovalWindow == nil {
+                        self.pairingApprovalWindow = PairingApprovalWindow()
+                    }
+                    self.pairingApprovalWindow?.show(
+                        pairingRequestId: msg.pairingRequestId,
+                        deviceName: msg.deviceName
+                    )
+                case .taskRunConversationCreated(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.conversationManager.createTaskRunConversation(
+                        conversationId: msg.conversationId,
+                        workItemId: msg.workItemId,
+                        title: msg.title
+                    )
+                case .scheduleConversationCreated(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.conversationManager.createScheduleConversation(
+                        conversationId: msg.conversationId,
+                        scheduleJobId: msg.scheduleJobId,
+                        title: msg.title
+                    )
+                case .notificationConversationCreated(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.handleNotificationConversationCreated(msg)
+                case .documentEditorShow(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.handleDocumentEditorShow(msg)
+                case .documentEditorUpdate(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.handleDocumentEditorUpdate(msg)
+                case .documentSaveResponse(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.handleDocumentSaveResponse(msg)
+                case .documentLoadResponse(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.handleDocumentLoadResponse(msg)
+                case .diagnosticsExportResponse(let response):
+                    if response.success, let filePath = response.filePath {
+                        self.mainWindow?.windowState.showToast(
+                            message: "Report exported successfully.",
+                            style: .success,
+                            primaryAction: VToastAction(label: "Reveal in Finder") {
+                                NSWorkspace.shared.selectFile(filePath, inFileViewerRootedAtPath: "")
+                            }
+                        )
+                    } else {
+                        let errorDetail = response.error ?? "Unknown error"
+                        self.mainWindow?.windowState.showToast(
+                            message: "Failed to export report: \(errorDetail)",
+                            style: .error
+                        )
+                    }
+                case .recordingStart(let msg):
+                    self.handleRecordingStart(msg)
+                case .recordingStop(let msg):
+                    Task {
+                        _ = await self.recordingManager.stop(sessionId: msg.recordingId)
+                        self.recordingHUDWindow?.dismiss()
+                    }
+                case .recordingPause(let msg):
+                    self.handleRecordingPause(msg)
+                case .recordingResume(let msg):
+                    self.handleRecordingResume(msg)
+                case .clientSettingsUpdate(let msg):
+                    if msg.key == "ttsVoiceId" {
+                        OpenAIVoiceService.overrideVoiceId = msg.value
+                        UserDefaults.standard.set(msg.value, forKey: msg.key)
+                    } else if msg.key == "voiceConversationTimeoutSeconds" {
+                        let parsed = Int(msg.value)
+                        if let parsed {
+                            UserDefaults.standard.set(parsed, forKey: msg.key)
+                        }
+                        VoiceModeManager.conversationTimeoutOverride = parsed
+                    } else {
+                        UserDefaults.standard.set(msg.value, forKey: msg.key)
+                    }
+                    if msg.key == "activationKey" {
+                        NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+                    }
+                case .identityChanged(let msg):
+                    NotificationCenter.default.post(
+                        name: .identityChanged,
+                        object: nil,
+                        userInfo: [
+                            "name": msg.name,
+                            "role": msg.role,
+                            "personality": msg.personality,
+                            "emoji": msg.emoji,
+                            "home": msg.home
+                        ]
+                    )
+                case .avatarUpdated:
+                    AvatarAppearanceManager.shared.reloadAvatar()
+                case .hostCuRequest(let msg):
+                    let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
+                    Task { @MainActor in
+                        let result = await HostCuActionRunner.perform(msg, overlayProxy: proxy)
+                        _ = await HostProxyClient().postCuResult(result)
+                    }
+
+                // Surface management (previously in setupSurfaceManager)
+                case .uiSurfaceShow(let msg):
+                    if msg.display != "inline" {
+                        self.surfaceManager.userAppsDirectory = self.currentUserAppsDirectory()
+                        self.surfaceManager.showSurface(msg)
+                    }
+                case .uiSurfaceUpdate(let msg):
+                    self.surfaceManager.updateSurface(msg)
+                case .uiSurfaceDismiss(let msg):
+                    self.surfaceManager.dismissSurface(msg)
+                case .uiSurfaceComplete(let msg):
+                    self.surfaceManager.dismissSurface(UiSurfaceDismissMessage(
+                        type: "ui_surface_dismiss",
+                        conversationId: msg.conversationId ?? "",
+                        surfaceId: msg.surfaceId
+                    ))
+                case .appFilesChanged(let msg):
+                    self.refreshAppsCache()
+                    for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
+                        guard appSurfaceId == msg.appId else { continue }
+                        self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
+                    }
+                case .uiLayoutConfig(let msg):
+                    self.mainWindow?.windowState.applyLayoutConfig(msg)
+
+                // Tool confirmation (previously in setupToolConfirmationNotifications)
+                case .confirmationRequest(let msg):
+                    self.handleToolConfirmationRequest(msg)
+
+                // Secret prompt (previously in setupSecretPromptManager)
+                case .secretRequest(let msg):
+                    self.secretPromptManager.showPrompt(msg)
+                    SoundManager.shared.play(.needsInput)
+
+                default:
+                    break
+                }
             }
         }
     }

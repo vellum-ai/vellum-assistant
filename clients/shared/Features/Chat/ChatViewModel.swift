@@ -1620,43 +1620,13 @@ public final class ChatViewModel: ObservableObject {
             startMessageLoop()
         }
 
-        do {
-            let pttMeta = Self.currentPttMetadata()
-            try daemonClient.send(UserMessageMessage(
-                conversationId: conversationId,
-                content: text,
-                attachments: attachments,
-                activeSurfaceId: activeSurfaceId,
-                currentPage: activeSurfaceId != nil ? currentPage : nil,
-                pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted,
-                automated: automated ? true : nil
-            ))
-        } catch {
-            log.error("Failed to send user_message: \(error.localizedDescription)")
-            // Always track the failed message for retry support.
-            lastFailedMessageText = text
-            lastFailedMessageDisplayText = displayText
-            lastFailedMessageAttachments = attachments
-            lastFailedMessageAutomated = automated
-            // Only update UI error state for the primary send (not a queued
-            // retry). A queued retry failing must not clobber the active turn's
-            // isSending/isThinking flags or show an error banner over it.
-            if queuedMessageId == nil {
-                isSending = false
-                isThinking = false
-                lastFailedSendError = "Failed to send message."
-                errorText = lastFailedSendError
-            }
-            // Remove the queued message ID to prevent stale FIFO entries
-            if let queuedMessageId {
-                pendingMessageIds.removeAll { $0 == queuedMessageId }
-                // Revert status so the message doesn't appear permanently queued
-                if let idx = messages.firstIndex(where: { $0.id == queuedMessageId }) {
-                    messages[idx].status = .sent
-                }
-            }
-        }
+        daemonClient.sendUserMessage(
+            content: text,
+            conversationId: conversationId,
+            attachments: attachments,
+            conversationType: nil,
+            automated: automated ? true : nil
+        )
     }
 
     // MARK: - Offline Queue Flush
@@ -2427,24 +2397,13 @@ public final class ChatViewModel: ObservableObject {
             startMessageLoop()
         }
 
-        do {
-            let pttMeta = Self.currentPttMetadata()
-            try daemonClient.send(UserMessageMessage(
-                conversationId: conversationId,
-                content: text,
-                attachments: attachments,
-                activeSurfaceId: surfaceId,
-                currentPage: surfaceId != nil ? page : nil,
-                bypassSecretCheck: true,
-                pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted
-            ))
-        } catch {
-            log.error("Failed to send bypassed message: \(error.localizedDescription)")
-            isSending = false
-            isThinking = false
-            errorText = "Failed to send message."
-        }
+        daemonClient.sendUserMessage(
+            content: text,
+            conversationId: conversationId,
+            attachments: attachments,
+            conversationType: nil,
+            automated: nil
+        )
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).

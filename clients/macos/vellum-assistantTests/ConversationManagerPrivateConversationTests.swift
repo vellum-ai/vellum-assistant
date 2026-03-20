@@ -14,15 +14,10 @@ final class ConversationManagerPrivateConversationTests: XCTestCase {
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
         capturedMessages = []
-        daemonClient.sendOverride = { [weak self] msg in
-            guard let self else { return }
-            capturedMessages.append(msg)
-        }
         conversationManager = ConversationManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
-        daemonClient?.sendOverride = nil
         conversationManager = nil
         capturedMessages = []
         daemonClient = nil
