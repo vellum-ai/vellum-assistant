@@ -193,13 +193,12 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("anthropic");
 
-      // Unwrap RetryProvider → LogfireProvider → AnthropicProvider to inspect
-      // the Anthropic SDK client's baseURL. The wrappers use private `inner`
-      // and AnthropicProvider stores the SDK client as private `client`.
+      // Unwrap RetryProvider → AnthropicProvider to inspect the Anthropic
+      // SDK client's baseURL. RetryProvider stores the inner provider as
+      // private `inner` and AnthropicProvider stores the SDK client as
+      // private `client`.
       const retryInner = (provider as any).inner;
-      // retryInner is the logfire wrapper; it also has an `inner` property
-      const logfireInner = (retryInner as any).inner ?? retryInner;
-      const anthropicClient = (logfireInner as any).client;
+      const anthropicClient = (retryInner as any).client;
 
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;

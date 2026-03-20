@@ -75,10 +75,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../logfire.js", () => ({
-  wrapWithLogfire: (provider: unknown) => provider,
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => secureKeyStore[key],
   setSecureKeyAsync: async (key: string, value: string) => {

@@ -71,7 +71,6 @@
     "@vellumai/egress-proxy"
   ],
   "devDependencies": {
-    "@pydantic/logfire-node": "^0.13.0",
     "@types/archiver": "^7.0.0",
     "@types/bun": "^1.2.4",
     "@types/node": "^25.2.2",
