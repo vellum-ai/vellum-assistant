@@ -18,7 +18,7 @@ struct TrustRulesView: View {
             // Header
             HStack {
                 Text("Trust Rules")
-                    .font(.headline)
+                    .font(VFont.headline)
                 Spacer()
                 Button {
                     showingAddSheet = true
@@ -38,11 +38,11 @@ struct TrustRulesView: View {
                 Spacer()
             } else if rules.isEmpty {
                 Spacer()
-                VStack(spacing: 8) {
+                VStack(spacing: VSpacing.sm) {
                     VIconView(.shieldOff, size: 32)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Text("No trust rules configured")
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 Spacer()
             } else {
@@ -137,29 +137,29 @@ private struct TrustRuleRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+        HStack(spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.sm) {
                     Text(rule.tool)
                         .fontWeight(.medium)
                     Text(rule.decision)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .font(VFont.caption)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
                         .background(decisionColor(rule.decision).opacity(0.15))
                         .foregroundStyle(decisionColor(rule.decision))
                         .clipShape(Capsule())
                 }
                 Text(rule.pattern)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
-                HStack(spacing: 6) {
+                HStack(spacing: VSpacing.sm) {
                     Text(rule.scope == "" || rule.scope == "*" ? "everywhere" : rule.scope)
                     Text("priority \(rule.priority)")
                 }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
             .textSelection(.enabled)
@@ -183,7 +183,7 @@ private struct TrustRuleRow: View {
                 .buttonStyle(.borderless)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, VSpacing.xxs)
         .opacity(isDefault ? 0.5 : 1.0)
     }
 }
@@ -229,7 +229,7 @@ private struct TrustRuleFormView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(existingRule != nil ? "Edit Trust Rule" : "Add Trust Rule")
-                    .font(.headline)
+                    .font(VFont.headline)
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)

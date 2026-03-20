@@ -8,19 +8,19 @@ struct PairingApprovalView: View {
     let onDecision: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: VSpacing.lg) {
             VIconView(.smartphone, size: 40)
-                .foregroundColor(.secondary)
+                .foregroundColor(VColor.contentSecondary)
 
             Text("Pairing Request")
-                .font(.headline)
+                .font(VFont.headline)
 
             Text("\"\(deviceName)\" wants to pair with your Mac.")
-                .font(.body)
+                .font(VFont.body)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 12) {
+            HStack(spacing: VSpacing.md) {
                 Button("Deny") {
                     onDecision("deny")
                 }
@@ -36,7 +36,7 @@ struct PairingApprovalView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(VSpacing.xl)
         .frame(minWidth: 340)
     }
 }

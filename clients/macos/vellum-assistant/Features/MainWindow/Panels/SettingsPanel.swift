@@ -177,7 +177,7 @@ struct SettingsPanel: View {
         .padding(.top, VSpacing.xl)
         .padding(.leading, VSpacing.xl)
         .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .task {
             // Refresh permission status and feature flags when the view appears
             await refreshPermissionStatus()

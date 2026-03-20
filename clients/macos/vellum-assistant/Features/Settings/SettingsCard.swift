@@ -49,18 +49,18 @@ private struct ConditionalCardModifier: ViewModifier {
     let showBorder: Bool
     func body(content: Content) -> some View {
         if showBorder {
-            content.vCard(background: VColor.surfaceOverlay)
+            content.vCard(radius: VRadius.xl, background: VColor.surfaceOverlay)
         } else {
             content
         }
     }
 }
 
-/// A divider styled for settings cards (uses cardBorder color: E8E6DA light / 4A4A46 dark).
+/// A divider styled for settings cards (uses surfaceBase — slightly lighter than the card border).
 struct SettingsDivider: View {
     var body: some View {
         Rectangle()
-            .fill(VColor.borderDisabled)
+            .fill(VColor.surfaceBase)
             .frame(height: 1)
     }
 }
