@@ -56,6 +56,7 @@ public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
+    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]?, conversationType: String?, automated: Bool?) throws
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -660,6 +661,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             os_signpost(.end, log: networkLog, name: "daemonHTTPSend", signpostID: sendID)
             throw error
         }
+    }
+
+    /// Send a user message to the daemon via the focused MessageClient path.
+    /// Throws `SendError.notConnected` when the transport is unavailable.
+    /// The actual HTTP send and attachment upload happen asynchronously.
+    public func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil) throws {
+        guard let httpTransport, httpTransport.isConnected else {
+            throw SendError.notConnected
+        }
+        Task { await httpTransport.sendMessage(content: content, conversationId: conversationId, attachments: attachments, conversationType: conversationType, automated: automated) }
     }
 
     // MARK: - Conversations

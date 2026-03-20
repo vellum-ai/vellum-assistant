@@ -13,31 +13,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension HTTPTransport {
 
     func registerExistingRoutes() {
-        registerDomainDispatcher { [weak self] message in
-            guard let self else { return false }
-
-            if let msg = message as? UserMessageMessage {
-                Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
-                return true
-            } else if message is ConfirmationResponseMessage {
+        registerDomainDispatcher { message in
+            if message is ConfirmationResponseMessage {
                 // Handled by InteractionClient via GatewayHTTPClient.
                 return true
             } else if message is SecretResponseMessage {
                 // Handled by InteractionClient via GatewayHTTPClient.
-                return true
-            } else if let msg = message as? ConversationCreateMessage {
-                // For HTTP transport, conversation creation is implicit — the conversationKey
-                // acts as the conversation. Emit a synthetic conversation_info so ChatViewModel
-                // records the conversation ID.
-                let conversationId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                // Remember private conversations so sendMessage can pass conversationType to the backend.
-                if msg.conversationType == "private" {
-                    self.privateConversationIds.insert(conversationId)
-                }
-                let info = ServerMessage.conversationInfo(
-                    ConversationInfoMessage(conversationId: conversationId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
-                )
-                self.onMessage?(info)
                 return true
             } else if message is ConversationListRequestMessage {
                 // Handled by ConversationListClient via GatewayHTTPClient.

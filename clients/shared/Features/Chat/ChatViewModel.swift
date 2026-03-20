@@ -382,6 +382,8 @@ public final class ChatViewModel: ObservableObject {
     private let btwClient: any BtwClientProtocol = BtwClient()
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
+    private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
+    private let guardianClient: any GuardianClientProtocol = GuardianClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
     let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
     /// Tracks the action submitted for each guardian decision requestId so the
@@ -1525,27 +1527,33 @@ public final class ChatViewModel: ObservableObject {
             // Subscribe to daemon stream
             self.startMessageLoop()
 
-            // Send conversation_create with correlation ID and conversation type
-            do {
-                try daemonClient.send(ConversationCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
-                // Clear one-shot preactivated skills so they don't leak into a
-                // later conversation if this bootstrap is interrupted before completion.
-                self.preactivatedSkillIds = nil
-            } catch {
-                log.error("Failed to send conversation_create: \(error.localizedDescription)")
-                self.isThinking = false
-                self.isSending = false
-                self.bootstrapCorrelationId = nil
-                self.lastFailedMessageText = self.pendingUserMessage
-                self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
-                self.lastFailedMessageAttachments = self.pendingUserAttachments
-                self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
-                self.lastFailedSendError = "Failed to create conversation."
+            // Generate conversation ID locally — conversation creation is implicit
+            // for HTTP transport. The conversationKey acts as the conversation.
+            let newConversationId = correlationId
+            self.conversationId = newConversationId
+            self.bootstrapCorrelationId = nil
+            self.onConversationCreated?(newConversationId)
+            // Clear one-shot preactivated skills so they don't leak into a
+            // later conversation if this bootstrap is interrupted before completion.
+            self.preactivatedSkillIds = nil
+            log.info("Chat conversation created: \(newConversationId)")
+
+            // Fetch pending guardian prompts for this conversation
+            self.refreshGuardianPrompts()
+
+            // Send the queued user message, or finalize a message-less
+            // conversation create by clearing the bootstrap sending state.
+            if let pending = self.pendingUserMessage {
+                let attachments = self.pendingUserAttachments
+                let automated = self.pendingUserMessageAutomated
                 self.pendingUserMessage = nil
                 self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
                 self.pendingUserMessageAutomated = false
-                self.errorText = self.lastFailedSendError
+                self.sendUserMessage(pending, attachments: attachments, automated: automated)
+            } else {
+                self.isSending = false
+                self.isThinking = false
             }
         }
     }
@@ -1613,17 +1621,13 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            let pttMeta = Self.currentPttMetadata()
-            try daemonClient.send(UserMessageMessage(
-                conversationId: conversationId,
+            try daemonClient.sendMessage(
                 content: text,
+                conversationId: conversationId,
                 attachments: attachments,
-                activeSurfaceId: activeSurfaceId,
-                currentPage: activeSurfaceId != nil ? currentPage : nil,
-                pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                conversationType: conversationType,
                 automated: automated ? true : nil
-            ))
+            )
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
             // Always track the failed message for retry support.
@@ -2403,8 +2407,6 @@ public final class ChatViewModel: ObservableObject {
 
         // Snapshot and clear stashed context
         let attachments = secretBlockedAttachments
-        let surfaceId = secretBlockedActiveSurfaceId
-        let page = secretBlockedCurrentPage
 
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
@@ -2420,17 +2422,13 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            let pttMeta = Self.currentPttMetadata()
-            try daemonClient.send(UserMessageMessage(
-                conversationId: conversationId,
+            try daemonClient.sendMessage(
                 content: text,
+                conversationId: conversationId,
                 attachments: attachments,
-                activeSurfaceId: surfaceId,
-                currentPage: surfaceId != nil ? page : nil,
-                bypassSecretCheck: true,
-                pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted
-            ))
+                conversationType: conversationType,
+                automated: nil
+            )
         } catch {
             log.error("Failed to send bypassed message: \(error.localizedDescription)")
             isSending = false
@@ -2651,24 +2649,21 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Send an add_trust_rule message to persist a trust rule.
-    /// Returns `true` if the send succeeded, `false` otherwise.
-    public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
-        guard daemonClient.isConnected else {
-            log.warning("Cannot send add_trust_rule: daemon not connected")
-            return false
-        }
-        do {
-            try daemonClient.send(AddTrustRuleMessage(
-                toolName: toolName,
-                pattern: pattern,
-                scope: scope,
-                decision: decision
-            ))
-            return true
-        } catch {
-            log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
-            return false
+    /// Persist a trust rule via the focused TrustRuleClient.
+    public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) {
+        Task {
+            do {
+                try await trustRuleClient.addTrustRule(
+                    toolName: toolName,
+                    pattern: pattern,
+                    scope: scope,
+                    decision: decision,
+                    allowHighRisk: nil,
+                    executionTarget: nil
+                )
+            } catch {
+                log.error("Failed to add trust rule: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -3136,10 +3131,10 @@ public final class ChatViewModel: ObservableObject {
     /// the response are marked stale.
     public func refreshGuardianPrompts() {
         guard let conversationId else { return }
-        do {
-            try daemonClient.send(GuardianActionsPendingRequestMessage(conversationId: conversationId))
-        } catch {
-            log.error("Failed to request pending guardian prompts: \(error)")
+        Task {
+            if let response = await guardianClient.fetchPendingActions(conversationId: conversationId) {
+                handleGuardianActionsPendingResponse(response)
+            }
         }
     }
 
@@ -3155,14 +3150,15 @@ public final class ChatViewModel: ObservableObject {
             messages[idx].guardianDecision?.isSubmitting = true
         }
 
-        do {
-            try daemonClient.send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
-        } catch {
-            log.error("Failed to submit guardian decision: \(error)")
-            pendingGuardianActions.removeValue(forKey: requestId)
-            // Revert submitting state on failure
-            if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
-                messages[idx].guardianDecision?.isSubmitting = false
+        Task {
+            let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
+            if response == nil {
+                log.error("Failed to submit guardian decision for requestId \(requestId)")
+                pendingGuardianActions.removeValue(forKey: requestId)
+                // Revert submitting state on failure
+                if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
+                    messages[idx].guardianDecision?.isSubmitting = false
+                }
             }
         }
     }

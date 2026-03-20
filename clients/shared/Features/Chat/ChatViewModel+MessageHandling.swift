@@ -565,17 +565,13 @@ extension ChatViewModel {
                     pendingUserAttachments = nil
                     pendingUserMessageAutomated = false
                     do {
-                        let pttMeta = ChatViewModel.currentPttMetadata()
-                        try daemonClient.send(UserMessageMessage(
-                            conversationId: info.conversationId,
+                        try daemonClient.sendMessage(
                             content: pending,
+                            conversationId: info.conversationId,
                             attachments: attachments,
-                            activeSurfaceId: activeSurfaceId,
-                            currentPage: activeSurfaceId != nil ? currentPage : nil,
-                            pttActivationKey: pttMeta.activationKey,
-                            microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                            conversationType: conversationType,
                             automated: automated ? true : nil
-                        ))
+                        )
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
                         isSending = false

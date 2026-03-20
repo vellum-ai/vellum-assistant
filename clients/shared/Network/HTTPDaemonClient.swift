@@ -258,33 +258,11 @@ public final class HTTPTransport {
         registerComputerUseRoutes()
         registerSettingsRoutes()
         registerAppsRoutes()
-        registerDocumentsRoutes()
-        registerWorkItemsRoutes()
         registerSubagentsRoutes()
         registerConversationRoutes()
     }
 
     // MARK: - Endpoint Builder
-
-    /// A restricted character set for encoding query parameter values.
-    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
-    /// query-string metacharacters. File paths containing these characters
-    /// would break parameter parsing, so we exclude them.
-    private static let queryValueAllowed: CharacterSet = {
-        var cs = CharacterSet.urlQueryAllowed
-        cs.remove(charactersIn: "&=+#")
-        return cs
-    }()
-
-    /// A restricted character set for encoding path component values.
-    /// `.urlPathAllowed` permits `/` which must be escaped when embedding
-    /// identifiers (e.g. namespaced skill slugs like `clawhub/my-skill`)
-    /// into a single path segment so they don't create extra path components.
-    private static let pathComponentAllowed: CharacterSet = {
-        var cs = CharacterSet.urlPathAllowed
-        cs.remove(charactersIn: "/")
-        return cs
-    }()
 
     /// All HTTP endpoints used by the transport, centralized for consistent
     /// URL construction. Query parameters that are integral to the endpoint
@@ -292,12 +270,6 @@ public final class HTTPTransport {
     enum Endpoint {
         case healthz
         case eventsAll  // SSE subscription for all events
-        case identity
-        case trustRulesManage
-        case trustRuleManageById(id: String)
-        case pendingInteractions(conversationKey: String?)
-        case model
-        case settingsClient
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -331,23 +303,6 @@ public final class HTTPTransport {
             return ("/healthz", nil)
         case .eventsAll:
             return ("/v1/events", nil)
-        case .identity:
-            return ("/v1/identity", nil)
-        case .trustRulesManage:
-            return ("/v1/trust-rules/manage", nil)
-        case .trustRuleManageById(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/trust-rules/manage/\(encoded)", nil)
-        case .pendingInteractions(let conversationKey):
-            if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
-                return ("/v1/pending-interactions", "conversationKey=\(encoded)")
-            }
-            return ("/v1/pending-interactions", nil)
-        case .model:
-            return ("/v1/model", nil)
-        case .settingsClient:
-            return ("/v1/settings/client", nil)
         }
     }
 
@@ -362,24 +317,6 @@ public final class HTTPTransport {
             return ("\(prefix)/healthz/", nil)
         case .eventsAll:
             return ("\(prefix)/events/", nil)
-        case .identity:
-            return ("\(prefix)/identity/", nil)
-        case .trustRulesManage:
-            return ("\(prefix)/trust-rules/manage/", nil)
-        case .trustRuleManageById(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/trust-rules/manage/\(encoded)/", nil)
-        case .pendingInteractions(let conversationKey):
-            if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
-                return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
-            }
-            return ("\(prefix)/pending-interactions/", nil)
-        case .model:
-            return ("\(prefix)/model/", nil)
-        // Settings
-        case .settingsClient:
-            return ("\(prefix)/settings/client/", nil)
         }
     }
 
@@ -756,7 +693,7 @@ public final class HTTPTransport {
 
     // MARK: - Message Sending (via MessageClient)
 
-    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, automated: Bool? = nil) async {
+    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil) async {
         locallyOwnedConversationIds.insert(conversationId)
 
         let messageClient = MessageClient()
@@ -794,12 +731,12 @@ public final class HTTPTransport {
         }
 
         // Send the message
-        let conversationType = privateConversationIds.contains(conversationId) ? "private" : nil
+        let resolvedConversationType = conversationType ?? (privateConversationIds.contains(conversationId) ? "private" : nil)
         let sendResult = await messageClient.sendMessage(
             content: content,
             conversationKey: conversationId,
             attachmentIds: attachmentIds,
-            conversationType: conversationType,
+            conversationType: resolvedConversationType,
             automated: automated
         )
 
