@@ -33,7 +33,6 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
-import { insertCompactionEpisode } from "../memory/archive-store.js";
 import {
   addMessage,
   deleteMessageById,
@@ -514,12 +513,6 @@ export async function runAgentLoopImpl(
         compacted.summaryText,
         ctx.contextCompactedMessageCount,
       );
-      dualWriteCompactionEpisode(
-        ctx.conversationId,
-        ctx.memoryPolicy.scopeId,
-        compacted.summaryText,
-        compacted.summaryOutputTokens,
-      );
       onEvent({
         type: "context_compacted",
         previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
@@ -787,12 +780,6 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
           );
-          dualWriteCompactionEpisode(
-            ctx.conversationId,
-            ctx.memoryPolicy.scopeId,
-            step.compactionResult.summaryText,
-            step.compactionResult.summaryOutputTokens,
-          );
           onEvent({
             type: "context_compacted",
             previousEstimatedInputTokens:
@@ -976,12 +963,6 @@ export async function runAgentLoopImpl(
           ctx.conversationId,
           midLoopCompact.summaryText,
           ctx.contextCompactedMessageCount,
-        );
-        dualWriteCompactionEpisode(
-          ctx.conversationId,
-          ctx.memoryPolicy.scopeId,
-          midLoopCompact.summaryText,
-          midLoopCompact.summaryOutputTokens,
         );
         onEvent({
           type: "context_compacted",
@@ -1179,12 +1160,6 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
           );
-          dualWriteCompactionEpisode(
-            ctx.conversationId,
-            ctx.memoryPolicy.scopeId,
-            step.compactionResult.summaryText,
-            step.compactionResult.summaryOutputTokens,
-          );
           onEvent({
             type: "context_compacted",
             previousEstimatedInputTokens:
@@ -1292,12 +1267,6 @@ export async function runAgentLoopImpl(
                 emergencyCompact.summaryText,
                 ctx.contextCompactedMessageCount,
               );
-              dualWriteCompactionEpisode(
-                ctx.conversationId,
-                ctx.memoryPolicy.scopeId,
-                emergencyCompact.summaryText,
-                emergencyCompact.summaryOutputTokens,
-              );
               onEvent({
                 type: "context_compacted",
                 previousEstimatedInputTokens:
@@ -1401,12 +1370,6 @@ export async function runAgentLoopImpl(
               ctx.conversationId,
               emergencyCompact.summaryText,
               ctx.contextCompactedMessageCount,
-            );
-            dualWriteCompactionEpisode(
-              ctx.conversationId,
-              ctx.memoryPolicy.scopeId,
-              emergencyCompact.summaryText,
-              emergencyCompact.summaryOutputTokens,
             );
             onEvent({
               type: "context_compacted",
@@ -1872,27 +1835,4 @@ function emitUsage(
 function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
-}
-
-/**
- * Dual-write a compaction summary as an archive episode so it becomes
- * searchable via vector recall. Called after each successful compaction
- * that produces a new summary.
- */
-function dualWriteCompactionEpisode(
-  conversationId: string,
-  scopeId: string,
-  summaryText: string,
-  summaryOutputTokens: number,
-): void {
-  const now = Date.now();
-  insertCompactionEpisode({
-    conversationId,
-    scopeId,
-    title: truncate(summaryText, 120, ""),
-    summary: summaryText,
-    tokenEstimate: summaryOutputTokens,
-    startAt: now,
-    endAt: now,
-  });
 }

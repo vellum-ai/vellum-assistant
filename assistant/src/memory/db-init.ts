@@ -66,6 +66,7 @@ import {
   migrateDropMemorySegmentFts,
   migrateDropOrphanedMediaTables,
   migrateDropRemindersTable,
+  migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -82,10 +83,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
-  migrateMemoryArchiveTables,
-  migrateMemoryBriefState,
   migrateMemoryItemSupersession,
-  migrateMemoryReducerCheckpoints,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
@@ -488,17 +486,11 @@ export function initializeDb(): void {
   // 84. Add nullable conversation fork lineage columns and parent lookup index
   migrateConversationForkLineage(database);
 
-  // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
-  migrateMemoryBriefState(database);
-
-  // 86. Memory archive tables (observations, chunks, episodes) for simplified memory v1
-  migrateMemoryArchiveTables(database);
-
-  // 87. Add memory reducer checkpoint columns to conversations
-  migrateMemoryReducerCheckpoints(database);
-
-  // 88. Add quiet flag to schedule jobs
+  // 85. Add quiet flag to schedule jobs
   migrateScheduleQuietFlag(database);
+
+  // 86. Drop simplified-memory tables and reducer checkpoint columns
+  migrateDropSimplifiedMemory(database);
 
   validateMigrationState(database);
 

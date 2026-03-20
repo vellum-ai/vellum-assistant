@@ -385,11 +385,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory-items:PATCH", scopes: ["settings.write"] },
   { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
 
-  // Memories
-  { endpoint: "memories:GET", scopes: ["settings.read"] },
-  { endpoint: "memories:POST", scopes: ["settings.write"] },
-  { endpoint: "memories:DELETE", scopes: ["settings.write"] },
-
   // Trust rule CRUD management
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
   { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },

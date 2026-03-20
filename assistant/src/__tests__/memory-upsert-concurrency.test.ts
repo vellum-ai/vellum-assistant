@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const testDir = mkdtempSync(join(tmpdir(), "memory-upsert-concurrency-"));
 
@@ -79,8 +79,8 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import {
   conversations,
-  memoryChunks,
   memoryItems,
+  memorySegments,
   messages,
 } from "../memory/schema.js";
 
@@ -101,8 +101,6 @@ function resetTables() {
   db.run("DELETE FROM memory_item_sources");
   db.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM memory_items");
-  db.run("DELETE FROM memory_chunks");
-  db.run("DELETE FROM memory_observations");
   db.run("DELETE FROM memory_segments");
   db.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
@@ -188,21 +186,21 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       ),
     );
 
-    const chunks = db
+    const segments = db
       .select()
-      .from(memoryChunks)
-      .where(like(memoryChunks.id, `chunk:${messageId}:%`))
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
       .all();
 
-    // Each physical chunk (identified by chunkId = chunk:messageId:segmentIndex)
+    // Each physical segment (identified by segmentId = messageId + segmentIndex)
     // must appear exactly once regardless of how many indexer calls ran.
     const idCounts = new Map<string, number>();
-    for (const chunk of chunks) {
-      idCounts.set(chunk.id, (idCounts.get(chunk.id) ?? 0) + 1);
+    for (const seg of segments) {
+      idCounts.set(seg.id, (idCounts.get(seg.id) ?? 0) + 1);
     }
-    for (const [chunkId, count] of idCounts) {
+    for (const [segId, count] of idCounts) {
       expect(count).toBe(1);
-      expect(chunkId.startsWith(`chunk:${messageId}:`)).toBe(true);
+      expect(segId.startsWith(messageId)).toBe(true);
     }
   });
 
@@ -275,22 +273,24 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       }),
     );
 
-    // Every chunk must reference its own message and no chunk may appear
+    // Every segment must reference its own message and no segment may appear
     // for the wrong messageId.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-distinct-${i}`;
-      const chunks = db
+      const segs = db
         .select()
-        .from(memoryChunks)
-        .where(like(memoryChunks.id, `chunk:${msgId}:%`))
+        .from(memorySegments)
+        .where(eq(memorySegments.messageId, msgId))
         .all();
 
-      // At least one chunk must have been written.
-      expect(chunks.length).toBeGreaterThanOrEqual(1);
+      // At least one segment must have been written.
+      expect(segs.length).toBeGreaterThanOrEqual(1);
 
-      // Chunk IDs must be of the form `chunk:${msgId}:${index}`.
-      for (const chunk of chunks) {
-        expect(chunk.id.startsWith(`chunk:${msgId}:`)).toBe(true);
+      // Segment IDs must be of the form `${msgId}:${index}`.
+      for (const seg of segs) {
+        expect(seg.id.startsWith(msgId + ":")).toBe(true);
+        expect(seg.messageId).toBe(msgId);
+        expect(seg.conversationId).toBe(conversationId);
       }
     }
   });
@@ -320,10 +320,10 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     );
 
     const db = getDb();
-    const chunksAfterFirst = db
+    const segmentsAfterFirst = db
       .select()
-      .from(memoryChunks)
-      .where(like(memoryChunks.id, `chunk:${messageId}:%`))
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
       .all();
 
     // Re-index twice more with the same payload.
@@ -348,22 +348,22 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       config,
     );
 
-    const chunksAfterRehash = db
+    const segmentsAfterRehash = db
       .select()
-      .from(memoryChunks)
-      .where(like(memoryChunks.id, `chunk:${messageId}:%`))
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
       .all();
 
-    // Chunk count must not have grown.
-    expect(chunksAfterRehash.length).toBe(chunksAfterFirst.length);
+    // Segment count must not have grown.
+    expect(segmentsAfterRehash.length).toBe(segmentsAfterFirst.length);
 
     // Content hashes must match between first and subsequent indexings.
-    const firstById = new Map(chunksAfterFirst.map((s) => [s.id, s]));
-    for (const chunk of chunksAfterRehash) {
-      const original = firstById.get(chunk.id);
+    const firstById = new Map(segmentsAfterFirst.map((s) => [s.id, s]));
+    for (const seg of segmentsAfterRehash) {
+      const original = firstById.get(seg.id);
       expect(original).toBeDefined();
-      expect(chunk.contentHash).toBe(original!.contentHash);
-      expect(chunk.content).toBe(original!.content);
+      expect(seg.contentHash).toBe(original!.contentHash);
+      expect(seg.text).toBe(original!.text);
     }
 
     // The indexer must have reported the correct segment count both times.
@@ -417,14 +417,14 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     ]);
 
     const db = getDb();
-    const chunks = db
+    const segments = db
       .select()
-      .from(memoryChunks)
-      .where(like(memoryChunks.id, `chunk:${messageId}:%`))
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
       .all();
 
-    // No duplicate chunk IDs — each logical chunk must appear at most once.
-    const ids = chunks.map((s) => s.id);
+    // No duplicate segment IDs — each logical segment must appear at most once.
+    const ids = segments.map((s) => s.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
   });
@@ -511,25 +511,25 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
       ).flat(),
     );
 
-    // For every message, count distinct chunk IDs — there must be no
+    // For every message, count distinct segment IDs — there must be no
     // duplicates regardless of how many indexer calls ran.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-atomicity-${i}`;
-      const chunks = db
+      const segs = db
         .select()
-        .from(memoryChunks)
-        .where(like(memoryChunks.id, `chunk:${msgId}:%`))
+        .from(memorySegments)
+        .where(eq(memorySegments.messageId, msgId))
         .all();
 
-      const chunkIds = chunks.map((s) => s.id);
-      const uniqueChunkIds = new Set(chunkIds);
-      expect(uniqueChunkIds.size).toBe(chunkIds.length);
+      const segIds = segs.map((s) => s.id);
+      const uniqueSegIds = new Set(segIds);
+      expect(uniqueSegIds.size).toBe(segIds.length);
     }
   });
 
-  test("indexer result counts are consistent with actual stored chunk counts", async () => {
+  test("indexer result counts are consistent with actual stored segment counts", async () => {
     // The IndexMessageResult.indexedSegments value returned by indexMessageNow
-    // must always match the number of rows stored in memory_chunks for that
+    // must always match the number of rows stored in memory_segments for that
     // message.  Under repeated indexing the stored count stays stable while
     // every result reports the same logical segment count.
     const conversationId = "conv-count-consistency";
@@ -563,10 +563,10 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     );
 
     const db = getDb();
-    const storedChunks = db
+    const storedSegments = db
       .select()
-      .from(memoryChunks)
-      .where(like(memoryChunks.id, `chunk:${messageId}:%`))
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
       .all();
 
     // All runs must agree on the segment count.
@@ -576,7 +576,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     }
 
     // Stored count must equal the reported logical count.
-    expect(storedChunks.length).toBe(firstCount);
+    expect(storedSegments.length).toBe(firstCount);
   });
 });
 

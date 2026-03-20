@@ -126,10 +126,8 @@ export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-star
 export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-display-metadata.js";
 export { migrateConversationForkLineage } from "./183-add-conversation-fork-lineage.js";
 export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
-export { migrateMemoryBriefState } from "./185-memory-brief-state.js";
-export { migrateMemoryArchiveTables } from "./186-memory-archive.js";
-export { migrateMemoryReducerCheckpoints } from "./187-memory-reducer-checkpoints.js";
 export { migrateScheduleQuietFlag } from "./188-schedule-quiet-flag.js";
+export { migrateDropSimplifiedMemory } from "./189-drop-simplified-memory.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

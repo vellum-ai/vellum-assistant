@@ -23,7 +23,6 @@ import {
   queueGenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../../memory/conversation-title-service.js";
-import { reduceBeforeSwitch } from "../../memory/reducer-scheduler.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
@@ -234,12 +233,6 @@ export async function handleConversationCreate(
     conversationType: normalizeConversationType(conversation.conversationType),
   });
 
-  // Reduce the previous dirty conversation before processing the initial
-  // message so its memory is fresh for the next read.
-  if (msg.initialMessage) {
-    await reduceBeforeSwitch(conversation.id);
-  }
-
   // Auto-send the initial message if provided, kick-starting the skill.
   if (msg.initialMessage) {
     // Queue title generation eagerly — some processMessage paths (guardian
@@ -349,10 +342,6 @@ export async function switchConversation(
   if (!conversation) {
     return null;
   }
-
-  // Reduce the previous dirty conversation before switching so its memory
-  // is fresh for the next read.
-  await reduceBeforeSwitch(conversationId);
 
   // If the target conversation is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.

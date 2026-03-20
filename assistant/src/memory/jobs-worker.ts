@@ -1,25 +1,28 @@
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
+import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { backfillSimplifiedMemoryJob } from "./job-handlers/backfill-simplified-memory.js";
-import { pruneOldConversationsJob } from "./job-handlers/cleanup.js";
+import {
+  cleanupStaleSupersededItemsJob,
+  pruneOldConversationsJob,
+} from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
-  embedChunkJob,
-  embedEpisodeJob,
+  embedItemJob,
   embedMediaJob,
-  embedObservationJob,
   embedSegmentJob,
+  embedSummaryJob,
 } from "./job-handlers/embedding.js";
+import { extractItemsJob } from "./job-handlers/extraction.js";
 import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
-import { reduceConversationMemoryJob } from "./job-handlers/reduce-conversation-memory.js";
+import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -30,6 +33,7 @@ import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
+  enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
   failMemoryJob,
   failStalledJobs,
@@ -89,6 +93,9 @@ export async function runMemoryJobsOnce(
   const config = getConfig();
   if (!config.memory.enabled) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
+
+  // Periodic stale item sweep (throttled to at most once per hour)
+  sweepStaleItems(config);
 
   // Fail jobs that have been running longer than the configured timeout
   const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
@@ -254,20 +261,36 @@ async function processJob(
     case "embed_segment":
       await embedSegmentJob(job, config);
       return;
-    case "embed_chunk":
-      await embedChunkJob(job, config);
+    case "embed_item":
+      await embedItemJob(job, config);
       return;
-    case "embed_episode":
-      await embedEpisodeJob(job, config);
+    case "embed_summary":
+      await embedSummaryJob(job, config);
       return;
-    case "embed_observation":
-      await embedObservationJob(job, config);
+    case "extract_items":
+      await extractItemsJob(job);
+      return;
+    case "extract_entities":
+      // Entity extraction has been removed — silently drop legacy jobs
+      return;
+    case "cleanup_stale_superseded_items":
+      cleanupStaleSupersededItemsJob(job, config);
       return;
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
+    case "build_conversation_summary":
+      await buildConversationSummaryJob(job, config);
+      return;
     case "backfill":
       await backfillJob(job, config);
+      return;
+    case "backfill_entity_relations":
+      // Entity relation backfill has been removed — silently drop legacy jobs
+      return;
+    case "refresh_weekly_summary":
+    case "refresh_monthly_summary":
+      // Global summary rollups have been removed — silently drop legacy jobs
       return;
     case "rebuild_index":
       await rebuildIndexJob();
@@ -284,28 +307,14 @@ async function processJob(
     case "embed_attachment":
       await embedAttachmentJob(job, config);
       return;
-    case "reduce_conversation_memory":
-      await reduceConversationMemoryJob(job);
-      return;
-    case "backfill_simplified_memory":
-      await backfillSimplifiedMemoryJob(job);
-      return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
       return;
-
-    // ── Legacy compat — silently drop jobs from retired systems ────
-    case "embed_item":
-    case "embed_summary":
-    case "extract_items":
-    case "extract_entities":
-    case "cleanup_stale_superseded_items":
-    case "build_conversation_summary":
-    case "backfill_entity_relations":
-    case "refresh_weekly_summary":
-    case "refresh_monthly_summary":
     case "generate_capability_cards":
+      // Capability cards were removed — silently drop legacy jobs.
+      return;
     case "generate_thread_starters":
+      // Thread starters renamed to conversation starters — silently drop legacy jobs
       return;
     default:
       throw new Error(
@@ -336,6 +345,9 @@ export function maybeEnqueueScheduledCleanupJobs(
   if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs)
     return false;
 
+  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(
+    cleanup.supersededItemRetentionMs,
+  );
   const pruneConversationsJobId =
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
@@ -343,11 +355,72 @@ export function maybeEnqueueScheduledCleanupJobs(
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
+      staleSupersededItemsJobId,
       pruneConversationsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
+      supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",
   );
   return true;
+}
+
+// ── Stale item sweep ───────────────────────────────────────────────
+
+const STALE_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+let lastStaleSweepMs = 0;
+
+/** Reset the sweep throttle so tests can call sweepStaleItems back-to-back. */
+export function resetStaleSweepThrottle(): void {
+  lastStaleSweepMs = 0;
+}
+
+/**
+ * Mark deeply stale memory items as invalid. An item is considered deeply
+ * stale when it has exceeded 2x its freshness window for its kind and has
+ * not been recently accessed.
+ *
+ * This is non-destructive: items keep their data but get an `invalid_at`
+ * timestamp that excludes them from retrieval queries.
+ */
+export function sweepStaleItems(config: AssistantConfig): number {
+  const freshness = config.memory.retrieval.freshness;
+  if (!freshness.enabled) return 0;
+
+  const now = Date.now();
+  // Throttle: at most once per hour
+  if (now - lastStaleSweepMs < STALE_SWEEP_INTERVAL_MS) return 0;
+  lastStaleSweepMs = now;
+
+  let totalMarked = 0;
+  for (const [kind, maxAgeDays] of Object.entries(freshness.maxAgeDays)) {
+    if (maxAgeDays <= 0) continue;
+    // Mark invalid if: past 2x window, no access in the shield period, and not already invalid
+    const cutoffMs = now - maxAgeDays * 2 * 86_400_000;
+    const shieldCutoffMs = now - freshness.reinforcementShieldDays * 86_400_000;
+    const changes = rawRun(
+      `
+      UPDATE memory_items
+      SET invalid_at = ?
+      WHERE kind = ?
+        AND status = 'active'
+        AND invalid_at IS NULL
+        AND last_seen_at < ?
+        AND (access_count = 0 OR COALESCE(last_used_at, 0) < ?)
+    `,
+      now,
+      kind,
+      cutoffMs,
+      shieldCutoffMs,
+    );
+    if (changes > 0) {
+      log.info(
+        { kind, marked: changes, cutoffMs },
+        "Marked stale memory items as invalid",
+      );
+      totalMarked += changes;
+    }
+  }
+  return totalMarked;
 }

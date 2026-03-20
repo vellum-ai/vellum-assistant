@@ -11,10 +11,9 @@ import type { MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
 import {
   mediaAssets,
-  memoryChunks,
-  memoryEpisodes,
-  memoryObservations,
+  memoryItems,
   memorySegments,
+  memorySummaries,
   messages,
 } from "../schema.js";
 
@@ -39,24 +38,56 @@ export async function embedSegmentJob(
   });
 }
 
-export async function embedChunkJob(
+export async function embedItemJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const chunkId = asString(job.payload.chunkId);
-  if (!chunkId) return;
+  const itemId = asString(job.payload.itemId);
+  if (!itemId) return;
   const db = getDb();
-  const chunk = db
+  const item = db
     .select()
-    .from(memoryChunks)
-    .where(eq(memoryChunks.id, chunkId))
+    .from(memoryItems)
+    .where(eq(memoryItems.id, itemId))
     .get();
-  if (!chunk) return;
-  await embedAndUpsert(config, "chunk", chunk.id, chunk.content, {
-    observation_id: chunk.observationId,
-    created_at: chunk.createdAt,
-    memory_scope_id: chunk.scopeId,
+  if (!item || item.status !== "active") return;
+  const text = `<kind>${item.kind}</kind> ${item.subject}: ${item.statement}`;
+  await embedAndUpsert(config, "item", item.id, text, {
+    kind: item.kind,
+    subject: item.subject,
+    status: item.status,
+    confidence: item.confidence,
+    created_at: item.firstSeenAt,
+    last_seen_at: item.lastSeenAt,
+    memory_scope_id: item.scopeId,
   });
+}
+
+export async function embedSummaryJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const summaryId = asString(job.payload.summaryId);
+  if (!summaryId) return;
+  const db = getDb();
+  const summary = db
+    .select()
+    .from(memorySummaries)
+    .where(eq(memorySummaries.id, summaryId))
+    .get();
+  if (!summary) return;
+  await embedAndUpsert(
+    config,
+    "summary",
+    summary.id,
+    `[${summary.scope}] ${summary.summary}`,
+    {
+      kind: summary.scope,
+      created_at: summary.startAt,
+      last_seen_at: summary.endAt,
+      memory_scope_id: summary.scopeId,
+    },
+  );
 }
 
 export async function embedMediaJob(
@@ -89,40 +120,6 @@ export async function embedMediaJob(
     kind: asset.mediaType,
     subject: asset.title,
     memory_scope_id: "default",
-  });
-}
-
-export async function embedObservationJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const observationId = asString(job.payload.observationId);
-  const chunkId = asString(job.payload.chunkId);
-  if (!observationId || !chunkId) return;
-
-  const db = getDb();
-  const observation = db
-    .select()
-    .from(memoryObservations)
-    .where(eq(memoryObservations.id, observationId))
-    .get();
-  if (!observation) return;
-
-  const chunk = db
-    .select()
-    .from(memoryChunks)
-    .where(eq(memoryChunks.id, chunkId))
-    .get();
-  if (!chunk) return;
-
-  await embedAndUpsert(config, "observation", chunk.id, chunk.content, {
-    observation_id: observationId,
-    conversation_id: observation.conversationId,
-    role: observation.role,
-    modality: observation.modality,
-    source: observation.source,
-    created_at: observation.createdAt,
-    memory_scope_id: observation.scopeId,
   });
 }
 
@@ -160,27 +157,5 @@ export async function embedAttachmentJob(
     message_id: messageId,
     conversation_id: message.conversationId,
     memory_scope_id: memoryScopeId,
-  });
-}
-
-export async function embedEpisodeJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const episodeId = asString(job.payload.episodeId);
-  if (!episodeId) return;
-  const db = getDb();
-  const episode = db
-    .select()
-    .from(memoryEpisodes)
-    .where(eq(memoryEpisodes.id, episodeId))
-    .get();
-  if (!episode) return;
-  const text = `[episode] ${episode.title}: ${episode.summary}`;
-  await embedAndUpsert(config, "episode", episode.id, text, {
-    conversation_id: episode.conversationId,
-    created_at: episode.startAt,
-    last_seen_at: episode.endAt,
-    memory_scope_id: episode.scopeId,
   });
 }

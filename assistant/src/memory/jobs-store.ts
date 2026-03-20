@@ -10,10 +10,16 @@ const log = getLogger("memory-jobs-store");
 
 export type MemoryJobType =
   | "embed_segment"
-  | "embed_chunk"
-  | "embed_episode"
-  | "embed_observation"
+  | "embed_item"
+  | "embed_summary"
+  | "extract_items"
+  | "extract_entities"
+  | "cleanup_stale_superseded_items"
   | "prune_old_conversations"
+  | "backfill_entity_relations"
+  | "refresh_weekly_summary"
+  | "refresh_monthly_summary"
+  | "build_conversation_summary"
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
@@ -21,25 +27,13 @@ export type MemoryJobType =
   | "embed_media"
   | "embed_attachment"
   | "generate_conversation_starters"
-  | "reduce_conversation_memory"
-  | "backfill_simplified_memory"
-  | "embed_item" // legacy compat — silently dropped by worker (item-based memory retired)
-  | "embed_summary" // legacy compat — silently dropped by worker (item-based memory retired)
-  | "extract_items" // legacy compat — silently dropped by worker (item-based memory retired)
-  | "extract_entities" // legacy compat — silently dropped by worker (entity extraction removed)
-  | "cleanup_stale_superseded_items" // legacy compat — silently dropped by worker (item-based memory retired)
-  | "build_conversation_summary" // legacy compat — silently dropped by worker (item-based memory retired)
-  | "backfill_entity_relations" // legacy compat — silently dropped by worker (entity relations removed)
-  | "refresh_weekly_summary" // legacy compat — silently dropped by worker (global summary rollups removed)
-  | "refresh_monthly_summary" // legacy compat — silently dropped by worker (global summary rollups removed)
   | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
-  "embed_chunk",
-  "embed_episode",
-  "embed_observation",
+  "embed_item",
+  "embed_summary",
   "embed_media",
   "embed_attachment",
 ];
@@ -86,6 +80,56 @@ export function enqueueMemoryJob(
     })
     .run();
   return id;
+}
+
+export function enqueueCleanupStaleSupersededItemsJob(
+  retentionMs?: number,
+): string {
+  const db = getDb();
+  const now = Date.now();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "cleanup_stale_superseded_items"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (
+      existing.status === "pending" &&
+      typeof retentionMs === "number" &&
+      Number.isFinite(retentionMs) &&
+      retentionMs > 0
+    ) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionMs !== retentionMs) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionMs }),
+            updatedAt: now,
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload =
+    typeof retentionMs === "number" &&
+    Number.isFinite(retentionMs) &&
+    retentionMs > 0
+      ? { retentionMs }
+      : {};
+  return enqueueMemoryJob("cleanup_stale_superseded_items", payload);
 }
 
 export function enqueuePruneOldConversationsJob(

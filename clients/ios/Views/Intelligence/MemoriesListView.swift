@@ -2,23 +2,42 @@
 import SwiftUI
 import VellumAssistantShared
 
-private enum MemoryTab: String, CaseIterable {
-    case observations = "Observations"
-    case episodes = "Episodes"
-    case brief = "Brief"
+private enum MemoryStatusFilter: String, CaseIterable {
+    case active = "Active"
+    case inactive = "Inactive"
+    case all = "All"
+
+    /// API value sent as the `status` query parameter.
+    /// "all" is a sentinel that tells the server to skip status filtering.
+    var apiValue: String {
+        switch self {
+        case .active: return "active"
+        case .inactive: return "inactive"
+        case .all: return "all"
+        }
+    }
 }
 
 struct MemoriesListView: View {
-    @ObservedObject var store: SimplifiedMemoryStore
-    @State private var selectedTab: MemoryTab = .observations
+    @ObservedObject var store: MemoryItemsStore
     @State private var searchText = ""
+    @State private var selectedKind: String? = nil
+    @State private var statusFilter: MemoryStatusFilter = .active
     @State private var showCreateSheet = false
     @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
-            segmentedPicker
-            tabContent
+            filterBar
+            Group {
+                if store.isLoading && store.items.isEmpty {
+                    loadingState
+                } else if store.items.isEmpty {
+                    emptyState
+                } else {
+                    memoriesList
+                }
+            }
         }
         .searchable(text: $searchText, prompt: "Search memories...")
         .onChange(of: searchText) { _, newValue in
@@ -27,7 +46,7 @@ struct MemoriesListView: View {
             searchDebounceTask = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 guard !Task.isCancelled else { return }
-                await store.loadMemories()
+                await store.loadItems()
             }
         }
         .onDisappear { searchDebounceTask?.cancel() }
@@ -41,260 +60,133 @@ struct MemoriesListView: View {
                 }
             }
         }
-        .refreshable { await store.loadMemories() }
-        .task { await store.loadMemories() }
+        .refreshable { await store.loadItems() }
+        .task { await store.loadItems() }
         .sheet(isPresented: $showCreateSheet) {
             NavigationStack {
-                MemoryCreateView(store: store)
+                MemoryItemCreateView(store: store)
             }
         }
     }
 
-    // MARK: - Segmented Picker
+    // MARK: - Filter Bar
 
-    private var segmentedPicker: some View {
-        Picker("Section", selection: $selectedTab) {
-            ForEach(MemoryTab.allCases, id: \.self) { tab in
-                Text(tab.rawValue).tag(tab)
+    private var filterBar: some View {
+        VStack(spacing: VSpacing.sm) {
+            Picker("Status", selection: $statusFilter) {
+                ForEach(MemoryStatusFilter.allCases, id: \.self) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: statusFilter) { _, newValue in
+                store.statusFilter = newValue.apiValue
+                Task { await store.loadItems() }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: VSpacing.sm) {
+                    kindFilterChip("All", kind: nil)
+                    ForEach(MemoryKind.allCases) { kind in
+                        kindFilterChip(kind.label, kind: kind.rawValue)
+                    }
+                }
             }
         }
-        .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.vertical, VSpacing.sm)
     }
 
-    // MARK: - Tab Content
+    // MARK: - Memories List
 
-    @ViewBuilder
-    private var tabContent: some View {
-        switch selectedTab {
-        case .observations:
-            observationsTab
-        case .episodes:
-            episodesTab
-        case .brief:
-            briefTab
-        }
-    }
-
-    // MARK: - Observations Tab
-
-    @ViewBuilder
-    private var observationsTab: some View {
-        if store.isLoading && store.observations.isEmpty {
-            loadingState
-        } else if store.observations.isEmpty {
-            emptyState(icon: .bookOpen, title: "No Observations", message: "Your assistant learns from conversations.")
-        } else {
-            observationsList
-        }
-    }
-
-    private var observationsList: some View {
+    private var memoriesList: some View {
         List {
-            ForEach(store.observations) { observation in
-                NavigationLink {
-                    MemoryObservationDetailView(observation: observation, store: store)
-                } label: {
-                    observationRow(observation)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button("Delete", role: .destructive) {
-                        Task { _ = await store.deleteObservation(id: observation.id) }
+            Section {
+                ForEach(store.items) { item in
+                    NavigationLink {
+                        MemoryItemDetailView(item: item, store: store)
+                    } label: {
+                        memoryRow(item)
                     }
                 }
             }
         }
     }
 
-    private func observationRow(_ observation: MemoryObservationPayload) -> some View {
+    // MARK: - Kind Filter Chip
+
+    private func kindFilterChip(_ label: String, kind: String?) -> some View {
+        let isSelected = selectedKind == kind
+        return Button {
+            selectedKind = kind
+            store.kindFilter = kind
+            Task { await store.loadItems() }
+        } label: {
+            Text(label)
+                .font(VFont.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? VColor.primaryBase : VColor.surfaceActive)
+                )
+                .foregroundColor(isSelected ? .white : VColor.contentSecondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label) filter\(isSelected ? ", selected" : "")")
+    }
+
+    // MARK: - Memory Row
+
+    private func memoryRow(_ item: MemoryItemPayload) -> some View {
         HStack(spacing: VSpacing.sm) {
-            roleIndicator(observation.role)
+            // Kind color indicator
+            Circle()
+                .fill(MemoryKind(rawValue: item.kind)?.color ?? VColor.contentTertiary)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(observation.content)
-                    .font(VFont.body)
+                Text(item.subject)
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
+
+                Text(item.statement)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(2)
             }
 
             Spacer()
 
-            Text(observation.relativeCreatedAt)
+            Text(item.relativeLastSeen)
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
         }
         .padding(.vertical, 2)
+        .swipeActions(edge: .trailing) {
+            Button("Delete", role: .destructive) {
+                Task { await store.deleteItem(id: item.id) }
+            }
+        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Observation: \(observation.content). \(observation.relativeCreatedAt)")
+        .accessibilityLabel("Memory: \(item.subject). \(item.statement). \(item.relativeLastSeen)")
     }
 
-    // MARK: - Episodes Tab
+    // MARK: - Empty States
 
-    @ViewBuilder
-    private var episodesTab: some View {
-        if store.isLoading && store.episodes.isEmpty {
-            loadingState
-        } else if store.episodes.isEmpty {
-            emptyState(icon: .bookOpen, title: "No Episodes", message: "Episodes are generated from conversation history.")
-        } else {
-            episodesList
-        }
-    }
-
-    private var episodesList: some View {
-        List {
-            ForEach(store.episodes) { episode in
-                episodeRow(episode)
-            }
-        }
-    }
-
-    private func episodeRow(_ episode: MemoryEpisodePayload) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(episode.title)
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.contentDefault)
-                .lineLimit(1)
-
-            Text(episode.summary)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-                .lineLimit(2)
-
-            Text(formatTimeSpan(start: episode.startDate, end: episode.endDate))
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Episode: \(episode.title). \(episode.summary)")
-    }
-
-    // MARK: - Brief Tab
-
-    @ViewBuilder
-    private var briefTab: some View {
-        if store.isLoading && store.timeContexts.isEmpty && store.openLoops.isEmpty {
-            loadingState
-        } else if store.timeContexts.isEmpty && store.openLoops.isEmpty {
-            emptyState(icon: .bookOpen, title: "No Brief", message: "Time contexts and open loops will appear here.")
-        } else {
-            briefList
-        }
-    }
-
-    private var briefList: some View {
-        List {
-            if !store.timeContexts.isEmpty {
-                Section("Time Contexts") {
-                    ForEach(store.timeContexts) { context in
-                        timeContextRow(context)
-                    }
-                }
-            }
-            if !store.openLoops.isEmpty {
-                Section("Open Loops") {
-                    ForEach(store.openLoops) { loop in
-                        openLoopRow(loop)
-                    }
-                }
-            }
-        }
-    }
-
-    private func timeContextRow(_ context: MemoryTimeContextPayload) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(context.summary)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .lineLimit(2)
-
-            HStack(spacing: VSpacing.xs) {
-                VIconView(.clock, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
-                Text("\(formatDate(context.activeFromDate)) - \(formatDate(context.activeUntilDate))")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Time context: \(context.summary)")
-    }
-
-    private func openLoopRow(_ loop: MemoryOpenLoopPayload) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(loop.summary)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .lineLimit(2)
-
-            HStack(spacing: VSpacing.xs) {
-                statusBadge(loop.status)
-                if let dueDate = loop.dueDate {
-                    Text("Due: \(formatDate(dueDate))")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Open loop: \(loop.summary), status: \(loop.status)")
-    }
-
-    // MARK: - Role Indicator
-
-    private func roleIndicator(_ role: String) -> some View {
-        let color: Color = {
-            switch role {
-            case "user": return .blue
-            case "assistant": return .purple
-            case "system": return .orange
-            default: return VColor.contentTertiary
-            }
-        }()
-
-        return Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .accessibilityLabel("Role: \(role)")
-    }
-
-    // MARK: - Status Badge
-
-    private func statusBadge(_ status: String) -> some View {
-        let color: Color = {
-            switch status {
-            case "open": return .orange
-            case "resolved": return .green
-            case "stale": return .secondary
-            default: return .secondary
-            }
-        }()
-
-        return Text(status.capitalized)
-            .font(.caption2)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundColor(color)
-    }
-
-    // MARK: - Empty / Loading States
-
-    private func emptyState(icon: VIcon, title: String, message: String) -> some View {
+    private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
-            VIconView(icon, size: 48)
+            VIconView(.bookOpen, size: 48)
                 .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
-            Text(title)
+            Text("No Memories Yet")
                 .font(VFont.title)
                 .foregroundColor(VColor.contentDefault)
 
-            Text(message)
+            Text("Your assistant learns from conversations.")
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
@@ -302,7 +194,7 @@ struct MemoriesListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title). \(message)")
+        .accessibilityLabel("No memories yet. Your assistant learns from conversations.")
     }
 
     private var loadingState: some View {
@@ -313,22 +205,6 @@ struct MemoriesListView: View {
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Formatting Helpers
-
-    private func formatTimeSpan(start: Date, end: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
     }
 }
 #endif

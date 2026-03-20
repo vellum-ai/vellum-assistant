@@ -10,7 +10,6 @@ import {
   MemorySummarizationConfigSchema,
 } from "./memory-processing.js";
 import { MemoryRetrievalConfigSchema } from "./memory-retrieval.js";
-import { MemorySimplifiedConfigSchema } from "./memory-simplified.js";
 import {
   MemoryEmbeddingsConfigSchema,
   MemorySegmentationConfigSchema,
@@ -45,9 +44,6 @@ export const MemoryConfigSchema = z
     ),
     summarization: MemorySummarizationConfigSchema.default(
       MemorySummarizationConfigSchema.parse({}),
-    ),
-    simplified: MemorySimplifiedConfigSchema.default(
-      MemorySimplifiedConfigSchema.parse({}),
     ),
   })
   .describe(

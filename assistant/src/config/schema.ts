@@ -107,18 +107,6 @@ export {
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
 export type {
-  MemorySimplifiedArchiveRecallConfig,
-  MemorySimplifiedBriefConfig,
-  MemorySimplifiedConfig,
-  MemorySimplifiedReducerConfig,
-} from "./schemas/memory-simplified.js";
-export {
-  MemorySimplifiedArchiveRecallConfigSchema,
-  MemorySimplifiedBriefConfigSchema,
-  MemorySimplifiedConfigSchema,
-  MemorySimplifiedReducerConfigSchema,
-} from "./schemas/memory-simplified.js";
-export type {
   MemoryEmbeddingsConfig,
   MemorySegmentationConfig,
   QdrantConfig,

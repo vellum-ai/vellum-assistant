@@ -11,6 +11,21 @@ import {
   test,
 } from "bun:test";
 
+import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
+import { ContextWindowManager } from "../context/window-manager.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { buildMemoryQuery } from "../memory/query-builder.js";
+import { computeRecallBudget } from "../memory/retrieval-budget.js";
+import { buildMemoryRecall } from "../memory/retriever.js";
+import {
+  conversations,
+  memoryItems,
+  memoryItemSources,
+  messages,
+} from "../memory/schema.js";
+import type { Message, Provider } from "../providers/types.js";
+
 const testDir = mkdtempSync(join(tmpdir(), "context-memory-e2e-"));
 
 mock.module("../util/platform.js", () => ({
@@ -40,50 +55,6 @@ mock.module("../memory/qdrant-client.js", () => ({
   }),
   initQdrantClient: () => {},
 }));
-
-// Stub deleted legacy modules so imports resolve (full cleanup in follow-up PR)
-const _emptyRecall = {
-  enabled: true,
-  degraded: false,
-  injectedText: "",
-  semanticHits: 0,
-  recencyHits: 0,
-  mergedCount: 0,
-  selectedCount: 0,
-  injectedTokens: 0,
-  latencyMs: 0,
-  topCandidates: [],
-};
-mock.module("../memory/inject.js", () => ({
-  injectMemoryRecallAsUserBlock: (msgs: unknown[]) => msgs,
-}));
-mock.module("../memory/query-builder.js", () => ({
-  buildMemoryQuery: (text: string) => text,
-}));
-mock.module("../memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => 4000,
-}));
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => _emptyRecall,
-}));
-
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
-import { ContextWindowManager } from "../context/window-manager.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-// @ts-expect-error — deleted module, stubbed via mock.module above
-import { buildMemoryQuery } from "../memory/query-builder.js";
-// @ts-expect-error — deleted module, stubbed via mock.module above
-import { computeRecallBudget } from "../memory/retrieval-budget.js";
-// @ts-expect-error — deleted module, stubbed via mock.module above
-import { buildMemoryRecall } from "../memory/retriever.js";
-import {
-  conversations,
-  memoryItems,
-  memoryItemSources,
-  messages,
-} from "../memory/schema.js";
-import type { Message, Provider } from "../providers/types.js";
 
 function makeSummaryProvider(counter: { calls: number }): Provider {
   return {

@@ -152,7 +152,6 @@ import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import { memoriesRouteDefinitions } from "./routes/memories-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
@@ -924,7 +923,6 @@ export class RuntimeHttpServer {
       ...telemetryRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
-      ...memoriesRouteDefinitions(),
       ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...avatarRouteDefinitions(),

@@ -3,7 +3,11 @@ import { getLogger } from "../util/logger.js";
 import { rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from "./indexer.js";
-import { getMemoryJobCounts } from "./jobs-store.js";
+import {
+  enqueueCleanupStaleSupersededItemsJob,
+  getMemoryJobCounts,
+} from "./jobs-store.js";
+import { queryMemoryForCli } from "./retriever.js";
 
 const log = getLogger("memory-admin");
 
@@ -19,7 +23,16 @@ export interface MemorySystemStatus {
     summaries: number;
     embeddings: number;
   };
+  cleanup: {
+    supersededBacklog: number;
+    supersededCompleted24h: number;
+  };
   jobs: Record<string, number>;
+}
+
+interface CleanupStatsRow {
+  superseded_backlog: number | null;
+  superseded_completed_24h: number | null;
 }
 
 export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
@@ -31,6 +44,22 @@ export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
     summaries: countTable("memory_summaries"),
     embeddings: countTable("memory_embeddings"),
   };
+  const throughputWindowStartMs = Date.now() - 24 * 60 * 60 * 1000;
+  const cleanupStats = rawGet<CleanupStatsRow>(
+    `
+    SELECT
+      SUM(CASE
+        WHEN type = 'cleanup_stale_superseded_items' AND status IN ('pending', 'running')
+        THEN 1 ELSE 0 END
+      ) AS superseded_backlog,
+      SUM(CASE
+        WHEN type = 'cleanup_stale_superseded_items' AND status = 'completed' AND updated_at >= ?
+        THEN 1 ELSE 0 END
+      ) AS superseded_completed_24h
+    FROM memory_jobs
+  `,
+    throughputWindowStartMs,
+  );
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -38,6 +67,10 @@ export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
     provider: backend.provider,
     model: backend.model,
     counts,
+    cleanup: {
+      supersededBacklog: cleanupStats?.superseded_backlog ?? 0,
+      supersededCompleted24h: cleanupStats?.superseded_completed_24h ?? 0,
+    },
     jobs: getMemoryJobCounts(),
   };
 
@@ -58,3 +91,18 @@ export function requestMemoryRebuildIndex(): string {
   return id;
 }
 
+export function requestMemoryCleanup(retentionMs?: number): {
+  staleSupersededItemsJobId: string;
+} {
+  const staleSupersededItemsJobId =
+    enqueueCleanupStaleSupersededItemsJob(retentionMs);
+  log.info(
+    { staleSupersededItemsJobId, retentionMs },
+    "Queued memory cleanup jobs",
+  );
+  return { staleSupersededItemsJobId };
+}
+
+export async function queryMemory(query: string, conversationId: string) {
+  return queryMemoryForCli(query, conversationId, getConfig());
+}

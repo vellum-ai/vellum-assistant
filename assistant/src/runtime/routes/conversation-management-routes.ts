@@ -275,24 +275,6 @@ export function conversationManagementRouteDefinitions(
             targetId: summaryId,
           });
         }
-        for (const obsId of result.deletedObservationIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "observation",
-            targetId: obsId,
-          });
-        }
-        for (const chunkId of result.deletedChunkIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "chunk",
-            targetId: chunkId,
-          });
-        }
-        for (const episodeId of result.deletedEpisodeIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "episode",
-            targetId: episodeId,
-          });
-        }
         log.info(
           {
             conversationId: resolvedId,
@@ -347,24 +329,6 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "summary",
             targetId: summaryId,
-          });
-        }
-        for (const obsId of deleted.deletedObservationIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "observation",
-            targetId: obsId,
-          });
-        }
-        for (const chunkId of deleted.deletedChunkIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "chunk",
-            targetId: chunkId,
-          });
-        }
-        for (const episodeId of deleted.deletedEpisodeIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "episode",
-            targetId: episodeId,
           });
         }
         log.info({ conversationId: resolvedId }, "Deleted conversation");

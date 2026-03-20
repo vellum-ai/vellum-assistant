@@ -1,24 +1,26 @@
-import { buildArchiveRecall } from "../memory/archive-recall.js";
-import { compileMemoryBrief } from "../memory/brief.js";
-import { getDb } from "../memory/db.js";
-import { injectMemoryRecallAsUserBlock } from "../memory/inject.js";
-import type { MemoryRecallResult as SearchRecallResult } from "../memory/search/types.js";
+import { getConfig } from "../config/loader.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
+import { buildMemoryQuery } from "../memory/query-builder.js";
+import { computeRecallBudget } from "../memory/retrieval-budget.js";
+import {
+  buildMemoryRecall,
+  injectMemoryRecallAsUserBlock,
+} from "../memory/retriever.js";
+import type { ScopePolicyOverride } from "../memory/search/types.js";
 import type { Message } from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
+import type { Provider } from "../providers/types.js";
 import type { ServerMessage } from "./message-protocol.js";
-
-const log = getLogger("conversation-memory");
 
 export interface MemoryRecallResult {
   runMessages: Message[];
-  recall: SearchRecallResult;
+  recall: Awaited<ReturnType<typeof buildMemoryRecall>>;
 }
 
 export interface MemoryPrepareContext {
   conversationId: string;
   messages: Message[];
   systemPrompt: string;
-  provider: { name: string };
+  provider: Provider;
   scopeId: string;
   includeDefaultFallback: boolean;
   trustClass: "guardian" | "trusted_contact" | "unknown";
@@ -62,21 +64,20 @@ export function needsMemory(messages: Message[], content: string): boolean {
 }
 
 /**
- * Build memory context for a single agent loop turn. Compiles the
- * `<memory_brief>` block and conditionally appends `<supporting_recall>`
- * from the archive. Returns the augmented run messages and metadata for
+ * Build memory recall for a single agent loop turn using the V2 hybrid
+ * pipeline. Returns the augmented run messages and metadata for
  * downstream event emission.
  *
  * Memory context is injected as a text content block prepended to the
  * last user message (same pattern as workspace/temporal injections).
- * Stripping is handled by `RUNTIME_INJECTION_PREFIXES` which includes
- * `<memory_brief>`.
+ * Stripping is handled by `stripUserTextBlocksByPrefix` matching the
+ * `<memory_context __injected>` prefix in `RUNTIME_INJECTION_PREFIXES`.
  */
 export async function prepareMemoryContext(
   ctx: MemoryPrepareContext,
   content: string,
   userMessageId: string,
-  _abortSignal: AbortSignal,
+  abortSignal: AbortSignal,
   onEvent: (msg: ServerMessage) => void,
 ): Promise<MemoryRecallResult> {
   // Provenance-based trust gating: untrusted actors skip all memory operations
@@ -99,7 +100,7 @@ export async function prepareMemoryContext(
       topCandidates: [],
       tier1Count: 0,
       tier2Count: 0,
-    },
+    } as Awaited<ReturnType<typeof buildMemoryRecall>>,
   });
 
   if (!isTrustedActor) {
@@ -112,86 +113,97 @@ export async function prepareMemoryContext(
     return noopResult();
   }
 
-  const start = Date.now();
+  const runtimeConfig = getConfig();
 
-  const emptyRecall = (): SearchRecallResult => ({
-    enabled: true,
-    degraded: false,
-    injectedText: "",
-    semanticHits: 0,
-    recencyHits: 0,
-    mergedCount: 0,
-    selectedCount: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-    topCandidates: [],
-    tier1Count: 0,
-    tier2Count: 0,
+  // Memory recall via the V2 hybrid pipeline
+  const recallQuery = buildMemoryQuery(content, ctx.messages);
+  const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
+  const recallBudget = dynamicBudgetConfig?.enabled
+    ? computeRecallBudget({
+        estimatedPromptTokens: estimatePromptTokens(
+          ctx.messages,
+          ctx.systemPrompt,
+          { providerName: ctx.provider.name },
+        ),
+        maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
+        targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
+        minInjectTokens: dynamicBudgetConfig.minInjectTokens,
+        maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
+      })
+    : undefined;
+  // Build scope policy override for non-default scopes so retrieval
+  // honours the conversation's memory policy regardless of the global config.
+  const scopePolicyOverride: ScopePolicyOverride | undefined =
+    ctx.scopeId !== "default"
+      ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
+      : undefined;
+
+  const recall = await buildMemoryRecall(
+    recallQuery,
+    ctx.conversationId,
+    runtimeConfig,
+    {
+      excludeMessageIds: [userMessageId],
+      signal: abortSignal,
+      maxInjectTokensOverride: recallBudget,
+      scopeId: ctx.scopeId,
+      scopePolicyOverride,
+    },
+  );
+  onEvent({
+    type: "memory_status",
+    enabled: recall.enabled,
+    degraded: recall.degraded,
+    degradation: recall.degradation
+      ? {
+          semanticUnavailable: recall.degradation.semanticUnavailable,
+          reason: recall.degradation.reason,
+          fallbackSources: [...recall.degradation.fallbackSources],
+        }
+      : undefined,
+    reason: recall.reason,
+    provider: recall.provider,
+    model: recall.model,
   });
 
-  try {
-    const db = getDb();
-
-    // Step 1: Build the memory brief
-    const briefResult = compileMemoryBrief(db, ctx.scopeId, userMessageId);
-
-    // Step 2: Conditionally build supporting recall from the archive
-    const archiveResult = buildArchiveRecall(ctx.scopeId, content);
-
-    // Step 3: Assemble the injection blocks (non-empty only)
-    const blocks: string[] = [];
-    if (briefResult.text.length > 0) {
-      blocks.push(briefResult.text);
-    }
-    if (archiveResult.text.length > 0) {
-      blocks.push(archiveResult.text);
-    }
-
-    const latencyMs = Date.now() - start;
-
-    // Emit memory status
-    onEvent({
-      type: "memory_status",
-      enabled: true,
-      degraded: false,
-    });
-
-    // Inject non-empty blocks into the last user message
-    let runMessages = ctx.messages;
-    if (blocks.length > 0) {
-      const injectedText = blocks.join("\n\n");
-      const userTail = ctx.messages[ctx.messages.length - 1];
-      if (userTail && userTail.role === "user") {
-        runMessages = injectMemoryRecallAsUserBlock(ctx.messages, injectedText);
-      }
-
-      log.debug(
-        {
-          briefLength: briefResult.text.length,
-          recallTrigger: archiveResult.trigger,
-          recallBullets: archiveResult.bullets.length,
-          latencyMs,
-        },
-        "Memory injection completed",
+  // Inject recall as a text block prepended to the last user message.
+  // When injection text is empty, skip injection entirely.
+  let runMessages = ctx.messages;
+  if (recall.injectedText.length > 0) {
+    const userTail = ctx.messages[ctx.messages.length - 1];
+    if (userTail && userTail.role === "user") {
+      runMessages = injectMemoryRecallAsUserBlock(
+        ctx.messages,
+        recall.injectedText,
       );
+      onEvent({
+        type: "memory_recalled",
+        provider: recall.provider ?? "unknown",
+        model: recall.model ?? "unknown",
+        degradation: recall.degradation
+          ? {
+              semanticUnavailable: recall.degradation.semanticUnavailable,
+              reason: recall.degradation.reason,
+              fallbackSources: [...recall.degradation.fallbackSources],
+            }
+          : undefined,
+        semanticHits: recall.semanticHits,
+        recencyHits: recall.recencyHits,
+        tier1Count: recall.tier1Count ?? 0,
+        tier2Count: recall.tier2Count ?? 0,
+        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
+        sparseVectorUsed: recall.sparseVectorUsed ?? false,
+        mergedCount: recall.mergedCount,
+        selectedCount: recall.selectedCount,
+        injectedTokens: recall.injectedTokens,
+        latencyMs: recall.latencyMs,
+        topCandidates: recall.topCandidates,
+      });
     }
-
-    return {
-      runMessages,
-      recall: {
-        ...emptyRecall(),
-        injectedText: blocks.length > 0 ? blocks.join("\n\n") : "",
-        latencyMs,
-      },
-    };
-  } catch (err) {
-    log.warn({ err }, "Memory injection failed, returning no-op");
-    return {
-      runMessages: ctx.messages,
-      recall: {
-        ...emptyRecall(),
-        latencyMs: Date.now() - start,
-      },
-    };
   }
+
+  return {
+    runMessages,
+    recall,
+  };
 }
