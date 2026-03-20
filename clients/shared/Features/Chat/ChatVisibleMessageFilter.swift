@@ -1,0 +1,26 @@
+import Foundation
+
+/// Shared source of truth for which messages count toward chat pagination and anchors.
+/// Both `ChatViewModel` and the macOS `MessageListView` should use this to determine
+/// the visible message set, ensuring consistent filtering rules across platforms.
+public enum ChatVisibleMessageFilter {
+
+    /// Returns all messages that should be visible in the chat UI.
+    /// Excludes subagent notifications and hidden (automated) messages.
+    public static func visibleMessages(from messages: [ChatMessage]) -> [ChatMessage] {
+        messages.filter { !$0.isSubagentNotification && !$0.isHidden }
+    }
+
+    /// Returns the paginated suffix of visible messages for a given `displayedMessageCount`.
+    /// Filtering is applied first, then the suffix window is taken from the filtered set.
+    /// When `displayedMessageCount >= visibleCount` (including `.max`), all visible messages
+    /// are returned so new incoming messages don't collapse visible history.
+    public static func paginatedMessages(
+        from messages: [ChatMessage],
+        displayedMessageCount: Int
+    ) -> [ChatMessage] {
+        let visible = visibleMessages(from: messages)
+        guard displayedMessageCount < visible.count else { return visible }
+        return Array(visible.suffix(displayedMessageCount))
+    }
+}

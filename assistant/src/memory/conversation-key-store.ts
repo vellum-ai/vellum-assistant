@@ -10,6 +10,7 @@
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db.js";
 import { conversationKeys, conversations } from "./schema.js";
@@ -133,12 +134,13 @@ export function getOrCreateConversation(
   opts?: { conversationType?: "standard" | "private" },
 ): {
   conversationId: string;
+  conversationType: string;
   created: boolean;
 } {
   const db = getDb();
   const conversationType = opts?.conversationType ?? "standard";
 
-  return db.transaction((tx) => {
+  const result = db.transaction((tx) => {
     const existing = tx
       .select()
       .from(conversationKeys)
@@ -146,7 +148,16 @@ export function getOrCreateConversation(
       .get();
 
     if (existing) {
-      return { conversationId: existing.conversationId, created: false };
+      const conv = tx
+        .select({ conversationType: conversations.conversationType })
+        .from(conversations)
+        .where(eq(conversations.id, existing.conversationId))
+        .get();
+      return {
+        conversationId: existing.conversationId,
+        conversationType: conv?.conversationType ?? "standard",
+        created: false as const,
+      };
     }
 
     // Check if the conversationKey itself is an existing conversation ID.
@@ -167,18 +178,28 @@ export function getOrCreateConversation(
           createdAt: Date.now(),
         })
         .run();
-      return { conversationId: existingConversation.id, created: false };
+      const conv = tx
+        .select({ conversationType: conversations.conversationType })
+        .from(conversations)
+        .where(eq(conversations.id, existingConversation.id))
+        .get();
+      return {
+        conversationId: existingConversation.id,
+        conversationType: conv?.conversationType ?? "standard",
+        created: false as const,
+      };
     }
 
     const now = Date.now();
     const conversationId = uuid();
+    const title = GENERATING_TITLE;
     const memoryScopeId =
       conversationType === "private" ? `private:${conversationId}` : "default";
 
     tx.insert(conversations)
       .values({
         id: conversationId,
-        title: GENERATING_TITLE,
+        title,
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,
@@ -201,6 +222,26 @@ export function getOrCreateConversation(
       })
       .run();
 
-    return { conversationId, created: true };
+    return {
+      conversationId,
+      conversationType,
+      created: true as const,
+      conversation: {
+        id: conversationId,
+        title,
+        createdAt: now,
+        conversationType,
+      },
+    };
   });
+
+  if (result.created) {
+    initConversationDir({ ...result.conversation, originChannel: null });
+  }
+
+  return {
+    conversationId: result.conversationId,
+    conversationType: result.conversationType,
+    created: result.created,
+  };
 }

@@ -22,6 +22,7 @@ import {
 } from "../providers/provider-send-message.js";
 import type { ModelIntent, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
 import {
   buildConversationCandidates,
   type ConversationCandidateSet,
@@ -54,6 +55,15 @@ const log = getLogger("notification-decision-engine");
 
 const DECISION_TIMEOUT_MS = 15_000;
 const PROMPT_VERSION = "v4";
+
+/**
+ * Maximum character budget for identity context injected into the notification
+ * decision prompt. We truncate to prevent oversized prompts when SOUL.md /
+ * IDENTITY.md / USER.md are large — exceeding the provider context window
+ * would cause the LLM call to fail and silently degrade to deterministic
+ * fallback for all notifications.
+ */
+const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -790,7 +800,10 @@ async function classifyWithLLM(
   const candidateContext = candidateSet
     ? (serializeCandidatesForPrompt(candidateSet) ?? undefined)
     : undefined;
-  const identityContext = buildCoreIdentityContext() ?? undefined;
+  const rawIdentityContext = buildCoreIdentityContext();
+  const identityContext = rawIdentityContext
+    ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
+    : undefined;
   const systemPrompt = buildSystemPrompt(
     availableChannels,
     preferenceContext,

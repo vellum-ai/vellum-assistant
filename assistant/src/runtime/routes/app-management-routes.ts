@@ -34,11 +34,12 @@ import {
   deleteApp,
   deleteAppRecord,
   getApp,
+  getAppDirPath,
   getAppPreview,
-  getAppsDir,
   isMultifileApp,
   listApps,
   queryAppRecords,
+  resolveAppDir,
   updateApp,
   updateAppRecord,
 } from "../../memory/app-store.js";
@@ -289,7 +290,7 @@ async function installGalleryApp(
   });
 
   if (galleryApp.formatVersion === 2 && galleryApp.sourceFiles) {
-    const appDir = join(getAppsDir(), app.id);
+    const appDir = getAppDirPath(app.id);
     for (const [relPath, content] of Object.entries(galleryApp.sourceFiles)) {
       const fullPath = join(appDir, relPath);
       mkdirSync(dirname(fullPath), { recursive: true });
@@ -671,7 +672,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           let html = app.htmlDefinition;
 
           if (isMultifileApp(app)) {
-            const appDir = join(getAppsDir(), appId);
+            const appDir = getAppDirPath(appId);
             const distIndex = join(appDir, "dist", "index.html");
             if (!existsSync(distIndex)) {
               const result = await compileApp(appDir);
@@ -689,8 +690,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
             }
           }
 
+          const { dirName } = resolveAppDir(app.id);
           return Response.json({
             appId: app.id,
+            dirName,
             name: app.name,
             html,
           });

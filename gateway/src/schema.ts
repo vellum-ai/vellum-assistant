@@ -1615,6 +1615,226 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/oauth/apps": {
+        get: {
+          summary: "List OAuth apps",
+          description:
+            "Authenticated gateway endpoint that lists configured OAuth apps for a provider by proxying to the assistant runtime.",
+          operationId: "oauthAppsList",
+          parameters: [
+            {
+              name: "provider_key",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "OAuth provider key to filter by, for example `integration:google`.",
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth apps returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/OAuthAppListResponse",
+                  },
+                },
+              },
+            },
+            "400": { description: "Missing or invalid provider_key query parameter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Create OAuth app",
+          description:
+            "Authenticated gateway endpoint that creates or updates a user-managed OAuth app by proxying to the assistant runtime.",
+          operationId: "oauthAppsCreate",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OAuthAppCreateRequest" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "OAuth app created",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/OAuthAppCreateResponse",
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth provider not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/oauth/apps/{appId}": {
+        delete: {
+          summary: "Delete OAuth app",
+          description:
+            "Authenticated gateway endpoint that deletes a user-managed OAuth app and disconnects its linked accounts by proxying to the assistant runtime.",
+          operationId: "oauthAppsDelete",
+          parameters: [
+            {
+              name: "appId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth app deleted",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/OkResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth app not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/oauth/apps/{appId}/connections": {
+        get: {
+          summary: "List OAuth app connections",
+          description:
+            "Authenticated gateway endpoint that lists linked accounts for a specific OAuth app by proxying to the assistant runtime.",
+          operationId: "oauthAppConnectionsList",
+          parameters: [
+            {
+              name: "appId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth app connections returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/OAuthConnectionListResponse",
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth app not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/oauth/connections/{connectionId}": {
+        delete: {
+          summary: "Delete OAuth connection",
+          description:
+            "Authenticated gateway endpoint that disconnects a linked OAuth account by proxying to the assistant runtime.",
+          operationId: "oauthConnectionDelete",
+          parameters: [
+            {
+              name: "connectionId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth connection deleted",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/OkResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth connection not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/oauth/apps/{appId}/connect": {
+        post: {
+          summary: "Start OAuth app connect flow",
+          description:
+            "Authenticated gateway endpoint that starts an OAuth authorization flow for a specific app by proxying to the assistant runtime.",
+          operationId: "oauthAppConnect",
+          parameters: [
+            {
+              name: "appId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OAuthConnectRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "OAuth connect flow started",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/OAuthConnectResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth app not found" },
+            "500": { description: "Failed to start OAuth flow" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/channels/readiness": {
         get: {
           summary: "Get channel readiness",
@@ -1905,6 +2125,196 @@ export function buildSchema(): Record<string, unknown> {
             },
             "403": { description: "Insufficient scope" },
             "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/trust-rules": {
+        get: {
+          summary: "List trust rules",
+          description:
+            "Authenticated gateway endpoint that lists all trust rules via the assistant runtime.",
+          operationId: "trustRulesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Trust rules returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Add a trust rule",
+          description:
+            "Authenticated gateway endpoint that adds a new trust rule via the assistant runtime.",
+          operationId: "trustRulesPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule added" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/clear": {
+        post: {
+          summary: "Clear all user trust rules",
+          description:
+            "Authenticated gateway endpoint that clears all user-defined trust rules via the assistant runtime.",
+          operationId: "trustRulesClearPost",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Trust rules cleared" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/match": {
+        get: {
+          summary: "Query matching trust rule",
+          description:
+            "Authenticated gateway endpoint that queries for a matching trust rule via the assistant runtime.",
+          operationId: "trustRulesMatchGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "tool",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Tool name to match against.",
+            },
+            {
+              name: "pattern",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Pattern to match against.",
+            },
+            {
+              name: "scope",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Scope to match against.",
+            },
+          ],
+          responses: {
+            "200": { description: "Matching trust rule returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/starter-bundle": {
+        post: {
+          summary: "Accept starter trust rule bundle",
+          description:
+            "Authenticated gateway endpoint that accepts a starter bundle of trust rules via the assistant runtime.",
+          operationId: "trustRulesStarterBundlePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Starter bundle accepted" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/trust-rules/{ruleId}": {
+        patch: {
+          summary: "Update a trust rule",
+          description:
+            "Authenticated gateway endpoint that updates a trust rule by ID via the assistant runtime.",
+          operationId: "trustRulesPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Trust rule not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Delete a trust rule",
+          description:
+            "Authenticated gateway endpoint that deletes a trust rule by ID via the assistant runtime.",
+          operationId: "trustRulesDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Trust rule deleted" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Trust rule not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
           },
         },
       },
@@ -2262,6 +2672,117 @@ export function buildSchema(): Record<string, unknown> {
           properties: {
             error: { type: "string" },
           },
+        },
+        OkResponse: {
+          type: "object",
+          required: ["ok"],
+          properties: {
+            ok: { type: "boolean" },
+          },
+        },
+        OAuthAppSummary: {
+          type: "object",
+          required: [
+            "id",
+            "provider_key",
+            "client_id",
+            "created_at",
+            "updated_at",
+          ],
+          properties: {
+            id: { type: "string" },
+            provider_key: { type: "string" },
+            client_id: { type: "string" },
+            created_at: { type: "integer" },
+            updated_at: { type: "integer" },
+          },
+        },
+        OAuthAppListResponse: {
+          type: "object",
+          required: ["apps"],
+          properties: {
+            apps: {
+              type: "array",
+              items: { $ref: "#/components/schemas/OAuthAppSummary" },
+            },
+          },
+        },
+        OAuthAppCreateRequest: {
+          type: "object",
+          required: ["provider_key", "client_id", "client_secret"],
+          properties: {
+            provider_key: { type: "string" },
+            client_id: { type: "string" },
+            client_secret: { type: "string" },
+          },
+        },
+        OAuthAppCreateResponse: {
+          type: "object",
+          required: ["app"],
+          properties: {
+            app: { $ref: "#/components/schemas/OAuthAppSummary" },
+          },
+        },
+        OAuthConnectionSummary: {
+          type: "object",
+          required: [
+            "id",
+            "provider_key",
+            "account_info",
+            "granted_scopes",
+            "status",
+            "has_refresh_token",
+            "expires_at",
+            "created_at",
+            "updated_at",
+          ],
+          properties: {
+            id: { type: "string" },
+            provider_key: { type: "string" },
+            account_info: { type: ["string", "null"] },
+            granted_scopes: {
+              type: "array",
+              items: { type: "string" },
+            },
+            status: { type: "string" },
+            has_refresh_token: { type: "boolean" },
+            expires_at: { type: ["integer", "null"] },
+            created_at: { type: "integer" },
+            updated_at: { type: "integer" },
+          },
+        },
+        OAuthConnectionListResponse: {
+          type: "object",
+          required: ["connections"],
+          properties: {
+            connections: {
+              type: "array",
+              items: { $ref: "#/components/schemas/OAuthConnectionSummary" },
+            },
+          },
+        },
+        OAuthConnectRequest: {
+          type: "object",
+          properties: {
+            scopes: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+        },
+        OAuthConnectDeferredResponse: {
+          type: "object",
+          required: ["auth_url", "state"],
+          properties: {
+            auth_url: { type: "string" },
+            state: { type: "string" },
+          },
+        },
+        OAuthConnectResponse: {
+          oneOf: [
+            { $ref: "#/components/schemas/OAuthConnectDeferredResponse" },
+            { $ref: "#/components/schemas/OkResponse" },
+          ],
         },
         TelegramOk: {
           type: "object",

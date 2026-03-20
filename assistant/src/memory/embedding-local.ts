@@ -1,6 +1,7 @@
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getEmbeddingModelsDir, getRootDir } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
@@ -353,12 +354,17 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private static readonly PID_FILENAME = "embed-worker.pid";
 
+  /** PID files are process-local state — store in /tmp when containerized to keep shared volumes clean. */
+  private getPidFilePath(): string {
+    if (getIsContainerized()) {
+      return join("/tmp", LocalEmbeddingBackend.PID_FILENAME);
+    }
+    return join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME);
+  }
+
   private writePidFile(pid: number): void {
     try {
-      writeFileSync(
-        join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME),
-        String(pid),
-      );
+      writeFileSync(this.getPidFilePath(), String(pid));
     } catch {
       // Best-effort — doesn't affect functionality
     }
@@ -366,7 +372,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private removePidFile(): void {
     try {
-      unlinkSync(join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME));
+      unlinkSync(this.getPidFilePath());
     } catch {
       // Best-effort
     }

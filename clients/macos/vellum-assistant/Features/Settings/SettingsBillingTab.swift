@@ -13,6 +13,8 @@ struct SettingsBillingTab: View {
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
+    @State private var inviteCode: String = ""
+    @ObservedObject private var devModeManager = DevModeManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -21,6 +23,9 @@ struct SettingsBillingTab: View {
                 addFundsSkeleton
             } else if summary != nil {
                 addFundsCard
+            }
+            if devModeManager.isDevMode {
+                inviteCodeCard
             }
         }
         .task {
@@ -188,6 +193,33 @@ struct SettingsBillingTab: View {
                     Text(topUpError)
                         .font(VFont.body)
                         .foregroundColor(VColor.systemNegativeStrong)
+                }
+            }
+        }
+    }
+
+    // MARK: - Invite Code Card
+
+    private var inviteCodeCard: some View {
+        SettingsCard(title: "Invite Code") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Code")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
+                    VTextField(
+                        placeholder: "Enter invite code",
+                        text: $inviteCode
+                    )
+                    .frame(maxWidth: 200)
+                }
+
+                VButton(
+                    label: "Submit",
+                    style: .primary,
+                    isDisabled: inviteCode.isEmpty
+                ) {
+                    // No backend connection yet
                 }
             }
         }

@@ -32,6 +32,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseFrontmatter } from "./parse-skill-yaml.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SKILLS_DIR = resolve(__dirname, "../../skills");
 
@@ -65,91 +67,6 @@ function parseCLIArgs(argv) {
 }
 
 const { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI, allowToolsJson: ALLOW_TOOLS_JSON, filterSkills: CLI_FILTER_SKILLS } = parseCLIArgs(process.argv);
-
-/**
- * Parse YAML frontmatter from a string.
- * Returns { frontmatter: Record<string, unknown>, body: string } or throws.
- *
- * This is a minimal parser that handles the subset of YAML used in
- * SKILL.md frontmatter without requiring external dependencies.
- */
-function parseFrontmatter(content) {
-  const trimmed = content.trimStart();
-  if (!trimmed.startsWith("---")) {
-    throw new Error("SKILL.md must start with YAML frontmatter (---).");
-  }
-
-  const endIndex = trimmed.indexOf("\n---", 3);
-  if (endIndex === -1) {
-    throw new Error(
-      "SKILL.md frontmatter is missing closing delimiter (---).",
-    );
-  }
-
-  const yamlBlock = trimmed.slice(trimmed.indexOf("\n", 0) + 1, endIndex);
-  const body = trimmed.slice(endIndex + 4).trim();
-  const frontmatter = parseSimpleYaml(yamlBlock);
-
-  return { frontmatter, body };
-}
-
-/**
- * Minimal YAML parser for flat key-value pairs and nested maps.
- * Handles string values (quoted or unquoted) and multiple levels of nesting.
- */
-function parseSimpleYaml(yaml) {
-  const result = {};
-  const lines = yaml.split("\n");
-  // Stack of { indent, obj } to track nesting context
-  const stack = [{ indent: -1, obj: result, key: null }];
-
-  for (const line of lines) {
-    // Skip blank lines and comments
-    if (line.trim() === "" || line.trim().startsWith("#")) {
-      continue;
-    }
-
-    // Calculate indentation (number of leading spaces)
-    const indent = line.match(/^(\s*)/)[1].length;
-    const match = line.match(/^(\s*)(\S+):\s*(.*)/);
-    if (!match) continue;
-
-    const key = match[2];
-    const value = match[3].trim();
-
-    // Pop stack to find the parent at the right indentation level
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-    const parent = stack[stack.length - 1].obj;
-
-    if (value === "" || value === "|" || value === ">") {
-      // Start of a nested object
-      parent[key] = {};
-      stack.push({ indent, obj: parent[key], key });
-    } else {
-      parent[key] = stripQuotes(value);
-    }
-  }
-
-  return result;
-}
-
-function stripQuotes(s) {
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return processEscapes(s.slice(1, -1));
-  }
-  return s;
-}
-
-/**
- * Process JSON-style unicode escape sequences (\uXXXX) in a string.
- */
-function processEscapes(s) {
-  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
-    String.fromCharCode(parseInt(hex, 16)),
-  );
-}
 
 // --- Validation Rules ---
 

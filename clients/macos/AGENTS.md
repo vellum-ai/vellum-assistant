@@ -153,9 +153,9 @@ DesignSystem/
 │   └── Navigation/      (VTab)
 ├── Components/          (composed patterns — combine multiple Core elements)
 │   ├── Navigation/      (VTabBar, VSegmentedControl)
-│   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
+│   ├── Layout/          (VAdaptiveStack, VSidePanel, VSplitView)
 │   └── Display/         (VCard, VEmptyState)
-├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())
+├── Modifiers/           (.vCard(), .vPanelBackground(), .vTooltip())
 └── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
 ```
 
@@ -163,6 +163,25 @@ DesignSystem/
 - **Core** = atomic, single-responsibility control (wraps one native SwiftUI element or thin styling layer). Place in `Core/`.
 - **Component** = composes multiple Core elements or has internal layout logic (VTabBar arranges VTabs, VCard has header/body slots, VEmptyState composes icon + title + subtitle). Place in `Components/`.
 - **Feature-specific** views (e.g. SidebarConversationItem) belong in `Features/`, not in the design system.
+
+**When to extract a design system component vs. keep it in feature code:**
+- If the view is **domain-agnostic** (no references to "save", "settings", or any feature-specific concept) and **reusable across unrelated features**, it belongs in the design system. Examples: `VAdaptiveStack` (generic adaptive layout), `VCard` (generic card chrome).
+- If the view carries **domain-specific semantics** (save/reset labels, hasChanges state, feature-specific props), it belongs in the feature layer — even if it composes design system components internally. Examples: `ServiceCardActions` (settings-specific button row), `PickerWithInlineSave` (settings-specific picker+save composition).
+- **Test**: Can you describe the component without mentioning any feature? If yes → design system. If no → feature layer.
+- Every design system component **must** have a Gallery entry in `Gallery/Sections/`. Feature components do not.
+
+<details>
+<summary><strong>Component usage guide</strong></summary>
+
+| Need | Use this | Not this |
+|------|----------|----------|
+| Side-by-side content that should stack vertically at narrow widths | `VAdaptiveStack` | Raw `ViewThatFits { HStack { } VStack { } }` in feature code |
+| Static horizontal layout that should never reflow | `HStack` | `VAdaptiveStack` |
+| Card wrapper with consistent padding/radius | `.vCard()` modifier or `VCard` | Manual padding + background + cornerRadius |
+| Button with standard styling | `VButton` with appropriate `style` and `size` | Custom `Button` with manual styling |
+| Dropdown/picker input | `VDropdown` | Raw `Menu` + `Picker` |
+
+</details>
 
 All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
 

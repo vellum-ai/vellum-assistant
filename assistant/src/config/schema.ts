@@ -38,6 +38,7 @@ export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
+  VALID_CONVERSATION_TIMEOUTS,
 } from "./schemas/elevenlabs.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
@@ -105,6 +106,18 @@ export {
   MemoryDynamicBudgetConfigSchema,
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
+export type {
+  MemorySimplifiedArchiveRecallConfig,
+  MemorySimplifiedBriefConfig,
+  MemorySimplifiedConfig,
+  MemorySimplifiedReducerConfig,
+} from "./schemas/memory-simplified.js";
+export {
+  MemorySimplifiedArchiveRecallConfigSchema,
+  MemorySimplifiedBriefConfigSchema,
+  MemorySimplifiedConfigSchema,
+  MemorySimplifiedReducerConfigSchema,
+} from "./schemas/memory-simplified.js";
 export type {
   MemoryEmbeddingsConfig,
   MemorySegmentationConfig,

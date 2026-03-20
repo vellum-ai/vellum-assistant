@@ -89,6 +89,15 @@ export interface MessagingProvider {
    */
   isConnected?(): Promise<boolean>;
 
+  /**
+   * Custom credential resolution for providers with non-standard credential
+   * paths (e.g. Slack Socket Mode stores tokens under "slack_channel" rather
+   * than the OAuth provider key). When present, getProviderConnection() calls
+   * this instead of resolveOAuthConnection(), giving the provider full control
+   * over credential lookup including fallback strategies.
+   */
+  resolveConnection?(account?: string): Promise<OAuthConnection | string>;
+
   /** Platform-specific capabilities for tool routing (e.g. 'reactions', 'threads', 'labels'). */
   capabilities: Set<string>;
 }

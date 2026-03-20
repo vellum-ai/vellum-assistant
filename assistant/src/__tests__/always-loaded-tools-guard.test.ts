@@ -2,8 +2,8 @@
  * Guard test: always-loaded tool count
  *
  * This test asserts the exact set of tools that are active when no client is
- * connected, no host proxy is available, no attachments are present, and no
- * special channel capabilities exist. This represents the minimal "always-loaded"
+ * connected, no host proxy is available, and no special channel capabilities
+ * exist. This represents the minimal "always-loaded"
  * baseline that is sent to the LLM on every turn.
  *
  * Adding a tool to this set increases token cost for every request. If this test
@@ -32,14 +32,13 @@ describe("always-loaded tool count", () => {
     await initializeTools();
     const allDefs = buildToolDefinitions();
 
-    // Minimal context: no client, no attachments, no capabilities
+    // Minimal context: no client, no capabilities
     const minimalContext: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
       coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: true,
-      hasAttachments: false,
       channelCapabilities: undefined,
     };
 

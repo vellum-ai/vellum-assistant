@@ -426,7 +426,7 @@ struct AssistantChannelsDetailView: View {
 
                     // Inline disconnect X button
                     if let channelKey {
-                        VButton(label: "Disconnect", iconOnly: VIcon.x.rawValue, style: .danger, isDisabled: isDisconnectDisabled, tooltip: "Disconnect") {
+                        VButton(label: "Disconnect", style: .danger, isDisabled: isDisconnectDisabled) {
                             onDisconnect?(channelKey)
                         }
                     }
@@ -600,7 +600,7 @@ struct AssistantChannelsDetailView: View {
                 .foregroundColor(VColor.contentSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isTelegramTokenFocused)
@@ -704,13 +704,13 @@ struct AssistantChannelsDetailView: View {
                 .foregroundColor(VColor.contentSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isSlackBotTokenFocused)
 
             SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
 
@@ -776,7 +776,7 @@ struct AssistantChannelsDetailView: View {
                         ),
                         options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: "",
-                        maxWidth: 360
+                        maxWidth: 400
                     )
                 }
 
@@ -815,13 +815,13 @@ struct AssistantChannelsDetailView: View {
                 .foregroundColor(VColor.contentSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isVoiceAccountSidFocused)
 
             SecureField("Auth Token", text: $voiceAuthTokenText)
-                .vInputStyle()
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
 

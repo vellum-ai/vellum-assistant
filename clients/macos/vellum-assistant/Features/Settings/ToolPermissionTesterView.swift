@@ -313,7 +313,7 @@ struct ToolPermissionTesterView: View {
             switch decision.lowercased() {
             case "allow": return (VColor.systemPositiveStrong, .circleCheck)
             case "deny": return (VColor.systemNegativeStrong, .circleX)
-            case "prompt": return (VColor.systemNegativeHover, .info)
+            case "prompt": return (VColor.systemMidStrong, .info)
             default: return (VColor.contentTertiary, .circle)
             }
         }()
@@ -330,7 +330,7 @@ struct ToolPermissionTesterView: View {
     private func riskColor(_ level: String) -> Color {
         switch level.lowercased() {
         case "low": return VColor.contentTertiary
-        case "medium": return VColor.systemNegativeHover
+        case "medium": return VColor.systemMidStrong
         case "high": return VColor.systemNegativeStrong
         default: return VColor.contentTertiary
         }

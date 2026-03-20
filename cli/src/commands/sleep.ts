@@ -3,6 +3,7 @@ import { join } from "path";
 
 import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
+import { dockerResourceNames, sleepContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
@@ -64,9 +65,16 @@ export async function sleep(): Promise<void> {
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
 
+  if (entry.cloud === "docker") {
+    const res = dockerResourceNames(entry.assistantId);
+    await sleepContainers(res);
+    console.log("Docker containers stopped.");
+    return;
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      `Error: 'vellum sleep' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+      `Error: 'vellum sleep' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }

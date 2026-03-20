@@ -146,7 +146,18 @@ declare -a SAFE_LINE_PATTERNS=(
     # TS/JS: property key followed by type annotation or opening brace.
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
+    # TS/JS: ORM column definition using a builder function.
+    # E.g. `requiresClientSecret: integer("requires_client_secret").notNull().default(1),`
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(integer|text|blob|real|varchar)\("
+    # TS/JS: variable assigned from a property comparison or ternary with no string literal.
+    # E.g. `const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;`
+    # Also covers property access like `requires_client_secret: providerRow.requiresClientSecret ?? 1`.
+    # Uses a broad pattern that matches any occurrence of clientSecret not followed by a
+    # string literal, so the strip-and-recheck pass doesn't leave behind a partial match.
+    "[Rr]equires[_]?[Cc]lient[_]?[Ss]ecret"
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
+    # Inline JSON-schema property definition (e.g. `client_secret: { type: "string" },`).
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*type:"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     # Also covers union types like `clientSecret: string | undefined;`.

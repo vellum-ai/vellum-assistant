@@ -8,7 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getRootDir } from "./credential-reader.js";
+import { getWorkspaceDir } from "./credential-reader.js";
 
 const DEFAULT_TTL_MS = 1000;
 
@@ -55,7 +55,7 @@ export class ConfigFileCache {
 
   constructor(opts?: { ttlMs?: number }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
-    this.configPath = join(getRootDir(), "workspace", "config.json");
+    this.configPath = join(getWorkspaceDir(), "config.json");
   }
 
   /** Read the config file if the cached snapshot is stale or force is set. */

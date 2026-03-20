@@ -821,7 +821,7 @@ describe("web_search_tool_result structural guard", () => {
       if (
         !insideHelperSignature &&
         helperBraceDepth === 0 &&
-        /function isToolResult(Block|Content)\b/.test(line)
+        /function isToolResult\w*\b/.test(line)
       ) {
         // The opening `{` may be on this line or a subsequent line (multi-line
         // signatures). Check if there are braces on this line to determine

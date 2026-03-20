@@ -8,13 +8,17 @@
  * DELETE /v1/memory-items/:id    — delete a memory item and its embeddings
  */
 
-import { and, asc, count, desc, eq, like, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../../memory/db.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { memoryEmbeddings, memoryItems } from "../../memory/schema.js";
+import {
+  conversations,
+  memoryEmbeddings,
+  memoryItems,
+} from "../../memory/schema.js";
 import { truncate } from "../../util/truncate.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
@@ -37,6 +41,7 @@ type MemoryItemKind = (typeof VALID_KINDS)[number];
 const VALID_SORT_FIELDS = [
   "lastSeenAt",
   "importance",
+  "accessCount",
   "kind",
   "firstSeenAt",
 ] as const;
@@ -46,6 +51,7 @@ type SortField = (typeof VALID_SORT_FIELDS)[number];
 const SORT_COLUMN_MAP = {
   lastSeenAt: memoryItems.lastSeenAt,
   importance: memoryItems.importance,
+  accessCount: memoryItems.accessCount,
   kind: memoryItems.kind,
   firstSeenAt: memoryItems.firstSeenAt,
 } as const;
@@ -60,6 +66,54 @@ function isValidKind(value: string): value is MemoryItemKind {
 
 function isValidSortField(value: string): value is SortField {
   return (VALID_SORT_FIELDS as readonly string[]).includes(value);
+}
+
+/**
+ * Resolve a `scopeLabel` for a memory item based on its `scopeId`.
+ *
+ * - `"default"` → `null`
+ * - `"private:<conversationId>"` → `"Private · <title>"` when the conversation
+ *   has a title, or `"Private"` when it doesn't (or the conversation was deleted).
+ */
+function resolveScopeLabel(
+  scopeId: string,
+  titleMap: Map<string, string | null>,
+): string | null {
+  if (scopeId === "default") return null;
+  if (scopeId.startsWith("private:")) {
+    const conversationId = scopeId.slice("private:".length);
+    const title = titleMap.get(conversationId);
+    return title ? `Private · ${title}` : "Private";
+  }
+  return null;
+}
+
+/**
+ * Batch-fetch conversation titles for a set of private-scoped memory items.
+ * Returns a Map from conversation ID → title (or null).
+ */
+function buildConversationTitleMap(
+  db: ReturnType<typeof getDb>,
+  scopeIds: string[],
+): Map<string, string | null> {
+  const conversationIds = scopeIds
+    .filter((s) => s.startsWith("private:"))
+    .map((s) => s.slice("private:".length));
+
+  const uniqueIds = [...new Set(conversationIds)];
+  if (uniqueIds.length === 0) return new Map();
+
+  const rows = db
+    .select({ id: conversations.id, title: conversations.title })
+    .from(conversations)
+    .where(inArray(conversations.id, uniqueIds))
+    .all();
+
+  const map = new Map<string, string | null>();
+  for (const row of rows) {
+    map.set(row.id, row.title);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +157,8 @@ export function handleListMemoryItems(url: URL): Response {
 
   // Build WHERE conditions
   const conditions = [];
+  // Hide system-managed capability memories (skill announcements) from the UI
+  conditions.push(ne(memoryItems.kind, "capability"));
   if (statusParam && statusParam !== "all") {
     conditions.push(eq(memoryItems.status, statusParam));
   }
@@ -141,7 +197,17 @@ export function handleListMemoryItems(url: URL): Response {
     .offset(offsetParam)
     .all();
 
-  return Response.json({ items, total });
+  // Resolve scope labels for private-scoped items
+  const titleMap = buildConversationTitleMap(
+    db,
+    items.map((i) => i.scopeId),
+  );
+  const enrichedItems = items.map((item) => ({
+    ...item,
+    scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
+  }));
+
+  return Response.json({ items: enrichedItems, total });
 }
 
 // ---------------------------------------------------------------------------
@@ -183,9 +249,14 @@ export function handleGetMemoryItem(ctx: RouteContext): Response {
     supersededBySubject = superseding?.subject;
   }
 
+  // Resolve scope label
+  const titleMap = buildConversationTitleMap(db, [item.scopeId]);
+  const scopeLabel = resolveScopeLabel(item.scopeId, titleMap);
+
   return Response.json({
     item: {
       ...item,
+      scopeLabel,
       ...(supersedesSubject !== undefined ? { supersedesSubject } : {}),
       ...(supersededBySubject !== undefined ? { supersededBySubject } : {}),
     },
@@ -299,7 +370,14 @@ export async function handleCreateMemoryItem(
     .where(eq(memoryItems.id, id))
     .get();
 
-  return Response.json({ item: insertedRow }, { status: 201 });
+  // Enrich with scopeLabel for API consistency
+  const titleMap = buildConversationTitleMap(db, [scopeId]);
+  const scopeLabel = resolveScopeLabel(scopeId, titleMap);
+
+  return Response.json(
+    { item: { ...insertedRow, scopeLabel } },
+    { status: 201 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +504,18 @@ export async function handleUpdateMemoryItem(
     .where(eq(memoryItems.id, id))
     .get();
 
-  return Response.json({ item: updatedRow });
+  // Enrich with scopeLabel for API consistency
+  const patchTitleMap = buildConversationTitleMap(db, [
+    updatedRow?.scopeId ?? existing.scopeId,
+  ]);
+  const patchScopeLabel = resolveScopeLabel(
+    updatedRow?.scopeId ?? existing.scopeId,
+    patchTitleMap,
+  );
+
+  return Response.json({
+    item: { ...updatedRow, scopeLabel: patchScopeLabel },
+  });
 }
 
 // ---------------------------------------------------------------------------

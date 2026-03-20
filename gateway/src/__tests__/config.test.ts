@@ -11,6 +11,7 @@ describe("config: hardcoded defaults", () => {
     expect(config.maxWebhookPayloadBytes).toBe(1024 * 1024);
     expect(config.maxAttachmentBytes).toEqual({
       telegram: 20 * 1024 * 1024,
+      telegramOutbound: 50 * 1024 * 1024,
       slack: 100 * 1024 * 1024,
       whatsapp: 16 * 1024 * 1024,
       default: 100 * 1024 * 1024,

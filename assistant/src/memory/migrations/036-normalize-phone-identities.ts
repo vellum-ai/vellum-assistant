@@ -79,9 +79,27 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       .get(table);
     const orderBy = hasUpdatedAt ? "updated_at DESC, rowid DESC" : "rowid DESC";
 
-    const selectColumns = [`id`, column];
+    // Filter uniqueKeyScope to only include peer columns that actually exist in the table.
+    // If a peer column is missing, its unique index can't exist either, so no collision risk.
+    let effectiveScope = uniqueKeyScope;
     if (uniqueKeyScope) {
-      for (const peer of uniqueKeyScope.peerColumns) {
+      const validPeers = uniqueKeyScope.peerColumns.filter(
+        (col) =>
+          !!raw
+            .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
+            .get(table, col),
+      );
+      effectiveScope =
+        validPeers.length === uniqueKeyScope.peerColumns.length
+          ? uniqueKeyScope
+          : validPeers.length > 0
+            ? { ...uniqueKeyScope, peerColumns: validPeers }
+            : undefined;
+    }
+
+    const selectColumns = [`id`, column];
+    if (effectiveScope) {
+      for (const peer of effectiveScope.peerColumns) {
         if (!selectColumns.includes(peer)) selectColumns.push(peer);
       }
     }
@@ -104,14 +122,14 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       if (!original) continue;
       const normalized = normalizePhoneNumber(original);
       if (normalized && normalized !== original) {
-        if (uniqueKeyScope) {
+        if (effectiveScope) {
           // Check if another row already has the normalized value within the same unique-key scope
-          const peerConditions = uniqueKeyScope.peerColumns
+          const peerConditions = effectiveScope.peerColumns
             .map((col) => `${col} = ?`)
             .join(" AND ");
-          const peerValues = uniqueKeyScope.peerColumns.map((col) => row[col]);
-          const whereExtra = uniqueKeyScope.whereClause
-            ? ` AND (${uniqueKeyScope.whereClause})`
+          const peerValues = effectiveScope.peerColumns.map((col) => row[col]);
+          const whereExtra = effectiveScope.whereClause
+            ? ` AND (${effectiveScope.whereClause})`
             : "";
           const existing = raw
             .query(
@@ -154,9 +172,26 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       .get(table);
     const orderBy = hasUpdatedAt ? "updated_at DESC, rowid DESC" : "rowid DESC";
 
-    const selectColumns = [`id`, column];
+    // Filter uniqueKeyScope to only include peer columns that actually exist in the table.
+    let effectiveScope = uniqueKeyScope;
     if (uniqueKeyScope) {
-      for (const peer of uniqueKeyScope.peerColumns) {
+      const validPeers = uniqueKeyScope.peerColumns.filter(
+        (col) =>
+          !!raw
+            .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
+            .get(table, col),
+      );
+      effectiveScope =
+        validPeers.length === uniqueKeyScope.peerColumns.length
+          ? uniqueKeyScope
+          : validPeers.length > 0
+            ? { ...uniqueKeyScope, peerColumns: validPeers }
+            : undefined;
+    }
+
+    const selectColumns = [`id`, column];
+    if (effectiveScope) {
+      for (const peer of effectiveScope.peerColumns) {
         if (!selectColumns.includes(peer)) selectColumns.push(peer);
       }
     }
@@ -179,13 +214,13 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       if (!original) continue;
       const normalized = normalizePhoneNumber(original);
       if (normalized && normalized !== original) {
-        if (uniqueKeyScope) {
-          const peerConditions = uniqueKeyScope.peerColumns
+        if (effectiveScope) {
+          const peerConditions = effectiveScope.peerColumns
             .map((col) => `${col} = ?`)
             .join(" AND ");
-          const peerValues = uniqueKeyScope.peerColumns.map((col) => row[col]);
-          const whereExtra = uniqueKeyScope.whereClause
-            ? ` AND (${uniqueKeyScope.whereClause})`
+          const peerValues = effectiveScope.peerColumns.map((col) => row[col]);
+          const whereExtra = effectiveScope.whereClause
+            ? ` AND (${effectiveScope.whereClause})`
             : "";
           const existing = raw
             .query(

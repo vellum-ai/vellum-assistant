@@ -1,104 +1,58 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Sort Options
+// MARK: - Section Tab
 
-private enum MemorySortOption: String, CaseIterable {
-    case newest = "Newest"
-    case oldest = "Oldest"
-    case importance = "Importance"
-    case kind = "Kind"
-
-    var sortField: String {
-        switch self {
-        case .newest, .oldest: return "lastSeenAt"
-        case .importance: return "importance"
-        case .kind: return "kind"
-        }
-    }
-
-    var sortOrder: String {
-        switch self {
-        case .newest, .importance: return "desc"
-        case .oldest, .kind: return "asc"
-        }
-    }
-}
-
-private enum MemoryStatusFilter: String, CaseIterable {
-    case active = "Active"
-    case inactive = "Inactive"
-    case all = "All"
-
-    /// API value sent as the `status` query parameter.
-    var apiValue: String {
-        switch self {
-        case .active: return "active"
-        case .inactive: return "inactive"
-        case .all: return "all"
-        }
-    }
+private enum MemorySection: String, CaseIterable {
+    case observations = "Observations"
+    case episodes = "Episodes"
+    case brief = "Brief"
 }
 
 // MARK: - Memories Panel
 
 struct MemoriesPanel: View {
-    let daemonClient: DaemonClient
     @Binding var focusedMemoryId: String?
-    @StateObject private var store: MemoryItemsStore
+    @StateObject private var store: SimplifiedMemoryStore
+    @State private var selectedSection: MemorySection = .observations
     @State private var showCreateSheet = false
-    @State private var selectedItem: MemoryItemPayload?
-    @State private var selectedKind: MemoryKind?
-    @State private var statusFilter: MemoryStatusFilter = .active
-    @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
 
-    init(daemonClient: DaemonClient, focusedMemoryId: Binding<String?> = .constant(nil)) {
-        self.daemonClient = daemonClient
+    init(focusedMemoryId: Binding<String?> = .constant(nil)) {
         _focusedMemoryId = focusedMemoryId
-        _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
+        _store = StateObject(wrappedValue: SimplifiedMemoryStore(client: SimplifiedMemoryClient()))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            filterBar
-            HStack(alignment: .top, spacing: VSpacing.xxl) {
-                kindSidebar
-                contentView
-            }
-            .padding(.top, VSpacing.lg)
+            toolBar
+            sectionTabs
+                .padding(.top, VSpacing.md)
+            sectionContent
+                .padding(.top, VSpacing.lg)
         }
-        .task { await store.loadItems() }
+        .task { await store.loadMemories() }
         .task(id: focusedMemoryId) {
-            guard let memoryId = focusedMemoryId else { return }
-            if let item = await store.fetchDetail(id: memoryId) {
-                selectedItem = item
-            }
+            guard focusedMemoryId != nil else { return }
+            withAnimation(VAnimation.fast) { selectedSection = .observations }
             focusedMemoryId = nil
         }
         .onDisappear {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(item: $selectedItem) { item in
-            MemoryItemDetailSheet(
-                item: item,
-                store: store,
-                onDismiss: { selectedItem = nil }
-            )
-        }
         .sheet(isPresented: $showCreateSheet) {
-            MemoryItemCreateSheet(
+            MemoryCreateSheet(
                 store: store,
                 onDismiss: { showCreateSheet = false }
             )
         }
     }
 
-    // MARK: - Filter Bar
+    // MARK: - Tool Bar
 
     @ViewBuilder
-    private var filterBar: some View {
+    private var toolBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Memories", text: $store.searchText)
                 .onChange(of: store.searchText) {
@@ -106,108 +60,96 @@ struct MemoriesPanel: View {
                     searchDebounceTask = Task {
                         try? await Task.sleep(nanoseconds: 300_000_000)
                         guard !Task.isCancelled else { return }
-                        await store.loadItems()
+                        await store.loadMemories()
                     }
                 }
-
-            VDropdown(
-                placeholder: "Status",
-                selection: $statusFilter,
-                options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) },
-                maxWidth: 130
-            )
-            .onChange(of: statusFilter) {
-                store.statusFilter = statusFilter.apiValue
-                Task { await store.loadItems() }
-            }
-
-            VDropdown(
-                placeholder: "Sort",
-                selection: $sortOption,
-                options: MemorySortOption.allCases.map { ($0.rawValue, $0) },
-                maxWidth: 130
-            )
-            .onChange(of: sortOption) {
-                store.sortField = sortOption.sortField
-                store.sortOrder = sortOption.sortOrder
-                Task { await store.loadItems() }
-            }
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
             }
-            .accessibilityLabel("Create new memory")
+            .accessibilityLabel("Add new memory")
         }
         .padding(.top, VSpacing.sm)
     }
 
-    // MARK: - Kind Sidebar
+    // MARK: - Section Tabs
 
     @ViewBuilder
-    private var kindSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            kindSidebarItem(label: "All", isSelected: selectedKind == nil) {
-                selectedKind = nil
-                store.kindFilter = nil
-                Task { await store.loadItems() }
+    private var sectionTabs: some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(MemorySection.allCases, id: \.self) { section in
+                sectionPill(section)
             }
-            .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
-
-            ForEach(MemoryKind.allCases) { kind in
-                kindSidebarItem(label: kind.label, isSelected: selectedKind == kind) {
-                    selectedKind = kind
-                    store.kindFilter = kind.rawValue
-                    Task { await store.loadItems() }
-                }
-                .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
-            }
+            Spacer()
         }
-        .frame(width: 220)
     }
 
     @ViewBuilder
-    private func kindSidebarItem(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.sm)
-                .padding(.horizontal, VSpacing.sm)
-                .contentShape(Rectangle())
-                .background(isSelected ? VColor.surfaceActive : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    private func sectionPill(_ section: MemorySection) -> some View {
+        let isActive = selectedSection == section
+        Button {
+            withAnimation(VAnimation.fast) { selectedSection = section }
+        } label: {
+            Text(section.rawValue)
+                .font(VFont.captionMedium)
+                .foregroundColor(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.xs)
+                .background(isActive ? VColor.surfaceActive : Color.clear)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(isActive ? VColor.borderBase : VColor.borderDisabled, lineWidth: 1)
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(label) filter")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
-    // MARK: - Content View
+    // MARK: - Section Content
 
     @ViewBuilder
-    private var contentView: some View {
-        if store.isLoading && store.items.isEmpty {
+    private var sectionContent: some View {
+        if store.isLoading && store.observations.isEmpty && store.episodes.isEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if store.items.isEmpty {
+        } else {
+            switch selectedSection {
+            case .observations:
+                observationsSection
+            case .episodes:
+                episodesSection
+            case .brief:
+                briefSection
+            }
+        }
+    }
+}
+
+// MARK: - Observations Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var observationsSection: some View {
+        if store.observations.isEmpty {
             VEmptyState(
                 title: "No Memories Yet",
-                subtitle: "Your assistant learns and remembers things from your conversations. Memories will appear here as they're created.",
-                icon: VIcon.bookOpen.rawValue
+                subtitle: "Your assistant builds memories from your conversations. Have a chat and check back.",
+                icon: VIcon.lightbulb.rawValue
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(store.items) { item in
-                        MemoryItemRow(
-                            item: item,
-                            onSelect: { selectedItem = item },
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(store.observations) { observation in
+                        MemoryObservationRow(
+                            observation: observation,
                             onDelete: {
-                                Task { _ = await store.deleteItem(id: item.id) }
+                                Task { _ = await store.deleteObservation(id: observation.id) }
                             }
                         )
                     }
@@ -219,3 +161,171 @@ struct MemoriesPanel: View {
     }
 }
 
+// MARK: - Episodes Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var episodesSection: some View {
+        if store.episodes.isEmpty {
+            VEmptyState(
+                title: "No Episodes Yet",
+                subtitle: "Episodes are narrative summaries your assistant creates from longer interactions.",
+                icon: VIcon.bookOpen.rawValue
+            )
+        } else {
+            ScrollView {
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(store.episodes) { episode in
+                        MemoryEpisodeRow(episode: episode)
+                    }
+                }
+                .background { OverlayScrollerStyle() }
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+}
+
+// MARK: - Brief Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var briefSection: some View {
+        let hasTimeContexts = !store.timeContexts.isEmpty
+        let hasOpenLoops = !store.openLoops.isEmpty
+
+        if !hasTimeContexts && !hasOpenLoops {
+            VEmptyState(
+                title: "No Brief Items Yet",
+                subtitle: "Time contexts and open loops from your conversations will appear here.",
+                icon: VIcon.clock.rawValue
+            )
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: VSpacing.xl) {
+                    if hasTimeContexts {
+                        timeContextsSubsection
+                    }
+                    if hasOpenLoops {
+                        openLoopsSubsection
+                    }
+                }
+                .background { OverlayScrollerStyle() }
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var timeContextsSubsection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Time Contexts")
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+
+            ForEach(store.timeContexts) { ctx in
+                timeContextCard(ctx)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func timeContextCard(_ ctx: MemoryTimeContextPayload) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(ctx.summary)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.calendar, size: 11)
+                    .foregroundColor(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+                Text("Active: \(formattedDateRange(from: ctx.activeFromDate, to: ctx.activeUntilDate))")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                Spacer()
+            }
+        }
+        .padding(VSpacing.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    @ViewBuilder
+    private var openLoopsSubsection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Open Loops")
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+
+            ForEach(store.openLoops) { loop in
+                openLoopCard(loop)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func openLoopCard(_ loop: MemoryOpenLoopPayload) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(loop.summary)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            HStack(spacing: VSpacing.sm) {
+                statusBadge(loop.status)
+
+                if let dueDate = loop.dueDate {
+                    HStack(spacing: VSpacing.xxs) {
+                        VIconView(.clock, size: 11)
+                            .foregroundColor(VColor.contentTertiary)
+                            .accessibilityHidden(true)
+                        Text("Due: \(formattedShortDate(dueDate))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+
+                Spacer()
+            }
+        }
+        .padding(VSpacing.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    // MARK: - Helpers
+
+    private func statusBadge(_ status: String) -> some View {
+        let tone: VBadge.Tone = switch status {
+        case "open": .warning
+        case "resolved": .positive
+        case "expired": .neutral
+        default: .neutral
+        }
+        return VBadge(label: status.capitalized, tone: tone, emphasis: .subtle, shape: .pill)
+    }
+
+    private func formattedDateRange(from start: Date, to end: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return "\(formatter.string(from: start)) \u{2013} \(formatter.string(from: end))"
+    }
+
+    private func formattedShortDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
+    }
+}

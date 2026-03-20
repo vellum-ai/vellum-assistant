@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import { getAppsDir } from "../memory/app-store.js";
+import { getAppDirPath } from "../memory/app-store.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
@@ -68,7 +68,7 @@ export async function generateAppIcon(
     return;
   }
 
-  const appDir = join(getAppsDir(), appId);
+  const appDir = getAppDirPath(appId);
   const iconPath = join(appDir, "icon.png");
 
   // Don't regenerate if icon already exists

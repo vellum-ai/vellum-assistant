@@ -17,8 +17,6 @@ struct ComposerSection: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
@@ -29,6 +27,7 @@ struct ComposerSection: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,8 +54,6 @@ struct ComposerSection: View {
                 onAttach: onAttach,
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
-                onFileDrop: onFileDrop,
-                onDropImageData: onDropImageData,
                 onMicrophoneToggle: onMicrophoneToggle,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
@@ -65,7 +62,8 @@ struct ComposerSection: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isSending ? "Working on it..." : "What would you like to do?",
-                conversationId: conversationId
+                conversationId: conversationId,
+                isInteractionEnabled: isInteractionEnabled
             )
         }
         .background(

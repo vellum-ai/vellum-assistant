@@ -222,6 +222,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
+      "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
@@ -252,6 +253,9 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "cli/commands/avatar.ts", // CLI avatar generation API key lookup
       "config/bundled-skills/slack/tools/shared.ts", // Slack skill bot token lookup
+      "daemon/conversation-process.ts", // masked provider key display
+      "daemon/handlers/config-model.ts", // masked provider key display
+      "providers/speech-to-text/resolve.ts", // STT provider API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

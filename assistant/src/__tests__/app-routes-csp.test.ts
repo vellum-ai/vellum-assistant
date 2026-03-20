@@ -37,6 +37,7 @@ const apps = new Map<string, typeof legacyApp | typeof multifileApp>([
 mock.module("../memory/app-store.js", () => ({
   getApp: (id: string) => apps.get(id) ?? null,
   getAppsDir: () => "/fake/apps",
+  getAppDirPath: (appId: string) => `/fake/apps/${appId}`,
   isMultifileApp: (app: Record<string, unknown>) => app.formatVersion === 2,
 }));
 

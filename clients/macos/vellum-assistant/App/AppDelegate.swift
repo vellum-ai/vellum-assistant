@@ -12,6 +12,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// The canonical product name shown in menus and the About panel.
+    /// Use this instead of hardcoding "Vellum" so the name is defined
+    /// in one place.
+    public static let appName = "Vellum"
+
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
     /// the delegate.  Use `AppDelegate.shared` instead.
@@ -49,7 +54,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     public let services = AppServices()
-    let assistantCli = AssistantCli()
+    let vellumCli = VellumCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
@@ -131,7 +136,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Structured error from the most recent daemon startup failure.
     /// Populated by `setupDaemonClient()` when `hatch()` throws a
-    /// `CLIError.daemonStartupFailed`. Read by the UI (PR 3) to show a
+    /// `CLIError.daemonStartupFailed`. Read by the UI to show a
     /// contextual error view instead of a generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 
@@ -149,7 +154,100 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Guards `.appOpen` sound so it fires only once per app session,
+    /// even if `proceedToApp()` is called again after assistant switches
+    /// or re-authentication flows.
+    private var hasPlayedAppOpenSound = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
+
+    // MARK: - App Menu Name Patching
+
+    /// The bundle display name from Info.plist (may be a custom dock label).
+    private lazy var bundleDisplayName: String = {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? Self.appName
+    }()
+
+    /// Delegate that patches the app menu items to "Vellum" right before
+    /// macOS renders them.
+    private var appMenuPatchDelegate: AppMenuPatchDelegate?
+    private var appMenuTrackingObserver: NSObjectProtocol?
+    private var appMenuActivationObserver: NSObjectProtocol?
+
+    public func applicationWillFinishLaunching(_ notification: Notification) {
+        // Ensure the macOS app menu consistently says "Vellum" (Hide Vellum,
+        // Quit Vellum, etc.) regardless of the executable name — which may
+        // differ between production builds (renamed to "Vellum" by build.sh)
+        // and development builds (SPM target name).  The bundle display name
+        // may be a custom dock label (e.g. an assistant name), so we patch
+        // both the process name and the main menu items.
+        ProcessInfo.processInfo.processName = Self.appName
+    }
+
+    /// Installs observers that patch the app menu bar title and items to
+    /// "Vellum".  The menu bar title is patched via didBeginTracking (fires
+    /// when the user clicks the menu bar, before rendering) and the submenu
+    /// items are patched via a delegate.
+    func patchAppMenuTitles() {
+        guard bundleDisplayName != Self.appName else { return }
+
+        if appMenuPatchDelegate == nil {
+            appMenuPatchDelegate = AppMenuPatchDelegate(
+                bundleDisplayName: bundleDisplayName
+            )
+        }
+
+        // Patch submenu items via delegate.
+        if let appMenu = NSApp.mainMenu?.items.first?.submenu {
+            appMenu.delegate = appMenuPatchDelegate
+            appMenuPatchDelegate?.patchTitles(menu: appMenu)
+        }
+
+        // Capture outside @Sendable closures to avoid main-actor isolation warning.
+        let appName = AppDelegate.appName
+
+        // Patch the menu bar title right when the user clicks the menu bar.
+        if appMenuTrackingObserver == nil {
+            appMenuTrackingObserver = NotificationCenter.default.addObserver(
+                forName: NSMenu.didBeginTrackingNotification,
+                object: NSApp.mainMenu,
+                queue: .main
+            ) { _ in
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
+                }
+            }
+        }
+
+        // Patch when the app becomes active (reopen from Dock, Cmd+Tab, etc.)
+        // so the title is correct before the user clicks the menu.
+        if appMenuActivationObserver == nil {
+            appMenuActivationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                if let item = NSApp.mainMenu?.items.first, item.title != appName {
+                    item.title = appName
+                }
+            }
+        }
+
+        // Apply immediately, and again after a short delay to catch SwiftUI
+        // resetting the title after applicationDidFinishLaunching returns.
+        applyMenuBarTitlePatch()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyMenuBarTitlePatch()
+        }
+    }
+
+    private func applyMenuBarTitlePatch() {
+        if let item = NSApp.mainMenu?.items.first, item.title != Self.appName {
+            item.title = Self.appName
+        }
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // ── Single-instance guard ──────────────────────────────────────
@@ -198,12 +296,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         Self.shared = self
+
+        // Initialize the chat diagnostics store early so launch session
+        // metadata and first events exist even if the app wedges during startup.
+        _ = ChatDiagnosticsStore.shared
+
+        MainThreadStallDetector.shared.start()
         metricKitManager = MetricKitManager()
 
         // Prevent macOS from automatically creating window tabs or restoring
         // SwiftUI-managed windows (the Settings scene renders EmptyView and
         // can appear as a blank window during activation policy transitions).
         NSWindow.allowsAutomaticWindowTabbing = false
+
+        // Migrate legacy privacy keys (collectUsageDataEnabled,
+        // sendPerformanceReports) to their canonical equivalents
+        // synchronously so the Sentry gate below sees the correct value.
+        Self.migratePrivacyDefaults()
 
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
@@ -214,10 +323,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
             SentrySDK.start { options in
                 options.dsn = MetricKitManager.macosDSN
                 options.releaseName = "vellum-macos@\(appVersion)"
-                options.dist = buildNumber
+                options.dist = commitSHA ?? buildNumber
                 options.environment = SentryDeviceInfo.sentryEnvironment
                 options.debug = false
                 options.tracesSampleRate = 0.1
@@ -248,6 +358,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // renders EmptyView — we handle settings in the main window panel).
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
 
+        // Remove orphaned conversation zoom key. ConversationZoomManager was
+        // deleted (redundant with window-level ZoomManager); clean up any
+        // persisted value so it doesn't linger in UserDefaults.
+        UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
+
         // Migrate API keys from plaintext UserDefaults to credential storage
         // (Keychain in Release, file-based in DEBUG). Safe to call on every
         // launch — skips providers already present in credential storage.
@@ -275,6 +390,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
+        patchAppMenuTitles()
         setupHotKey()
 
         // Install CLI symlinks early so they are available before the daemon
@@ -348,6 +464,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         AvatarAppearanceManager.shared.reloadAvatar()
         setupMenuBar()
         setupFileMenu()
+        patchAppMenuTitles()
         registerNavigationMonitor()
         registerZoomMonitor()
         setupHotKey()
@@ -360,6 +477,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
+
+        SoundManager.shared.start()
+        RandomSoundTimer.shared.start()
+        if !hasPlayedAppOpenSound {
+            hasPlayedAppOpenSound = true
+            SoundManager.shared.play(.appOpen)
+        }
 
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
@@ -454,6 +578,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if let observer = avatarChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = appMenuTrackingObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appMenuActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         statusIconCancellable?.cancel()
         conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
@@ -469,10 +599,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
+        RandomSoundTimer.shared.stop()
+        SoundManager.shared.stop()
         #if !DEBUG
         keychainBroker?.stop()
         #endif
-        assistantCli.stop()
+        vellumCli.stop()
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
@@ -484,6 +616,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
     }
 
 }

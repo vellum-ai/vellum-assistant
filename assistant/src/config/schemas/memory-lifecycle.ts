@@ -68,8 +68,10 @@ export const MemoryCleanupConfigSchema = z
       .nonnegative(
         "memory.cleanup.conversationRetentionDays must be non-negative",
       )
-      .default(90)
-      .describe("Number of days to retain conversation data before cleanup"),
+      .default(0)
+      .describe(
+        "Number of days to retain conversation data before cleanup (0 disables pruning)",
+      ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");
 

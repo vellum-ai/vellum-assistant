@@ -143,6 +143,14 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
 }));
 
+const syncMessageToDiskMock = mock(() => {});
+const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
+mock.module("../memory/conversation-disk-view.js", () => ({
+  syncMessageToDisk: syncMessageToDiskMock,
+  rebuildConversationDiskViewFromDbState:
+    rebuildConversationDiskViewFromDbStateMock,
+}));
+
 mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
@@ -213,11 +221,13 @@ mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
+const consolidateAssistantMessagesMock = mock(() => false);
 mock.module("../daemon/conversation-history.js", () => ({
-  consolidateAssistantMessages: () => {},
+  consolidateAssistantMessages: consolidateAssistantMessagesMock,
 }));
 
 const recordUsageMock = mock(() => {});
+const recordRequestLogMock = mock(() => {});
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -305,8 +315,16 @@ mock.module("../agent/message-types.js", () => ({
   }),
 }));
 
+mock.module("../memory/archive-store.js", () => ({
+  insertCompactionEpisode: () => ({
+    episodeId: "mock-episode-id",
+    jobId: "mock-job-id",
+  }),
+}));
+
 mock.module("../memory/llm-request-log-store.js", () => ({
-  recordRequestLog: () => {},
+  recordRequestLog: recordRequestLogMock,
+  backfillMessageIdOnLogs: () => {},
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────
@@ -447,6 +465,11 @@ beforeEach(() => {
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
   recordUsageMock.mockClear();
+  recordRequestLogMock.mockClear();
+  syncMessageToDiskMock.mockClear();
+  rebuildConversationDiskViewFromDbStateMock.mockClear();
+  consolidateAssistantMessagesMock.mockReset();
+  consolidateAssistantMessagesMock.mockImplementation(() => false);
 });
 
 describe("session-agent-loop", () => {
@@ -587,6 +610,235 @@ describe("session-agent-loop", () => {
       expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
+    });
+  });
+
+  describe("LLM request log persistence", () => {
+    test("record request log prefers the actual provider from failover", async () => {
+      const events: ServerMessage[] = [];
+      const rawRequest = {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      const rawResponse = {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hi there.",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 3,
+        },
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-4.1-2026-03-01",
+          actualProvider: "fireworks",
+          providerDurationMs: 45,
+          rawRequest,
+          rawResponse,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openrouter",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        undefined,
+        string,
+      ];
+      expect(call).toEqual([
+        "test-conv",
+        JSON.stringify(rawRequest),
+        JSON.stringify(rawResponse),
+        undefined,
+        "fireworks",
+      ]);
+    });
+
+    test("record request log falls back to the runtime provider when no actual provider is supplied", async () => {
+      const rawRequest = {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      const rawResponse = {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hi there.",
+            },
+          },
+        ],
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-4.1-2026-03-01",
+          providerDurationMs: 45,
+          rawRequest,
+          rawResponse,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openrouter",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        undefined,
+        string,
+      ];
+      expect(call[4]).toBe("openrouter");
+    });
+  });
+
+  describe("usage accounting", () => {
+    test("records the actual provider for failover-served usage", async () => {
+      const events: ServerMessage[] = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-4.1-2026-03-01",
+          actualProvider: "fireworks",
+          providerDurationMs: 45,
+          rawRequest: {
+            model: "gpt-4.1",
+            messages: [{ role: "user", content: "Hello" }],
+          },
+          rawResponse: {
+            model: "gpt-4.1-2026-03-01",
+            choices: [
+              {
+                finish_reason: "stop",
+                message: {
+                  role: "assistant",
+                  content: "Hi there.",
+                },
+              },
+            ],
+          },
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openrouter",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      expect(mainAgentCall?.[0]).toMatchObject({
+        conversationId: "test-conv",
+        providerName: "fireworks",
+      });
+      expect(mainAgentCall?.[1]).toBe(12);
+      expect(mainAgentCall?.[2]).toBe(3);
+      expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
     });
   });
 
@@ -1687,6 +1939,49 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       expect(drainReason).toBe("loop_complete");
+    });
+
+    test("rebuilds disk view after consolidation mutates persisted history", async () => {
+      consolidateAssistantMessagesMock.mockReturnValue(true);
+
+      const ctx = makeCtx({
+        agentLoopRun: async (
+          messages: Message[],
+          onEvent: (event: AgentEvent) => void,
+        ) => {
+          onEvent({
+            type: "message_complete",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "done" }],
+            },
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 10,
+            outputTokens: 5,
+            model: "test",
+            providerDurationMs: 50,
+          });
+          return [
+            ...messages,
+            {
+              role: "assistant" as const,
+              content: [{ type: "text", text: "done" }] as ContentBlock[],
+            },
+          ];
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-consolidate", () => {});
+
+      expect(consolidateAssistantMessagesMock).toHaveBeenCalledWith(
+        "test-conv",
+        "msg-consolidate",
+      );
+      expect(rebuildConversationDiskViewFromDbStateMock).toHaveBeenCalledWith(
+        "test-conv",
+      );
     });
   });
 

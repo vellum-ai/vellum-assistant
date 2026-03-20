@@ -1,10 +1,5 @@
 import Foundation
 import os
-import CryptoKit
-#if os(macOS)
-import IOKit
-#endif
-
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HTTPTransport")
 
 // MARK: - AssistantEvent Envelope
@@ -36,6 +31,7 @@ public struct ConversationsListResponse: Decodable {
         public let assistantAttention: AssistantAttention?
         public let displayOrder: Double?
         public let isPinned: Bool?
+        public let forkParent: ConversationForkParent?
     }
     public let conversations: [Conversation]
     public let hasMore: Bool?
@@ -43,6 +39,11 @@ public struct ConversationsListResponse: Decodable {
 
 /// Response shape from `GET /v1/conversations/:id`.
 public struct SingleConversationResponse: Decodable {
+    public let conversation: ConversationsListResponse.Conversation
+}
+
+/// Response shape from `POST /v1/conversations/:id/fork`.
+public struct ForkConversationResponse: Decodable {
     public let conversation: ConversationsListResponse.Conversation
 }
 
@@ -149,6 +150,23 @@ public final class HTTPTransport {
 
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
+
+    /// Set by the owning DaemonClient when a planned service group update
+    /// is in progress. Accelerates health check polling for faster reconnection.
+    /// Use `setUpdateInProgress(_:)` to restart the health-check loop when
+    /// the flag transitions to `true`, avoiding a stale 15s sleep.
+    var isUpdateInProgress: Bool = false
+
+    /// Update the in-progress flag and restart the health-check loop when
+    /// transitioning to `true`. This avoids waiting out a stale 15s sleep
+    /// before the accelerated 2s polling kicks in.
+    func setUpdateInProgress(_ value: Bool) {
+        let wasInProgress = isUpdateInProgress
+        isUpdateInProgress = value
+        if value && !wasInProgress && healthCheckTask != nil {
+            startHealthCheckLoop()
+        }
+    }
 
     /// Current reconnect backoff delay in seconds (for SSE).
     private var sseReconnectDelay: TimeInterval = 1.0
@@ -269,7 +287,6 @@ public final class HTTPTransport {
         case eventsAll  // SSE subscription for all events
         case sendMessage
         case conversationsSeen
-        case conversationsUnread
         case identity
         case trustRulesManage
         case trustRuleManageById(id: String)
@@ -286,10 +303,8 @@ public final class HTTPTransport {
         case conversationsClear
         case conversationCancel(id: String)
         case conversationUndo(id: String)
-        case conversationRegenerate(id: String)
         case model
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case deleteQueuedMessage(id: String, conversationId: String)
         case conversationsReorder
         // Computer Use
         case cuWatch
@@ -310,7 +325,6 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsVercelConfig
         case integrationsIngressConfig
 
         // Suggestion
@@ -332,13 +346,7 @@ public final class HTTPTransport {
         // Host CU Proxy
         case hostCuResult
 
-        // BTW side-chain
-        case btw
-
         // Misc
-        case channelVerificationSessions
-        case channelVerificationSessionsResend
-        case channelVerificationSessionsRevoke
         case registerDeviceToken
 
     }
@@ -378,8 +386,6 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
-        case .conversationsUnread:
-            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .trustRulesManage:
@@ -419,9 +425,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/conversations/\(encoded)/undo", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/regenerate", nil)
         case .model:
             return ("/v1/model", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -430,10 +433,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("/v1/conversations/search", qs)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
         // Computer Use
@@ -457,9 +456,7 @@ public final class HTTPTransport {
             return ("/v1/tools/simulate-permission", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("/v1/integrations/oauth/start", nil)
-        case .integrationsVercelConfig:
-            return ("/v1/integrations/vercel/config", nil)
+            return ("/v1/oauth/start", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
         // Suggestion
@@ -482,16 +479,7 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("/v1/host-cu-result", nil)
-        // BTW side-chain
-        case .btw:
-            return ("/v1/btw", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("/v1/channel-verification-sessions", nil)
-        case .channelVerificationSessionsResend:
-            return ("/v1/channel-verification-sessions/resend", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
         }
@@ -512,8 +500,6 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
-        case .conversationsUnread:
-            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .trustRulesManage:
@@ -553,9 +539,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/conversations/\(encoded)/undo/", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -564,10 +547,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("\(prefix)/conversations/search/", qs)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
         // Computer Use
@@ -591,9 +570,7 @@ public final class HTTPTransport {
             return ("\(prefix)/tools/simulate-permission/", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsVercelConfig:
-            return ("\(prefix)/integrations/vercel/config/", nil)
+            return ("\(prefix)/oauth/start/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
         // Suggestion
@@ -616,16 +593,7 @@ public final class HTTPTransport {
         // Host CU Proxy
         case .hostCuResult:
             return ("\(prefix)/host-cu-result/", nil)
-        // BTW side-chain
-        case .btw:
-            return ("\(prefix)/btw/", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("\(prefix)/channel-verification-sessions/", nil)
-        case .channelVerificationSessionsResend:
-            return ("\(prefix)/channel-verification-sessions/resend/", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
         }
@@ -678,6 +646,12 @@ public final class HTTPTransport {
                 throw HTTPTransportError.healthCheckFailed
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
+            // When the daemon comes back during a planned update, reset the
+            // SSE reconnect backoff so the event stream reconnects quickly
+            // instead of waiting up to 30s of exponential backoff.
+            if isUpdateInProgress {
+                sseReconnectDelay = 1.0
+            }
             setConnected(true)
         } catch let error as HTTPTransportError {
             setConnected(false)
@@ -696,7 +670,8 @@ public final class HTTPTransport {
         healthCheckTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: UInt64((self?.healthCheckInterval ?? 15.0) * 1_000_000_000))
+                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
+                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 } catch {
                     return
                 }
@@ -847,6 +822,14 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
+        let byteCount = data.utf8.count
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            if elapsed > 0.05 || byteCount > 100_000 {
+                log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000))ms, \(byteCount) bytes")
+            }
+        }
         var jsonString = data
         // Remap server conversation IDs to client-local conversation IDs via O(1) dictionary lookup
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
@@ -966,16 +949,21 @@ public final class HTTPTransport {
     private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
         guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
+        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .public), mimeType=\(attachment.mimeType, privacy: .public)")
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "filename": attachment.filename,
             "mimeType": attachment.mimeType,
             "data": attachment.data
         ]
+        if let filePath = attachment.filePath {
+            body["filePath"] = filePath
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -985,8 +973,10 @@ public final class HTTPTransport {
             if http.statusCode == 200 || http.statusCode == 201 {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if let id = json?["id"] as? String {
+                    log.info("[send-pipeline] attachment upload success — id=\(id, privacy: .public)")
                     return .success(id: id)
                 }
+                log.error("[send-pipeline] attachment upload response missing id")
                 return .transientFailure
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -1000,17 +990,20 @@ public final class HTTPTransport {
                     return .transientFailure
                 }
             } else {
-                log.error("Attachment upload failed (\(http.statusCode))")
+                log.error("[send-pipeline] attachment upload failed (\(http.statusCode))")
                 return .transientFailure
             }
         } catch {
-            log.error("Attachment upload error: \(error.localizedDescription)")
+            log.error("[send-pipeline] attachment upload error: \(error.localizedDescription)")
             return .transientFailure
         }
     }
 
     func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, automated: Bool? = nil, isRetry: Bool = false) async {
         locallyOwnedConversationIds.insert(conversationId)
+
+        let attachmentCount = attachments?.count ?? 0
+        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount), hasUploadedIds=\(uploadedAttachmentIds != nil), isRetry=\(isRetry)")
 
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
@@ -1037,6 +1030,12 @@ public final class HTTPTransport {
                 }
             }
         }
+
+        if isRetry && !(uploadedAttachmentIds ?? []).isEmpty {
+            log.info("[send-pipeline] send retry reusing \(attachmentIds.count) previously uploaded attachment IDs")
+        }
+
+        log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
         guard let url = buildURL(for: .sendMessage) else { return }
 
@@ -1124,8 +1123,7 @@ public final class HTTPTransport {
                     conversationId: conversationId,
                     code: .providerApi,
                     userMessage: message,
-                    retryable: false,
-                    failedMessageContent: content
+                    retryable: false
                 )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
@@ -1150,117 +1148,6 @@ public final class HTTPTransport {
         }
     }
 
-    /// Send a /btw side-chain question and stream the response text.
-    /// Returns an AsyncThrowingStream that yields text deltas from SSE `btw_text_delta` events.
-    /// Throws on `btw_error` events and handles 401 authentication retry.
-    func sendBtwMessage(content: String, conversationKey: String, isRetry: Bool = false) -> AsyncThrowingStream<String, Error> {
-        return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-
-                guard let url = self.buildURL(for: .btw) else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                request.timeoutInterval = 120
-                self.applyAuth(&request)
-
-                let body: [String: Any] = [
-                    "conversationKey": conversationKey,
-                    "content": content,
-                ]
-
-                do {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let http = response as? HTTPURLResponse else {
-                        throw URLError(.badServerResponse)
-                    }
-
-                    if http.statusCode == 401 && !isRetry {
-                        // Collect response body for auth refresh
-                        var bodyChunks: [UInt8] = []
-                        for try await byte in bytes {
-                            bodyChunks.append(byte)
-                        }
-                        let responseData = Data(bodyChunks)
-                        let refreshResult = await self.handleAuthenticationFailureAsync(responseData: responseData)
-                        switch refreshResult {
-                        case .success:
-                            // Retry with refreshed auth — pipe the retry stream into this continuation
-                            let retryStream = self.sendBtwMessage(content: content, conversationKey: conversationKey, isRetry: true)
-                            do {
-                                for try await text in retryStream {
-                                    if Task.isCancelled { break }
-                                    continuation.yield(text)
-                                }
-                                continuation.finish()
-                            } catch {
-                                continuation.finish(throwing: error)
-                            }
-                            return
-                        case .terminalFailure:
-                            continuation.finish()
-                            return
-                        case .transientFailure:
-                            throw URLError(.userAuthenticationRequired, userInfo: [
-                                NSLocalizedDescriptionKey: "Authentication failed — please try again."
-                            ])
-                        }
-                    }
-
-                    guard http.statusCode == 200 else {
-                        throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"
-                        ])
-                    }
-
-                    var currentEventType: String?
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-
-                        if line.hasPrefix("event: ") {
-                            currentEventType = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            let jsonString = String(line.dropFirst(6))
-                            if let data = jsonString.data(using: .utf8),
-                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                if currentEventType == "btw_error" {
-                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
-                                    throw URLError(.badServerResponse, userInfo: [
-                                        NSLocalizedDescriptionKey: errorMessage
-                                    ])
-                                }
-                                if let text = parsed["text"] as? String {
-                                    continuation.yield(text)
-                                }
-                                if currentEventType == "btw_complete" {
-                                    break
-                                }
-                            }
-                            currentEventType = nil
-                        } else if line.isEmpty {
-                            currentEventType = nil
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
 
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.
@@ -1316,68 +1203,6 @@ public final class HTTPTransport {
         }
     }
 
-    func sendConversationUnread(_ signal: ConversationUnreadSignal, isRetry: Bool = false) async throws {
-        guard let url = buildURL(for: .conversationsUnread) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationId": signal.conversationId,
-            "sourceChannel": signal.sourceChannel,
-            "signalType": signal.signalType,
-            "confidence": signal.confidence,
-            "source": signal.source
-        ]
-        if let evidenceText = signal.evidenceText {
-            body["evidenceText"] = evidenceText
-        }
-        if let observedAt = signal.observedAt {
-            body["observedAt"] = observedAt
-        }
-        if let metadata = signal.metadata {
-            body["metadata"] = jsonCompatibleDictionary(metadata)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else {
-                throw HTTPTransportError.healthCheckFailed
-            }
-
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    try await sendConversationUnread(signal, isRetry: true)
-                    return
-                case .transientFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
-                    )
-                case .terminalFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
-                    )
-                }
-            }
-
-            guard http.statusCode == 200 else {
-                throw HTTPTransportError.requestFailed(
-                    statusCode: http.statusCode,
-                    message: decodeHTTPErrorMessage(from: data)
-                )
-            }
-        } catch {
-            throw error
-        }
-    }
 
     private func decodeHTTPErrorMessage(from data: Data) -> String? {
         if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
@@ -1464,6 +1289,7 @@ public final class HTTPTransport {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
+        request.setValue("clear-all-conversations", forHTTPHeaderField: "X-Confirm-Destructive")
         applyAuth(&request)
 
         do {
@@ -1552,48 +1378,6 @@ public final class HTTPTransport {
         }
     }
 
-    func regenerateLastResponse(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRegenerate(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Regenerate succeeded for \(conversationId)")
-                // Response messages will arrive via SSE
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await regenerateLastResponse(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Regenerate failed (HTTP \(http.statusCode))")
-                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
-                onMessage?(.conversationError(ConversationErrorMessage(
-                    conversationId: conversationId,
-                    code: .regenerateFailed,
-                    userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: true,
-                    debugDetails: "HTTP \(http.statusCode): \(body)"
-                )))
-            }
-        } catch {
-            log.error("Regenerate error: \(error.localizedDescription)")
-            onMessage?(.conversationError(ConversationErrorMessage(
-                conversationId: conversationId,
-                code: .regenerateFailed,
-                userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: true,
-                debugDetails: error.localizedDescription
-            )))
-        }
-    }
 
     func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
@@ -1623,35 +1407,6 @@ public final class HTTPTransport {
         }
     }
 
-    func deleteQueuedMessage(conversationId: String, requestId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .deleteQueuedMessage(id: requestId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.messageQueuedDeleted(MessageQueuedDeletedMessage(
-                    conversationId: conversationId,
-                    requestId: requestId
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await deleteQueuedMessage(conversationId: conversationId, requestId: requestId, isRetry: true)
-                }
-            } else {
-                log.error("Delete queued message failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Delete queued message error: \(error.localizedDescription)")
-        }
-    }
 
     func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsReorder) else { return }
@@ -1891,31 +1646,9 @@ public final class HTTPTransport {
     // MARK: - macOS Device ID
 
     #if os(macOS)
-    /// Compute a stable device ID matching PairingQRCodeSheet.computeHostId().
-    /// SHA-256 of the IOPlatformUUID + an app-specific salt.
+    /// Compute a stable device ID via the shared HostIdComputer.
     private static func computeMacOSDeviceId() -> String {
-        let platformUUID = getMacOSPlatformUUID() ?? UUID().uuidString
-        let salt = "vellum-assistant-host-id"
-        let input = Data((platformUUID + salt).utf8)
-        let hash = SHA256.hash(data: input)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
-    private static func getMacOSPlatformUUID() -> String? {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        let key = kIOPlatformUUIDKey as CFString
-        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
-            .takeRetainedValue() as? String else {
-            return nil
-        }
-        return uuid
+        return HostIdComputer.computeHostId()
     }
     #endif
 

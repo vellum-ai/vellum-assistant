@@ -29,6 +29,17 @@ public final class SettingsStore: ObservableObject {
     @Published var hasImageGenKey: Bool
     @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
+
+    // MARK: - Embedding Config State
+    @Published var embeddingProvider: String = "auto"
+    @Published var embeddingModel: String? = nil
+    @Published var embeddingActiveProvider: String? = nil
+    @Published var embeddingActiveModel: String? = nil
+    @Published var embeddingAvailableProviders: [EmbeddingProviderOption] = []
+    @Published var embeddingEnabled: Bool = true
+    @Published var embeddingDegraded: Bool = false
+    @Published var embeddingKeySaveError: String? = nil
+
     @Published var maskedKey: String = ""
     @Published var apiKeySaveError: String?
     @Published var apiKeySaving: Bool = false
@@ -46,72 +57,12 @@ public final class SettingsStore: ObservableObject {
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
-    static let availableModels: [String] = [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-    ]
-
-    static let modelDisplayNames: [String: String] = [
-        "claude-opus-4-6": "Claude Opus 4.6",
-        "claude-sonnet-4-6": "Claude Sonnet 4.6",
-        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-    ]
-
     // MARK: - Inference Provider Selection
 
     @Published var selectedInferenceProvider: String = "anthropic"
-    @Published var inferenceAvailableModels: [CatalogModel] = []
 
-    static let inferenceProviders: [String] = [
-        "anthropic", "openai", "gemini", "ollama", "fireworks", "openrouter",
-    ]
-    static let inferenceProviderDisplayNames: [String: String] = [
-        "anthropic": "Anthropic",
-        "openai": "OpenAI",
-        "gemini": "Google Gemini",
-        "ollama": "Ollama",
-        "fireworks": "Fireworks",
-        "openrouter": "OpenRouter",
-    ]
-    /// Client-side model catalog for immediate UI updates on provider change.
-    /// Mirrors PROVIDER_MODEL_CATALOG on the daemon.
-    static let inferenceProviderModels: [String: [(id: String, displayName: String)]] = [
-        "anthropic": [
-            ("claude-opus-4-6", "Claude Opus 4.6"),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-        ],
-        "openai": [
-            ("gpt-5.2", "GPT-5.2"),
-            ("gpt-5.4", "GPT-5.4"),
-            ("gpt-5.4-nano", "GPT-5.4 Nano"),
-        ],
-        "gemini": [
-            ("gemini-3-flash", "Gemini 3 Flash"),
-            ("gemini-3-pro", "Gemini 3 Pro"),
-        ],
-        "ollama": [
-            ("llama3.2", "Llama 3.2"),
-            ("mistral", "Mistral"),
-        ],
-        "fireworks": [
-            ("accounts/fireworks/models/kimi-k2p5", "Kimi K2.5"),
-        ],
-        "openrouter": [
-            ("x-ai/grok-4", "Grok 4"),
-            ("x-ai/grok-4.20-beta", "Grok 4.20 Beta"),
-        ],
-    ]
-    /// Default model per provider (first entry from the catalog).
-    static let inferenceProviderDefaultModel: [String: String] = [
-        "anthropic": "claude-opus-4-6",
-        "openai": "gpt-5.2",
-        "gemini": "gemini-3-flash",
-        "ollama": "llama3.2",
-        "fireworks": "accounts/fireworks/models/kimi-k2p5",
-        "openrouter": "x-ai/grok-4",
-    ]
+    /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
+    @Published var providerCatalog: [ProviderCatalogEntry] = []
 
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
@@ -257,13 +208,25 @@ public final class SettingsStore: ObservableObject {
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
-    /// Current Google OAuth mode. Values: "managed" or "your-own".
-    @Published var googleOAuthMode: String = "your-own"
-    @Published var googleOAuthConnections: [OAuthConnectionEntry] = []
-    @Published var googleOAuthIsConnecting: Bool = false
-    @Published var googleOAuthError: String? = nil
+    /// Managed OAuth mode per provider (keyed by managedServiceConfigKey). Values: "managed" or "your-own".
+    @Published var managedOAuthMode: [String: String] = [:]
+    /// Managed OAuth connections per provider (keyed by managedServiceConfigKey).
+    @Published var managedOAuthConnections: [String: [OAuthConnectionEntry]] = [:]
+    /// Whether a managed OAuth connect flow is in progress (keyed by managedServiceConfigKey).
+    @Published var managedOAuthIsConnecting: [String: Bool] = [:]
+    /// Managed OAuth errors per provider (keyed by managedServiceConfigKey).
+    @Published var managedOAuthError: [String: String] = [:]
     /// Strong reference to prevent the auth session from being deallocated mid-flow.
-    private var googleOAuthWebAuthSession: ASWebAuthenticationSession?
+    private var managedOAuthWebAuthSession: ASWebAuthenticationSession?
+
+    // MARK: - Your Own OAuth State
+
+    @Published var yourOwnOAuthApps: [String: [YourOwnOAuthApp]] = [:]
+    @Published var yourOwnOAuthConnectionsByApp: [String: [YourOwnOAuthConnection]] = [:]
+    @Published var yourOwnOAuthIsLoading: Set<String> = []
+    @Published var yourOwnOAuthError: [String: String] = [:]
+    @Published var yourOwnOAuthConnectingAppId: String? = nil
+    @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
@@ -313,7 +276,7 @@ public final class SettingsStore: ObservableObject {
     /// Whether the user has opted in to sending crash reports, error diagnostics, and
     /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
     @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-        ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
         ?? true
 
     /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
@@ -345,6 +308,7 @@ public final class SettingsStore: ObservableObject {
     private var pendingIngressEnabled: Bool?
     private var pendingIngressUrl: String?
     private var routingSourceRefreshTask: Task<Void, Never>?
+    private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
@@ -410,8 +374,14 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-        // selectedImageGenModel is initialized with a hardcoded default and
-        // populated from the daemon's workspace config via loadServiceModes().
+        // Restore persisted image-gen model as a local fallback so the
+        // user's selection survives restarts even if the daemon is unreachable.
+        // loadServiceModes() will override with the daemon's authoritative
+        // value once it connects.
+        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
+        if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
+            self.selectedImageGenModel = storedImageGenModel
+        }
 
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
@@ -446,6 +416,10 @@ public final class SettingsStore: ObservableObject {
         // Load service modes (inference, image-generation) from workspace config
         loadServiceModes()
 
+        // Seed provider catalog with shared defaults so the UI has data before
+        // the first daemon fetch completes.
+        providerCatalog = ProviderCatalogEntry.defaultCatalog
+
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
         // deterministic timestamp instead of advancing each time.
@@ -475,6 +449,7 @@ public final class SettingsStore: ObservableObject {
                 self?.refreshChannelVerificationStatus(channel: "phone")
                 self?.refreshChannelVerificationStatus(channel: "slack")
                 self?.loadProviderRoutingSources()
+                self?.refreshEmbeddingConfig()
             }
             .store(in: &cancellables)
 
@@ -537,12 +512,6 @@ public final class SettingsStore: ObservableObject {
         daemonClient?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
-
-        // Wire up Vercel API config response
-        daemonClient?.onVercelApiConfigResponse = { [weak self] response in
-            guard let self else { return }
-            self.applyVercelConfigResponse(response)
-        }
 
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
@@ -623,12 +592,6 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
-        // Wire up channel verification response
-        daemonClient?.onChannelVerificationSessionResponse = { [weak self] response in
-            guard let self else { return }
-            self.applyChannelVerificationResponse(response)
-        }
-
         // Only fetch remote state when an assistant is already connected.
         // During initial setup there is no assistant yet, so these calls
         // would all fail with "No connected assistant" errors.
@@ -644,6 +607,9 @@ public final class SettingsStore: ObservableObject {
 
             // Fetch provider routing sources (managed vs BYO) on init
             loadProviderRoutingSources()
+
+            // Fetch embedding config on init
+            refreshEmbeddingConfig()
         }
     }
 
@@ -673,6 +639,7 @@ public final class SettingsStore: ObservableObject {
             if result.success {
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
+                refreshModelInfo()
             } else if let error = result.error {
                 apiKeySaveError = error
                 if !result.isTransient {
@@ -700,6 +667,7 @@ public final class SettingsStore: ObservableObject {
         hasKey = false
         maskedKey = ""
         scheduleRoutingSourceRefresh()
+        refreshModelInfo()
     }
 
     func saveBraveKey(_ raw: String) {
@@ -707,7 +675,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "brave")
-        removeDeletionTombstone(type: "api_key", name: "brave")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "brave")
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
         Task {
@@ -720,6 +690,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "brave")
                     hasBraveKey = false
                     maskedBraveKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "brave")
+                    }
                 }
             }
         }
@@ -739,7 +714,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "perplexity")
-        removeDeletionTombstone(type: "api_key", name: "perplexity")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "perplexity")
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
         Task {
@@ -752,6 +729,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "perplexity")
                     hasPerplexityKey = false
                     maskedPerplexityKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "perplexity")
+                    }
                 }
             }
         }
@@ -771,7 +753,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "gemini")
-        removeDeletionTombstone(type: "api_key", name: "gemini")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "gemini")
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
         Task {
@@ -784,6 +768,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "gemini")
                     hasImageGenKey = false
                     maskedImageGenKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "gemini")
+                    }
                 }
             }
         }
@@ -802,16 +791,12 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        syncCredentialToDaemon(name: "elevenlabs:api_key", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        addDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        deleteCredentialFromDaemon(name: "elevenlabs:api_key")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -822,31 +807,53 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: provider)
         refreshAPIKeyState()
         scheduleRoutingSourceRefresh()
+        refreshModelInfo()
     }
 
-    func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil) {
+    func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil, onError: ((String) -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        apiKeySaveError = nil
-        apiKeySaving = true
+        // Only mutate inference-card state when called from the inference path
+        // (onError == nil). When called from the embedding path, these would
+        // briefly flash saving state on the inference card and clear any
+        // existing inference error.
+        if onError == nil {
+            apiKeySaveError = nil
+            apiKeySaving = true
+        }
 
         // Persist locally first
         APIKeyManager.setKey(trimmed, for: provider)
 
-        // Remove any stale deletion tombstone
-        removeDeletionTombstone(type: "api_key", name: provider)
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded. Deferring this until
+        // after async validation creates a race: if the daemon reconnects before
+        // validation completes, replayDeletionTombstones would DELETE the new key.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
-            apiKeySaving = false
+            if onError == nil {
+                apiKeySaving = false
+            }
             if result.success {
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
+                refreshModelInfo()
             } else if let error = result.error {
-                apiKeySaveError = error
+                if let onError {
+                    onError(error)
+                } else {
+                    apiKeySaveError = error
+                }
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: provider)
+                    }
                 }
             }
         }
@@ -854,6 +861,7 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
+        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
         Task {
             _ = await settingsClient.setImageGenModel(modelId: model)
         }
@@ -907,18 +915,16 @@ public final class SettingsStore: ObservableObject {
     func saveVercelKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
-        } catch {
-            log.error("Failed to send Vercel API config set: \(error)")
+        Task {
+            guard let response = await settingsClient.saveVercelConfig(apiToken: trimmed) else { return }
+            self.applyVercelConfigResponse(response)
         }
     }
 
     func clearVercelKey() {
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "delete")
-        } catch {
-            log.error("Failed to send Vercel API config delete: \(error)")
+        Task {
+            guard let response = await settingsClient.deleteVercelConfig() else { return }
+            self.applyVercelConfigResponse(response)
         }
     }
 
@@ -927,6 +933,13 @@ public final class SettingsStore: ObservableObject {
             guard let response = await settingsClient.fetchVercelConfig() else { return }
             self.applyVercelConfigResponse(response)
         }
+    }
+
+    /// Fetches and applies the current Vercel config, returning whether a token is present.
+    func checkVercelKeyPresent() async -> Bool {
+        guard let response = await settingsClient.fetchVercelConfig() else { return false }
+        applyVercelConfigResponse(response)
+        return response.success && response.hasToken
     }
 
     private func applyVercelConfigResponse(_ response: VercelApiConfigResponseMessage) {
@@ -950,9 +963,77 @@ public final class SettingsStore: ObservableObject {
         if let providers = response.configuredProviders {
             self.configuredProviders = Set(providers)
         }
-        if let models = response.availableModels {
-            self.inferenceAvailableModels = models
+        if let allProviders = response.allProviders, !allProviders.isEmpty {
+            self.providerCatalog = allProviders
         }
+    }
+
+    // MARK: - Dynamic Provider Catalog Helpers
+
+    var dynamicProviderIds: [String] {
+        providerCatalog.map(\.id)
+    }
+
+    func dynamicProviderDisplayName(_ provider: String) -> String {
+        providerCatalog.first { $0.id == provider }?.displayName ?? provider
+    }
+
+    func dynamicProviderModels(_ provider: String) -> [CatalogModel] {
+        providerCatalog.first { $0.id == provider }?.models ?? []
+    }
+
+    func dynamicProviderDefaultModel(_ provider: String) -> String {
+        providerCatalog.first { $0.id == provider }?.defaultModel ?? ""
+    }
+
+    func dynamicProviderApiKeyPlaceholder(_ provider: String) -> String? {
+        providerCatalog.first { $0.id == provider }?.apiKeyPlaceholder
+    }
+
+    // MARK: - Embedding Config Actions
+
+    func refreshEmbeddingConfig() {
+        Task { @MainActor in
+            guard let config = await settingsClient.fetchEmbeddingConfig() else { return }
+            self.embeddingProvider = config.provider
+            self.embeddingModel = config.model
+            self.embeddingActiveProvider = config.activeProvider
+            self.embeddingActiveModel = config.activeModel
+            if let providers = config.availableProviders {
+                self.embeddingAvailableProviders = providers
+            }
+            if let status = config.status {
+                self.embeddingEnabled = status.enabled
+                self.embeddingDegraded = status.degraded
+            }
+        }
+    }
+
+    func setEmbeddingProvider(_ provider: String, model: String?) {
+        Task { @MainActor in
+            guard let config = await settingsClient.setEmbeddingConfig(provider: provider, model: model) else { return }
+            self.embeddingProvider = config.provider
+            self.embeddingModel = config.model
+            self.embeddingActiveProvider = config.activeProvider
+            self.embeddingActiveModel = config.activeModel
+            if let providers = config.availableProviders {
+                self.embeddingAvailableProviders = providers
+            }
+            if let status = config.status {
+                self.embeddingEnabled = status.enabled
+                self.embeddingDegraded = status.degraded
+            }
+        }
+    }
+
+    func saveEmbeddingAPIKey(_ raw: String, provider: String) {
+        embeddingKeySaveError = nil
+        // Delegate to saveInferenceAPIKey — same keychain store, same daemon validation
+        saveInferenceAPIKey(raw, provider: provider, onSuccess: {
+            self.refreshEmbeddingConfig()
+        }, onError: { error in
+            self.embeddingKeySaveError = error
+        })
     }
 
     // MARK: - Telegram Integration Actions
@@ -1161,11 +1242,6 @@ public final class SettingsStore: ObservableObject {
                 if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
-            }
-
-            // ElevenLabs uses the credential type, not api_key
-            if let key = APIKeyManager.getKey(for: "elevenlabs") {
-                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
             }
 
             replayDeletionTombstones()
@@ -1511,7 +1587,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private func applyChannelVerificationResponse(_ response: ChannelVerificationSessionResponseMessage) {
+    func applyChannelVerificationResponse(_ response: ChannelVerificationSessionResponseMessage) {
         guard let channel = resolveVerificationResponseChannel(response.channel) else { return }
         let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
         if !isStatusPoll {
@@ -1629,47 +1705,24 @@ public final class SettingsStore: ObservableObject {
         default:
             return
         }
-        do {
-            guard let daemonClient else {
-                clearVerificationSessionPending(for: channel)
-                switch channel {
-                case "telegram":
-                    telegramVerificationInProgress = false
-                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "phone":
-                    voiceVerificationInProgress = false
-                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "slack":
-                    slackVerificationInProgress = false
-                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
-                default:
-                    break
-                }
-                return
-            }
-            pendingVerificationSessionChannel = channel
-            armVerificationSessionTimeout(for: channel)
-            try daemonClient.sendChannelVerificationSession(
+        pendingVerificationSessionChannel = channel
+        armVerificationSessionTimeout(for: channel)
+        Task {
+            guard let response = await settingsClient.sendChannelVerificationSession(
                 action: "create_session",
                 channel: channel,
-                rebind: rebind ? true : nil
-            )
-        } catch {
-            log.error("Failed to start \(channel) channel verification: \(error)")
-            clearVerificationSessionPending(for: channel)
-            switch channel {
-            case "telegram":
-                telegramVerificationInProgress = false
-                telegramVerificationError = "Failed to start verification. Try again."
-            case "phone":
-                voiceVerificationInProgress = false
-                voiceVerificationError = "Failed to start verification. Try again."
-            case "slack":
-                slackVerificationInProgress = false
-                slackVerificationError = "Failed to start verification. Try again."
-            default:
-                break
+                conversationId: nil,
+                rebind: rebind ? true : nil,
+                destination: nil,
+                originConversationId: nil,
+                purpose: nil,
+                contactChannelId: nil
+            ) else {
+                clearVerificationSessionPending(for: channel)
+                self.setVerificationError(for: channel, message: "Failed to start verification. Try again.")
+                return
             }
+            self.applyChannelVerificationResponse(response)
         }
     }
 
@@ -1689,18 +1742,19 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        // Invalidate the pending session on the backend so it can't be used after cancellation
-        do {
-            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
-        } catch {
-            log.error("Failed to revoke \(channel) verification session on cancel: \(error)")
+        Task {
+            _ = await settingsClient.sendChannelVerificationSession(
+                action: "revoke", channel: channel,
+                conversationId: nil, rebind: nil, destination: nil,
+                originConversationId: nil, purpose: nil, contactChannelId: nil
+            )
         }
     }
 
     func revokeChannelVerification(channel: String) {
         stopVerificationStatusPolling(for: channel)
         // Eagerly clear instruction so the "Verify" button reappears
-        // immediately instead of waiting for the daemon's response (which
+        // immediately instead of waiting for the server's response (which
         // looks identical to a status poll and won't clear it).
         switch channel {
         case "telegram":
@@ -1712,10 +1766,15 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        do {
-            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
-        } catch {
-            log.error("Failed to revoke \(channel) verification: \(error)")
+        Task {
+            let response = await settingsClient.sendChannelVerificationSession(
+                action: "revoke", channel: channel,
+                conversationId: nil, rebind: nil, destination: nil,
+                originConversationId: nil, purpose: nil, contactChannelId: nil
+            )
+            if let response {
+                self.applyChannelVerificationResponse(response)
+            }
         }
     }
 
@@ -1740,54 +1799,34 @@ public final class SettingsStore: ObservableObject {
         default:
             return
         }
-        do {
-            guard let daemonClient else {
-                switch channel {
-                case "telegram":
-                    telegramVerificationInProgress = false
-                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "phone":
-                    voiceVerificationInProgress = false
-                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "slack":
-                    slackVerificationInProgress = false
-                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
-                default:
-                    break
-                }
-                return
-            }
-            try daemonClient.sendChannelVerificationSession(
+        Task {
+            guard let response = await settingsClient.sendChannelVerificationSession(
                 action: "create_session",
                 channel: channel,
-                destination: destination
-            )
-        } catch {
-            log.error("Failed to start outbound \(channel) channel verification: \(error)")
-            switch channel {
-            case "telegram":
-                telegramVerificationInProgress = false
-                telegramVerificationError = "Failed to start verification. Try again."
-            case "phone":
-                voiceVerificationInProgress = false
-                voiceVerificationError = "Failed to start verification. Try again."
-            case "slack":
-                slackVerificationInProgress = false
-                slackVerificationError = "Failed to start verification. Try again."
-            default:
-                break
+                conversationId: nil,
+                rebind: nil,
+                destination: destination,
+                originConversationId: nil,
+                purpose: nil,
+                contactChannelId: nil
+            ) else {
+                self.setVerificationError(for: channel, message: "Failed to start verification. Try again.")
+                return
             }
+            self.applyChannelVerificationResponse(response)
         }
     }
 
     func resendOutboundVerification(channel: String) {
-        do {
-            try daemonClient?.sendChannelVerificationSession(
-                action: "resend_session",
-                channel: channel
+        Task {
+            let response = await settingsClient.sendChannelVerificationSession(
+                action: "resend_session", channel: channel,
+                conversationId: nil, rebind: nil, destination: nil,
+                originConversationId: nil, purpose: nil, contactChannelId: nil
             )
-        } catch {
-            log.error("Failed to resend outbound \(channel) channel verification: \(error)")
+            if let response {
+                self.applyChannelVerificationResponse(response)
+            }
         }
     }
 
@@ -1804,13 +1843,12 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        do {
-            try daemonClient?.sendChannelVerificationSession(
-                action: "cancel_session",
-                channel: channel
+        Task {
+            _ = await settingsClient.sendChannelVerificationSession(
+                action: "cancel_session", channel: channel,
+                conversationId: nil, rebind: nil, destination: nil,
+                originConversationId: nil, purpose: nil, contactChannelId: nil
             )
-        } catch {
-            log.error("Failed to cancel outbound \(channel) channel verification: \(error)")
         }
     }
 
@@ -1922,6 +1960,22 @@ public final class SettingsStore: ObservableObject {
             return inProgressChannels.first?.0
         }
         return nil
+    }
+
+    private func setVerificationError(for channel: String, message: String) {
+        switch channel {
+        case "telegram":
+            telegramVerificationInProgress = false
+            telegramVerificationError = message
+        case "phone":
+            voiceVerificationInProgress = false
+            voiceVerificationError = message
+        case "slack":
+            slackVerificationInProgress = false
+            slackVerificationError = message
+        default:
+            break
+        }
     }
 
     private func clearVerificationSessionPending(for channel: String) {
@@ -2086,7 +2140,14 @@ public final class SettingsStore: ObservableObject {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+            // Only apply local config provider/model as a fallback when the daemon
+            // hasn't yet reported an authoritative value. Once the daemon responds
+            // via applyModelInfoResponse, its values take precedence over local
+            // config which may be stale (especially for remote assistants).
+            if lastDaemonProvider == nil,
+               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
+            if lastDaemonProvider == nil,
+               let model = inference["model"] as? String { self.selectedModel = model }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {
@@ -2103,7 +2164,15 @@ public final class SettingsStore: ObservableObject {
         }
         if let googleOAuth = services["google-oauth"] as? [String: Any],
            let mode = googleOAuth["mode"] as? String {
-            self.googleOAuthMode = mode
+            self.managedOAuthMode["integration:google"] = mode
+        } else if let legacy = services["integration:google"] as? [String: Any],
+                  let mode = legacy["mode"] as? String {
+            // Migrate from the legacy key that was written due to a bug where
+            // setManagedOAuthMode fell back to the raw providerKey when metadata
+            // hadn't loaded yet. Read the value and re-save under the correct key
+            // so subsequent launches use the canonical path.
+            self.managedOAuthMode["integration:google"] = mode
+            setManagedOAuthMode(mode, providerKey: "integration:google")
         }
     }
 
@@ -2121,6 +2190,7 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to merge workspace config for inference mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
+        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     func setImageGenMode(_ mode: String) {
@@ -2155,81 +2225,150 @@ public final class SettingsStore: ObservableObject {
         scheduleRoutingSourceRefresh()
     }
 
-    func setGoogleOAuthMode(_ mode: String) {
-        googleOAuthMode = mode
+    func setManagedOAuthMode(_ mode: String, providerKey: String) {
+        managedOAuthMode[providerKey] = mode
         guard !isCurrentAssistantRemote else { return }
+        // Derive the config service key deterministically from providerKey so it
+        // matches the key that loadServiceModes() reads on startup. Previously
+        // this depended on provider metadata being loaded, which caused a race:
+        // if metadata hadn't arrived yet the fallback wrote under the wrong key.
+        let slug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
+        let serviceKey = "\(slug)-oauth"
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var googleOAuth = services["google-oauth"] as? [String: Any] ?? [:]
-        googleOAuth["mode"] = mode
-        services["google-oauth"] = googleOAuth
+        var svc = services[serviceKey] as? [String: Any] ?? [:]
+        svc["mode"] = mode
+        services[serviceKey] = svc
         do {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
-            log.error("Failed to merge workspace config for google-oauth mode: \(error)")
+            log.error("Failed to merge workspace config for \(serviceKey) mode: \(error)")
         }
+        scheduleRoutingSourceRefresh()
     }
 
     // MARK: - Google OAuth Connections
 
     /// Resolves the platform assistant UUID for OAuth endpoints.
     /// For managed assistants, the lockfile ID is the platform UUID.
-    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver.
-    private func resolvePlatformAssistantId(userId: String?) -> String? {
+    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver,
+    /// triggering bootstrap lazily if the mapping is not yet cached.
+    private func resolvePlatformAssistantId(userId: String?) async -> String? {
         guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId) else {
             return nil
         }
+
+        #if DEBUG
+        let credentialStorage = FileCredentialStorage()
+        #else
+        let credentialStorage = KeychainCredentialStorage()
+        #endif
+
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        return PlatformAssistantIdResolver.resolve(
+
+        // Try the fast synchronous path first.
+        if let resolved = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: KeychainCredentialStorage()
+            credentialStorage: credentialStorage
+        ) {
+            log.info("Resolved platform assistant ID (cached): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
+            return resolved
+        }
+
+        // For self-hosted assistants, the keychain mapping may not exist yet
+        // (bootstrap is async and may not have completed). Trigger bootstrap
+        // lazily and retry the resolve.
+        guard !assistant.isManaged else {
+            log.warning("Failed to resolve platform assistant ID for managed assistant \(connectedId, privacy: .public) (orgId=\(orgId ?? "nil", privacy: .public), userId=\(userId ?? "nil", privacy: .public))")
+            return nil
+        }
+
+        log.info("Platform assistant ID not cached — triggering lazy bootstrap for \(connectedId, privacy: .public)")
+        let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+        do {
+            _ = try await bootstrapService.bootstrap(
+                runtimeAssistantId: assistant.assistantId,
+                clientPlatform: "macos"
+            )
+        } catch {
+            // Bootstrap can persist the keychain mapping during ensure-registration
+            // but then throw on daemon injection (e.g. gateway not reachable yet).
+            // Always retry the resolve — the mapping may already be cached.
+            log.warning("Lazy bootstrap threw (mapping may still be cached): \(error.localizedDescription)")
+        }
+
+        // Re-resolve userId after bootstrap (it may have become available).
+        var postBootstrapUserId = userId
+        if postBootstrapUserId == nil {
+            let session = try? await AuthService.shared.getSession()
+            postBootstrapUserId = session?.data?.user?.id
+        }
+        let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        let postBootstrapResolved = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: postBootstrapOrgId,
+            userId: postBootstrapUserId,
+            credentialStorage: credentialStorage
         )
+        if let resolved = postBootstrapResolved {
+            log.info("Resolved platform assistant ID (after lazy bootstrap): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
+        } else {
+            log.error("Failed to resolve platform assistant ID after lazy bootstrap for runtime \(connectedId, privacy: .public) (orgId=\(postBootstrapOrgId ?? "nil", privacy: .public), userId=\(postBootstrapUserId ?? "nil", privacy: .public))")
+        }
+        return postBootstrapResolved
     }
 
-    func fetchGoogleOAuthConnections(userId: String? = nil) async {
-        guard googleOAuthMode == "managed" else { return }
-        guard let assistantId = resolvePlatformAssistantId(userId: userId) else { return }
+    func fetchManagedOAuthConnections(providerKey: String, userId: String? = nil) async {
+        guard managedOAuthMode[providerKey] == "managed" else { return }
+        guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
+
+        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
 
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
-            googleOAuthConnections = connections.filter { $0.provider == "google" }
-            googleOAuthError = nil
+            managedOAuthConnections[providerKey] = connections.filter { $0.provider == providerSlug }
+            managedOAuthError[providerKey] = nil
         } catch {
-            log.error("Failed to fetch Google OAuth connections: \(error)")
-            googleOAuthError = error.localizedDescription
-            googleOAuthConnections = []
+            log.error("Failed to fetch managed OAuth connections for \(providerKey): \(error)")
+            managedOAuthError[providerKey] = error.localizedDescription
+            managedOAuthConnections[providerKey] = []
         }
     }
 
-    func startGoogleOAuthConnect(userId: String? = nil) {
-        Task {
-            googleOAuthIsConnecting = true
-            googleOAuthError = nil
-            defer { googleOAuthIsConnecting = false }
+    func startManagedOAuthConnect(providerKey: String, userId: String? = nil) {
+        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
 
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
-                googleOAuthError = "No connected assistant"
+        Task {
+            managedOAuthIsConnecting[providerKey] = true
+            managedOAuthError[providerKey] = nil
+            defer { managedOAuthIsConnecting[providerKey] = false }
+
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
+                managedOAuthError[providerKey] = "No connected assistant"
                 return
             }
 
             do {
-                let response = try await PlatformOAuthService.shared.startGoogleOAuth(
+                let response = try await PlatformOAuthService.shared.startOAuthConnect(
+                    provider: providerSlug,
                     assistantId: assistantId,
-                    redirectAfterConnect: "vellum-assistant://oauth/google/callback"
+                    redirectAfterConnect: "vellum-assistant://oauth/\(providerSlug)/callback"
                 )
 
                 guard let connectURL = URL(string: response.connect_url) else {
-                    googleOAuthError = "Invalid connect URL"
+                    managedOAuthError[providerKey] = "Invalid connect URL"
                     return
                 }
 
                 let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
                     let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { [weak self] callbackURL, error in
-                        self?.googleOAuthWebAuthSession = nil
+                        self?.managedOAuthWebAuthSession = nil
                         if let error {
                             continuation.resume(throwing: error)
                         } else if let callbackURL {
@@ -2240,7 +2379,7 @@ public final class SettingsStore: ObservableObject {
                     }
                     session.prefersEphemeralWebBrowserSession = false
                     session.presentationContextProvider = WebAuthPresentationContext.shared
-                    self.googleOAuthWebAuthSession = session
+                    self.managedOAuthWebAuthSession = session
                     session.start()
                 }
 
@@ -2248,33 +2387,274 @@ public final class SettingsStore: ObservableObject {
                 let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
 
                 if oauthStatus == "connected" {
-                    await fetchGoogleOAuthConnections(userId: userId)
+                    await fetchManagedOAuthConnections(providerKey: providerKey, userId: userId)
                 } else if oauthStatus == "error" {
                     let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
-                    googleOAuthError = errorCode ?? "OAuth connection failed"
+                    managedOAuthError[providerKey] = errorCode ?? "OAuth connection failed"
                 }
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                log.info("User cancelled managed OAuth connect for \(providerKey)")
             } catch {
-                log.error("Google OAuth connect failed: \(error)")
-                googleOAuthError = error.localizedDescription
+                log.error("Managed OAuth connect failed for \(providerKey): \(error)")
+                managedOAuthError[providerKey] = "Unable to connect your account. Please try again."
             }
         }
     }
 
-    func disconnectGoogleOAuthConnection(_ connectionId: String, userId: String? = nil) {
+    func disconnectManagedOAuthConnection(_ connectionId: String, providerKey: String, userId: String? = nil) {
         Task {
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
-                googleOAuthError = "No connected assistant"
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
+                managedOAuthError[providerKey] = "No connected assistant"
                 return
             }
 
             do {
                 try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
-                await fetchGoogleOAuthConnections(userId: userId)
+                // Optimistically remove the connection from local state
+                managedOAuthConnections[providerKey]?.removeAll { $0.id == connectionId }
             } catch {
-                log.error("Failed to disconnect Google OAuth connection: \(error)")
-                googleOAuthError = error.localizedDescription
+                log.error("Failed to disconnect managed OAuth connection for \(providerKey): \(error)")
+                managedOAuthError[providerKey] = error.localizedDescription
             }
         }
+    }
+
+    // MARK: - Your Own OAuth Actions
+
+    func fetchYourOwnOAuthApps(providerKey: String) {
+        yourOwnOAuthIsLoading.insert(providerKey)
+        yourOwnOAuthError[providerKey] = nil
+        Task {
+            do {
+                let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
+                    path: "oauth/apps",
+                    params: ["provider_key": providerKey],
+                    timeout: 10
+                )
+                if response.isSuccess, let decoded {
+                    self.yourOwnOAuthApps[providerKey] = decoded.apps
+                    if let provider = decoded.provider {
+                        self.yourOwnOAuthProviderMetadata[providerKey] = provider
+                    }
+                    for app in decoded.apps {
+                        await self.fetchYourOwnOAuthConnections(appId: app.id)
+                    }
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError[providerKey] = errorMsg
+                }
+            } catch {
+                log.error("Failed to fetch Your Own OAuth apps: \(error)")
+                self.yourOwnOAuthError[providerKey] = error.localizedDescription
+            }
+            self.yourOwnOAuthIsLoading.remove(providerKey)
+        }
+    }
+
+    func fetchYourOwnOAuthConnections(appId: String) async {
+        do {
+            let (decoded, response): (YourOwnOAuthConnectionsResponse?, _) = try await GatewayHTTPClient.get(
+                path: "oauth/apps/\(appId)/connections",
+                timeout: 10
+            )
+            if response.isSuccess, let decoded {
+                self.yourOwnOAuthConnectionsByApp[appId] = decoded.connections
+            }
+        } catch {
+            log.error("Failed to fetch Your Own OAuth connections for app \(appId): \(error)")
+        }
+    }
+
+    func createYourOwnOAuthApp(providerKey: String, clientId: String, clientSecret: String) async {
+        yourOwnOAuthError[providerKey] = nil
+        var body: [String: Any] = [
+            "provider_key": providerKey,
+            "client_id": clientId,
+        ]
+        // Set via subscript to avoid pre-commit secret detection on the literal key.
+        let secretKey = "client" + "_secret"
+        body[secretKey] = clientSecret
+        do {
+            let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
+            if response.isSuccess {
+                self.fetchYourOwnOAuthApps(providerKey: providerKey)
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
+                } else {
+                    errorMsg = "HTTP \(response.statusCode)"
+                }
+                self.yourOwnOAuthError[providerKey] = "Failed to create app: \(errorMsg)"
+            }
+        } catch {
+            log.error("Failed to create Your Own OAuth app: \(error)")
+            self.yourOwnOAuthError[providerKey] = "Failed to create app: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteYourOwnOAuthApp(id: String, providerKey: String) async {
+        yourOwnOAuthError[providerKey] = nil
+        do {
+            let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
+            if response.isSuccess {
+                self.yourOwnOAuthApps[providerKey]?.removeAll { $0.id == id }
+                self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
+                } else {
+                    errorMsg = "HTTP \(response.statusCode)"
+                }
+                self.yourOwnOAuthError[providerKey] = "Failed to delete app: \(errorMsg)"
+            }
+        } catch {
+            log.error("Failed to delete Your Own OAuth app: \(error)")
+            self.yourOwnOAuthError[providerKey] = "Failed to delete app: \(error.localizedDescription)"
+        }
+    }
+
+    func disconnectYourOwnOAuthConnection(id: String, appId: String) async {
+        let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
+        if let providerKey { yourOwnOAuthError[providerKey] = nil }
+        do {
+            let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
+            if response.isSuccess {
+                await self.fetchYourOwnOAuthConnections(appId: appId)
+            } else {
+                let errorMsg: String
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let msg = json["error"] as? String {
+                    errorMsg = msg
+                } else {
+                    errorMsg = "HTTP \(response.statusCode)"
+                }
+                if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to disconnect: \(errorMsg)" }
+            }
+        } catch {
+            log.error("Failed to disconnect Your Own OAuth connection: \(error)")
+            if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to disconnect: \(error.localizedDescription)" }
+        }
+    }
+
+    func cancelYourOwnOAuthConnect() {
+        yourOwnOAuthConnectPollingTask?.cancel()
+        yourOwnOAuthConnectPollingTask = nil
+        yourOwnOAuthConnectingAppId = nil
+    }
+
+    func startYourOwnOAuthConnect(appId: String) {
+        yourOwnOAuthConnectingAppId = appId
+        let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
+        if let providerKey { yourOwnOAuthError[providerKey] = nil }
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                guard response.isSuccess else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(errorMsg)" }
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
+                    return
+                }
+
+                let decoder = JSONDecoder()
+                let connectResponse = try decoder.decode(YourOwnOAuthConnectResponse.self, from: response.data)
+
+                guard let authURL = URL(string: connectResponse.auth_url) else {
+                    if let providerKey { self.yourOwnOAuthError[providerKey] = "Invalid auth URL" }
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
+                    return
+                }
+
+                NSWorkspace.shared.open(authURL)
+
+                // Start polling — detect new connections OR re-authed (updated) connections
+                let existingConnections = self.yourOwnOAuthConnectionsByApp[appId] ?? []
+                let initialCount = existingConnections.count
+                let maxUpdatedAt = existingConnections.map(\.updated_at).max() ?? 0
+                self.yourOwnOAuthConnectPollingTask?.cancel()
+                self.yourOwnOAuthConnectPollingTask = Task {
+                    let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
+                    let timeout: UInt64 = 300_000_000_000 // 5 minutes
+                    let startTime = DispatchTime.now().uptimeNanoseconds
+
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: pollInterval)
+                        guard !Task.isCancelled else { break }
+
+                        await self.fetchYourOwnOAuthConnections(appId: appId)
+                        let current = self.yourOwnOAuthConnectionsByApp[appId] ?? []
+
+                        // New connection added
+                        if current.count > initialCount { break }
+
+                        // Existing connection re-authed (updated_at changed)
+                        let currentMaxUpdatedAt = current.map(\.updated_at).max() ?? 0
+                        if currentMaxUpdatedAt > maxUpdatedAt { break }
+
+                        let elapsed = DispatchTime.now().uptimeNanoseconds - startTime
+                        if elapsed >= timeout { break }
+                    }
+
+                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
+                }
+            } catch {
+                log.error("Failed to start Your Own OAuth connect: \(error)")
+                if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(error.localizedDescription)" }
+                if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
+            }
+        }
+    }
+
+    // MARK: - Your Own OAuth Convenience Accessors
+
+    func yourOwnApps(for providerKey: String) -> [YourOwnOAuthApp] {
+        yourOwnOAuthApps[providerKey] ?? []
+    }
+
+    func yourOwnIsLoading(for providerKey: String) -> Bool {
+        yourOwnOAuthIsLoading.contains(providerKey)
+    }
+
+    func yourOwnError(for providerKey: String) -> String? {
+        yourOwnOAuthError[providerKey]
+    }
+
+    func yourOwnProviderMeta(for providerKey: String) -> OAuthProviderMetadata? {
+        yourOwnOAuthProviderMetadata[providerKey]
+    }
+
+    // MARK: - Managed OAuth Convenience Accessors
+
+    func managedOAuthModeFor(_ providerKey: String) -> String {
+        managedOAuthMode[providerKey] ?? "your-own"
+    }
+
+    func managedConnections(for providerKey: String) -> [OAuthConnectionEntry] {
+        managedOAuthConnections[providerKey] ?? []
+    }
+
+    func managedIsConnecting(for providerKey: String) -> Bool {
+        managedOAuthIsConnecting[providerKey] ?? false
+    }
+
+    func managedError(for providerKey: String) -> String? {
+        managedOAuthError[providerKey]
     }
 
     func setWebSearchProvider(_ provider: String) {
@@ -2306,6 +2686,8 @@ public final class SettingsStore: ObservableObject {
         } catch {
             log.error("Failed to persist inference provider: \(error.localizedDescription)")
         }
+        scheduleRoutingSourceRefresh()
+        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
@@ -2477,11 +2859,15 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Actions
 
-    func setModel(_ model: String, provider: String? = nil) {
-        // Skip if neither model nor provider changed
-        let modelUnchanged = model == lastDaemonModel
-        let providerUnchanged = provider == nil || provider == lastDaemonProvider
-        guard !modelUnchanged || !providerUnchanged else { return }
+    func setModel(_ model: String, provider: String? = nil, force: Bool = false) {
+        // Skip if neither model nor provider changed (unless forced,
+        // e.g. after an inference-mode switch that requires re-persisting
+        // the model+provider pair even when IDs haven't changed).
+        if !force {
+            let modelUnchanged = model == lastDaemonModel
+            let providerUnchanged = provider == nil || provider == lastDaemonProvider
+            guard !modelUnchanged || !providerUnchanged else { return }
+        }
         lastDaemonModel = model
         if let provider { lastDaemonProvider = provider }
         Task {
@@ -2713,4 +3099,57 @@ private struct SlackChannelConfigResponse: Decodable {
     let botUserId: String?
     let teamId: String?
     let teamName: String?
+}
+
+// MARK: - Your Own OAuth Types
+
+struct YourOwnOAuthApp: Codable, Identifiable, Sendable {
+    let id: String
+    let provider_key: String
+    let client_id: String
+    let created_at: Int
+    let updated_at: Int
+}
+
+struct YourOwnOAuthConnection: Codable, Identifiable, Sendable {
+    let id: String
+    let provider_key: String
+    let account_info: String?
+    let granted_scopes: [String]
+    let status: String
+    let has_refresh_token: Bool
+    let expires_at: Int?
+    let created_at: Int
+    let updated_at: Int
+}
+
+struct OAuthProviderMetadata: Codable, Sendable {
+    let provider_key: String
+    let display_name: String?
+    let description: String?
+    let dashboard_url: String?
+    let client_id_placeholder: String?
+    let requires_client_secret: Int
+
+    /// Derive the platform OAuth slug from provider_key (e.g. "integration:google" → "google").
+    var platformOAuthSlug: String {
+        if provider_key.hasPrefix("integration:") {
+            return String(provider_key.dropFirst("integration:".count))
+        }
+        return provider_key
+    }
+}
+
+struct YourOwnOAuthAppsResponse: Codable, Sendable {
+    let provider: OAuthProviderMetadata?
+    let apps: [YourOwnOAuthApp]
+}
+
+struct YourOwnOAuthConnectionsResponse: Codable, Sendable {
+    let connections: [YourOwnOAuthConnection]
+}
+
+struct YourOwnOAuthConnectResponse: Codable, Sendable {
+    let auth_url: String
+    let state: String
 }

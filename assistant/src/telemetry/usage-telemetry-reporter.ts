@@ -22,7 +22,8 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { VellumPlatformClient } from "../platform/client.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -138,20 +139,9 @@ export class UsageTelemetryReporter {
         return;
 
       // Resolve auth context — skip flush when neither auth mode is viable
-      const proxyCtx = await resolveManagedProxyContext();
-      if (!proxyCtx.enabled && !getTelemetryAppToken()) {
+      const client = await VellumPlatformClient.create();
+      if (!client && !getTelemetryAppToken()) {
         return;
-      }
-
-      let url: string;
-      let authHeaders: Record<string, string>;
-
-      if (proxyCtx.enabled) {
-        url = `${proxyCtx.platformBaseUrl}${TELEMETRY_PATH}`;
-        authHeaders = { Authorization: `Api-Key ${proxyCtx.assistantApiKey}` };
-      } else {
-        url = `${getTelemetryPlatformUrl()}${TELEMETRY_PATH}`;
-        authHeaders = { "X-Telemetry-Token": getTelemetryAppToken() };
       }
 
       // Build payload
@@ -187,32 +177,46 @@ export class UsageTelemetryReporter {
         ),
       ];
 
-      const assistantId = getExternalAssistantId() ?? "self";
+      const assistantId =
+        getExternalAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID;
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
       const payload = {
-        installation_id: getDeviceId(),
+        device_id: getDeviceId(),
         assistant_id: assistantId,
-        app_version: APP_VERSION,
+        assistant_version: APP_VERSION,
         ...(organizationId ? { organization_id: organizationId } : {}),
         ...(userId ? { user_id: userId } : {}),
         events: typedEvents,
       };
 
       // Send
-      const resp = await fetch(url, {
+      const fetchInit: RequestInit = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
         body: JSON.stringify(payload),
-      });
+      };
+
+      let resp: Response;
+      if (client) {
+        resp = await client.fetch(TELEMETRY_PATH, fetchInit);
+      } else {
+        const url = `${getTelemetryPlatformUrl()}${TELEMETRY_PATH}`;
+        resp = await fetch(url, {
+          ...fetchInit,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Telemetry-Token": getTelemetryAppToken(),
+          },
+        });
+      }
 
       if (!resp.ok) {
         await resp.text(); // consume body to release connection
         log.warn(
-          { status: resp.status, url },
+          { status: resp.status },
           "Usage telemetry POST failed — will retry next cycle",
         );
         return;

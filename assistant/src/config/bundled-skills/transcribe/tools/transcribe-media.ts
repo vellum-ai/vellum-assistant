@@ -10,10 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import {
-  getAttachmentsByIds,
-  getFilePathForAttachment,
-} from "../../../../memory/attachments-store.js";
+import { OpenAIWhisperProvider } from "../../../../providers/speech-to-text/openai-whisper.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
@@ -123,84 +120,31 @@ async function splitAudio(
 
 async function resolveSource(
   input: Record<string, unknown>,
-): Promise<
-  | { inputPath: string; isVideo: boolean; tempFile: string | null }
-  | ToolExecutionResult
-> {
+): Promise<{ inputPath: string; isVideo: boolean } | ToolExecutionResult> {
   const filePath = input.file_path as string | undefined;
-  const attachmentId = input.attachment_id as string | undefined;
 
-  if (filePath) {
-    try {
-      await access(filePath);
-    } catch {
-      return { content: `File not found: ${filePath}`, isError: true };
-    }
-    const ext = extname(filePath).toLowerCase();
-    const isVideo = VIDEO_EXTENSIONS.has(ext);
-    const isAudio = AUDIO_EXTENSIONS.has(ext);
-    if (!isVideo && !isAudio) {
-      return {
-        content: `Unsupported file type: ${ext}. Only video and audio files can be transcribed.`,
-        isError: true,
-      };
-    }
-    return { inputPath: filePath, isVideo, tempFile: null };
-  }
-
-  if (attachmentId) {
-    const attachments = getAttachmentsByIds([attachmentId]);
-    if (attachments.length === 0) {
-      return {
-        content: `Attachment not found: ${attachmentId}`,
-        isError: true,
-      };
-    }
-    const attachment = attachments[0];
-    const mime = attachment.mimeType;
-    if (!mime.startsWith("video/") && !mime.startsWith("audio/")) {
-      return {
-        content: `Unsupported file type: ${mime}. Only video and audio files can be transcribed.`,
-        isError: true,
-      };
-    }
-    // Check if this is a file-backed attachment (large files stored on disk)
-    const onDiskPath = getFilePathForAttachment(attachment.id);
-    if (onDiskPath) {
-      // File-backed attachment - use the on-disk file directly
-      try {
-        await access(onDiskPath);
-      } catch {
-        return {
-          content: `Attachment file not found on disk: ${onDiskPath}`,
-          isError: true,
-        };
-      }
-      return {
-        inputPath: onDiskPath,
-        isVideo: mime.startsWith("video/"),
-        tempFile: null,
-      };
-    }
-
-    // Inline attachment - decode base64 to a temp file
-    const ext = mime.startsWith("video/") ? ".mp4" : ".m4a";
-    const tempPath = join(
-      tmpdir(),
-      `vellum-transcribe-in-${randomUUID()}${ext}`,
-    );
-    await writeFile(tempPath, Buffer.from(attachment.dataBase64, "base64"));
+  if (!filePath) {
     return {
-      inputPath: tempPath,
-      isVideo: mime.startsWith("video/"),
-      tempFile: tempPath,
+      content: "Provide a file_path to the audio or video file to transcribe.",
+      isError: true,
     };
   }
 
-  return {
-    content: "Provide either file_path or attachment_id.",
-    isError: true,
-  };
+  try {
+    await access(filePath);
+  } catch {
+    return { content: `File not found: ${filePath}`, isError: true };
+  }
+  const ext = extname(filePath).toLowerCase();
+  const isVideo = VIDEO_EXTENSIONS.has(ext);
+  const isAudio = AUDIO_EXTENSIONS.has(ext);
+  if (!isVideo && !isAudio) {
+    return {
+      content: `Unsupported file type: ${ext}. Only video and audio files can be transcribed.`,
+      isError: true,
+    };
+  }
+  return { inputPath: filePath, isVideo };
 }
 
 /** Convert source to 16kHz mono WAV for consistent processing. */
@@ -225,12 +169,19 @@ async function transcribeViaApi(
   apiKey: string,
   context: ToolContext,
 ): Promise<string> {
+  const provider = new OpenAIWhisperProvider(apiKey);
   const duration = await getAudioDuration(audioPath);
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
   if (fileSize <= WHISPER_API_MAX_BYTES) {
-    return await whisperApiRequest(audioPath, apiKey);
+    const audioBuffer = await readFile(audioPath);
+    const result = await provider.transcribe(
+      audioBuffer,
+      "audio/wav",
+      AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+    );
+    return result.text;
   }
 
   // Split into chunks for large files
@@ -256,8 +207,13 @@ async function transcribeViaApi(
     for (let i = 0; i < chunks.length; i++) {
       if (context.signal?.aborted) throw new Error("Cancelled");
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
-      const text = await whisperApiRequest(chunks[i], apiKey);
-      if (text) parts.push(text);
+      const audioBuffer = await readFile(chunks[i]);
+      const result = await provider.transcribe(
+        audioBuffer,
+        "audio/wav",
+        AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+      );
+      if (result.text) parts.push(result.text);
     }
 
     return parts.join(" ");
@@ -268,40 +224,6 @@ async function transcribeViaApi(
       "transcribe chunk cleanup",
     );
   }
-}
-
-async function whisperApiRequest(
-  audioPath: string,
-  apiKey: string,
-): Promise<string> {
-  const audioData = await readFile(audioPath);
-  const formData = new FormData();
-  formData.append(
-    "file",
-    new Blob([audioData], { type: "audio/wav" }),
-    "audio.wav",
-  );
-  formData.append("model", "whisper-1");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
-      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Whisper API error (${response.status}): ${body.slice(0, 300)}`,
-    );
-  }
-
-  const result = (await response.json()) as { text?: string };
-  return result.text?.trim() ?? "";
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +384,7 @@ export async function run(
   const source = await resolveSource(input);
   if ("isError" in source) return source;
 
-  const { inputPath, isVideo, tempFile } = source;
+  const { inputPath, isVideo } = source;
   let wavPath: string | null = null;
 
   try {
@@ -487,13 +409,6 @@ export async function run(
       isError: true,
     };
   } finally {
-    if (tempFile) {
-      try {
-        await unlink(tempFile);
-      } catch {
-        /* ignore */
-      }
-    }
     if (wavPath) {
       try {
         await unlink(wavPath);

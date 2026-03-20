@@ -2,6 +2,7 @@
 import SwiftUI
 
 struct IconsGallerySection: View {
+    var filter: String?
     @State private var searchText = ""
 
     private var filteredIcons: [VIcon] {
@@ -14,37 +15,57 @@ struct IconsGallerySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            GallerySectionHeader(
-                title: "Icons",
-                description: "Vendored Lucide icon tokens. Use VIconView(.iconName) for rendering."
-            )
+            // MARK: - VAppIconGenerator
+            if filter == nil || filter == "vAppIconGenerator" {
+                AppIconGallerySection()
+            }
 
-            VSearchBar(placeholder: "Filter icons...", text: $searchText)
+            // MARK: - VIcon
+            if filter == nil || filter == "iconTokens" {
+                GallerySectionHeader(
+                    title: "VIcon",
+                    description: "Vendored Lucide icon tokens. Use VIconView(.iconName) for rendering."
+                )
 
-            Text("\(filteredIcons.count) icons")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
+                VSearchBar(placeholder: "Filter icons...", text: $searchText)
 
-            VCard {
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.md), count: 6),
-                    spacing: VSpacing.lg
-                ) {
-                    ForEach(filteredIcons, id: \.rawValue) { icon in
-                        VStack(spacing: VSpacing.xs) {
-                            VIconView(icon, size: 20)
-                                .foregroundColor(VColor.contentDefault)
-                                .frame(width: 32, height: 32)
-                            Text(icon.rawValue.replacingOccurrences(of: "lucide-", with: ""))
-                                .font(VFont.small)
-                                .foregroundColor(VColor.contentTertiary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                Text("\(filteredIcons.count) icons")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+
+                VCard {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.md), count: 6),
+                        spacing: VSpacing.lg
+                    ) {
+                        ForEach(filteredIcons, id: \.rawValue) { icon in
+                            VStack(spacing: VSpacing.xs) {
+                                VIconView(icon, size: 20)
+                                    .foregroundColor(VColor.contentDefault)
+                                    .frame(width: 32, height: 32)
+                                Text(icon.rawValue.replacingOccurrences(of: "lucide-", with: ""))
+                                    .font(VFont.small)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    static func componentPage(_ id: String) -> some View {
+        switch id {
+        case "vAppIconGenerator":
+            IconsGallerySection(filter: "vAppIconGenerator")
+        case "iconTokens":
+            IconsGallerySection(filter: "iconTokens")
+        default:
+            EmptyView()
         }
     }
 }

@@ -1,7 +1,7 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -29,9 +29,10 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
     filename?: string;
     mimeType?: string;
     data?: string;
+    filePath?: string;
   };
 
-  const { filename, mimeType, data } = body;
+  const { filename, mimeType, data, filePath } = body;
 
   if (!filename || typeof filename !== "string") {
     return httpError("BAD_REQUEST", "filename is required", 400);
@@ -41,24 +42,49 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "mimeType is required", 400);
   }
 
-  if (!data || typeof data !== "string") {
-    return httpError("BAD_REQUEST", "data (base64) is required", 400);
-  }
-
   const validation = validateAttachmentUpload(filename, mimeType);
   if (!validation.ok) {
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
 
   let attachment: attachmentsStore.StoredAttachment;
-  try {
-    attachment = attachmentsStore.uploadAttachment(filename, mimeType, data);
-  } catch (err) {
-    if (err instanceof AttachmentUploadError) {
-      const status = err.message.startsWith("Attachment too large") ? 413 : 400;
-      return httpError("BAD_REQUEST", err.message, status);
+
+  // File-backed upload: when filePath is provided and data is empty/missing,
+  // register the attachment by path reference instead of requiring base64 data.
+  // This supports retry of file-backed attachments (e.g. recordings) where the
+  // client no longer holds the inline data but the file still exists on disk.
+  if (filePath && typeof filePath === "string" && (!data || data === "")) {
+    if (!existsSync(filePath)) {
+      return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
     }
-    throw err;
+    const sizeBytes = statSync(filePath).size;
+    attachment = attachmentsStore.uploadFileBackedAttachment(
+      filename,
+      mimeType,
+      filePath,
+      sizeBytes,
+    );
+  } else {
+    if (!data || typeof data !== "string") {
+      return httpError("BAD_REQUEST", "data (base64) is required", 400);
+    }
+
+    try {
+      attachment = attachmentsStore.uploadAttachment(
+        filename,
+        mimeType,
+        data,
+        filePath ?? undefined,
+      );
+    } catch (err) {
+      if (err instanceof AttachmentUploadError) {
+        const status = err.message.startsWith("Attachment too large")
+          ? 413
+          : 400;
+        return httpError("BAD_REQUEST", err.message, status);
+      }
+      throw err;
+    }
   }
 
   return Response.json({
@@ -102,7 +128,9 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 function handleGetAttachment(attachmentId: string): Response {
-  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+    hydrateFileData: true,
+  });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
@@ -132,7 +160,9 @@ export function handleGetAttachmentContent(
   attachmentId: string,
   req: Request,
 ): Response {
-  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+    hydrateFileData: true,
+  });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }

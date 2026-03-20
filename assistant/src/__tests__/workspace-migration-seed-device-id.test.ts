@@ -10,7 +10,7 @@ const writeFileSyncFn = mock(
   (_path: string, _data: string, _opts?: object) => {},
 );
 const mkdirSyncFn = mock((_path: string, _opts?: object) => {});
-const getBaseDataDirFn = mock((): string | undefined => undefined);
+const getDeviceIdBaseDirFn = mock((): string => "/mock-home");
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
@@ -23,12 +23,8 @@ mock.module("node:fs", () => ({
   mkdirSync: mkdirSyncFn,
 }));
 
-mock.module("node:os", () => ({
-  homedir: () => "/mock-home",
-}));
-
-mock.module("../config/env-registry.js", () => ({
-  getBaseDataDir: getBaseDataDirFn,
+mock.module("../util/device-id.js", () => ({
+  getDeviceIdBaseDir: getDeviceIdBaseDirFn,
 }));
 
 // Import after mocking
@@ -67,7 +63,7 @@ describe("003-seed-device-id migration", () => {
     readFileSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     mkdirSyncFn.mockClear();
-    getBaseDataDirFn.mockReturnValue(undefined);
+    getDeviceIdBaseDirFn.mockReturnValue("/mock-home");
   });
 
   test("no-op when device.json already has a deviceId", () => {
@@ -269,9 +265,9 @@ describe("003-seed-device-id migration", () => {
     expect(parsed.deviceId).toBe("install-legacy");
   });
 
-  test("respects BASE_DATA_DIR override", () => {
+  test("respects BASE_DATA_DIR override via getDeviceIdBaseDir", () => {
     const customBase = "/custom-base";
-    getBaseDataDirFn.mockReturnValue(customBase);
+    getDeviceIdBaseDirFn.mockReturnValue(customBase);
 
     const customLockPath = `${customBase}/.vellum.lock.json`;
     const customDevicePath = `${customBase}/.vellum/device.json`;

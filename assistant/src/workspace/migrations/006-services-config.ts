@@ -83,6 +83,11 @@ export const servicesConfigMigration: WorkspaceMigration = {
       ...existingServices,
     };
 
+    // Legacy top-level fields (provider, model) are the user's actual
+    // configuration from before the services structure existed. If they're
+    // present as strings they take precedence over any `existingServices`
+    // values, which are just defaults written by backfillConfigDefaults().
+    // The spread preserves any extra keys that future backfills may add.
     services.inference = {
       ...(existingServices.inference ?? {}),
       mode: inferenceMode,

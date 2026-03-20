@@ -63,6 +63,12 @@ swift_with_retry() {
             _pch_cleaned=1
             continue
         fi
+        # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
+        # teardown in headless CI). Retrying won't help — let the
+        # caller handle it.
+        if grep -q "unexpected signal code 5" "$_stderr_log" 2>/dev/null; then
+            return "$_cmd_exit"
+        fi
         if [ "$attempt" -ge "$max_attempts" ]; then
             echo "ERROR: swift command failed after $max_attempts attempts: $*"
             return 1
@@ -320,28 +326,34 @@ case "$CMD" in
         else
             SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
         fi
+        # Capture output to a temp file instead of a bash variable so that
+        # embedded null bytes (e.g. from crash diagnostics) don't truncate
+        # the content — bash variables silently drop everything after NUL.
+        TEST_OUTPUT_FILE=$(mktemp)
         set +e
-        TEST_OUTPUT=$(swift_with_retry swift test $MODULE_CACHE_FLAGS "${SWIFT_TEST_ARGS[@]}" 2>&1)
+        swift_with_retry swift test $MODULE_CACHE_FLAGS "${SWIFT_TEST_ARGS[@]}" > "$TEST_OUTPUT_FILE" 2>&1
         TEST_EXIT=$?
         set -e
-        echo "$TEST_OUTPUT"
+        cat "$TEST_OUTPUT_FILE"
 
         if [ $TEST_EXIT -eq 0 ]; then
+            rm -f "$TEST_OUTPUT_FILE"
             exit 0
         fi
 
         # swift test may exit non-zero due to a WebKit SIGTRAP (signal 5) in
         # headless CI even when every test assertion passes.  Tolerate that
         # specific case so flaky WebKit process cleanup doesn't fail the build.
-        # Use grep with here-strings instead of piping from echo to avoid
-        # broken-pipe errors (SIGPIPE) when pipefail is set and the test
-        # output is very large — grep -q exits early, killing echo mid-write.
-        if grep -q "unexpected signal code 5" <<< "$TEST_OUTPUT" && \
-           ! grep -qE "with [1-9][0-9]* failure" <<< "$TEST_OUTPUT"; then
+        # Grep against the file directly (not a bash variable or here-string)
+        # to avoid null-byte truncation issues.
+        if grep -q "unexpected signal code 5" "$TEST_OUTPUT_FILE" && \
+           ! grep -qE "with [1-9][0-9]* failure" "$TEST_OUTPUT_FILE"; then
             echo "warning: swift test exited with signal code 5 (WebKit headless crash) but all test assertions passed."
+            rm -f "$TEST_OUTPUT_FILE"
             exit 0
         fi
 
+        rm -f "$TEST_OUTPUT_FILE"
         exit $TEST_EXIT
         ;;
     lint)
@@ -354,6 +366,7 @@ case "$CMD" in
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
         rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
         ;;
@@ -680,6 +693,10 @@ fi
 FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
+fi
+PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
+if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
+    cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
 # Generate character-components.json for pre-daemon avatar rendering
 CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"

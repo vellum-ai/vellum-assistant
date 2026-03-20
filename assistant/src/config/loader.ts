@@ -119,6 +119,66 @@ function deleteNestedKey(
 }
 
 /**
+ * Deprecated config fields that have been removed. Each entry maps a
+ * dot-separated path to the deprecation message shown to the user.
+ */
+const DEPRECATED_FIELDS: Record<string, string> = {
+  "rateLimit.maxTokensPerSession":
+    "rateLimit.maxTokensPerSession has been removed and is no longer enforced. " +
+    "Per-session token budget tracking is no longer supported. " +
+    "The field will be removed from your config file.",
+};
+
+/**
+ * Check for deprecated config fields, log a warning for each one found,
+ * and strip them from both the in-memory object and the on-disk config file
+ * so the warning is only emitted once.
+ */
+function warnAndStripDeprecatedFields(
+  fileConfig: Record<string, unknown>,
+  configPath: string,
+): void {
+  const found: string[] = [];
+  for (const dotPath of Object.keys(DEPRECATED_FIELDS)) {
+    if (getNestedValue(fileConfig, dotPath) !== undefined) {
+      log.warn(DEPRECATED_FIELDS[dotPath]);
+      found.push(dotPath);
+    }
+  }
+
+  if (found.length === 0) return;
+
+  // Strip from the in-memory object so Zod never sees them
+  for (const dotPath of found) {
+    deleteNestedKeyByDotPath(fileConfig, dotPath);
+  }
+
+  // Persist the cleaned config to disk so the warning doesn't repeat
+  try {
+    if (existsSync(configPath)) {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      if (raw != null && typeof raw === "object" && !Array.isArray(raw)) {
+        for (const dotPath of found) {
+          deleteNestedKeyByDotPath(raw as Record<string, unknown>, dotPath);
+        }
+        writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
+      }
+    }
+  } catch {
+    // Best-effort — if the file can't be rewritten, the warning will repeat
+    // on next load, which is acceptable.
+  }
+}
+
+function deleteNestedKeyByDotPath(
+  obj: Record<string, unknown>,
+  dotPath: string,
+): void {
+  const keys = dotPath.split(".");
+  deleteNestedKey(obj, keys);
+}
+
+/**
  * Deep-merge missing keys from `defaults` into `target`.
  * Only adds keys that do not already exist in `target`; never overwrites.
  * Returns true if any key was added.
@@ -223,6 +283,10 @@ export function loadConfig(): AssistantConfig {
     } else {
       configFileExisted = false;
     }
+
+    // Warn about and strip deprecated config fields so users know their
+    // settings are no longer honored rather than silently dropping them.
+    warnAndStripDeprecatedFields(fileConfig, configPath);
 
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);

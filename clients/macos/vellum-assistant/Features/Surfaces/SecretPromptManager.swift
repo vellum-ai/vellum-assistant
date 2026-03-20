@@ -26,7 +26,7 @@ final class SecretPromptManager {
     /// Parameters: (requestId, value?, delivery?) — value is nil if user cancelled.
     /// `delivery` is "store" (default) or "transient_send" for one-time use.
     /// Returns `true` if the send succeeded.
-    var onResponse: ((String, String?, String?) -> Bool)?
+    var onResponse: ((String, String?, String?) async -> Bool)?
 
     func showPrompt(_ message: SecretRequestMessage) {
         // Dismiss existing panel for same request, if any
@@ -41,13 +41,13 @@ final class SecretPromptManager {
             allowedDomains: message.allowedDomains,
             allowOneTimeSend: message.allowOneTimeSend ?? false,
             onSave: { [weak self] value in
-                self?.respond(requestId: message.requestId, value: value, delivery: "store") ?? false
+                await self?.respond(requestId: message.requestId, value: value, delivery: "store") ?? false
             },
             onSendOnce: { [weak self] value in
-                self?.respond(requestId: message.requestId, value: value, delivery: "transient_send") ?? false
+                await self?.respond(requestId: message.requestId, value: value, delivery: "transient_send") ?? false
             },
             onCancel: { [weak self] in
-                _ = self?.respond(requestId: message.requestId, value: nil)
+                _ = await self?.respond(requestId: message.requestId, value: nil)
             }
         )
 
@@ -125,9 +125,10 @@ final class SecretPromptManager {
     }
 
     func dismissAll() {
+        let callback = onResponse
         for (requestId, panel) in panels {
             panel.close()
-            _ = onResponse?(requestId, nil, nil)
+            Task { _ = await callback?(requestId, nil, nil) }
         }
         panels.removeAll()
     }
@@ -137,8 +138,8 @@ final class SecretPromptManager {
     /// **Security invariant**: This method intentionally never logs `value`.
     /// All logging in this class uses metadata-only fields (requestId, service, field).
     /// Any future change that adds logging here must be audited for secret leaks.
-    private func respond(requestId: String, value: String?, delivery: String? = nil) -> Bool {
-        let success = onResponse?(requestId, value, delivery) ?? true
+    private func respond(requestId: String, value: String?, delivery: String? = nil) async -> Bool {
+        let success = await onResponse?(requestId, value, delivery) ?? true
         if success && value == nil {
             // Cancel: dismiss immediately
             dismissPrompt(requestId: requestId)
@@ -162,12 +163,13 @@ struct SecretPromptView: View {
     let allowedTools: [String]?
     let allowedDomains: [String]?
     let allowOneTimeSend: Bool
-    let onSave: (String) -> Bool
-    let onSendOnce: (String) -> Bool
-    let onCancel: () -> Void
+    let onSave: (String) async -> Bool
+    let onSendOnce: (String) async -> Bool
+    let onCancel: () async -> Void
 
     @State private var secretValue: String = ""
     @State private var saved = false
+    @State private var isSending = false
 
     private var hasContext: Bool {
         purpose != nil
@@ -242,17 +244,23 @@ struct SecretPromptView: View {
                     HStack(spacing: VSpacing.lg) {
                         Spacer()
                         VButton(label: "Cancel", style: .outlined, accessibilityID: "secure-credential-cancel") {
-                            onCancel()
+                            Task { await onCancel() }
                         }
+                        .disabled(isSending)
                         .accessibilityLabel("Cancel")
-                        VButton(label: "Save", style: .primary, accessibilityID: "secure-credential-save") {
+                        VButton(label: isSending ? "Saving..." : "Save", style: .primary, accessibilityID: "secure-credential-save") {
                             let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
-                            if onSave(trimmed) {
-                                withAnimation(VAnimation.standard) { saved = true }
+                            isSending = true
+                            Task {
+                                let success = await onSave(trimmed)
+                                isSending = false
+                                if success {
+                                    withAnimation(VAnimation.standard) { saved = true }
+                                }
                             }
                         }
-                        .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(isSending || secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityLabel("Save")
                     }
 
@@ -260,12 +268,19 @@ struct SecretPromptView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.triangleAlert, size: 10)
                                 .foregroundColor(VColor.systemNegativeHover)
-                            VButton(label: "Send Once (not saved)", style: .outlined) {
+                            VButton(label: isSending ? "Sending..." : "Send Once (not saved)", style: .outlined) {
                                 let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
-                                _ = onSendOnce(trimmed)
+                                isSending = true
+                                Task {
+                                    let success = await onSendOnce(trimmed)
+                                    isSending = false
+                                    if success {
+                                        withAnimation(VAnimation.standard) { saved = true }
+                                    }
+                                }
                             }
-                            .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(isSending || secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }

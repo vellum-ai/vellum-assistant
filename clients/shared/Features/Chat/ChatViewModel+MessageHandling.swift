@@ -265,10 +265,10 @@ extension ChatViewModel {
     }
 
     /// Extract a code preview from accumulated tool input JSON.
-    /// Shows the HTML code as it streams during app_create/app_update.
+    /// Shows the HTML code as it streams during app_create/app_refresh/app_update.
     static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
         guard !accumulatedJson.isEmpty else { return nil }
-        let isAppTool = toolName == "app_create" || toolName == "app_update"
+        let isAppTool = toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update"
         guard isAppTool else { return nil }
 
         // Find the html JSON string value by locating the opening quote
@@ -359,7 +359,8 @@ extension ChatViewModel {
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath
+                filePath: attachment.filePath,
+                sourceType: attachment.sourceType
             )
         }
     }
@@ -375,6 +376,21 @@ extension ChatViewModel {
             messages[index].attachments.append(contentsOf: chatAttachments)
         } else {
             let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
+    /// Ingest attachment warnings from a completion/handoff event into the
+    /// current or new assistant message.
+    func ingestAssistantAttachmentWarnings(_ warnings: [String]?) {
+        guard let warnings, !warnings.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachmentWarnings.append(contentsOf: warnings)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachmentWarnings: warnings)
             currentAssistantMessageId = msg.id
             messages.append(msg)
         }
@@ -456,9 +472,7 @@ extension ChatViewModel {
         } else {
             // No existing assistant message — create a new one (first text delta)
             var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
-            if currentTurnUserText == "/model" {
-                msg.modelPicker = ModelPickerData()
-            } else if currentTurnUserText == "/models" {
+            if currentTurnUserText == "/models" {
                 msg.modelList = ModelListData()
             } else if currentTurnUserText == "/commands" {
                 msg.commandList = CommandListData()
@@ -891,10 +905,16 @@ extension ChatViewModel {
                 // If the user deleted this message before the ack arrived,
                 // forward the deletion to the daemon now that we have the requestId.
                 if pendingLocalDeletions.remove(messageId) != nil {
-                    do {
-                        try daemonClient.send(DeleteQueuedMessageMessage(conversationId: queued.conversationId, requestId: queued.requestId))
-                    } catch {
-                        log.error("Failed to send deferred delete_queued_message: \(error.localizedDescription)")
+                    Task {
+                        let success = await conversationQueueClient.deleteQueuedMessage(
+                            conversationId: queued.conversationId,
+                            requestId: queued.requestId
+                        )
+                        if success {
+                            applyQueuedMessageDeletion(requestId: queued.requestId)
+                        } else {
+                            log.error("Failed to send deferred delete_queued_message")
+                        }
                     }
                 } else if let index = messages.firstIndex(where: { $0.id == messageId }) {
                     messages[index].status = .queued(position: queued.position)
@@ -903,24 +923,7 @@ extension ChatViewModel {
 
         case .messageQueuedDeleted(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
-            pendingQueuedCount = max(0, pendingQueuedCount - 1)
-            // Remove the message from the UI
-            let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId)
-                ?? activeRequestIdToMessageId.removeValue(forKey: msg.requestId)
-            if let messageId {
-                messages.removeAll { $0.id == messageId }
-            }
-            // Recompute positions for remaining queued messages
-            var queuePosition = 0
-            for i in messages.indices {
-                if case .queued = messages[i].status {
-                    messages[i].status = .queued(position: queuePosition)
-                    queuePosition += 1
-                }
-            }
-            if pendingQueuedCount == 0 && !isThinking {
-                isSending = false
-            }
+            applyQueuedMessageDeletion(requestId: msg.requestId)
 
         case .messageDequeued(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
@@ -1107,10 +1110,21 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments.
+                    // Include filePath, sizeBytes, and thumbnailData so file-backed
+                    // attachments survive the secret-ingress redirect.
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
-                        secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                        secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
+                            guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                            return UserMessageAttachment(
+                                filename: att.filename,
+                                mimeType: att.mimeType,
+                                data: att.data,
+                                extractedText: nil,
+                                sizeBytes: att.sizeBytes,
+                                thumbnailData: att.thumbnailData?.base64EncodedString(),
+                                filePath: att.filePath
+                            )
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
@@ -1284,18 +1298,13 @@ extension ChatViewModel {
             isThinking = false
             // Extract building status for app tools
             let buildingStatus: String? = {
-                let appTools: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
+                let appTools: Set<String> = ["app_create", "app_refresh", "app_update"]
                 guard appTools.contains(msg.toolName) else { return nil }
                 if let status = msg.input["status"]?.value as? String, !status.isEmpty {
                     return status
                 }
-                // Fallback status for file tools only; app_create/app_update
-                // rely on friendlyRunningLabel + progressive label cycling
-                switch msg.toolName {
-                case "app_file_edit": return "Editing app files"
-                case "app_file_write": return "Writing app files"
-                default: return nil
-                }
+                // app_create/app_refresh/app_update rely on friendlyRunningLabel + progressive label cycling
+                return nil
             }()
             // Upsert by toolUseId: if a preview chip already exists for this tool, update it
             // instead of creating a duplicate.
@@ -1526,6 +1535,7 @@ extension ChatViewModel {
             }
             if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
                 messages[msgIndex].toolCalls[tcIndex].result = msg.result
+                messages[msgIndex].toolCalls[tcIndex].resultLength = msg.result.count
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
@@ -1966,6 +1976,9 @@ extension ChatViewModel {
             selectedModel = msg.model
             if let providers = msg.configuredProviders {
                 configuredProviders = Set(providers)
+            }
+            if let allProviders = msg.allProviders, !allProviders.isEmpty {
+                providerCatalog = allProviders
             }
 
         case .memoryStatus(let status):

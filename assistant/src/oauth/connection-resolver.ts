@@ -1,12 +1,14 @@
-import { getPlatformAssistantId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { type Services, ServicesSchema } from "../config/schemas/services.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { VellumPlatformClient } from "../platform/client.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
+
+const log = getLogger("connection-resolver");
 
 export interface ResolveOAuthConnectionOptions {
   /** OAuth app client ID — narrows to a specific app when multiple BYO apps
@@ -46,16 +48,32 @@ export async function resolveOAuthConnection(
   if (managedKey && managedKey in ServicesSchema.shape) {
     const services: Services = getConfig().services;
     if (services[managedKey as keyof Services].mode === "managed") {
-      const ctx = await resolveManagedProxyContext();
-      const assistantId = getPlatformAssistantId();
+      const client = await VellumPlatformClient.create();
+      if (!client || !client.platformAssistantId) {
+        const detail = !client
+          ? "missing platform prerequisites"
+          : "missing assistant ID";
+        throw new Error(
+          `Platform-managed connection for "${providerKey}" cannot be created: ${detail}. ` +
+            `Log in to the Vellum platform or switch to using your own OAuth app.`,
+        );
+      }
+
+      const providerSlug = providerKey.replace(/^integration:/, "");
+
+      const connectionId = await resolvePlatformConnectionId({
+        client,
+        provider: providerSlug,
+        account,
+      });
+
       return new PlatformOAuthConnection({
         id: providerKey,
         providerKey,
         externalId: providerKey,
         accountInfo: account ?? null,
-        assistantId,
-        platformBaseUrl: ctx.platformBaseUrl,
-        apiKey: ctx.assistantApiKey,
+        client,
+        connectionId,
       });
     }
   }
@@ -97,4 +115,71 @@ export async function resolveOAuthConnection(
     baseUrl,
     accountInfo: conn.accountInfo,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Platform connection ID resolution
+// ---------------------------------------------------------------------------
+
+interface ResolvePlatformConnectionIdOptions {
+  client: VellumPlatformClient;
+  provider: string;
+  account?: string;
+}
+
+/**
+ * Fetch the platform-side connection ID for a managed provider by calling
+ * the List Connections endpoint.
+ */
+async function resolvePlatformConnectionId(
+  options: ResolvePlatformConnectionIdOptions,
+): Promise<string> {
+  const { client, provider, account } = options;
+
+  const params = new URLSearchParams();
+  params.set("provider", provider);
+  params.set("status", "ACTIVE");
+  if (account) {
+    params.set("account_identifier", account);
+  }
+
+  const path = `/v1/assistants/${client.platformAssistantId}/oauth/connections/?${params.toString()}`;
+  const response = await client.fetch(path);
+
+  if (!response.ok) {
+    log.error(
+      { status: response.status, provider },
+      "Failed to list platform OAuth connections",
+    );
+    throw new Error(
+      `Failed to resolve platform connection for "${provider}": HTTP ${response.status}`,
+    );
+  }
+
+  const body = (await response.json()) as {
+    results?: Array<{ id: string; account_label?: string }>;
+  };
+  const connections = body.results ?? [];
+
+  if (connections.length === 0) {
+    throw new Error(
+      `No active platform OAuth connection found for provider "${provider}"` +
+        (account ? ` with account "${account}"` : "") +
+        ". Connect the service on the Vellum platform first.",
+    );
+  }
+
+  if (connections.length > 1 && !account) {
+    log.warn(
+      {
+        provider,
+        count: connections.length,
+        selectedId: connections[0].id,
+      },
+      "Multiple active platform connections found; using the most recently created. " +
+        "Pass an account option to select a specific connection.",
+    );
+  }
+
+  return connections[0].id;
 }
