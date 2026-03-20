@@ -118,6 +118,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isGoogleOAuthEnabled: Bool = false
+    @State private var isTwitterOAuthEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
@@ -128,6 +129,7 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
+    private static let twitterOAuthFeatureFlagKey = "feature_flags.managed-twitter-oauth.enabled"
     private static let embeddingProviderFeatureFlagKey = "feature_flags.settings-embedding-provider.enabled"
     private static let soundsFeatureFlagKey = "feature_flags.sounds.enabled"
 
@@ -245,6 +247,8 @@ struct SettingsPanel: View {
                     isBillingEnabled = enabled
                 } else if key == Self.googleOAuthFeatureFlagKey {
                     isGoogleOAuthEnabled = enabled
+                } else if key == Self.twitterOAuthFeatureFlagKey {
+                    isTwitterOAuthEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
                 } else if key == Self.soundsFeatureFlagKey {
@@ -487,6 +491,15 @@ struct SettingsPanel: View {
 
                 OAuthProviderServiceCard(store: store, authManager: authManager, showToast: showToast, providerKey: "integration:google")
             }
+
+            // TWITTER OAUTH (feature-flagged)
+            if isTwitterOAuthEnabled {
+                Divider()
+                    .background(VColor.borderBase)
+                    .padding(.vertical, VSpacing.sm)
+
+                OAuthProviderServiceCard(store: store, authManager: authManager, showToast: showToast, providerKey: "integration:twitter")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -624,6 +637,9 @@ struct SettingsPanel: View {
                 if let googleOAuthFlag = flags.first(where: { $0.key == Self.googleOAuthFeatureFlagKey }) {
                     isGoogleOAuthEnabled = googleOAuthFlag.enabled
                 }
+                if let twitterOAuthFlag = flags.first(where: { $0.key == Self.twitterOAuthFeatureFlagKey }) {
+                    isTwitterOAuthEnabled = twitterOAuthFlag.enabled
+                }
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
@@ -653,6 +669,9 @@ struct SettingsPanel: View {
         }
         if let googleOAuthEnabled = resolved[Self.googleOAuthFeatureFlagKey] {
             isGoogleOAuthEnabled = googleOAuthEnabled
+        }
+        if let twitterOAuthEnabled = resolved[Self.twitterOAuthFeatureFlagKey] {
+            isTwitterOAuthEnabled = twitterOAuthEnabled
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled

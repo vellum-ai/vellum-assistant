@@ -51,6 +51,11 @@ export const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
+export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -61,6 +66,9 @@ export const ServicesSchema = z.object({
   ),
   "google-oauth": GoogleOAuthServiceSchema.default(
     GoogleOAuthServiceSchema.parse({}),
+  ),
+  "twitter-oauth": TwitterOAuthServiceSchema.default(
+    TwitterOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

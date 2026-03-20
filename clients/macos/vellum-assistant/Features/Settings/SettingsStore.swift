@@ -2162,6 +2162,10 @@ public final class SettingsStore: ObservableObject {
             self.managedOAuthMode["integration:google"] = mode
             setManagedOAuthMode(mode, providerKey: "integration:google")
         }
+        if let twitterOAuth = services["twitter-oauth"] as? [String: Any],
+           let mode = twitterOAuth["mode"] as? String {
+            self.managedOAuthMode["integration:twitter"] = mode
+        }
     }
 
     func setInferenceMode(_ mode: String) {

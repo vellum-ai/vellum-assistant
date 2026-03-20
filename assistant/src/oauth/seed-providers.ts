@@ -156,6 +156,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "gateway",
+    managedServiceConfigKey: "twitter-oauth",
   },
 
   "integration:github": {
