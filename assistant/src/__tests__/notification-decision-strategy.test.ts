@@ -627,6 +627,37 @@ describe("notification decision strategy", () => {
       expect(line).toContain("requesting access");
     });
 
+    test("uses <@U...> mention format for Slack external IDs", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "slack",
+      });
+      expect(line).toContain("<@U04BTP01B2S>");
+      expect(line).not.toContain("[U04BTP01B2S]");
+      expect(line).toContain("via slack");
+    });
+
+    test("does not use <@U...> format for non-Slack channels", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "telegram",
+      });
+      expect(line).toContain("[U04BTP01B2S]");
+      expect(line).not.toContain("<@U04BTP01B2S>");
+    });
+
+    test("does not use <@U...> format for non-user-ID external IDs on Slack", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "someone@example.com",
+        sourceChannel: "slack",
+      });
+      expect(line).not.toContain("<@someone@example.com>");
+      expect(line).toContain("[someone@example.com]");
+    });
+
     test("sanitizes adversarial display names", () => {
       const line = buildAccessRequestIdentityLine({
         senderIdentifier: "Alice",

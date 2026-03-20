@@ -181,7 +181,10 @@ export function notifyGuardianOfAccessRequest(
     };
   }
 
-  const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
+  const senderIdentifier =
+    actorDisplayName ||
+    actorUsername ||
+    (sourceChannel === "slack" ? `<@${actorExternalId}>` : actorExternalId);
   const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
 
   const canonicalRequest = createCanonicalGuardianRequest({

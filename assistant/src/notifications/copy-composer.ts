@@ -108,7 +108,13 @@ export function buildAccessRequestIdentityLine(
     sanitizedExternalId !== requester &&
     sanitizedExternalId !== sanitizedUsername
   ) {
-    parts.push(`[${sanitizedExternalId}]`);
+    // For Slack, use the <@U...> mention format so Slack auto-renders
+    // the user ID as a clickable display name.
+    const formattedId =
+      sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
+        ? `<@${sanitizedExternalId}>`
+        : `[${sanitizedExternalId}]`;
+    parts.push(formattedId);
   }
   if (sourceChannel) {
     parts.push(`via ${sourceChannel}`);
