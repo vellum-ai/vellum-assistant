@@ -261,6 +261,14 @@ export async function getMaskedProviderKey(
 // Test helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Return the name of the currently resolved credential backend.
+ * Useful for diagnostic messages when credential operations fail.
+ */
+export function getActiveBackendName(): string {
+  return resolveBackend().name;
+}
+
 /** @internal Test-only: reset the cached backends so they're re-created. */
 export function _resetBackend(): void {
   _keychain = undefined;

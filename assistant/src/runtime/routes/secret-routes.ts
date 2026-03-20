@@ -20,6 +20,7 @@ import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
+  getActiveBackendName,
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -183,7 +184,7 @@ export async function handleAddSecret(
       if (!stored) {
         return httpError(
           "INTERNAL_ERROR",
-          "Failed to store API key in secure storage",
+          `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
           500,
         );
       }
@@ -248,7 +249,7 @@ export async function handleAddSecret(
         if (!stored) {
           return httpError(
             "INTERNAL_ERROR",
-            "Failed to store credential in secure storage",
+            `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
             500,
           );
         }

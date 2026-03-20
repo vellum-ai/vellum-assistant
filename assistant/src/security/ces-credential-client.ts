@@ -21,8 +21,6 @@ import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 const log = getLogger("ces-credential-client");
 
 const REQUEST_TIMEOUT_MS = 10_000;
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 250;
 
 // ---------------------------------------------------------------------------
 // Env helpers
@@ -61,32 +59,17 @@ async function cesRequest(
     "Content-Type": "application/json",
   };
 
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fetch(url, {
-        method,
-        headers,
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-    } catch (err) {
-      lastError = err;
-      if (attempt < MAX_RETRIES) {
-        log.warn(
-          { err, method, path, attempt },
-          `CES credential request failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying`,
-        );
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-      }
-    }
+  try {
+    return await fetch(url, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    log.warn({ err, method, path }, "CES credential request failed");
+    return null;
   }
-
-  log.warn(
-    { err: lastError, method, path },
-    "CES credential request failed after all retries",
-  );
-  return null;
 }
 
 // ---------------------------------------------------------------------------
