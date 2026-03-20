@@ -569,7 +569,8 @@ extension ChatViewModel {
                         conversationId: info.conversationId,
                         attachments: attachments,
                         conversationType: nil,
-                        automated: automated ? true : nil
+                        automated: automated ? true : nil,
+                        bypassSecretCheck: nil
                     )
                 } else {
                     // Message-less conversation create (e.g. private conversation
