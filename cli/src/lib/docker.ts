@@ -760,6 +760,27 @@ export async function stopContainers(
   await removeContainer(res.assistantContainer);
 }
 
+/**
+ * Remove the signing-key-bootstrap lockfile from the gateway security volume.
+ * This allows the daemon to re-fetch the signing key from the gateway on the
+ * next startup — necessary during upgrades where the gateway may generate a
+ * new key.
+ */
+export async function clearSigningKeyBootstrapLock(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<void> {
+  await exec("docker", [
+    "run",
+    "--rm",
+    "-v",
+    `${res.gatewaySecurityVolume}:/gateway-security`,
+    "busybox",
+    "rm",
+    "-f",
+    "/gateway-security/signing-key-bootstrap.lock",
+  ]);
+}
+
 /** Stop containers without removing them (preserves state for `docker start`). */
 export async function sleepContainers(
   res: ReturnType<typeof dockerResourceNames>,

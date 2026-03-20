@@ -11,6 +11,7 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
+  clearSigningKeyBootstrapLock,
   DOCKERHUB_IMAGES,
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
@@ -296,6 +297,9 @@ async function upgradeDocker(
 
   console.log("🔄 Migrating credential files to CES security volume...");
   await migrateCesSecurityFiles(res, (msg) => console.log(msg));
+
+  console.log("🔑 Clearing signing key bootstrap lock...");
+  await clearSigningKeyBootstrapLock(res);
 
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
