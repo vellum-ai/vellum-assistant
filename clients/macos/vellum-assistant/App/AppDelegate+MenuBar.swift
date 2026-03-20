@@ -399,6 +399,20 @@ extension AppDelegate {
     }
 
     @objc func checkForUpdates() {
+        // For Docker/managed topologies with a service group update available,
+        // navigate to Settings > General (where the Software Update card lives)
+        // instead of triggering Sparkle's update dialog.
+        if updateManager.isServiceGroupUpdateAvailable {
+            let assistants = LockfileAssistant.loadAll()
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            if let id = connectedId,
+               let assistant = assistants.first(where: { $0.assistantId == id }),
+               assistant.isDocker || assistant.isManaged {
+                showSettingsTab("General")
+                return
+            }
+        }
+        // Local topology (or no service group update): use Sparkle
         updateManager.checkForUpdates()
     }
 
