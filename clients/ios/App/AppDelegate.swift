@@ -327,7 +327,8 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                         conversationId: sid,
                         attachments: nil,
                         conversationType: nil,
-                        automated: nil
+                        automated: nil,
+                        bypassSecretCheck: nil
                     )
                 }
                 // Call completionHandler inside the Task so iOS keeps the app alive
