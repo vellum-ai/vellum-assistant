@@ -124,6 +124,7 @@ export async function runInlineCommand(
 
   return new Promise<InlineCommandResult>((resolve) => {
     let timedOut = false;
+    let stdoutCapped = false;
     const stdoutChunks: Buffer[] = [];
     let stdoutBytes = 0;
 
@@ -155,7 +156,11 @@ export async function runInlineCommand(
       stdoutChunks.push(data);
       stdoutBytes += data.length;
       if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) {
-        // Stop reading to release backpressure on the child process
+        // Stop reading to release backpressure on the child process.
+        // This destroys the read end of the pipe, which may cause the
+        // child to receive SIGPIPE and exit with code=null. The
+        // stdoutCapped flag lets the close handler treat this as success.
+        stdoutCapped = true;
         child.stdout!.destroy();
       }
     });
@@ -175,7 +180,10 @@ export async function runInlineCommand(
       }
 
       // ── Non-zero exit ────────────────────────────────────────────────
-      if (code !== 0) {
+      // When stdout was capped we destroyed the read end of the pipe,
+      // which typically causes SIGPIPE (code=null). Treat that as
+      // success and fall through to process the buffered output.
+      if (code !== 0 && !stdoutCapped) {
         log.debug(
           { command, exitCode: code },
           "Inline command exited with non-zero code",
