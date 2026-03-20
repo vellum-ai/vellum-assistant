@@ -756,13 +756,18 @@ final class VellumCli {
             return false
         }
 
-        // Match the same patterns as cli/src/lib/process.ts isVellumProcess()
+        // Match the same patterns as cli/src/lib/process.ts isVellumProcess().
+        // See also: AppDelegate+AuthLifecycle.swift isVellumProcess(pid:)
         let patterns = [
             "vellum-daemon", "vellum-cli", "vellum-gateway",
             "@vellumai", "/.vellum/", "/daemon/main",
-            "/vellum/", "qdrant/bin/qdrant"
+            "/vellum/"
         ]
-        return patterns.contains { command.contains($0) }
+        let matchesVellumPattern = patterns.contains { command.contains($0) }
+        // Qdrant managed by vellum lives under /.vellum/; match the TS regex
+        // `\/\.vellum\/.*qdrant\/bin\/qdrant` which requires both parts.
+        let matchesManagedQdrant = command.contains("/.vellum/") && command.contains("qdrant/bin/qdrant")
+        return matchesVellumPattern || matchesManagedQdrant
     }
 
     /// Run a CLI command, log the invocation and result, and return
