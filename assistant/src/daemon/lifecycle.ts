@@ -355,8 +355,36 @@ export async function runDaemon(): Promise<void> {
       log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
       const manager = new QdrantManager({ url: qdrantUrl });
       bgRefs.qdrantManager = manager;
-      try {
-        await manager.start();
+      const QDRANT_START_MAX_ATTEMPTS = 3;
+      let qdrantStarted = false;
+      for (let attempt = 1; attempt <= QDRANT_START_MAX_ATTEMPTS; attempt++) {
+        try {
+          await manager.start();
+          qdrantStarted = true;
+          break;
+        } catch (err) {
+          if (attempt < QDRANT_START_MAX_ATTEMPTS) {
+            const backoffMs = attempt * 5_000; // 5s, 10s
+            log.warn(
+              {
+                err,
+                attempt,
+                maxAttempts: QDRANT_START_MAX_ATTEMPTS,
+                backoffMs,
+              },
+              "Qdrant startup failed, retrying",
+            );
+            await Bun.sleep(backoffMs);
+          } else {
+            log.warn(
+              { err },
+              "Qdrant failed to start after all attempts — memory features will be unavailable",
+            );
+          }
+        }
+      }
+
+      if (qdrantStarted) {
         const embeddingSelection = await selectEmbeddingBackend(config);
         const embeddingModel = embeddingSelection.backend
           ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
@@ -383,11 +411,6 @@ export async function runDaemon(): Promise<void> {
         }
 
         log.info("Qdrant vector store initialized");
-      } catch (err) {
-        log.warn(
-          { err },
-          "Qdrant failed to start — memory features will be unavailable",
-        );
       }
 
       log.info("Daemon startup: starting memory worker");
