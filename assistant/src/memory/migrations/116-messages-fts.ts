@@ -30,8 +30,9 @@ const logger = getLogger("messages-fts");
  * After creating (or finding an existing) messages_fts table, we probe it
  * with a lightweight MATCH query that exercises the FTS inverted index
  * in O(1). If the probe throws SQLITE_CORRUPT_VTAB or SQLITE_CORRUPT,
- * we drop the shadow tables directly (since DROP TABLE on a corrupt
- * vtable can itself throw) and recreate it. The subsequent
+ * we force-remove all shadow tables and the vtable entry (falling back
+ * to `PRAGMA writable_schema` if DROP TABLE itself fails on the corrupt
+ * vtable) and recreate it from scratch. The subsequent
  * `migrateMessagesFtsBackfill` call in db-init.ts will repopulate the
  * index from the messages table — no message data is lost.
  */
@@ -44,14 +45,17 @@ function isSqliteCorruptionError(err: unknown): boolean {
 }
 
 /**
- * Drop all FTS5 shadow tables and triggers directly. This avoids going
- * through `DROP TABLE messages_fts` which itself can throw on a corrupt
- * vtable. The shadow table names follow the FTS5 naming convention:
- * `<table>_content`, `<table>_data`, `<table>_idx`, `<table>_docsize`,
- * `<table>_config`.
+ * Force-remove all FTS5 shadow tables, triggers, and the vtable entry.
+ *
+ * We drop each artifact individually so that a corrupt shadow table
+ * doesn't block cleanup of the others. If `DROP TABLE messages_fts`
+ * itself fails (FTS5's xDestroy hits a corrupt shadow table), we fall
+ * back to `PRAGMA writable_schema` to delete the vtable entry directly
+ * from `sqlite_schema`. Without this fallback, `CREATE VIRTUAL TABLE
+ * IF NOT EXISTS` would be a no-op and the crash loop would persist.
  */
 function dropFtsShadowTables(raw: ReturnType<typeof getSqliteFrom>): void {
-  const statements = [
+  const drops = [
     `DROP TRIGGER IF EXISTS messages_fts_ai`,
     `DROP TRIGGER IF EXISTS messages_fts_ad`,
     `DROP TRIGGER IF EXISTS messages_fts_au`,
@@ -60,13 +64,36 @@ function dropFtsShadowTables(raw: ReturnType<typeof getSqliteFrom>): void {
     `DROP TABLE IF EXISTS messages_fts_content`,
     `DROP TABLE IF EXISTS messages_fts_idx`,
     `DROP TABLE IF EXISTS messages_fts_data`,
-    `DROP TABLE IF EXISTS messages_fts`,
   ];
-  for (const sql of statements) {
+  for (const sql of drops) {
     try {
       raw.exec(sql);
     } catch {
       // Shadow table may itself be corrupt — ignore and continue
+    }
+  }
+
+  // Try the normal DROP TABLE path first (lets FTS5 clean up properly).
+  try {
+    raw.exec(`DROP TABLE IF EXISTS messages_fts`);
+  } catch {
+    // FTS5's xDestroy failed — force-remove the vtable entry from
+    // sqlite_schema so CREATE VIRTUAL TABLE isn't a no-op.
+    logger.warn(
+      "[messages-fts] DROP TABLE messages_fts failed — removing vtable entry via writable_schema",
+    );
+    try {
+      raw.exec(`PRAGMA writable_schema = ON`);
+      raw.exec(
+        `DELETE FROM sqlite_schema WHERE type = 'table' AND name = 'messages_fts'`,
+      );
+      raw.exec(`PRAGMA writable_schema = OFF`);
+    } catch (schemaErr) {
+      logger.error(
+        { err: schemaErr },
+        "[messages-fts] Failed to remove vtable entry from sqlite_schema",
+      );
+      throw schemaErr;
     }
   }
 }
@@ -100,7 +127,7 @@ export function createMessagesFts(database: DrizzleDb): void {
     // FTS5 shadow tables directly to guarantee cleanup.
     dropFtsShadowTables(raw);
     database.run(/*sql*/ `
-      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
         message_id UNINDEXED,
         content
       )
