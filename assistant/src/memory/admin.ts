@@ -4,7 +4,6 @@ import { rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from "./indexer.js";
 import { getMemoryJobCounts } from "./jobs-store.js";
-import { queryMemoryForCli } from "./retriever.js";
 
 const log = getLogger("memory-admin");
 
@@ -59,6 +58,3 @@ export function requestMemoryRebuildIndex(): string {
   return id;
 }
 
-export async function queryMemory(query: string, conversationId: string) {
-  return queryMemoryForCli(query, conversationId, getConfig());
-}

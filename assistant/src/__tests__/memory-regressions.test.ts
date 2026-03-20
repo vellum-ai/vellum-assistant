@@ -200,13 +200,7 @@ import {
   runMemoryJobsOnce,
 } from "../memory/jobs-worker.js";
 // @ts-expect-error — deleted module, stubbed via mock.module above
-import {
-  buildMemoryRecall,
-  escapeXmlTags,
-  formatAbsoluteTime,
-  formatRelativeTime,
-  injectMemoryRecallAsUserBlock,
-} from "../memory/retriever.js";
+import { buildMemoryRecall, escapeXmlTags, formatAbsoluteTime, formatRelativeTime, injectMemoryRecallAsUserBlock } from "../memory/retriever.js"; // eslint-disable-line
 import {
   conversations,
   memoryItems,
