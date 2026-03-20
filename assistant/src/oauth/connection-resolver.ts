@@ -93,7 +93,7 @@ export async function resolveOAuthConnection(
     );
   }
 
-  const accessToken = await getSecureKeyAsync(
+  const { value: accessToken } = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/access_token`,
   );
   if (!accessToken) {

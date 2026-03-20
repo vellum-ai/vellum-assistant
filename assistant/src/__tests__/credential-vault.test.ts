@@ -700,7 +700,7 @@ describe("credential_store tool", () => {
       // Verify it's actually gone
       expect(
         await getSecureKeyAsync(credentialKey("gmail", "password")),
-      ).toBeUndefined();
+      ).toEqual({ value: undefined, unreachable: false });
     });
 
     test("returns error for non-existent credential", async () => {
@@ -776,15 +776,15 @@ describe("credential_store tool", () => {
   describe("credential value access", () => {
     test("credential values are stored via secure keys", async () => {
       await setSecureKeyAsync(credentialKey("github", "token"), "ghp_abc123");
-      expect(await getSecureKeyAsync(credentialKey("github", "token"))).toBe(
-        "ghp_abc123",
+      expect(await getSecureKeyAsync(credentialKey("github", "token"))).toEqual(
+        { value: "ghp_abc123", unreachable: false },
       );
     });
 
     test("returns undefined for non-existent credential", async () => {
       expect(
         await getSecureKeyAsync(credentialKey("nonexistent", "field")),
-      ).toBeUndefined();
+      ).toEqual({ value: undefined, unreachable: false });
     });
   });
 
@@ -1229,11 +1229,11 @@ describe("credential_store tool", () => {
         value: "github-pass",
       });
 
-      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toBe(
-        "gmail-pass",
+      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toEqual(
+        { value: "gmail-pass", unreachable: false },
       );
-      expect(await getSecureKeyAsync(credentialKey("github", "password"))).toBe(
-        "github-pass",
+      expect(await getSecureKeyAsync(credentialKey("github", "password"))).toEqual(
+        { value: "github-pass", unreachable: false },
       );
     });
 
@@ -1251,12 +1251,12 @@ describe("credential_store tool", () => {
         value: "backup@example.com",
       });
 
-      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toBe(
-        "pass123",
+      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toEqual(
+        { value: "pass123", unreachable: false },
       );
       expect(
         await getSecureKeyAsync(credentialKey("gmail", "recovery_email")),
-      ).toBe("backup@example.com");
+      ).toEqual({ value: "backup@example.com", unreachable: false });
     });
   });
 });

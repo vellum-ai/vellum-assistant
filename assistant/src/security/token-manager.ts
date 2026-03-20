@@ -80,7 +80,7 @@ export class TokenExpiredError extends Error {
 // interface expected by @vellumai/credential-storage helpers.
 
 const secureKeyBackend: SecureKeyBackend = {
-  get: (key: string) => getSecureKeyAsync(key),
+  get: async (key: string) => (await getSecureKeyAsync(key)).value,
   set: (key: string, value: string) => setSecureKeyAsync(key, value),
   delete: async () => {
     // Not needed in this module — refresh persistence only writes tokens.
@@ -146,9 +146,9 @@ async function resolveRefreshConfig(
     );
   }
 
-  const secret = await getSecureKeyAsync(app.clientSecretCredentialPath);
+  const { value: secret } = await getSecureKeyAsync(app.clientSecretCredentialPath);
 
-  const refreshToken = await getSecureKeyAsync(
+  const { value: refreshToken } = await getSecureKeyAsync(
     oauthConnectionRefreshTokenPath(conn.id),
   );
 
@@ -290,7 +290,7 @@ export async function withValidToken<T>(
       ? getConnection(opts.connectionId)
       : getConnectionByProvider(service, opts);
   let token = conn
-    ? await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))
+    ? (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))).value
     : undefined;
   if (!token || !conn) {
     throw new TokenExpiredError(

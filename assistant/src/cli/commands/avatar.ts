@@ -74,7 +74,7 @@ Examples:
       // without the daemon's in-memory state.
       try {
         const key = credentialKey("vellum", "platform_base_url");
-        const persisted = await getSecureKeyAsync(key);
+        const { value: persisted } = await getSecureKeyAsync(key);
         if (persisted) {
           setPlatformBaseUrl(persisted);
         }

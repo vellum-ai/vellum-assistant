@@ -309,7 +309,7 @@ Examples:
 
         const credentials = await Promise.all(
           allMetadata.map(async (m) => {
-            const secret = await getSecureKeyAsync(
+            const { value: secret } = await getSecureKeyAsync(
               credentialKey(m.service, m.field),
             );
             const connection = connectionsByProvider.get(m.service);
@@ -608,10 +608,19 @@ Examples:
             return;
           }
 
-          const secret = await getSecureKeyAsync(storageKey);
+          const { value: secret, unreachable } =
+            await getSecureKeyAsync(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
-            writeOutput(cmd, { ok: false, error: "Credential not found" });
+            if (unreachable) {
+              writeOutput(cmd, {
+                ok: false,
+                error:
+                  "Keychain broker is unreachable — is the macOS app running?",
+              });
+            } else {
+              writeOutput(cmd, { ok: false, error: "Credential not found" });
+            }
             process.exitCode = 1;
             return;
           }
@@ -725,10 +734,19 @@ Examples:
             return;
           }
 
-          const secret = await getSecureKeyAsync(storageKey);
+          const { value: secret, unreachable } =
+            await getSecureKeyAsync(storageKey);
 
           if (secret == null || secret.length === 0) {
-            writeOutput(cmd, { ok: false, error: "Credential not found" });
+            if (unreachable) {
+              writeOutput(cmd, {
+                ok: false,
+                error:
+                  "Keychain broker is unreachable — is the macOS app running?",
+              });
+            } else {
+              writeOutput(cmd, { ok: false, error: "Credential not found" });
+            }
             process.exitCode = 1;
             return;
           }

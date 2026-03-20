@@ -45,7 +45,10 @@ function getBearerToken(): string {
 
 /** Read the Telegram bot token from the credential vault. */
 async function getBotToken(): Promise<string | undefined> {
-  return getSecureKeyAsync(credentialKey("telegram", "bot_token"));
+  const { value } = await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  );
+  return value;
 }
 
 export const telegramBotMessagingProvider: MessagingProvider = {
@@ -70,7 +73,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     if (!(conn && conn.status === "active")) return false;
     const botToken = await getBotToken();
     if (!botToken) return false;
-    const webhookSecret = await getSecureKeyAsync(
+    const { value: webhookSecret } = await getSecureKeyAsync(
       credentialKey("telegram", "webhook_secret"),
     );
     return !!webhookSecret;

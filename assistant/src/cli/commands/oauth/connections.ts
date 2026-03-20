@@ -633,7 +633,7 @@ Examples:
 
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
-            const storedSecret = await getSecureKeyAsync(
+            const { value: storedSecret } = await getSecureKeyAsync(
               dbApp.clientSecretCredentialPath,
             );
             if (storedSecret) clientSecret = storedSecret;

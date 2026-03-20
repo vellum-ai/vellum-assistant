@@ -177,7 +177,7 @@ async function handleOAuthConnectStart(body: {
     const app = getApp(conn.oauthAppId);
     if (app) {
       clientId = app.clientId;
-      clientSecret = await getSecureKeyAsync(app.clientSecretCredentialPath);
+      clientSecret = (await getSecureKeyAsync(app.clientSecretCredentialPath)).value;
     }
   }
 
@@ -187,9 +187,9 @@ async function handleOAuthConnectStart(body: {
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
-        clientSecret = await getSecureKeyAsync(
+        clientSecret = (await getSecureKeyAsync(
           dbApp.clientSecretCredentialPath,
-        );
+        )).value;
       }
     }
   }

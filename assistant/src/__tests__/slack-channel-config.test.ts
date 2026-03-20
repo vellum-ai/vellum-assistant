@@ -135,10 +135,10 @@ mock.module("../oauth/manual-token-connection.js", () => ({
     if (providerKey !== "slack_channel") return;
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    ));
+    )).value;
     const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    ));
+    )).value;
     if (hasBotToken && hasAppToken) {
       oauthConnectionStore[providerKey] = {
         id: `conn-${providerKey}`,
@@ -316,7 +316,7 @@ describe("Slack channel config handler", () => {
     expect(result.hasAppToken).toBe(true);
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
-    ).toBe("xapp-valid-token-123");
+    ).toEqual({ value: "xapp-valid-token-123", unreachable: false });
   });
 
   test("POST validates bot token via Slack auth.test API and writes config", async () => {
@@ -399,10 +399,10 @@ describe("Slack channel config handler", () => {
 
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
-    ).toBeUndefined();
+    ).toEqual({ value: undefined, unreachable: false });
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
-    ).toBeUndefined();
+    ).toEqual({ value: undefined, unreachable: false });
     expect(listCredentialMetadata()).toHaveLength(0);
 
     // Assert config values were cleared

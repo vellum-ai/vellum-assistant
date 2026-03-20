@@ -105,7 +105,7 @@ async function buildInjectedValue(
       tpl.composeWith.field,
     );
     if (!composed) return null;
-    const composedValue = await getSecureKeyAsync(composed.storageKey);
+    const { value: composedValue } = await getSecureKeyAsync(composed.storageKey);
     if (!composedValue) return null;
     value = `${value}${tpl.composeWith.separator}${composedValue}`;
   }
@@ -238,7 +238,7 @@ function buildSessionStartHooks(): SessionStartHooks {
             if (tpl.injectionType === "header" && tpl.headerName) {
               const resolved = resolveById(credId);
               if (!resolved) return req.headers;
-              const value = await getSecureKeyAsync(resolved.storageKey);
+              const { value } = await getSecureKeyAsync(resolved.storageKey);
               if (!value) return req.headers;
 
               const headerValue = await buildInjectedValue(tpl, value);
@@ -317,7 +317,7 @@ function buildSessionStartHooks(): SessionStartHooks {
             const { credentialId, template } = decision;
             const resolved = resolveById(credentialId);
             if (!resolved) return {};
-            const value = await getSecureKeyAsync(resolved.storageKey);
+            const { value } = await getSecureKeyAsync(resolved.storageKey);
             if (!value) return {};
 
             if (template.injectionType === "header" && template.headerName) {

@@ -42,7 +42,8 @@ export async function getTwilioConfig(): Promise<TwilioConfig> {
   const config = loadConfig();
   const accountSid = config.twilio?.accountSid || "";
   const authToken =
-    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || "";
+    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))).value ||
+    "";
   const phoneNumber = resolveTwilioPhoneNumber();
   const webhookBaseUrl = getPublicBaseUrl(config);
 

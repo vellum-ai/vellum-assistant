@@ -852,9 +852,9 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = await getSecureKeyAsync(
+              clientSecret = (await getSecureKeyAsync(
                 dbApp.clientSecretCredentialPath,
-              );
+              )).value;
             }
           }
         }

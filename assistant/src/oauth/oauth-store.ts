@@ -240,7 +240,7 @@ export async function upsertApp(
 
   // Verify the credential path points to an existing secret.
   if (clientSecretCredentialPath) {
-    const existing = await getSecureKeyAsync(clientSecretCredentialPath);
+    const { value: existing } = await getSecureKeyAsync(clientSecretCredentialPath);
     if (existing === undefined) {
       throw new Error(
         `No secret found at credential path: ${clientSecretCredentialPath}`,
@@ -347,7 +347,8 @@ export async function getAppClientSecret(
 ): Promise<string | undefined> {
   const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
   if (!app) return undefined;
-  return getSecureKeyAsync(app.clientSecretCredentialPath);
+  const { value } = await getSecureKeyAsync(app.clientSecretCredentialPath);
+  return value;
 }
 
 /** Look up an app by (provider_key, client_id). */
@@ -560,7 +561,7 @@ export async function isProviderConnected(
   const conn = getActiveConnection(providerKey);
   if (!conn || conn.status !== "active") return false;
   return (
-    (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))) !==
+    (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))).value !==
     undefined
   );
 }
@@ -681,7 +682,7 @@ export async function disconnectOAuthProvider(
   // Wrap the assistant's secure-key functions into the SecureKeyBackend
   // interface expected by the shared deleteOAuthTokens helper.
   const backend: SecureKeyBackend = {
-    get: (key: string) => getSecureKeyAsync(key),
+    get: async (key: string) => (await getSecureKeyAsync(key)).value,
     set: (key: string, value: string) => setSecureKeyAsync(key, value),
     delete: (key: string) => deleteSecureKeyAsync(key),
     list: async () => [],

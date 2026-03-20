@@ -61,7 +61,7 @@ Examples:
     .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = await getSecureKeyAsync(provider);
+        const { value } = await getSecureKeyAsync(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {

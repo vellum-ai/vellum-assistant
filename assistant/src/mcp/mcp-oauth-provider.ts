@@ -87,7 +87,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Tokens ---
 
   async tokens(): Promise<OAuthTokens | undefined> {
-    const raw = await getSecureKeyAsync(tokensKey(this.serverId));
+    const { value: raw } = await getSecureKeyAsync(tokensKey(this.serverId));
     if (!raw) return undefined;
     try {
       return JSON.parse(raw) as OAuthTokens;
@@ -118,7 +118,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Client Information ---
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
-    const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
+    const { value: raw } = await getSecureKeyAsync(clientInfoKey(this.serverId));
     if (!raw) return undefined;
     try {
       return JSON.parse(raw) as OAuthClientInformationMixed;
@@ -164,7 +164,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Discovery State ---
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    const raw = await getSecureKeyAsync(discoveryKey(this.serverId));
+    const { value: raw } = await getSecureKeyAsync(discoveryKey(this.serverId));
     if (!raw) return undefined;
     try {
       return JSON.parse(raw) as OAuthDiscoveryState;

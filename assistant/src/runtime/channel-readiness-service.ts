@@ -53,7 +53,7 @@ async function checkCredential(
   field: string,
   label: string,
 ): Promise<ReadinessCheckResult> {
-  const exists = !!(await getSecureKeyAsync(credentialKey(service, field)));
+  const exists = !!(await getSecureKeyAsync(credentialKey(service, field))).value;
   return check(
     name,
     exists,
@@ -143,8 +143,8 @@ const emailProbe: ChannelProbe = {
   channel: "email",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasApiKey = !!(
-      (await getSecureKeyAsync("agentmail")) ||
-      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
+      (await getSecureKeyAsync("agentmail")).value ||
+      (await getSecureKeyAsync(credentialKey("agentmail", "api_key"))).value
     );
     const invitePolicy = getChannelInvitePolicy("email");
     return [
@@ -166,8 +166,8 @@ const emailProbe: ChannelProbe = {
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     // Only worth checking if the API key is present
     const hasApiKey = !!(
-      (await getSecureKeyAsync("agentmail")) ||
-      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
+      (await getSecureKeyAsync("agentmail")).value ||
+      (await getSecureKeyAsync(credentialKey("agentmail", "api_key"))).value
     );
     if (!hasApiKey) return [];
 

@@ -558,7 +558,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       await getSecureKeyAsync(
         credentialKey("integration:google", "client_secret"),
       ),
-    ).toBe("my-secret");
+    ).toEqual({ value: "my-secret", unreachable: false });
   });
 
   test("v2 metadata with oauth2ClientSecret is stripped on migration", () => {

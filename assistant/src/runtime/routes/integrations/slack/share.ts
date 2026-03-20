@@ -30,7 +30,7 @@ const log = getLogger("slack-share");
 async function resolveSlackToken(): Promise<string | undefined> {
   const conn = getConnectionByProvider("integration:slack");
   return conn
-    ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
+    ? (await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)).value
     : undefined;
 }
 

@@ -149,7 +149,7 @@ export class ProviderCommitMessageGenerator {
       );
       const keyChecks = await Promise.all(
         candidates.map(async (name) => {
-          const value = await getSecureKeyAsync(name);
+          const { value } = await getSecureKeyAsync(name);
           return typeof value === "string" && value.length > 0;
         }),
       );
@@ -172,7 +172,7 @@ export class ProviderCommitMessageGenerator {
 
     // Step 2b: API key preflight for the selected provider (skip keyless).
     if (!KEYLESS_PROVIDERS.has(selectedProviderName)) {
-      const providerApiKey = await getSecureKeyAsync(selectedProviderName);
+      const { value: providerApiKey } = await getSecureKeyAsync(selectedProviderName);
       if (!providerApiKey) {
         log.debug(
           {

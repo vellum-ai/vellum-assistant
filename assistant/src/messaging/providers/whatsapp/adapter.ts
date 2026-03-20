@@ -43,11 +43,11 @@ function getBearerToken(): string {
 
 /** Check whether WhatsApp credentials are stored. */
 async function hasWhatsAppCredentials(): Promise<boolean> {
-  const phoneNumberId = await getSecureKeyAsync(
+  const { value: phoneNumberId } = await getSecureKeyAsync(
     credentialKey("whatsapp", "phone_number_id"),
   );
   if (!phoneNumberId) return false;
-  const accessToken = await getSecureKeyAsync(
+  const { value: accessToken } = await getSecureKeyAsync(
     credentialKey("whatsapp", "access_token"),
   );
   return !!accessToken;
@@ -81,16 +81,16 @@ export const whatsappMessagingProvider: MessagingProvider = {
       };
     }
 
-    const phoneNumberId = (await getSecureKeyAsync(
+    const { value: phoneNumberId } = await getSecureKeyAsync(
       credentialKey("whatsapp", "phone_number_id"),
-    ))!;
+    );
 
     return {
       connected: true,
-      user: phoneNumberId,
+      user: phoneNumberId!,
       platform: "whatsapp",
       metadata: {
-        phoneNumberId: phoneNumberId.slice(0, 6) + "...",
+        phoneNumberId: phoneNumberId!.slice(0, 6) + "...",
       },
     };
   },

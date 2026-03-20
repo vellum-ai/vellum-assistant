@@ -10,6 +10,7 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 // ---------------------------------------------------------------------------
 
 let secureKeyStore = new Map<string, string>();
+let mockBrokerUnreachable = false;
 let metadataStore: CredentialMetadata[] = [];
 let idCounter = 0;
 
@@ -42,8 +43,9 @@ mock.module("../security/secure-keys.js", () => ({
   listSecureKeysAsync: async (): Promise<string[]> => {
     return [...secureKeyStore.keys()];
   },
-  getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
-    return secureKeyStore.get(account);
+  getSecureKeyAsync: async (account: string) => {
+    const value = secureKeyStore.get(account);
+    return { value, unreachable: mockBrokerUnreachable };
   },
   _resetBackend: (): void => {},
 }));
@@ -262,6 +264,7 @@ function seedMetadataOnly(
 describe("assistant credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
+    mockBrokerUnreachable = false;
     metadataStore = [];
     idCounter = 0;
     disconnectOAuthProviderCalls = [];
@@ -870,6 +873,23 @@ describe("assistant credentials CLI", () => {
       expect(parsed.hasSecret).toBe(false);
       expect(parsed.scrubbedValue).toBe("(not set)");
     });
+
+    test("inspect returns unreachable error when broker is down", async () => {
+      mockBrokerUnreachable = true;
+
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "nonexistent",
+        "--field",
+        "field",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("unreachable");
+    });
   });
 
   // =========================================================================
@@ -962,6 +982,41 @@ describe("assistant credentials CLI", () => {
         "test",
         "--field",
         "nosecret",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
+    });
+
+    test("reveal returns unreachable error when broker is down", async () => {
+      mockBrokerUnreachable = true;
+      seedMetadataOnly("twilio", "auth_token");
+
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("unreachable");
+    });
+
+    test("reveal returns credential-not-found when broker is up", async () => {
+      mockBrokerUnreachable = false;
+
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "nonexistent",
+        "--field",
+        "field",
         "--json",
       ]);
       expect(result.exitCode).toBe(1);
