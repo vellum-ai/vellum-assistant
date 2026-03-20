@@ -74,6 +74,10 @@ struct SettingsDeveloperTab: View {
     @State private var isDockerOperationInProgress = false
     @State private var dockerOperationLabel: String = ""
 
+    // -- Sparkle update state (local topology) --
+    @State private var sparkleUpdateAvailable: Bool = false
+    @State private var sparkleUpdateVersion: String?
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -131,7 +135,9 @@ struct SettingsDeveloperTab: View {
                     currentVersion: healthz?.version,
                     topology: topo,
                     isDockerOperationInProgress: $isDockerOperationInProgress,
-                    dockerOperationLabel: $dockerOperationLabel
+                    dockerOperationLabel: $dockerOperationLabel,
+                    sparkleUpdateAvailable: sparkleUpdateAvailable,
+                    sparkleUpdateVersion: sparkleUpdateVersion
                 )
             }
             // Hatch New Assistant
@@ -208,6 +214,14 @@ struct SettingsDeveloperTab: View {
             // Sentry setup
             isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
                 ?? true
+
+            // Sparkle update state (local topology)
+            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
