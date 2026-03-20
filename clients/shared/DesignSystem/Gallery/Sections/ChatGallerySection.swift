@@ -9,10 +9,10 @@ struct ChatGallerySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
             if filter == nil || filter == "voiceComposer" {
-                // MARK: - Voice Composer
+                // MARK: - VStreamingWaveform
                 GallerySectionHeader(
-                    title: "Voice Composer",
-                    description: "VStreamingWaveform in composer context. The composer has three modes: textEntry, dictationInline (with dictation-style waveform), and voiceConversation (with conversation-style waveform)."
+                    title: "VStreamingWaveform",
+                    description: "Streaming waveform in composer context. The composer has three modes: textEntry, dictationInline (with dictation-style waveform), and voiceConversation (with conversation-style waveform)."
                 )
 
                 VCard {
@@ -59,10 +59,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Skill Invocation
+                // MARK: - SkillInvocationChip
                 GallerySectionHeader(
-                    title: "Skill Invocation",
-                    description: "SkillInvocationChip"
+                    title: "SkillInvocationChip",
+                    description: "Inline chip showing a skill invocation with emoji, name, and description."
                 )
 
                 VCard {
@@ -90,10 +90,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Subagent Status
+                // MARK: - SubagentStatusChip
                 GallerySectionHeader(
-                    title: "Subagent Status",
-                    description: "SubagentStatusChip, SubagentConversationView"
+                    title: "SubagentStatusChip",
+                    description: "Status chip and conversation view for subagent progress. Includes SubagentConversationView."
                 )
 
                 VCard {
@@ -165,10 +165,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Tool Chips
+                // MARK: - ToolCallChip
                 GallerySectionHeader(
-                    title: "Tool Chips",
-                    description: "ToolCallChip — collapsed chips showing tool call status with expandable details."
+                    title: "ToolCallChip",
+                    description: "Collapsed chips showing tool call status with expandable details."
                 )
 
                 VCard {
@@ -226,10 +226,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Step Indicators
+                // MARK: - CurrentStepIndicator
                 GallerySectionHeader(
-                    title: "Step Indicators",
-                    description: "CurrentStepIndicator — shows current step with progress count. ToolCallProgressBar — horizontal progress bar with clickable steps."
+                    title: "CurrentStepIndicator",
+                    description: "Shows current step with progress count. Also includes ToolCallProgressBar — horizontal progress bar with clickable steps."
                 )
 
                 VCard {
@@ -344,10 +344,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Progress Indicators
+                // MARK: - TypingIndicatorView
                 GallerySectionHeader(
-                    title: "Progress Indicators",
-                    description: "TypingIndicatorView, AssistantProgressView, RunningIndicator"
+                    title: "TypingIndicatorView",
+                    description: "Animated typing dots, assistant progress, and running indicators. Includes AssistantProgressView and RunningIndicator (macOS only)."
                 )
 
                 VCard {
@@ -386,10 +386,10 @@ struct ChatGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Tool Confirmations
+                // MARK: - ToolConfirmationBubble
                 GallerySectionHeader(
-                    title: "Tool Confirmations",
-                    description: "ToolConfirmationBubble — inline permission prompts with risk badges and collapsed decided states."
+                    title: "ToolConfirmationBubble",
+                    description: "Inline permission prompts with risk badges and collapsed decided states."
                 )
 
                 VCard {

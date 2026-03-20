@@ -32,93 +32,93 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    var components: [(id: String, title: String)] {
+    var components: [(id: String, title: String, keywords: [String])] {
         switch self {
         case .buttons:
             return [
-                ("vButton", "VButton"),
-                ("vSplitButton", "VSplitButton"),
+                ("vButton", "VButton", ["button"]),
+                ("vSplitButton", "VSplitButton", ["split button", "dropdown button"]),
             ]
         case .chat:
             return [
-                ("voiceComposer", "Voice Composer"),
-                ("skillInvocation", "Skill Invocation"),
-                ("subagentStatus", "Subagent Status"),
-                ("toolChips", "Tool Chips"),
-                ("stepIndicators", "Step Indicators"),
-                ("progressIndicators", "Progress Indicators"),
-                ("toolConfirmations", "Tool Confirmations"),
+                ("voiceComposer", "VStreamingWaveform", ["voice composer", "waveform", "dictation"]),
+                ("skillInvocation", "SkillInvocationChip", ["skill invocation", "skill chip"]),
+                ("subagentStatus", "SubagentStatusChip", ["subagent status", "subagent conversation"]),
+                ("toolChips", "ToolCallChip", ["tool chips", "tool call"]),
+                ("stepIndicators", "CurrentStepIndicator", ["step indicators", "progress bar", "tool call progress"]),
+                ("progressIndicators", "TypingIndicatorView", ["progress indicators", "typing", "running"]),
+                ("toolConfirmations", "ToolConfirmationBubble", ["tool confirmations", "permission", "approval"]),
             ]
         case .display:
             return [
-                ("vCard", "VCard"),
-                ("vEmptyState", "VEmptyState"),
-                ("vDisclosureSection", "VDisclosureSection"),
-                ("vListRow", "VListRow"),
-                ("vAvatarImage", "VAvatarImage"),
-                ("vCodeView", "VCodeView"),
-                ("vDiffView", "VDiffView"),
-                ("vStreamingWaveform", "VStreamingWaveform"),
+                ("vCard", "VCard", ["card"]),
+                ("vEmptyState", "VEmptyState", ["empty state"]),
+                ("vDisclosureSection", "VDisclosureSection", ["disclosure", "collapsible"]),
+                ("vListRow", "VListRow", ["list row"]),
+                ("vAvatarImage", "VAvatarImage", ["avatar", "image"]),
+                ("vCodeView", "VCodeView", ["code view", "syntax"]),
+                ("vDiffView", "VDiffView", ["diff view"]),
+                ("vStreamingWaveform", "VStreamingWaveform", ["waveform", "streaming"]),
             ]
         case .feedback:
             return [
-                ("vBadge", "VBadge"),
-                ("vLoadingIndicator", "VLoadingIndicator"),
-                ("vToast", "VToast"),
-                ("vInlineMessage", "VInlineMessage"),
-                ("vShortcutTag", "VShortcutTag"),
-                ("vCopyButton", "VCopyButton"),
-                ("vBusyIndicator", "VBusyIndicator"),
-                ("vSkeletonBone", "VSkeletonBone"),
-                ("vSkillTypePill", "VSkillTypePill"),
-                ("vInfoTooltip", "VInfoTooltip"),
+                ("vBadge", "VBadge", ["badge"]),
+                ("vLoadingIndicator", "VLoadingIndicator", ["loading", "spinner"]),
+                ("vToast", "VToast", ["toast", "notification"]),
+                ("vInlineMessage", "VInlineMessage", ["inline message", "alert"]),
+                ("vShortcutTag", "VShortcutTag", ["shortcut", "keyboard"]),
+                ("vCopyButton", "VCopyButton", ["copy", "clipboard"]),
+                ("vBusyIndicator", "VBusyIndicator", ["busy", "activity"]),
+                ("vSkeletonBone", "VSkeletonBone", ["skeleton", "placeholder"]),
+                ("vSkillTypePill", "VSkillTypePill", ["skill type", "pill"]),
+                ("vInfoTooltip", "VInfoTooltip", ["info", "tooltip"]),
             ]
         case .icons:
             return [
-                ("vAppIconGenerator", "VAppIconGenerator"),
-                ("iconTokens", "Icon Tokens"),
+                ("vAppIconGenerator", "VAppIconGenerator", ["app icon", "generator"]),
+                ("iconTokens", "VIcon", ["icon tokens", "icon catalog"]),
             ]
         case .inputs:
             return [
-                ("vTextField", "VTextField"),
-                ("vSlider", "VSlider"),
-                ("vTextEditor", "VTextEditor"),
-                ("vToggle", "VToggle"),
-                ("vDropdown", "VDropdown"),
+                ("vTextField", "VTextField", ["text field", "input"]),
+                ("vSlider", "VSlider", ["slider", "range"]),
+                ("vTextEditor", "VTextEditor", ["text editor", "multiline"]),
+                ("vToggle", "VToggle", ["toggle", "switch"]),
+                ("vDropdown", "VDropdown", ["dropdown", "select", "picker"]),
             ]
         case .layout:
             return [
-                ("vModal", "VModal"),
-                ("vAdaptiveStack", "VAdaptiveStack"),
-                ("vSidePanel", "VSidePanel"),
-                ("vSplitView", "VSplitView"),
+                ("vModal", "VModal", ["modal", "dialog"]),
+                ("vAdaptiveStack", "VAdaptiveStack", ["adaptive stack", "responsive"]),
+                ("vSidePanel", "VSidePanel", ["side panel", "drawer"]),
+                ("vSplitView", "VSplitView", ["split view", "resizable"]),
             ]
         case .modifiers:
             return [
-                ("vCardMod", ".vCard()"),
-                ("pointerCursor", ".pointerCursor()"),
-                ("nativeTooltip", ".nativeTooltip()"),
-                ("vTooltip", ".vTooltip()"),
-                ("vPanelBackground", ".vPanelBackground()"),
-                ("ifMod", ".if()"),
-                ("vShimmer", ".vShimmer()"),
-                ("inlineWidgetCard", ".inlineWidgetCard()"),
+                ("vCardMod", ".vCard()", ["card modifier"]),
+                ("pointerCursor", ".pointerCursor()", ["pointer", "cursor", "hand"]),
+                ("nativeTooltip", ".nativeTooltip()", ["native tooltip", "help"]),
+                ("vTooltip", ".vTooltip()", ["tooltip", "popover"]),
+                ("vPanelBackground", ".vPanelBackground()", ["panel background"]),
+                ("ifMod", ".if()", ["conditional modifier"]),
+                ("vShimmer", ".vShimmer()", ["shimmer", "loading animation"]),
+                ("inlineWidgetCard", ".inlineWidgetCard()", ["inline widget", "card"]),
             ]
         case .navigation:
             return [
-                ("vSegmentedControl", "VSegmentedControl"),
-                ("vSidebarRow", "VSidebarRow"),
-                ("vTabBar", "VTabBar + VTab"),
-                ("vThemeToggle", "VThemeToggle"),
+                ("vSegmentedControl", "VSegmentedControl", ["segmented control", "tabs"]),
+                ("vSidebarRow", "VSidebarRow", ["sidebar row", "navigation row"]),
+                ("vTabBar", "VTabBar + VTab", ["tab bar", "tabs"]),
+                ("vThemeToggle", "VThemeToggle", ["theme toggle", "dark mode", "light mode"]),
             ]
         case .tokens:
             return [
-                ("colors", "Colors"),
-                ("typography", "Typography"),
-                ("spacing", "Spacing"),
-                ("radius", "Radius"),
-                ("shadows", "Shadows"),
-                ("animations", "Animations"),
+                ("colors", "VColor", ["colors", "semantic colors", "theme"]),
+                ("typography", "VFont", ["typography", "fonts", "text styles"]),
+                ("spacing", "VSpacing", ["spacing", "padding", "margins"]),
+                ("radius", "VRadius", ["radius", "corner radius", "rounded"]),
+                ("shadows", "VShadow", ["shadows", "elevation"]),
+                ("animations", "VAnimation", ["animations", "transitions", "motion"]),
             ]
         }
     }
@@ -145,13 +145,17 @@ struct ComponentGalleryView: View {
         return expandable.allSatisfy { expandedCategories.contains($0) }
     }
 
-    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
+    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])])] {
         let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
         if query.isEmpty {
             return ComponentGalleryCategory.allCases.map { ($0, $0.components) }
         }
         return ComponentGalleryCategory.allCases.compactMap { category in
-            let matchingComponents = category.components.filter { $0.title.lowercased().contains(query) }
+            let matchingComponents = category.components.filter { component in
+                component.title.lowercased().contains(query)
+                    || component.id.lowercased().contains(query)
+                    || component.keywords.contains { $0.lowercased().contains(query) }
+            }
             let categoryMatches = category.rawValue.lowercased().contains(query)
             if categoryMatches {
                 return (category, category.components)
@@ -229,7 +233,7 @@ struct ComponentGalleryView: View {
     // MARK: - Sidebar Components
 
     @ViewBuilder
-    private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String)]) -> some View {
+    private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])]) -> some View {
         let isCategoryExpanded = isSearching || expandedCategories.contains(category)
 
         VStack(spacing: 0) {

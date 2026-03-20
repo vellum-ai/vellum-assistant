@@ -20,10 +20,10 @@ struct IconsGallerySection: View {
                 AppIconGallerySection()
             }
 
-            // MARK: - Icon Tokens
+            // MARK: - VIcon
             if filter == nil || filter == "iconTokens" {
                 GallerySectionHeader(
-                    title: "Icon Tokens",
+                    title: "VIcon",
                     description: "Vendored Lucide icon tokens. Use VIconView(.iconName) for rendering."
                 )
 
