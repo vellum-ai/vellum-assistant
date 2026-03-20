@@ -11,7 +11,7 @@ extension HTTPTransport {
     /// Execute a host bash request locally and post the result back to the daemon.
     /// Spawns `/bin/bash -c -- <command>` via `Foundation.Process`, enforces a
     /// timeout, and collects stdout/stderr.
-    func executeHostBashRequest(_ request: HostBashRequest) {
+    public func executeHostBashRequest(_ request: HostBashRequest) {
         Task.detached {
             let defaultTimeout: Double = 120
             let timeout = request.timeoutSeconds ?? defaultTimeout

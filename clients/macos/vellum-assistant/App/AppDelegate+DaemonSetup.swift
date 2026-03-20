@@ -411,12 +411,23 @@ extension AppDelegate {
                     )
                 case .avatarUpdated:
                     AvatarAppearanceManager.shared.reloadAvatar()
+                // Host tool execution — run locally and post results back
+                case .hostBashRequest(let msg):
+                    self.daemonClient.httpTransport?.executeHostBashRequest(msg)
+                case .hostFileRequest(let msg):
+                    self.daemonClient.httpTransport?.executeHostFileRequest(msg)
                 case .hostCuRequest(let msg):
                     let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
                     Task { @MainActor in
                         let result = await HostCuActionRunner.perform(msg, overlayProxy: proxy)
                         _ = await HostProxyClient().postCuResult(result)
                     }
+
+                // Signing identity
+                case .signBundlePayload(let msg):
+                    self.handleSignBundlePayload(msg)
+                case .getSigningIdentity(let msg):
+                    self.handleGetSigningIdentity(msg)
 
                 // Surface management (previously in setupSurfaceManager)
                 case .uiSurfaceShow(let msg):
@@ -456,6 +467,53 @@ extension AppDelegate {
                     break
                 }
             }
+        }
+    }
+
+    // MARK: - Signing Identity
+
+    /// Handle a sign_bundle_payload request from the daemon.
+    private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
+        do {
+            let payloadData = Data(msg.payload.utf8)
+            let signature = try SigningIdentityManager.shared.sign(payloadData)
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            Task {
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/sign-bundle-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "signature": signature.base64EncodedString(),
+                        "keyId": keyId,
+                        "publicKey": publicKey.rawRepresentation.base64EncodedString()
+                    ] as [String: Any]
+                )
+            }
+        } catch {
+            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle a get_signing_identity request from the daemon.
+    private func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
+        do {
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            Task {
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/signing-identity-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "keyId": keyId,
+                        "publicKey": publicKey.rawRepresentation.base64EncodedString()
+                    ] as [String: Any]
+                )
+            }
+        } catch {
+            log.error("Failed to get signing identity: \(error.localizedDescription)")
         }
     }
 

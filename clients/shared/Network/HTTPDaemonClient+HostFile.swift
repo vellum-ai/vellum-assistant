@@ -10,7 +10,7 @@ extension HTTPTransport {
     #if os(macOS)
     /// Execute a host file request locally and post the result back to the daemon.
     /// Dispatches by operation: read, write, or edit.
-    func executeHostFileRequest(_ request: HostFileRequest) {
+    public func executeHostFileRequest(_ request: HostFileRequest) {
         Task.detached {
             let result: HostFileResultPayload
 
