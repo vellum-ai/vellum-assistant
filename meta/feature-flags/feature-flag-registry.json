@@ -250,6 +250,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "managed-twitter-oauth",
+      "scope": "assistant",
+      "key": "feature_flags.managed-twitter-oauth.enabled",
+      "label": "Managed Twitter OAuth",
+      "description": "Show the Twitter OAuth service card in Models & Services settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "feature_flags.settings-embedding-provider.enabled",
