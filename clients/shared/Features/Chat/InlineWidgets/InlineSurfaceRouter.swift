@@ -93,7 +93,7 @@ public struct InlineSurfaceRouter: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
+        .vInlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview && !isAppCreated {
                 Button {
@@ -162,7 +162,7 @@ public struct InlineSurfaceRouter: View {
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
-        .inlineWidgetCard(interactive: false)
+        .vInlineWidgetCard(interactive: false)
         .onAppear {
             guard let conversationId = surface.surfaceRef?.conversationId else {
                 log.warning("Surface \(surface.id) has no surfaceRef — cannot refetch")
@@ -184,7 +184,7 @@ public struct InlineSurfaceRouter: View {
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
-        .inlineWidgetCard(interactive: false)
+        .vInlineWidgetCard(interactive: false)
     }
 
     @ViewBuilder

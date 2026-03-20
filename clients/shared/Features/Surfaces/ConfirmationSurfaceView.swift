@@ -45,7 +45,7 @@ public struct ConfirmationSurfaceView: View {
             } else if showCardChrome {
                 pendingContent
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .inlineWidgetCard()
+                    .vInlineWidgetCard()
             } else {
                 pendingContent
                     .frame(maxWidth: .infinity, alignment: .leading)

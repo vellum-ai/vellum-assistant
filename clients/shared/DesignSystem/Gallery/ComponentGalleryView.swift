@@ -104,7 +104,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vPanelBackground", ".vPanelBackground()", ["panel background"]),
                 ("ifMod", ".if()", ["conditional modifier"]),
                 ("vShimmer", ".vShimmer()", ["shimmer", "loading animation"]),
-                ("inlineWidgetCard", ".inlineWidgetCard()", ["inline widget", "card"]),
+                ("vInlineWidgetCard", ".vInlineWidgetCard()", ["inline widget", "card"]),
             ]
         case .navigation:
             return [

@@ -77,7 +77,7 @@ private class PointingHandNSView: NSView {
 #endif
 
 public extension View {
-    func inlineWidgetCard(interactive: Bool = false) -> some View {
+    func vInlineWidgetCard(interactive: Bool = false) -> some View {
         modifier(InlineWidgetCardModifier(interactive: interactive))
     }
 }

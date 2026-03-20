@@ -306,13 +306,13 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "inlineWidgetCard" {
+            if filter == nil || filter == "vInlineWidgetCard" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - .inlineWidgetCard()
+                // MARK: - .vInlineWidgetCard()
                 GallerySectionHeader(
-                    title: ".inlineWidgetCard()",
+                    title: ".vInlineWidgetCard()",
                     description: "Standard card chrome for inline chat widgets. Applies padding, background, border, and optional hover highlight."
                 )
 
@@ -323,14 +323,14 @@ struct ModifiersGallerySection: View {
                             Text("Widget content")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentDefault)
-                                .inlineWidgetCard()
+                                .vInlineWidgetCard()
                         }
                         VStack(spacing: VSpacing.md) {
                             Text("Interactive (hover highlight)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             Text("Clickable widget")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentDefault)
-                                .inlineWidgetCard(interactive: true)
+                                .vInlineWidgetCard(interactive: true)
                         }
                     }
                 }
@@ -353,7 +353,7 @@ extension ModifiersGallerySection {
         case "vPanelBackground": ModifiersGallerySection(filter: "vPanelBackground")
         case "ifMod": ModifiersGallerySection(filter: "ifMod")
         case "vShimmer": ModifiersGallerySection(filter: "vShimmer")
-        case "inlineWidgetCard": ModifiersGallerySection(filter: "inlineWidgetCard")
+        case "vInlineWidgetCard": ModifiersGallerySection(filter: "vInlineWidgetCard")
         default: EmptyView()
         }
     }
