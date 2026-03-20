@@ -10,6 +10,19 @@ struct AboutVellumView: View {
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
 
+    /// Whether the client and service group versions match.
+    private var versionsMatch: Bool {
+        guard let sgVersion = healthz?.version, !sgVersion.isEmpty,
+              let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let sgParsed = VersionCompat.parse(sgVersion),
+              let appParsed = VersionCompat.parse(appVersion) else {
+            return false
+        }
+        return sgParsed.major == appParsed.major
+            && sgParsed.minor == appParsed.minor
+            && sgParsed.patch == appParsed.patch
+    }
+
     var body: some View {
         VStack(spacing: VSpacing.lg) {
             // App Icon
@@ -37,21 +50,8 @@ struct AboutVellumView: View {
 
             Divider()
 
-            // Commit SHA
-            if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Commit")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(String(commitSHA.prefix(7)))
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            // Architecture
-            architectureLabel
+            // Metadata: commit SHA + architecture in a compact single line
+            metadataRow
 
             // Debug build info
             #if DEBUG
@@ -67,9 +67,6 @@ struct AboutVellumView: View {
             }
             #endif
 
-            Spacer()
-                .frame(height: VSpacing.sm)
-
             // Check for Updates button
             VButton(label: "Check for Updates...", style: .outlined) {
                 AppDelegate.shared?.aboutWindow?.close()
@@ -79,6 +76,7 @@ struct AboutVellumView: View {
         .frame(width: 320)
         .padding(VSpacing.xxl)
         .multilineTextAlignment(.center)
+        .background(VColor.surfaceBase)
         .onAppear {
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
@@ -110,6 +108,11 @@ struct AboutVellumView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
+
+                if versionsMatch {
+                    VIconView(.circleCheck, size: 14)
+                        .foregroundColor(VColor.systemPositiveStrong)
+                }
             } else {
                 Text("Not connected")
                     .font(VFont.body)
@@ -118,21 +121,37 @@ struct AboutVellumView: View {
         }
     }
 
-    // MARK: - Architecture Label
+    // MARK: - Metadata Row (commit + architecture)
 
-    private var architectureLabel: some View {
-        let label: String = {
+    @ViewBuilder
+    private var metadataRow: some View {
+        let archLabel: String = {
             #if arch(arm64)
             return "Apple Silicon"
             #elseif arch(x86_64)
             return "Intel"
             #else
-            return "Unknown architecture"
+            return "Unknown"
             #endif
         }()
-        return Text(label)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentTertiary)
+
+        let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
+        let hasCommit = commitSHA != nil && !commitSHA!.isEmpty
+
+        HStack(spacing: VSpacing.xs) {
+            if hasCommit {
+                Text(String(commitSHA!.prefix(7)))
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentTertiary)
+                    .textSelection(.enabled)
+                Text("\u{00B7}")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            Text(archLabel)
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+        }
     }
 
     // MARK: - Topology Label

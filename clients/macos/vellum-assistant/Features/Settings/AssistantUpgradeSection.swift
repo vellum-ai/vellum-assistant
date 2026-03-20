@@ -70,10 +70,20 @@ struct AssistantUpgradeSection: View {
         return targetParsed.patch < currentParsed.patch
     }
 
+    /// Human-readable label for the current topology.
+    private var topologySubtitle: String {
+        switch topology {
+        case .local: return "Local"
+        case .docker: return "Docker"
+        case .managed: return "Managed"
+        case .remote: return "Remote"
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        SettingsCard(title: "Software Update", subtitle: topologySubtitle) {
             Text(isRollback ? "Roll Back" : "Upgrade")
-                .font(VFont.sectionTitle)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.contentDefault)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -200,9 +210,6 @@ struct AssistantUpgradeSection: View {
                     .foregroundColor(VColor.systemPositiveStrong)
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
         .task { await loadReleases() }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }

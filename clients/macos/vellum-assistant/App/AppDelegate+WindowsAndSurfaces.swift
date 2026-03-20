@@ -609,6 +609,9 @@ extension AppDelegate {
         )
         window.contentViewController = hostingController
         window.title = "About \(Self.appName)"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = NSColor(VColor.surfaceBase)
         window.isReleasedWhenClosed = false
         window.center()
 
