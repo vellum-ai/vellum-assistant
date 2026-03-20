@@ -145,46 +145,36 @@ struct AssistantUpgradeSection: View {
     }
 
     /// Fetches releases without clearing existing messages.
+    /// Hits the platform `GET /v1/releases/` endpoint directly (unauthenticated).
+    /// When the user has a session token, it's attached so the platform can
+    /// auto-filter to releases newer than the assistant's current version.
     private func loadReleasesQuietly() async {
         isLoadingReleases = true
         defer { isLoadingReleases = false }
 
         let platformBase = AuthService.shared.baseURL
-        var urlString = "\(platformBase)/v1/releases/?stable=true"
-        if let current = currentVersion, !current.isEmpty {
-            let normalizedVersion = current.hasPrefix("v") ? String(current.dropFirst()) : current
-            if let encoded = normalizedVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-                urlString += "&since_version=\(encoded)"
-            }
-        }
-        guard let url = URL(string: urlString) else {
+        guard let url = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
             errorMessage = "Failed to check for updates"
             return
         }
 
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Attach auth headers when available so the platform can auto-filter
+        // by the assistant's current release. The endpoint works without auth
+        // too — it just returns all stable releases in that case.
+        if let token = await SessionTokenManager.getTokenAsync() {
+            request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        }
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse else {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 errorMessage = "Failed to check for updates"
-                return
-            }
-            if httpResponse.statusCode == 400, currentVersion != nil {
-                // since_version not found on platform (e.g. local dev build) — retry without filter
-                let fallbackString = "\(platformBase)/v1/releases/?stable=true"
-                if let fallbackURL = URL(string: fallbackString) {
-                    let (fbData, fbResp) = try await URLSession.shared.data(from: fallbackURL)
-                    if let fbHttp = fbResp as? HTTPURLResponse, fbHttp.statusCode == 200 {
-                        let decoder = JSONDecoder()
-                        decoder.keyDecodingStrategy = .convertFromSnakeCase
-                        availableReleases = try decoder.decode([AssistantRelease].self, from: fbData)
-                        return
-                    }
-                }
-                errorMessage = "Failed to check for updates"
-                return
-            }
-            guard httpResponse.statusCode == 200 else {
-                errorMessage = "Failed to check for updates (HTTP \(httpResponse.statusCode))"
                 return
             }
             let decoder = JSONDecoder()
