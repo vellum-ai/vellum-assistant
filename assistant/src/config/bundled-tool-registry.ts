@@ -39,8 +39,6 @@ import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for
 import * as browserWaitForDownload from "./bundled-skills/browser/tools/browser-wait-for-download.js";
 // ── chatgpt-import ─────────────────────────────────────────────────────────────
 import * as chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
-// ── claude-code ────────────────────────────────────────────────────────────────
-import * as claudeCode from "./bundled-skills/claude-code/tools/claude-code.js";
 // ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
@@ -209,9 +207,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // chatgpt-import
   ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],
-
-  // claude-code
-  ["claude-code:tools/claude-code.ts", claudeCode],
 
   // computer-use
   ["computer-use:tools/computer-use-observe.ts", computerUseObserve],
