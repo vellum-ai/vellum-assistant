@@ -68,8 +68,8 @@ public struct ConfirmationSurfaceView: View {
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Header with icon
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                VIconView(.triangleAlert, size: 24)
+            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                VIconView(.triangleAlert, size: 14)
                     .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemMidStrong)
                 Text(inlineMarkdown(data.message))
                     .font(VFont.headline)
