@@ -216,9 +216,9 @@ public final class ChatViewModel: ObservableObject {
                     self.cancelledDuringRefinement = false
                     self.refinementTextBuffer = ""
                     self.refinementReceivedSurfaceUpdate = false
-                    // Activity phase state — reset version so a late activity
-                    // event from the abandoned run can't re-trigger isSending.
-                    self.lastActivityVersion = 0
+                    // Activity phase state — keep lastActivityVersion at its
+                    // current value so late activity events from the abandoned
+                    // run with a lower version are rejected.
                     self.assistantActivityPhase = "idle"
                     self.assistantActivityAnchor = "global"
                     self.assistantActivityReason = nil
