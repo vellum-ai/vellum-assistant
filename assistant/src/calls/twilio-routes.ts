@@ -49,6 +49,7 @@ export function generateTwiML(
   profile: {
     language: string;
     transcriptionProvider: string;
+    speechModel?: string;
     ttsProvider: string;
     voice: string;
   },
@@ -91,7 +92,7 @@ export function generateTwiML(
 ${greetingAttr}
       voice="${escapeXml(profile.voice)}"
       language="${escapeXml(profile.language)}"
-      transcriptionProvider="${escapeXml(profile.transcriptionProvider)}"
+      transcriptionProvider="${escapeXml(profile.transcriptionProvider)}"${profile.speechModel ? `\n      speechModel="${escapeXml(profile.speechModel)}"` : ""}
       ttsProvider="${escapeXml(profile.ttsProvider)}"
       interruptible="true"
       dtmfDetection="true"

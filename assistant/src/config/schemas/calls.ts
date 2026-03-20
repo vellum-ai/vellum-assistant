@@ -58,6 +58,12 @@ export const CallsVoiceConfigSchema = z
       })
       .default("Deepgram")
       .describe("Speech-to-text provider used for call transcription"),
+    speechModel: z
+      .string({ error: "calls.voice.speechModel must be a string" })
+      .optional()
+      .describe(
+        "ASR model to use for speech recognition (e.g. nova-3, nova-2-phonecall for Deepgram; telephony, long for Google)",
+      ),
     ttsProvider: z
       .enum(VALID_TTS_PROVIDERS, {
         error: `calls.voice.ttsProvider must be one of: ${VALID_TTS_PROVIDERS.join(", ")}`,

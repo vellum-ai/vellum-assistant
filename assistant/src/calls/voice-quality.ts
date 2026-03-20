@@ -3,6 +3,7 @@ import { loadConfig } from "../config/loader.js";
 export interface VoiceQualityProfile {
   language: string;
   transcriptionProvider: string;
+  speechModel?: string;
   ttsProvider: string;
   voice: string;
 }
@@ -61,6 +62,7 @@ export function resolveVoiceQualityProfile(
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
+    speechModel: voice.speechModel,
     ttsProvider: fishAudio ? "Google" : "ElevenLabs",
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
