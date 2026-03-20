@@ -258,6 +258,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "settings-schedules",
+      "scope": "assistant",
+      "key": "feature_flags.settings-schedules.enabled",
+      "label": "Schedules Settings Tab",
+      "description": "Show the Schedules tab in Settings for viewing and managing schedules",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick_input_enabled",
