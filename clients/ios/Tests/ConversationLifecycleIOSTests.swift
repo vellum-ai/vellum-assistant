@@ -53,17 +53,16 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping after createConversationIfNeeded")
     }
 
-    func testCreateConversationSendsConversationCreateMessage() {
+    func testCreateConversationAssignsLocalConversationId() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createConversationIfNeeded()
 
-        // Poll until conversation_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Bootstrap generates conversation IDs locally — poll for the ID to be set.
+        let expectation = XCTestExpectation(description: "conversationId assigned")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            let found = mockClient.sentMessages.contains { $0 is ConversationCreateMessage }
-            if found {
+            if vm.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -73,8 +72,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        XCTAssertEqual(conversationCreates.count, 1, "Should send exactly one conversation_create")
+        XCTAssertNotNil(vm.conversationId, "Should have a locally-generated conversation ID")
+        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after ID assignment")
     }
 
     func testCreateConversationWithConversationTypeSetsConversationType() {
@@ -84,15 +83,16 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.conversationType, "private")
     }
 
-    func testCreateConversationWithConversationTypeSendsConversationType() {
+    func testCreateConversationWithConversationTypeRetainsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createConversationIfNeeded(conversationType: "private")
 
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Wait for the local conversation ID to be assigned.
+        let expectation = XCTestExpectation(description: "conversationId assigned")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if vm.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -102,21 +102,21 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        XCTAssertEqual(conversationCreates.first?.conversationType, "private")
+        XCTAssertEqual(vm.conversationType, "private")
     }
 
-    // MARK: - Conversation Info Backfill (Conversation Assignment)
+    // MARK: - Local Conversation ID Assignment
 
-    func testConversationInfoBackfillsConversationId() {
+    func testBootstrapAssignsLocalConversationIdAndClearsState() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Wait for the local conversation ID to be assigned.
+        let expectation = XCTestExpectation(description: "conversationId assigned")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if vm.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -126,28 +126,21 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent message
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = conversationCreates.first?.correlationId
-
-        // Simulate daemon responding with conversation_info
-        let info = ConversationInfoMessage(conversationId: "ios-conv-sess-42", title: "Conversation", correlationId: correlationId)
-        vm.handleServerMessage(.conversationInfo(info))
-
-        XCTAssertEqual(vm.conversationId, "ios-conv-sess-42")
-        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after conversation_info")
+        XCTAssertNotNil(vm.conversationId)
+        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after local ID assignment")
         XCTAssertFalse(vm.isSending, "Should reset isSending after message-less conversation create")
     }
 
-    func testConversationInfoWithWrongCorrelationIdIsIgnored() {
+    func testConversationInfoDoesNotOverwriteLocallyAssignedId() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Wait for the local conversation ID to be assigned.
+        let expectation = XCTestExpectation(description: "conversationId assigned")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if vm.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -157,12 +150,14 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Send conversation_info with a different correlation ID
+        let localId = vm.conversationId
+
+        // Receiving a conversation_info after local ID assignment should not overwrite.
         let info = ConversationInfoMessage(conversationId: "wrong-sess", title: "Wrong", correlationId: "wrong-correlation-id")
         vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertNil(vm.conversationId, "Should not accept conversation_info with mismatched correlation ID")
-        XCTAssertTrue(vm.isBootstrapping, "Should still be bootstrapping")
+        XCTAssertEqual(vm.conversationId, localId, "conversation_info should not overwrite locally-assigned ID")
+        XCTAssertFalse(vm.isBootstrapping, "Should not be bootstrapping")
     }
 
     func testOnConversationCreatedCallbackFiresDuringBackfill() {
@@ -203,12 +198,12 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
 
-        // Poll until conversation_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Wait for the locally-generated conversation ID to be assigned.
+        let expectation = XCTestExpectation(description: "conversationId assigned")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if vm.conversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -218,22 +213,15 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent conversation_create message
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = conversationCreates.first?.correlationId
+        XCTAssertNotNil(vm.conversationId)
 
-        // Step 2: Conversation info arrives with matching correlation ID
-        let info = ConversationInfoMessage(conversationId: "conv-sess-1", title: "New Conversation", correlationId: correlationId)
-        vm.handleServerMessage(.conversationInfo(info))
-        XCTAssertEqual(vm.conversationId, "conv-sess-1")
-
-        // Step 3: Assistant responds
+        // Step 2: Assistant responds
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Welcome!")))
         vm.flushStreamingBuffer()
         XCTAssertEqual(vm.messages.count, 2)
         XCTAssertEqual(vm.messages[1].role, .assistant)
 
-        // Step 4: Message completes
+        // Step 3: Message completes
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
         XCTAssertFalse(vm.isSending)
         XCTAssertFalse(vm.messages[1].isStreaming)
