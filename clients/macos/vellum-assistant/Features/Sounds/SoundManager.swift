@@ -137,6 +137,7 @@ final class SoundManager {
 
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
     func play(_ event: SoundEvent) {
+        guard AssistantFeatureFlagResolver.isEnabled("feature_flags.sounds.enabled") else { return }
         guard config.globalEnabled else { return }
 
         let eventConfig = config.config(for: event)
