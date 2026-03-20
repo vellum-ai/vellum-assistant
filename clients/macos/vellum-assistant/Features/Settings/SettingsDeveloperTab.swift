@@ -77,6 +77,10 @@ struct SettingsDeveloperTab: View {
     @State private var rollbackSuccess: String?
     @State private var rollbackVersion: String = ""
 
+    // -- Docker operation progress state --
+    @State private var isDockerOperationInProgress = false
+    @State private var dockerOperationLabel: String = ""
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -293,6 +297,22 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
                 Text("The assistant will be briefly unavailable.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
+        }
+        .sheet(isPresented: $isDockerOperationInProgress) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text(dockerOperationLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentDefault)
+                Text("This may take a minute. The assistant will be briefly unavailable.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
             }
@@ -538,6 +558,9 @@ struct SettingsDeveloperTab: View {
         let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
 
         if assistant?.isDocker == true {
+            dockerOperationLabel = "Upgrading assistant..."
+            isDockerOperationInProgress = true
+            defer { isDockerOperationInProgress = false }
             do {
                 try await AppDelegate.shared?.vellumCli.upgrade(name: selectedAssistantId)
                 inlineUpgradeSuccess = "Upgrade complete."
@@ -572,6 +595,9 @@ struct SettingsDeveloperTab: View {
         let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
 
         if assistant?.isDocker == true {
+            dockerOperationLabel = "Rolling back assistant..."
+            isDockerOperationInProgress = true
+            defer { isDockerOperationInProgress = false }
             do {
                 try await AppDelegate.shared?.vellumCli.rollback(name: selectedAssistantId)
                 rollbackSuccess = "Rollback complete."
