@@ -42,7 +42,7 @@ mock.module("../memory/qdrant-client.js", () => ({
 }));
 
 // Stub deleted legacy modules so imports resolve (full cleanup in follow-up PR)
-const emptyRecall = {
+const _emptyRecall = {
   enabled: true,
   degraded: false,
   injectedText: "",
