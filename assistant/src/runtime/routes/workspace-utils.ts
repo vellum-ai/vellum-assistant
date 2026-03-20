@@ -139,7 +139,6 @@ const TEXT_FILE_EXTENSIONS = new Set([
   "ini",
   "properties",
   "env",
-  "plist",
   "gradle",
   "cmake",
   // Markup / docs
@@ -164,7 +163,10 @@ export function isTextMimeType(mimeType: string, fileName?: string): boolean {
   if (TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))) {
     return true;
   }
-  if (fileName) {
+  // Only fall back to extension check when the MIME type is genuinely unknown.
+  // Specific MIME types (e.g. application/x-plist for binary plists) should be
+  // trusted over the extension — overriding them risks corrupting binary files.
+  if (fileName && mimeType === "application/octet-stream") {
     const ext = fileName.split(".").pop()?.toLowerCase();
     if (ext && TEXT_FILE_EXTENSIONS.has(ext)) return true;
   }
