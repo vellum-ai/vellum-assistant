@@ -352,7 +352,14 @@ async function upgradeDocker(
   await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
   console.log("🔑 Clearing signing key bootstrap lock...");
-  await clearSigningKeyBootstrapLock(res);
+  try {
+    await clearSigningKeyBootstrapLock(res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
+    );
+  }
 
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
