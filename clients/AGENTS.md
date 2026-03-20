@@ -251,7 +251,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
   - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`, `IconTokens` (`VIcon` enum), `IconBundle`. Always use tokens instead of raw literals.
   - **Core** — `Core/` contains foundational controls: `VButton`, `VIconButton`, `VIconView`, `VTextField`, `VTextEditor`, `VToggle`, `VSlider`, `VDropdown`, `VSearchBar`, `VBadge`, `VToast`, `VLoadingIndicator`, `VListRow`, `VDisclosureSection`, `VTab`, etc.
   - **Components** — `Components/` contains composed, higher-level components: `VCard`, `VEmptyState`, `VSplitView`, `VSidePanel`, `VTabBar`, `VSegmentedControl`, `VWaveformView`, etc.
-  - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `PanelBackground`, `InlineWidgetCardModifier`, `NativeTooltipModifier` (`.nativeTooltip()` for system-delay tooltips, `.vTooltip()` for fast 200ms tooltips that escape clipping and never steal clicks).
+  - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `PanelBackground`, `InlineWidgetCardModifier`, `NativeTooltipModifier` (`.vNativeTooltip()` for system-delay tooltips, `.vTooltip()` for fast 200ms tooltips that escape clipping and never steal clicks).
   - **Gallery** — `Gallery/` is a live preview catalog of all components. Update it when adding new components.
 - Use the `V`-prefixed components (for example `VButton`, `VCard`, `VTextField`) rather than rolling custom equivalents.
 - Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VFont.*`, `VShadow.*`, `VIcon.*`) instead of hardcoded values.
