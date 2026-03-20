@@ -37,6 +37,8 @@ export interface ChannelReplyPayload {
   useBlocks?: boolean;
   /** When provided, add or remove an emoji reaction on a message. */
   reaction?: { action: "add" | "remove"; name: string; messageTs: string };
+  /** When provided, set or clear the Slack Assistants API thread status. */
+  assistantThreadStatus?: { channel: string; threadTs: string; status: string };
 }
 
 export interface ChannelDeliveryResult {

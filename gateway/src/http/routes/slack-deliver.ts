@@ -370,6 +370,12 @@ export function createSlackDeliverHandler(
       chatAction?: "typing";
       /** Add or remove an emoji reaction on a message. */
       reaction?: { action: "add" | "remove"; name: string; messageTs: string };
+      /** Set or clear the Slack Assistants API thread status indicator. */
+      assistantThreadStatus?: {
+        channel: string;
+        threadTs: string;
+        status: string;
+      };
       /** Message timestamp to update instead of posting a new message. */
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
@@ -445,6 +451,7 @@ export function createSlackDeliverHandler(
       !text &&
       !chatAction &&
       !body.reaction &&
+      !body.assistantThreadStatus &&
       (!attachments || attachments.length === 0)
     ) {
       return Response.json(
@@ -598,6 +605,50 @@ export function createSlackDeliverHandler(
           tlog.warn(
             { err, chatId, method },
             "Failed to deliver Slack reaction",
+          );
+        }
+
+        return Response.json({ ok: true });
+      }
+
+      // Slack Assistants API thread status indicator.
+      // Sets or clears the native "is thinking..." status on a thread.
+      if (body.assistantThreadStatus) {
+        const {
+          channel,
+          threadTs: statusThreadTs,
+          status,
+        } = body.assistantThreadStatus;
+        try {
+          const res = await fetchImpl(
+            "https://slack.com/api/assistant.threads.setStatus",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${botToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel_id: channel,
+                thread_ts: statusThreadTs,
+                status,
+              }),
+            },
+          );
+          const data = (await res.json()) as {
+            ok?: boolean;
+            error?: string;
+          };
+          if (!data.ok) {
+            tlog.warn(
+              { chatId, slackError: data.error },
+              "Slack assistant.threads.setStatus returned error",
+            );
+          }
+        } catch (err) {
+          tlog.warn(
+            { err, chatId },
+            "Failed to set Slack assistant thread status",
           );
         }
 

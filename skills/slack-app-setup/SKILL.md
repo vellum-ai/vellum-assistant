@@ -61,6 +61,7 @@ Generate the manifest JSON:
     "scopes": {
       "bot": [
         "app_mentions:read",
+        "assistant:write",
         "channels:history",
         "chat:write",
         "files:write",
