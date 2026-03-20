@@ -519,7 +519,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchPlatformConfig() async -> PlatformConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "config/platform", timeout: 10
+                path: "assistants/{assistantId}/config/platform", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchPlatformConfig failed (HTTP \(response.statusCode))")
@@ -537,7 +537,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body: [String: Any] = ["baseUrl": baseUrl]
             let response = try await GatewayHTTPClient.put(
-                path: "config/platform", json: body, timeout: 10
+                path: "assistants/{assistantId}/config/platform", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setPlatformConfig failed (HTTP \(response.statusCode))")
