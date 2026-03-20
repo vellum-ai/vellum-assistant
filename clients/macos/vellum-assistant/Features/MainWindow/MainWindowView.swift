@@ -471,7 +471,7 @@ struct MainWindowView: View {
             }
             WindowDragArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if updateManager.isUpdateAvailable {
+            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
                 VButton(
                     label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
                     leftIcon: VIcon.arrowUp.rawValue,
@@ -482,11 +482,12 @@ struct MainWindowView: View {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
                     } else {
-                        updateManager.checkForUpdates()
+                        AppDelegate.shared?.checkForUpdates()
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
+                .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
             }
             if windowState.isConversationVisible {
                 // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
