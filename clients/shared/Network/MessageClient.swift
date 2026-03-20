@@ -126,6 +126,7 @@ public struct MessageClient: MessageClientProtocol {
                     return .secretBlocked(message: message)
                 }
                 let errorBody = String(data: response.data, encoding: .utf8) ?? "unknown"
+                log.error("Send message failed (422): \(errorBody)")
                 return .error(statusCode: 422, message: "Failed to send message (HTTP 422)", failedMessageContent: content)
             } else {
                 let errorBody = String(data: response.data, encoding: .utf8) ?? "unknown"
