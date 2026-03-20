@@ -19,6 +19,8 @@ public protocol SettingsClientProtocol {
     func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
+    func fetchDangerouslySkipPermissions() async -> Bool?
+    func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool
     func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
     func sendChannelVerificationSession(
@@ -226,6 +228,43 @@ public struct SettingsClient: SettingsClientProtocol {
         } catch {
             log.error("setTelegramConfig error: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    public func fetchDangerouslySkipPermissions() async -> Bool? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config/permissions/skip", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchDangerouslySkipPermissions failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let enabled = json["enabled"] as? Bool else {
+                return nil
+            }
+            return enabled
+        } catch {
+            log.error("fetchDangerouslySkipPermissions error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool {
+        do {
+            let body: [String: Any] = ["enabled": enabled]
+            let response = try await GatewayHTTPClient.put(
+                path: "config/permissions/skip", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setDangerouslySkipPermissions failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("setDangerouslySkipPermissions error: \(error.localizedDescription)")
+            return false
         }
     }
 

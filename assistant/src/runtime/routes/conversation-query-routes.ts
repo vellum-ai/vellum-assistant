@@ -1,7 +1,7 @@
 /**
  * HTTP route definitions for model configuration, embedding configuration,
- * conversation search, message content, LLM context inspection, and queued
- * message deletion.
+ * permissions configuration, conversation search, message content, LLM
+ * context inspection, and queued message deletion.
  *
  * These routes expose conversation query functionality over the HTTP API.
  *
@@ -10,12 +10,15 @@
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
+ * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
+ * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
+import { getConfig, loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
@@ -247,6 +250,45 @@ export function conversationQueryRouteDefinitions(
             500,
           );
         }
+      },
+    },
+
+    // ── Permissions config ─────────────────────────────────────────────
+    {
+      endpoint: "config/permissions/skip",
+      method: "GET",
+      policyKey: "config/permissions/skip",
+      handler: () => {
+        const config = getConfig();
+        return Response.json({
+          enabled: config.permissions.dangerouslySkipPermissions,
+        });
+      },
+    },
+    {
+      endpoint: "config/permissions/skip",
+      method: "PUT",
+      policyKey: "config/permissions/skip",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as { enabled?: unknown };
+        if (typeof body.enabled !== "boolean") {
+          return httpError(
+            "BAD_REQUEST",
+            "Missing or invalid field: enabled (boolean)",
+            400,
+          );
+        }
+        const raw = loadRawConfig();
+        const permissions: Record<string, unknown> =
+          raw.permissions != null &&
+          typeof raw.permissions === "object" &&
+          !Array.isArray(raw.permissions)
+            ? (raw.permissions as Record<string, unknown>)
+            : {};
+        permissions.dangerouslySkipPermissions = body.enabled;
+        raw.permissions = permissions;
+        saveRawConfig(raw);
+        return Response.json({ enabled: body.enabled });
       },
     },
 
