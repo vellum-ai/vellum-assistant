@@ -156,7 +156,7 @@ struct AssistantTransferSection: View {
 
             // Step 3 — Import bundle to managed assistant
             currentStep = "Importing data to cloud..."
-            try await importBundleToManaged(bundleData: bundleData)
+            try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
@@ -190,10 +190,6 @@ struct AssistantTransferSection: View {
             currentStep = nil
         }
 
-        // Pre-save auth credentials before any switching
-        let savedSessionToken = SessionTokenManager.getToken()
-        let savedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        let savedPlatformUrl = AuthService.shared.baseURL
         let managedAssistantId = assistant.assistantId
 
         do {
@@ -264,13 +260,9 @@ struct AssistantTransferSection: View {
                 throw TransferError.localAssistantNotFound
             }
 
-            // Wait for daemon readiness (up to 30s)
-            let daemonPort = resolvedLocal.resolvedDaemonPort()
-            let healthURL = URL(string: "http://localhost:\(daemonPort)/healthz")!
+            // Wait for gateway readiness (up to 30s)
             for i in 0..<30 {
-                if let (_, healthResp) = try? await URLSession.shared.data(from: healthURL),
-                   let httpHealth = healthResp as? HTTPURLResponse,
-                   httpHealth.statusCode == 200 {
+                if await HealthCheckClient.isReachable(for: resolvedLocal, timeout: 1) {
                     break
                 }
                 if i == 29 {
@@ -279,30 +271,24 @@ struct AssistantTransferSection: View {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            // Step 5 — Bootstrap actor token directly against the local daemon
+            // Step 5 — Bootstrap actor token against the local gateway
             // (without calling performSwitchAssistant, which destroys the window)
             currentStep = "Authenticating with local assistant..."
-            let actorToken = try await bootstrapActorToken(daemonPort: daemonPort)
+            let actorToken = try await bootstrapActorToken(localAssistantId: resolvedLocal.assistantId)
+            ActorTokenManager.setToken(actorToken)
 
-            // Step 6 — Import to local
+            // Step 6 — Import to local (swap connected assistant to target local gateway)
             currentStep = "Importing data..."
-            guard let importURL = URL(string: "http://localhost:\(daemonPort)/v1/migrations/import") else {
-                throw TransferError.invalidURL
+            UserDefaults.standard.set(resolvedLocal.assistantId, forKey: "connectedAssistantId")
+            let importResponse = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/migrations/import",
+                body: bundleData,
+                timeout: 120
+            )
+            guard importResponse.isSuccess else {
+                throw TransferError.importFailed(message: "HTTP \(importResponse.statusCode)")
             }
-            var importRequest = URLRequest(url: importURL)
-            importRequest.httpMethod = "POST"
-            importRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            importRequest.setValue("Bearer \(actorToken)", forHTTPHeaderField: "Authorization")
-            importRequest.httpBody = bundleData
-            importRequest.timeoutInterval = 120
-
-            let (importData, importResponse) = try await URLSession.shared.data(for: importRequest)
-            guard let httpImportResponse = importResponse as? HTTPURLResponse,
-                  httpImportResponse.statusCode == 200 else {
-                let statusCode = (importResponse as? HTTPURLResponse)?.statusCode ?? 0
-                throw TransferError.importFailed(message: "HTTP \(statusCode)")
-            }
-            if let importJson = try? JSONSerialization.jsonObject(with: importData) as? [String: Any],
+            if let importJson = try? JSONSerialization.jsonObject(with: importResponse.data) as? [String: Any],
                let success = importJson["success"] as? Bool, !success {
                 let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
                 throw TransferError.importFailed(message: errorMsg)
@@ -313,30 +299,21 @@ struct AssistantTransferSection: View {
             transferTask = nil
             onClose()
 
-            // Step 8 — Retire managed assistant (fire-and-forget with pre-saved auth)
+            // Step 8 — Retire managed assistant (fire-and-forget, swap back to managed)
             currentStep = "Cleaning up..."
-            if let token = savedSessionToken {
-                let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
-                if let retireURL = URL(string: retireUrlString) {
-                    var retireRequest = URLRequest(url: retireURL)
-                    retireRequest.httpMethod = "DELETE"
-                    retireRequest.timeoutInterval = 30
-                    retireRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
-                    if let orgId = savedOrgId {
-                        retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-                    }
-                    let retireResult = try? await URLSession.shared.data(for: retireRequest)
-                    if let (_, retireResponse) = retireResult,
-                       let httpRetire = retireResponse as? HTTPURLResponse,
-                       (200..<300).contains(httpRetire.statusCode) {
-                        log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
-                    } else {
-                        let statusCode = (retireResult?.1 as? HTTPURLResponse)?.statusCode ?? 0
-                        log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): HTTP \(statusCode, privacy: .public)")
-                    }
+            UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
+            do {
+                let retireResponse = try await GatewayHTTPClient.delete(
+                    path: "assistants/{assistantId}/retire",
+                    timeout: 30
+                )
+                if retireResponse.isSuccess {
+                    log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
+                } else {
+                    log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): HTTP \(retireResponse.statusCode, privacy: .public)")
                 }
-            } else {
-                log.warning("[transfer] Skipping managed assistant retire — no session token available for \(managedAssistantId, privacy: .public)")
+            } catch {
+                log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
@@ -347,54 +324,38 @@ struct AssistantTransferSection: View {
 
     /// Exports the local assistant's data as a `.vbundle` binary archive.
     private func exportAssistantBundle() async throws -> Data {
-        let port = assistant.resolvedDaemonPort()
-        let token = ActorTokenManager.getToken()
-
-        guard let url = URL(string: "http://localhost:\(port)/v1/migrations/export") else {
-            throw TransferError.invalidURL
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/migrations/export",
+            timeout: 60
+        )
+        guard response.isSuccess else {
+            throw TransferError.exportFailed(statusCode: response.statusCode)
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 60
-        if let token, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw TransferError.exportFailed(statusCode: statusCode)
-        }
-
-        return data
+        return response.data
     }
 
-    /// Bootstraps an actor token directly against a local daemon's `/v1/guardian/init`
+    /// Bootstraps an actor token against a local assistant's gateway `/v1/guardian/init`
     /// endpoint without going through `performSwitchAssistant` (which destroys the window).
+    /// Temporarily swaps `connectedAssistantId` to target the local assistant's gateway.
     /// Retries with exponential backoff up to ~30s.
-    private func bootstrapActorToken(daemonPort: Int) async throws -> String {
-        let deviceId = PairingQRCodeSheet.computeHostId()
-        guard let url = URL(string: "http://localhost:\(daemonPort)/v1/guardian/init") else {
-            throw TransferError.invalidURL
-        }
+    private func bootstrapActorToken(localAssistantId: String) async throws -> String {
+        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        UserDefaults.standard.set(localAssistantId, forKey: "connectedAssistantId")
+        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
 
+        let deviceId = PairingQRCodeSheet.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
 
         var delay: UInt64 = 2_000_000_000
         for attempt in 0..<6 {
             try Task.checkCancellation()
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 15
-            request.httpBody = bodyData
 
-            if let (data, response) = try? await URLSession.shared.data(for: request),
-               let http = response as? HTTPURLResponse,
-               (200..<300).contains(http.statusCode),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            if let response = try? await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/guardian/init",
+                json: body,
+                timeout: 15
+            ), response.isSuccess,
+               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
                 return token
             }
@@ -409,42 +370,26 @@ struct AssistantTransferSection: View {
     }
 
     /// Imports a `.vbundle` archive into the managed assistant via the platform API.
-    private func importBundleToManaged(bundleData: Data) async throws {
-        guard let sessionToken = SessionTokenManager.getToken() else {
-            throw TransferError.notSignedIn
-        }
+    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
+        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
+        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
 
-        let baseURL = AuthService.shared.baseURL
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import/") else {
-            throw TransferError.invalidURL
-        }
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/migrations/import",
+            body: bundleData,
+            timeout: 120
+        )
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue(sessionToken, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        request.httpBody = bundleData
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw TransferError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            // Try to extract error message from response
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard response.isSuccess else {
+            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let errorMsg = json["error"] as? String {
                 throw TransferError.importFailed(message: errorMsg)
             }
-            throw TransferError.importFailed(message: "HTTP \(httpResponse.statusCode)")
+            throw TransferError.importFailed(message: "HTTP \(response.statusCode)")
         }
 
-        // Verify success field in response
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
            let success = json["success"] as? Bool, !success {
             let errorMsg = (json["error"] as? String) ?? "Import reported failure"
             throw TransferError.importFailed(message: errorMsg)
@@ -462,7 +407,6 @@ private struct ExportStatusResponse: Decodable {
 
 private enum TransferError: LocalizedError {
     case invalidURL
-    case invalidResponse
     case notSignedIn
     case exportFailed(statusCode: Int)
     case exportTimedOut
@@ -474,8 +418,6 @@ private enum TransferError: LocalizedError {
         switch self {
         case .invalidURL:
             return "Invalid URL"
-        case .invalidResponse:
-            return "Invalid response from server"
         case .notSignedIn:
             return "Sign in required to transfer"
         case .exportFailed(let statusCode):
