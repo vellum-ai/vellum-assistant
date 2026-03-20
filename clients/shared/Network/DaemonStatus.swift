@@ -14,7 +14,7 @@ private let networkLog = OSLog(
 public protocol DaemonStatusProtocol: AnyObject {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
-    func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]?, conversationType: String?, automated: Bool?)
+    func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]?, conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?)
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -148,14 +148,16 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         conversationId: String,
         attachments: [UserMessageAttachment]? = nil,
         conversationType: String? = nil,
-        automated: Bool? = nil
+        automated: Bool? = nil,
+        bypassSecretCheck: Bool? = nil
     ) {
         eventStreamClient.sendUserMessage(
             content: content,
             conversationId: conversationId,
             attachments: attachments,
             conversationType: conversationType,
-            automated: automated
+            automated: automated,
+            bypassSecretCheck: bypassSecretCheck
         )
     }
 

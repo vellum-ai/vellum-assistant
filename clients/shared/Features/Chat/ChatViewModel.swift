@@ -2476,7 +2476,8 @@ public final class ChatViewModel: ObservableObject {
             conversationId: conversationId,
             attachments: attachments,
             conversationType: nil,
-            automated: nil
+            automated: nil,
+            bypassSecretCheck: true
         )
     }
 
