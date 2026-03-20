@@ -73,5 +73,5 @@ export function isFishAudioTts(
   config?: ReturnType<typeof loadConfig>,
 ): boolean {
   const cfg = config ?? loadConfig();
-  return cfg.calls.voice.ttsProvider === "fish-audio";
+  return cfg.calls.voice?.ttsProvider === "fish-audio";
 }
