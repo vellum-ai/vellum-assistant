@@ -302,7 +302,7 @@ export function scheduleRouteDefinitions(deps: {
       policyKey: "schedules",
       handler: async ({ req, params }) => {
         const body: unknown = await req.json();
-        if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        if (typeof body !== "object" || !body || Array.isArray(body)) {
           return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
         }
         return handleUpdateSchedule(params.id, body as Record<string, unknown>);
