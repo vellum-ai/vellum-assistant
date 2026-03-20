@@ -2,6 +2,14 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
+/// Topology classification for upgrade UI behavior.
+enum AssistantTopology {
+    case local       // Sparkle-managed binary
+    case docker      // CLI-managed containers
+    case managed     // Platform-managed (Vellum cloud)
+    case remote      // GCP, custom, SSH — no automatic upgrade mechanism
+}
+
 /// Upgrade section for managed/remote assistants.
 ///
 /// Shows the current version, checks for available releases, and provides
@@ -10,7 +18,7 @@ import VellumAssistantShared
 @MainActor
 struct AssistantUpgradeSection: View {
     let currentVersion: String?
-    let isDocker: Bool
+    let topology: AssistantTopology
 
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
@@ -190,10 +198,13 @@ struct AssistantUpgradeSection: View {
         isUpgrading = true
         defer { isUpgrading = false }
 
-        if isDocker {
+        switch topology {
+        case .docker:
             await performDockerUpgrade()
-        } else {
+        case .managed:
             await performManagedUpgrade()
+        case .local, .remote:
+            break // These topologies don't support upgrade from here
         }
     }
 
