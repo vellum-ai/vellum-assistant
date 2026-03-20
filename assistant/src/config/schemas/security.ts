@@ -77,6 +77,10 @@ export const PermissionsConfigSchema = z
       .describe(
         "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
       ),
+    dangerouslySkipPermissions: z
+      .boolean({ error: "permissions.dangerouslySkipPermissions must be a boolean" })
+      .default(false)
+      .describe("Auto-accept all permission prompts without asking"),
   })
   .describe("Permission enforcement mode for tool operations");
 
