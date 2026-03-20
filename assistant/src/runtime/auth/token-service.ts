@@ -29,6 +29,22 @@ import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 const log = getLogger("token-service");
 
 // ---------------------------------------------------------------------------
+// Bootstrap sentinel error
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the gateway's signing-key bootstrap endpoint returns 403,
+ * indicating that bootstrap has already completed (daemon restart case).
+ * The caller should fall back to loading the key from disk.
+ */
+export class BootstrapAlreadyCompleted extends Error {
+  constructor() {
+    super("Gateway signing key bootstrap already completed");
+    this.name = "BootstrapAlreadyCompleted";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Signing key management
 // ---------------------------------------------------------------------------
 
@@ -76,6 +92,73 @@ export function loadOrCreateSigningKey(): Buffer {
 
   log.info("Auth signing key generated and persisted");
   return newKey;
+}
+
+/**
+ * Fetch the shared signing key from the gateway's bootstrap endpoint.
+ *
+ * Used in Docker mode where the gateway owns the signing key and the daemon
+ * must fetch it at startup. Retries up to 30 times with 1s intervals to
+ * tolerate gateway startup delays.
+ *
+ * @returns A 32-byte Buffer containing the signing key.
+ * @throws {BootstrapAlreadyCompleted} If the gateway returns 403 (bootstrap
+ *   already completed — daemon restart case). Caller should fall back to
+ *   loading the key from disk.
+ * @throws {Error} If the gateway is unreachable after all retry attempts.
+ */
+export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
+  const gatewayUrl = process.env.GATEWAY_INTERNAL_URL;
+  if (!gatewayUrl) {
+    throw new Error("GATEWAY_INTERNAL_URL not set — cannot fetch signing key");
+  }
+
+  const maxAttempts = 30;
+  const intervalMs = 1000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let resp: Response | undefined;
+    try {
+      resp = await fetch(`${gatewayUrl}/internal/signing-key-bootstrap`, {
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
+      log.warn(
+        { err, attempt },
+        "Signing key bootstrap: connection failed, retrying",
+      );
+      await Bun.sleep(intervalMs);
+      continue;
+    }
+
+    if (resp.ok) {
+      const body = (await resp.json()) as { key: string };
+      const keyBuf = Buffer.from(body.key, "hex");
+      if (keyBuf.length !== 32) {
+        throw new Error(`Invalid signing key length: ${keyBuf.length}`);
+      }
+      log.info("Signing key fetched from gateway bootstrap endpoint");
+      return keyBuf;
+    }
+
+    if (resp.status === 403) {
+      // Bootstrap already completed — fall through to file-based load.
+      // This happens on daemon restart when the gateway lockfile persists.
+      log.info(
+        "Gateway signing key bootstrap already completed — loading from disk",
+      );
+      throw new BootstrapAlreadyCompleted();
+    }
+
+    log.warn(
+      { status: resp.status, attempt },
+      "Signing key bootstrap: gateway not ready, retrying",
+    );
+
+    await Bun.sleep(intervalMs);
+  }
+
+  throw new Error("Signing key bootstrap: timed out waiting for gateway");
 }
 
 function getSigningKey(): Buffer {
