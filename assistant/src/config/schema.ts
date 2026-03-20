@@ -40,6 +40,8 @@ export {
   ElevenLabsConfigSchema,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./schemas/elevenlabs.js";
+export type { FishAudioConfig } from "./schemas/fish-audio.js";
+export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
@@ -193,6 +195,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import {
   ContextWindowConfigSchema,
@@ -293,6 +296,7 @@ export const AssistantConfigSchema = z
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
     ),
+    fishAudio: FishAudioConfigSchema.default(FishAudioConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
     slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
