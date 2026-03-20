@@ -15,7 +15,7 @@ const resolveOAuthConnectionMock = mock(
     _service: string,
     _opts?: { account?: string },
   ): Promise<OAuthConnection> =>
-    ({ accessToken: "oauth-token" }) as OAuthConnection,
+    ({ accessToken: "oauth-token" }) as unknown as OAuthConnection,
 );
 const getConnectionByProviderMock = mock(
   (_provider: string): { status: string } | undefined => undefined,
@@ -164,7 +164,7 @@ describe("Slack messaging token resolution", () => {
       getSecureKeyAsyncMock.mockImplementation(async () => null);
       const oauthConn = {
         accessToken: "xoxp-oauth-token",
-      } as OAuthConnection;
+      } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
 
       const result = await slackProvider.resolveConnection!();
@@ -203,7 +203,7 @@ describe("Slack messaging token resolution", () => {
       getSecureKeyAsyncMock.mockImplementation(async () => null);
       const oauthConn = {
         accessToken: "xoxp-oauth-token",
-      } as OAuthConnection;
+      } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
 
       const result = await getProviderConnection(slackProvider);
@@ -242,7 +242,7 @@ describe("Slack messaging token resolution", () => {
       // getProviderConnection falls through to resolveOAuthConnection.
       const oauthConn = {
         accessToken: "gmail-oauth-token",
-      } as OAuthConnection;
+      } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
 
       const result = await getProviderConnection(gmailMessagingProvider);
