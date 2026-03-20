@@ -51,6 +51,13 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             purpose: String?,
             contactChannelId: String?
         ) async -> ChannelVerificationSessionResponseMessage? { nil }
+
+        func updateVoiceConfig(_ config: VoiceConfigUpdateRequest) async -> Bool { false }
+        func startOAuthConnect(_ request: OAuthConnectStartRequest) async -> Bool { false }
+        func registerDeviceToken(token: String, platform: String) async -> Bool { false }
+        func fetchIngressConfig() async -> IngressConfigResponseMessage? { nil }
+        func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage? { nil }
+        func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? { nil }
     }
 
     private var daemonClient: MockDaemonClient!
