@@ -105,7 +105,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         coordinator.handleUserAction(.scrollUp)
 
-        coordinator.requestPin(reason: .messageCount, conversationId: convId)
+        coordinator.requestPin(reason: .resize, conversationId: convId)
 
         XCTAssertEqual(pinRequestCount, 0)
         XCTAssertNil(coordinator.activeSession)
