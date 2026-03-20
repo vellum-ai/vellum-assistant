@@ -18,6 +18,7 @@ interface StartEvent {
     reference_id?: string;
     format?: string;
     sample_rate?: number;
+    mp3_bitrate?: number;
     chunk_length?: number;
     normalize?: boolean;
     latency?: string;
@@ -122,8 +123,9 @@ export class FishAudioSession {
             text: "",
             reference_id: config.referenceId || undefined,
             format: config.format,
+            mp3_bitrate: 192,
             chunk_length: config.chunkLength,
-            latency: "balanced",
+            latency: config.latency,
             prosody:
               config.speed !== 1.0 ? { speed: config.speed } : undefined,
           },
