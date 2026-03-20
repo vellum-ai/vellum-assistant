@@ -105,7 +105,7 @@ Handle each error code:
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `missing_destination` | Ask the user to provide their phone number, Telegram destination, or Slack user ID.                                                                                                                                                                |
 | `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. For Slack: explain that the value must be a Slack member ID (e.g. U01ABCDEF). |
-| `already_bound`       | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the create command with `--rebind` added.                                                                                               |
+| `already_bound`       | Tell the user a verified identity is already bound for this channel. Ask if they want to replace it. If yes, re-run the create command with `--rebind` added.                                                                                      |
 | `rate_limited`        | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later.                                                                                                                             |
 | `unsupported_channel` | Tell the user the channel is not supported. Only phone, telegram, and slack are valid.                                                                                                                                                             |
 | `no_bot_username`     | Telegram bot is not configured. Load and run the `telegram-setup` skill first.                                                                                                                                                                     |
@@ -220,9 +220,9 @@ If the response shows the channel is bound, confirm success: "Verification compl
 
 If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
-## Step 7: Revoke Guardian Binding
+## Step 7: Revoke Verification
 
-If the user wants to remove themselves (or the current guardian) from a channel, use the revoke endpoint:
+If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint:
 
 ```bash
 assistant channel-verification-sessions revoke --channel <channel> --json
@@ -234,7 +234,7 @@ Replace `<channel>` with the channel to unbind from (e.g. `phone`, `telegram`, `
 
 The response includes `bound: false` after the operation completes. Check the previous binding state to tailor the message:
 
-- If a binding was previously active (i.e., the user explicitly asked to revoke their guardian): "Verification revoked for [channel]. The previous verified identity no longer has access to this channel."
+- If a binding was previously active (i.e., the user explicitly asked to revoke their verified identity): "Verification revoked for [channel]. The previous verified identity no longer has access to this channel."
 - If no binding existed (`bound: false` and there was nothing to revoke): "There is no active verification for [channel] - nothing to revoke. Any pending verification challenges have been cleared."
 
 ## Important Notes
