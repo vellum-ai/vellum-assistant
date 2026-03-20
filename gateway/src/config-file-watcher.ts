@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getWorkspaceDir } from "./credential-reader.js";
 
 const log = getLogger("config-file-watcher");
 
@@ -23,7 +23,7 @@ export type ConfigChangeEvent = {
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
 
 function getConfigPath(): string {
-  return join(getRootDir(), "workspace", CONFIG_FILENAME);
+  return join(getWorkspaceDir(), CONFIG_FILENAME);
 }
 
 function readConfigFile(path: string): Record<string, unknown> {
