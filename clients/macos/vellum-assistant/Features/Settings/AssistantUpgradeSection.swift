@@ -12,6 +12,7 @@ struct AssistantUpgradeSection: View {
     let currentVersion: String?
 
     @State private var availableReleases: [AssistantRelease] = []
+    @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
     @State private var isUpgrading = false
     @State private var errorMessage: String?
@@ -22,9 +23,13 @@ struct AssistantUpgradeSection: View {
         availableReleases.first
     }
 
+    private var effectiveSelectedVersion: String? {
+        selectedVersion ?? latestRelease?.version
+    }
+
     private var upgradeAvailable: Bool {
-        guard let latest = latestRelease, let current = currentVersion, !current.isEmpty else { return false }
-        return latest.version != current
+        guard let target = effectiveSelectedVersion, let current = currentVersion, !current.isEmpty else { return false }
+        return target != current
     }
 
     var body: some View {
@@ -45,19 +50,32 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if let latest = latestRelease {
+                if !availableReleases.isEmpty {
                     HStack(spacing: VSpacing.sm) {
-                        Text("Latest version:")
+                        Text("Upgrade to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
-                        Text(latest.version)
-                            .font(VFont.mono)
-                            .foregroundColor(upgradeAvailable ? VColor.primaryBase : VColor.contentDefault)
+                        Picker("", selection: Binding<String>(
+                            get: { selectedVersion ?? latestRelease?.version ?? "" },
+                            set: { newValue in
+                                selectedVersion = (newValue == latestRelease?.version) ? nil : newValue
+                            }
+                        )) {
+                            ForEach(availableReleases) { release in
+                                Text(release.version == latestRelease?.version
+                                     ? "\(release.version) (latest)"
+                                     : release.version)
+                                    .tag(release.version)
+                            }
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
 
                 if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty {
-                    Text("You are on the latest version.")
+                    Text(selectedVersion == nil
+                         ? "You are on the latest version."
+                         : "You are already on this version.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
@@ -114,11 +132,7 @@ struct AssistantUpgradeSection: View {
                 Task { await performUpgrade() }
             }
         } message: {
-            if let latest = latestRelease {
-                Text("Upgrade to version \(latest.version)? The assistant will be briefly unavailable during the upgrade.")
-            } else {
-                Text("Upgrade to the latest version? The assistant will be briefly unavailable.")
-            }
+            Text("Upgrade to version \(selectedVersion ?? latestRelease?.version ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
         }
     }
 
@@ -166,7 +180,8 @@ struct AssistantUpgradeSection: View {
         defer { isUpgrading = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+            let body: [String: String] = selectedVersion.map { ["version": $0] } ?? [:]
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
             if response.isSuccess {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
