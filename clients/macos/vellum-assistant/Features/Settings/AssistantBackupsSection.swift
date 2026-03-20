@@ -399,6 +399,8 @@ extension AssistantBackupsSection {
                         AppDelegate.shared?.vellumCli.stop(name: assistantName)
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
+                        // Reload avatar after restart so the restored avatar is displayed
+                        AvatarAppearanceManager.shared.reloadAvatar()
                     }
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."
