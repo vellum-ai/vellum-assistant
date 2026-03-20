@@ -54,6 +54,7 @@ import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
+import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import {
   createTrustRulesListHandler,
@@ -282,6 +283,7 @@ async function main() {
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
+  const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
@@ -716,6 +718,14 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req, params) => oauthAppsProxy.handleConnect(req, params[0]),
+    },
+
+    // ── Upgrade broadcast ──
+    {
+      path: "/v1/admin/upgrade-broadcast",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => upgradeBroadcastProxy(req),
     },
 
     // ── Channel readiness ──
