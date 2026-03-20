@@ -275,6 +275,12 @@ extension AppDelegate {
                 return
             }
 
+            // Play the custom notification sound only after confirming authorization.
+            // The system sound (`UNNotificationSound.default`) plays when the banner appears,
+            // while this custom sound provides the configurable audio feedback from SoundManager.
+            // Both are kept so users get the system banner sound even if custom sounds are disabled.
+            SoundManager.shared.play(.notification)
+
             do {
                 try await UNUserNotificationCenter.current().add(request)
                 self.sendNotificationIntentResult(

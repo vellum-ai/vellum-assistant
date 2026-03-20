@@ -16,6 +16,25 @@ interface TelegramDocument {
   file_size?: number;
 }
 
+interface TelegramVoice {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
+}
+
+interface TelegramAudio {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  performer?: string;
+  title?: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
 interface TelegramMessage {
   message_id?: number;
   text?: string;
@@ -31,6 +50,8 @@ interface TelegramMessage {
   };
   photo?: TelegramPhotoSize[];
   document?: TelegramDocument;
+  voice?: TelegramVoice;
+  audio?: TelegramAudio;
 }
 
 interface TelegramCallbackQuery {
@@ -134,7 +155,13 @@ export function normalizeTelegramUpdate(
   const isEdit = !update.message && !!update.edited_message;
   const message = update.message ?? update.edited_message;
 
-  const hasContent = !!(message?.text || message?.photo || message?.document);
+  const hasContent = !!(
+    message?.text ||
+    message?.photo ||
+    message?.document ||
+    message?.voice ||
+    message?.audio
+  );
   if (!hasContent || !message?.chat?.id || updateId == null) {
     return null;
   }
@@ -159,7 +186,7 @@ export function normalizeTelegramUpdate(
   const content = message.text || message.caption || "";
 
   const attachments: {
-    type: "photo" | "document";
+    type: "photo" | "document" | "audio";
     fileId: string;
     fileName?: string;
     mimeType?: string;
@@ -181,6 +208,23 @@ export function normalizeTelegramUpdate(
       fileName: message.document.file_name,
       mimeType: message.document.mime_type,
       fileSize: message.document.file_size,
+    });
+  }
+  if (message.voice) {
+    attachments.push({
+      type: "audio",
+      fileId: message.voice.file_id,
+      mimeType: message.voice.mime_type,
+      fileSize: message.voice.file_size,
+    });
+  }
+  if (message.audio) {
+    attachments.push({
+      type: "audio",
+      fileId: message.audio.file_id,
+      fileName: message.audio.file_name,
+      mimeType: message.audio.mime_type,
+      fileSize: message.audio.file_size,
     });
   }
 

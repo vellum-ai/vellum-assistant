@@ -5,6 +5,7 @@ import {
   loadLatestAssistant,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
+import { dockerResourceNames } from "../lib/docker";
 
 const SSH_OPTS = [
   "-o",
@@ -82,7 +83,16 @@ export async function ssh(): Promise<void> {
 
   let child;
 
-  if (cloud === "gcp") {
+  if (cloud === "docker") {
+    const res = dockerResourceNames(entry.assistantId);
+    console.log(`🔗 Connecting to ${entry.assistantId} via docker exec...\n`);
+
+    child = spawn(
+      "docker",
+      ["exec", "-it", res.assistantContainer, "/bin/sh"],
+      { stdio: "inherit" },
+    );
+  } else if (cloud === "gcp") {
     const project = entry.project;
     const zone = entry.zone;
     if (!project || !zone) {

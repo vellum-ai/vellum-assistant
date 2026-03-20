@@ -117,32 +117,60 @@ describe("getSchemaAtPath", () => {
       "memory.segmentation",
     );
     expect(result).not.toBeNull();
-    // Unwrap to check it has targetTokens and overlapTokens
-    let schema: any = result;
-    while (schema && !schema.shape) {
-      const inner = schema._zod?.def?.innerType;
-      if (!inner) break;
-      schema = inner;
-    }
-    expect(schema.shape).toBeDefined();
-    expect(schema.shape.targetTokens).toBeDefined();
-    expect(schema.shape.overlapTokens).toBeDefined();
+    // Verify we can produce JSON Schema with the expected properties
+    const jsonSchema = z.toJSONSchema(result!, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    expect(properties).toBeDefined();
+    expect(properties.targetTokens).toBeDefined();
+    expect(properties.overlapTokens).toBeDefined();
   });
 
   test("navigates through .default() wrappers (calls → object schema)", () => {
     const result = getSchemaAtPath(AssistantConfigSchema, "calls");
     expect(result).not.toBeNull();
-    // Unwrap to check it has shape (it's a ZodDefault wrapping ZodObject)
-    let schema: any = result;
-    while (schema && !schema.shape) {
-      const inner = schema._zod?.def?.innerType;
-      if (!inner) break;
-      schema = inner;
-    }
-    expect(schema.shape).toBeDefined();
-    expect(schema.shape.enabled).toBeDefined();
-    expect(schema.shape.voice).toBeDefined();
-    expect(schema.shape.safety).toBeDefined();
+    // Verify we can produce JSON Schema with the expected properties
+    const jsonSchema = z.toJSONSchema(result!, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    expect(properties).toBeDefined();
+    expect(properties.enabled).toBeDefined();
+    expect(properties.voice).toBeDefined();
+    expect(properties.safety).toBeDefined();
+  });
+
+  test("navigates through .transform() wrappers (ingress → object schema)", () => {
+    const result = getSchemaAtPath(AssistantConfigSchema, "ingress");
+    expect(result).not.toBeNull();
+    // ingress uses .transform() which creates a pipe — getSchemaAtPath
+    // must unwrap through the pipe to reach the input object shape
+    const jsonSchema = z.toJSONSchema(result!, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    expect(properties).toBeDefined();
+    expect(properties.enabled).toBeDefined();
+    expect(properties.webhook).toBeDefined();
+    expect(properties.rateLimit).toBeDefined();
+  });
+
+  test("navigates nested path through .transform() wrapper (ingress.webhook)", () => {
+    const result = getSchemaAtPath(AssistantConfigSchema, "ingress.webhook");
+    expect(result).not.toBeNull();
+    const jsonSchema = z.toJSONSchema(result!, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    expect(properties).toBeDefined();
+    expect(properties.secret).toBeDefined();
+    expect(properties.timeoutMs).toBeDefined();
+    expect(properties.maxRetries).toBeDefined();
   });
 
   test("returns null for non-existent top-level path", () => {
@@ -170,6 +198,7 @@ describe("z.toJSONSchema integration", () => {
   test("full schema produces valid JSON Schema with type object and properties", () => {
     const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
       unrepresentable: "any",
+      io: "input",
     }) as Record<string, unknown>;
     expect(jsonSchema.type).toBe("object");
     const properties = jsonSchema.properties as Record<string, unknown>;
@@ -184,11 +213,27 @@ describe("z.toJSONSchema integration", () => {
     expect(properties.sandbox).toBeDefined();
   });
 
+  test("full schema emits real properties for transformed fields (ingress)", () => {
+    const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    const ingress = properties.ingress as Record<string, unknown>;
+    // Without io: "input", transforms produce empty {} — verify we get real content
+    expect(ingress.properties).toBeDefined();
+    const ingressProps = ingress.properties as Record<string, unknown>;
+    expect(ingressProps.enabled).toBeDefined();
+    expect(ingressProps.webhook).toBeDefined();
+    expect(ingressProps.rateLimit).toBeDefined();
+  });
+
   test("sub-schema at calls produces JSON Schema with expected properties", () => {
     const callsSchema = getSchemaAtPath(AssistantConfigSchema, "calls");
     expect(callsSchema).not.toBeNull();
     const jsonSchema = z.toJSONSchema(callsSchema!, {
       unrepresentable: "any",
+      io: "input",
     }) as Record<string, unknown>;
     const properties = jsonSchema.properties as
       | Record<string, unknown>
@@ -204,6 +249,7 @@ describe("z.toJSONSchema integration", () => {
     expect(maxTokensSchema).not.toBeNull();
     const jsonSchema = z.toJSONSchema(maxTokensSchema!, {
       unrepresentable: "any",
+      io: "input",
     }) as Record<string, unknown>;
     expect(jsonSchema.type).toBe("integer");
   });
@@ -216,6 +262,7 @@ describe("z.toJSONSchema integration", () => {
     expect(segSchema).not.toBeNull();
     const jsonSchema = z.toJSONSchema(segSchema!, {
       unrepresentable: "any",
+      io: "input",
     }) as Record<string, unknown>;
     expect(jsonSchema.type).toBe("object");
     const properties = jsonSchema.properties as

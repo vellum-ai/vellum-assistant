@@ -11,7 +11,10 @@ import type { MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
 import {
   mediaAssets,
+  memoryChunks,
+  memoryEpisodes,
   memoryItems,
+  memoryObservations,
   memorySegments,
   memorySummaries,
   messages,
@@ -34,6 +37,7 @@ export async function embedSegmentJob(
     conversation_id: segment.conversationId,
     message_id: segment.messageId,
     created_at: segment.createdAt,
+    memory_scope_id: segment.scopeId,
   });
 }
 
@@ -58,6 +62,7 @@ export async function embedItemJob(
     confidence: item.confidence,
     created_at: item.firstSeenAt,
     last_seen_at: item.lastSeenAt,
+    memory_scope_id: item.scopeId,
   });
 }
 
@@ -83,8 +88,29 @@ export async function embedSummaryJob(
       kind: summary.scope,
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
+      memory_scope_id: summary.scopeId,
     },
   );
+}
+
+export async function embedChunkJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const chunkId = asString(job.payload.chunkId);
+  if (!chunkId) return;
+  const db = getDb();
+  const chunk = db
+    .select()
+    .from(memoryChunks)
+    .where(eq(memoryChunks.id, chunkId))
+    .get();
+  if (!chunk) return;
+  await embedAndUpsert(config, "chunk", chunk.id, chunk.content, {
+    observation_id: chunk.observationId,
+    created_at: chunk.createdAt,
+    memory_scope_id: chunk.scopeId,
+  });
 }
 
 export async function embedMediaJob(
@@ -116,6 +142,41 @@ export async function embedMediaJob(
     created_at: asset.createdAt,
     kind: asset.mediaType,
     subject: asset.title,
+    memory_scope_id: "default",
+  });
+}
+
+export async function embedObservationJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const observationId = asString(job.payload.observationId);
+  const chunkId = asString(job.payload.chunkId);
+  if (!observationId || !chunkId) return;
+
+  const db = getDb();
+  const observation = db
+    .select()
+    .from(memoryObservations)
+    .where(eq(memoryObservations.id, observationId))
+    .get();
+  if (!observation) return;
+
+  const chunk = db
+    .select()
+    .from(memoryChunks)
+    .where(eq(memoryChunks.id, chunkId))
+    .get();
+  if (!chunk) return;
+
+  await embedAndUpsert(config, "observation", chunk.id, chunk.content, {
+    observation_id: observationId,
+    conversation_id: observation.conversationId,
+    role: observation.role,
+    modality: observation.modality,
+    source: observation.source,
+    created_at: observation.createdAt,
+    memory_scope_id: observation.scopeId,
   });
 }
 
@@ -153,5 +214,27 @@ export async function embedAttachmentJob(
     message_id: messageId,
     conversation_id: message.conversationId,
     memory_scope_id: memoryScopeId,
+  });
+}
+
+export async function embedEpisodeJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const episodeId = asString(job.payload.episodeId);
+  if (!episodeId) return;
+  const db = getDb();
+  const episode = db
+    .select()
+    .from(memoryEpisodes)
+    .where(eq(memoryEpisodes.id, episodeId))
+    .get();
+  if (!episode) return;
+  const text = `[episode] ${episode.title}: ${episode.summary}`;
+  await embedAndUpsert(config, "episode", episode.id, text, {
+    conversation_id: episode.conversationId,
+    created_at: episode.startAt,
+    last_seen_at: episode.endAt,
+    memory_scope_id: episode.scopeId,
   });
 }

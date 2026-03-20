@@ -681,13 +681,24 @@ function countPersistedMessages(messages: Message[]): number {
   }).length;
 }
 
-/** A user message that contains ONLY tool_result blocks (no text or other content). */
+function isSystemNoticeBlock(block: ContentBlock): boolean {
+  if (block.type !== "text") return false;
+  const text = (block as { text?: string }).text ?? "";
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
+}
+
+/** A user message that contains ONLY tool_result blocks (no text or other content).
+ *  System notice text blocks (retry nudges, progress checks) do not count as user content. */
 function isToolResultOnly(message: Message): boolean {
   return (
     message.content.length > 0 &&
     message.content.every(
       (block) =>
-        block.type === "tool_result" || block.type === "web_search_tool_result",
+        block.type === "tool_result" ||
+        block.type === "web_search_tool_result" ||
+        isSystemNoticeBlock(block),
     )
   );
 }

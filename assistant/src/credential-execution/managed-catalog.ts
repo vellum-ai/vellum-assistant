@@ -11,8 +11,7 @@
 
 import { platformOAuthHandle } from "@vellumai/ces-contracts";
 
-import { getPlatformAssistantId } from "../config/env.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { VellumPlatformClient } from "../platform/client.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("managed-catalog");
@@ -79,25 +78,18 @@ export interface FetchManagedCatalogResult {
  * error message that never contains secret material.
  */
 export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> {
-  const ctx = await resolveManagedProxyContext();
+  const client = await VellumPlatformClient.create();
 
-  if (!ctx.enabled) {
+  if (!client || !client.platformAssistantId) {
     return { ok: true, descriptors: [] };
   }
 
-  const assistantId = getPlatformAssistantId();
-  if (!assistantId) {
-    log.warn("PLATFORM_ASSISTANT_ID not set; cannot fetch managed catalog");
-    return { ok: true, descriptors: [] };
-  }
-
-  const url = `${ctx.platformBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/oauth/managed/catalog/`;
+  const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/managed/catalog/`;
 
   try {
-    const response = await fetch(url, {
+    const response = await client.fetch(path, {
       method: "GET",
       headers: {
-        Authorization: `Api-Key ${ctx.assistantApiKey}`,
         Accept: "application/json",
       },
     });
@@ -139,8 +131,6 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
     return { ok: true, descriptors };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Ensure the error message does not leak secrets — strip any URL params
-    // that might contain tokens (defensive, since we use Api-Key header).
     const safeMessage = message.replace(
       /Api-Key\s+\S+/gi,
       "Api-Key [REDACTED]",

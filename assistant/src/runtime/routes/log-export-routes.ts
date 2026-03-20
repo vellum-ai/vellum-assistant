@@ -444,6 +444,8 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "embedding-models",
   "data/qdrant",
   "data/attachments",
+  "data/sounds",
+  "conversations",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
@@ -513,6 +515,8 @@ function collectWorkspaceFiles(): Record<string, string> {
 
         // SQLite DB handling: dump as SQL text, then enforce size cap
         if (entry.endsWith(".db")) {
+          // Skip the dump entirely if the budget is already exhausted
+          if (totalBytes >= MAX_WORKSPACE_PAYLOAD_BYTES) continue;
           try {
             const proc = spawnSync("sqlite3", [fullPath, ".dump"], {
               timeout: 10_000,

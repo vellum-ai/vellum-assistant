@@ -38,6 +38,7 @@ export * from "./message-types/skills.js";
 export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
 export * from "./message-types/trust.js";
+export * from "./message-types/upgrades.js";
 export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
 
@@ -123,6 +124,7 @@ import type {
   _TrustClientMessages,
   _TrustServerMessages,
 } from "./message-types/trust.js";
+import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type {
   _WorkItemsClientMessages,
   _WorkItemsServerMessages,
@@ -194,6 +196,7 @@ export type ServerMessage =
   | _InboxServerMessages
   | _PairingServerMessages
   | _NotificationsServerMessages
+  | _UpgradesServerMessages
   | _AcpServerMessages
   | SubagentEvent;
 

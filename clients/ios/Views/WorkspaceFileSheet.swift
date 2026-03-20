@@ -237,7 +237,7 @@ private struct AuthenticatedImageView: View {
                 failed = true
                 return
             }
-            // 401 retry: re-bootstrap actor token via DaemonClient then retry once
+            // 401 retry: re-bootstrap actor token via GuardianClient then retry once
             if http.statusCode == 401 {
                 guard let client,
                       let platform = client.recoveryPlatform,
@@ -245,7 +245,10 @@ private struct AuthenticatedImageView: View {
                     failed = true
                     return
                 }
-                let success = await client.bootstrapActorToken(platform: platform, deviceId: deviceId)
+                let success = await GuardianClient().bootstrapActorToken(
+                    platform: platform,
+                    deviceId: deviceId
+                )
                 guard success else {
                     failed = true
                     return
@@ -329,7 +332,7 @@ private struct WorkspaceVideoPlayer: View {
                 failed = true
                 return
             }
-            // 401 retry: re-bootstrap actor token via DaemonClient then retry once
+            // 401 retry: re-bootstrap actor token via GuardianClient then retry once
             if http.statusCode == 401 {
                 try? FileManager.default.removeItem(at: localURL)
                 guard let client,
@@ -338,7 +341,10 @@ private struct WorkspaceVideoPlayer: View {
                     failed = true
                     return
                 }
-                let success = await client.bootstrapActorToken(platform: platform, deviceId: deviceId)
+                let success = await GuardianClient().bootstrapActorToken(
+                    platform: platform,
+                    deviceId: deviceId
+                )
                 guard success else {
                     failed = true
                     return

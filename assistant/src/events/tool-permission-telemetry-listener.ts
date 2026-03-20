@@ -30,9 +30,7 @@ export function registerToolPermissionTelemetryListener(
           const key = requestId ? `${requestId}:${toolName}` : undefined;
           if (key && promptedToolCalls.has(key)) {
             promptedToolCalls.delete(key);
-            recordLifecycleEvent(
-              `permission_decided:${toolName}:${decision}`,
-            );
+            recordLifecycleEvent(`permission_decided:${toolName}:${decision}`);
           }
           return;
         }

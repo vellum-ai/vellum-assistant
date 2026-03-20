@@ -238,6 +238,7 @@ private struct CategoryNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .nativeTooltip(category.displayName)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -284,6 +285,7 @@ private struct SubCategoryNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(label)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -297,6 +299,7 @@ private struct SubCategoryNodeView: View {
 private struct SkillNodeView: View {
     let item: OrbitItem
     let size: CGFloat
+    var onDoubleTap: (() -> Void)?
     var onTap: (() -> Void)?
 
     @State private var isHovered = false
@@ -334,6 +337,7 @@ private struct SkillNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(item.label)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -341,6 +345,9 @@ private struct SkillNodeView: View {
         }
         .if(isTappable) { view in
             view.pointerCursor()
+        }
+        .onTapGesture(count: 2) {
+            onDoubleTap?()
         }
         .onTapGesture {
             onTap?()
@@ -695,6 +702,7 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
+    @State private var zoomedNodeId: String?
 
     // Node sizes
     private let categoryNodeSize: CGFloat = 80
@@ -825,8 +833,42 @@ struct ConstellationView: View {
         )
     }
 
+    /// Zooms in and centers the viewport on a specific node.
+    /// If already zoomed into the same node, zooms back out to fit all.
+    private func zoomToNode(_ nodeId: String, viewSize: CGSize) {
+        let targetZoom: CGFloat = 1.8
+
+        // If already zoomed into this specific node, toggle back to fit-all
+        if zoomedNodeId == nodeId {
+            fitAll(viewSize: viewSize)
+            return
+        }
+
+        // Compute position using targetZoom so the node ends up centered after zoom
+        let base = treePositions[nodeId] ?? .zero
+        let stored = nodeDragOffsets[nodeId] ?? .zero
+        let nodePos = CGPoint(
+            x: base.x + stored.width / targetZoom,
+            y: base.y + stored.height / targetZoom
+        )
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+
+        // Pan so the node ends up at the viewport center
+        let contentOffsetX = nodePos.x - center.x
+        let contentOffsetY = nodePos.y - center.y
+
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            zoomScale = targetZoom
+            baseZoomScale = targetZoom
+            panOffset = CGSize(width: -contentOffsetX * targetZoom, height: -contentOffsetY * targetZoom)
+            dragOffset = .zero
+        }
+        zoomedNodeId = nodeId
+    }
+
     /// Computes zoom and pan to fit all nodes in the viewport with padding.
     private func fitAll(viewSize: CGSize) {
+        zoomedNodeId = nil
         let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
 
         if treePositions.isEmpty {
@@ -957,6 +999,7 @@ struct ConstellationView: View {
                                 height: panOffset.height + value.translation.height
                             )
                             dragOffset = .zero
+                            zoomedNodeId = nil
                         }
                 )
                 .gesture(
@@ -967,6 +1010,7 @@ struct ConstellationView: View {
                         .onEnded { value in
                             zoomScale = max(0.4, min(3.0, baseZoomScale * value.magnification))
                             baseZoomScale = zoomScale
+                            zoomedNodeId = nil
                         }
                 )
                 .onAppear {
@@ -1017,6 +1061,7 @@ struct ConstellationView: View {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
+                zoomedNodeId = nil
             }
 
             VButton(label: "Zoom out", iconOnly: VIcon.zoomOut.rawValue, style: .ghost, tooltip: "Zoom out") {
@@ -1024,6 +1069,7 @@ struct ConstellationView: View {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
+                zoomedNodeId = nil
             }
 
             VButton(label: "Fit all", iconOnly: VIcon.scan.rawValue, style: .ghost, tooltip: "Fit all skills") {
@@ -1136,6 +1182,7 @@ struct ConstellationView: View {
 
                 case .category(let category):
                     CategoryNodeView(category: category, size: categoryNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                         .position(effPos)
                         .gesture(nodeDragGesture(nodeId: nodeId))
                         .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
@@ -1148,6 +1195,7 @@ struct ConstellationView: View {
 
                 case .subCategory(let label, let emoji, let category):
                     SubCategoryNodeView(label: label, emoji: emoji, category: category, size: subCatNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                         .position(effPos)
                         .gesture(nodeDragGesture(nodeId: nodeId))
                         .scaleEffect(phase.subCategoriesVisible ? 1 : 0.3)
@@ -1162,6 +1210,7 @@ struct ConstellationView: View {
                     SkillNodeView(
                         item: item,
                         size: skillNodeSize,
+                        onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
                         onTap: item.filePath != nil
                             ? { onFileSelected?(item.filePath!) }
                             : item.description != nil

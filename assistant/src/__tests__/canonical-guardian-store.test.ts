@@ -813,6 +813,44 @@ describe("canonical-guardian-store", () => {
     );
   });
 
+  test("expireAllPendingCanonicalRequests expires persistent kinds with past expiresAt", () => {
+    const expiredAccess = createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      conversationId: "conv-bulk-persist-expired-1",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: Date.now() - 10_000,
+    });
+    const expiredGrant = createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      conversationId: "conv-bulk-persist-expired-2",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: Date.now() - 10_000,
+    });
+    // Persistent kind with future expiresAt should NOT be expired
+    const futureAccess = createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      conversationId: "conv-bulk-persist-expired-3",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const count = expireAllPendingCanonicalRequests();
+    expect(count).toBe(2);
+
+    expect(getCanonicalGuardianRequest(expiredAccess.id)!.status).toBe(
+      "expired",
+    );
+    expect(getCanonicalGuardianRequest(expiredGrant.id)!.status).toBe(
+      "expired",
+    );
+    expect(getCanonicalGuardianRequest(futureAccess.id)!.status).toBe(
+      "pending",
+    );
+  });
+
   test("expireAllPendingCanonicalRequests does not affect already-resolved requests", () => {
     const approved = createCanonicalGuardianRequest({
       kind: "tool_approval",

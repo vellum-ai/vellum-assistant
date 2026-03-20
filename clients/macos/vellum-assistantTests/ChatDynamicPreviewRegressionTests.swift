@@ -97,6 +97,9 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Built your app:")
         ))
+        // Flush the buffered text delta so the assistant message exists before
+        // uiSurfaceShow — the no-preview path breaks early without creating one.
+        viewModel.flushStreamingBuffer()
 
         // No preview metadata and no display mode (defaults to panel routing)
         let msg = makeDynamicPageSurfaceMessage(preview: nil, appId: "app-123")
@@ -112,6 +115,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Opening panel:")
         ))
+        viewModel.flushStreamingBuffer()
 
         let msg = makeDynamicPageSurfaceMessage(display: "panel", preview: nil)
         viewModel.handleServerMessage(.uiSurfaceShow(msg))
@@ -282,6 +286,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Check https://example.com for details. ")
         ))
+        viewModel.flushStreamingBuffer()
 
         // Then attach a dynamic page with preview
         let msg = makeDynamicPageSurfaceMessage(
@@ -521,6 +526,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Check it out:")
         ))
+        viewModel.flushStreamingBuffer()
 
         let msg = makeDynamicPageSurfaceMessage(
             surfaceId: "surface-order-test",
@@ -554,5 +560,131 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
                         "Inline surface should preserve a lightweight SurfaceRef for re-opening workspace")
         XCTAssertEqual(surface.surfaceRef?.surfaceId, "surface-msg-test")
         XCTAssertEqual(surface.surfaceRef?.conversationId, "sess-dp")
+    }
+
+    // MARK: - Inline preview behavior after timing instrumentation
+
+    /// Regression test verifying the full inline-preview lifecycle is unaffected
+    /// by the timing instrumentation added to DynamicPageSurfaceView and
+    /// OffscreenPreviewCapture. Exercises show, update, complete, and dismiss
+    /// in sequence using the same helper that constructs dynamic page preview
+    /// messages, ensuring no log-related side effects alter the data flow.
+    func testInlinePreviewLifecycleIntactAfterTimingInstrumentation() {
+        // 1. Show a dynamic page with preview metadata
+        viewModel.handleServerMessage(.assistantTextDelta(
+            AssistantTextDeltaMessage(text: "Building your dashboard:")
+        ))
+
+        let showMsg = makeDynamicPageSurfaceMessage(
+            surfaceId: "surface-timing-lifecycle",
+            title: "Dashboard App",
+            html: "<div>Dashboard v1</div>",
+            preview: ["title": "Dashboard", "subtitle": "v1.0"],
+            appId: "app-dashboard"
+        )
+        viewModel.handleServerMessage(.uiSurfaceShow(showMsg))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg1 = viewModel.messages[0]
+        XCTAssertEqual(msg1.inlineSurfaces.count, 1,
+                       "Inline preview should be created after show")
+        let surface1 = msg1.inlineSurfaces[0]
+        XCTAssertEqual(surface1.id, "surface-timing-lifecycle")
+        XCTAssertNil(surface1.completionState)
+        if case .dynamicPage(let dp1) = surface1.data {
+            XCTAssertEqual(dp1.preview?.title, "Dashboard")
+            XCTAssertEqual(dp1.preview?.subtitle, "v1.0")
+            XCTAssertEqual(dp1.appId, "app-dashboard")
+        } else {
+            XCTFail("Surface should be a dynamic page")
+        }
+
+        // 2. Update the surface with new content
+        let updateMsg = UiSurfaceUpdateMessage(
+            conversationId: "sess-dp",
+            surfaceId: "surface-timing-lifecycle",
+            data: AnyCodable([
+                "html": "<div>Dashboard v2</div>",
+                "preview": ["title": "Dashboard", "subtitle": "v2.0"] as [String: Any]
+            ] as [String: Any])
+        )
+        viewModel.handleServerMessage(.uiSurfaceUpdate(updateMsg))
+
+        let updatedSurface = viewModel.messages[0].inlineSurfaces[0]
+        if case .dynamicPage(let dp2) = updatedSurface.data {
+            XCTAssertEqual(dp2.html, "<div>Dashboard v2</div>",
+                           "HTML should be updated")
+            XCTAssertEqual(dp2.preview?.subtitle, "v2.0",
+                           "Preview subtitle should be updated")
+        } else {
+            XCTFail("Updated surface should still be a dynamic page")
+        }
+
+        // 3. Complete the surface
+        let completeMsg = UiSurfaceCompleteMessage(
+            conversationId: "sess-dp",
+            surfaceId: "surface-timing-lifecycle",
+            summary: "Dashboard deployed",
+            submittedData: nil
+        )
+        viewModel.handleServerMessage(.uiSurfaceComplete(completeMsg))
+
+        let completedSurface = viewModel.messages[0].inlineSurfaces[0]
+        XCTAssertNotNil(completedSurface.completionState,
+                        "Surface should be completed")
+        XCTAssertEqual(completedSurface.completionState?.summary, "Dashboard deployed")
+
+        // 4. Dismiss the surface
+        let dismissMsg = UiSurfaceDismissMessage(
+            type: "ui_surface_dismiss",
+            conversationId: "sess-dp",
+            surfaceId: "surface-timing-lifecycle"
+        )
+        viewModel.handleServerMessage(.uiSurfaceDismiss(dismissMsg))
+
+        XCTAssertTrue(viewModel.messages[0].inlineSurfaces.isEmpty,
+                      "Inline surface should be removed after dismiss")
+    }
+
+    /// Verify that a dynamic page with preview metadata followed by an
+    /// immediate second surface with different preview metadata correctly
+    /// produces two distinct inline surfaces, confirming that timing logs
+    /// don't interfere with multi-surface attachment ordering.
+    func testMultipleInlinePreviewsUnaffectedByInstrumentation() {
+        viewModel.handleServerMessage(.assistantTextDelta(
+            AssistantTextDeltaMessage(text: "Here are two apps:")
+        ))
+
+        let showMsg1 = makeDynamicPageSurfaceMessage(
+            surfaceId: "surface-multi-1",
+            title: "App One",
+            preview: ["title": "Weather"]
+        )
+        viewModel.handleServerMessage(.uiSurfaceShow(showMsg1))
+
+        let showMsg2 = makeDynamicPageSurfaceMessage(
+            surfaceId: "surface-multi-2",
+            title: "App Two",
+            preview: ["title": "Calendar"]
+        )
+        viewModel.handleServerMessage(.uiSurfaceShow(showMsg2))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.inlineSurfaces.count, 2,
+                       "Both inline surfaces should be attached")
+        XCTAssertEqual(msg.inlineSurfaces[0].id, "surface-multi-1")
+        XCTAssertEqual(msg.inlineSurfaces[1].id, "surface-multi-2")
+
+        if case .dynamicPage(let dp1) = msg.inlineSurfaces[0].data {
+            XCTAssertEqual(dp1.preview?.title, "Weather")
+        } else {
+            XCTFail("First surface should be a dynamic page")
+        }
+        if case .dynamicPage(let dp2) = msg.inlineSurfaces[1].data {
+            XCTAssertEqual(dp2.preview?.title, "Calendar")
+        } else {
+            XCTFail("Second surface should be a dynamic page")
+        }
     }
 }

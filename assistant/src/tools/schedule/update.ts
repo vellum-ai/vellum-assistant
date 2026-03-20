@@ -97,6 +97,11 @@ export async function executeScheduleUpdate(
     updates.routingHints = input.routing_hints;
   }
 
+  // Quiet mode
+  if (input.quiet !== undefined) {
+    updates.quiet = input.quiet;
+  }
+
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
@@ -159,6 +164,7 @@ export async function executeScheduleUpdate(
         mode?: ScheduleMode;
         routingIntent?: RoutingIntent;
         routingHints?: Record<string, unknown>;
+        quiet?: boolean;
       },
     );
 

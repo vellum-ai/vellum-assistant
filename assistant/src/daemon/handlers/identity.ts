@@ -1,3 +1,12 @@
+/**
+ * Returns true when the value is a template placeholder that should be treated
+ * as empty/unset. Placeholders follow the pattern `_(…)_`, e.g.
+ * `_(not yet chosen)_` or `_(not yet established)_`.
+ */
+export function isTemplatePlaceholder(value: string): boolean {
+  return value.startsWith("_(") && value.endsWith(")_");
+}
+
 export interface IdentityFields {
   name: string;
   role: string;
@@ -14,7 +23,9 @@ export function parseIdentityFields(content: string): IdentityFields {
     const lower = trimmed.toLowerCase();
     const extract = (prefix: string): string | null => {
       if (!lower.startsWith(prefix)) return null;
-      return trimmed.split(":**").pop()?.trim() ?? null;
+      const value = trimmed.split(":**").pop()?.trim() ?? null;
+      if (value && isTemplatePlaceholder(value)) return null;
+      return value;
     };
 
     const name = extract("- **name:**");

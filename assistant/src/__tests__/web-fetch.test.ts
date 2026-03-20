@@ -1641,7 +1641,9 @@ describe("web_fetch tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).not.toContain("Extracted text content is very short");
+    expect(result.content).not.toContain(
+      "Extracted text content is very short",
+    );
   });
 
   test("does not suggest JS rendering notice in raw mode even for sparse HTML", async () => {
@@ -1660,6 +1662,8 @@ describe("web_fetch tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).not.toContain("Extracted text content is very short");
+    expect(result.content).not.toContain(
+      "Extracted text content is very short",
+    );
   });
 });

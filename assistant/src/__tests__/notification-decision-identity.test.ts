@@ -185,6 +185,58 @@ describe("identity context in notification decision engine", () => {
     expect(capturedSystemPrompt).not.toContain("</assistant-identity>");
   });
 
+  test("large identity context is truncated in system prompt", async () => {
+    // Create an identity context that exceeds the 2000-char budget
+    mockIdentityContext = "A".repeat(3000);
+
+    configuredProvider = {
+      sendMessage: async (
+        _messages: unknown,
+        _tools: unknown,
+        systemPrompt: unknown,
+      ) => {
+        capturedSystemPrompt = systemPrompt as string;
+        return { content: [] };
+      },
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "LLM decision with truncated identity",
+        renderedCopy: {
+          vellum: {
+            title: "Guardian Question",
+            body: "What is the gate code?",
+          },
+        },
+        dedupeKey: "identity-truncated-test",
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal();
+    await evaluateSignal(signal, ["vellum"] as NotificationChannel[]);
+
+    expect(capturedSystemPrompt).toBeDefined();
+    expect(capturedSystemPrompt).toContain("<assistant-identity>");
+    // The identity block should exist but should NOT contain the full 3000-char string
+    expect(capturedSystemPrompt).not.toContain("A".repeat(3000));
+    // It should contain the truncation marker
+    expect(capturedSystemPrompt).toContain("…[truncated]");
+    // The identity content within the block should be at most 2000 chars
+    const identityMatch = capturedSystemPrompt!.match(
+      /<assistant-identity>([\s\S]*?)<\/assistant-identity>/,
+    );
+    expect(identityMatch).toBeTruthy();
+    // The identity block includes the instruction text + the truncated context.
+    // Verify the raw identity portion is bounded.
+    const identityBlock = identityMatch![1];
+    expect(identityBlock).toContain("…[truncated]");
+    expect(identityBlock).not.toContain("A".repeat(2001));
+  });
+
   test("fallback path does not include identity context", async () => {
     mockIdentityContext = "I am Jarvis, a helpful assistant";
 

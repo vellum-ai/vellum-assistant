@@ -20,6 +20,7 @@ import { spawn } from "node:child_process";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir, getWorkspaceDir } from "../util/platform.js";
 
@@ -65,6 +66,8 @@ function writeResult(requestId: string, result: BashSignalResult): void {
  * when a matching signal file is created or modified.
  */
 export function handleBashSignal(filename: string): void {
+  if (getIsContainerized()) return;
+
   if (!isDebugMode()) {
     log.warn(
       { filename },
@@ -80,7 +83,7 @@ export function handleBashSignal(filename: string): void {
         exitCode: null,
         timedOut: false,
         error:
-          "Bash signals are disabled. The running assistant process must have been started with VELLUM_DEBUG=1 (setting it on the CLI command alone is not enough). Restart the assistant with: VELLUM_DEBUG=1 assistant start",
+          "Bash signals are disabled. The running assistant process must have been started with VELLUM_DEBUG=1 (setting it on the CLI command alone is not enough). Restart the assistant with: vellum sleep && VELLUM_DEBUG=1 vellum wake",
       });
     }
     return;

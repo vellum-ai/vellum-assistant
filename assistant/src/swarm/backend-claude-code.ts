@@ -7,7 +7,7 @@
 
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type {
   SwarmWorkerBackend,
@@ -29,8 +29,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
     name: "claude_code",
 
     async isAvailable(): Promise<boolean> {
-      const apiKey =
-        (await getSecureKeyAsync("anthropic")) ?? process.env.ANTHROPIC_API_KEY;
+      const apiKey = await getProviderKeyAsync("anthropic");
       return !!apiKey;
     },
 
@@ -39,9 +38,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
       const stderrLines: string[] = [];
       try {
         const { query } = await import("@anthropic-ai/claude-agent-sdk");
-        const apiKey =
-          (await getSecureKeyAsync("anthropic")) ??
-          process.env.ANTHROPIC_API_KEY;
+        const apiKey = await getProviderKeyAsync("anthropic");
         if (!apiKey) {
           return {
             success: false,

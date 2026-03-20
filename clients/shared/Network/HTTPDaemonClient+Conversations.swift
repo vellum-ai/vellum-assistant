@@ -8,8 +8,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Registers a domain dispatcher that translates conversation-related message
 /// types into HTTP API calls. Handles:
 ///   conversation_switch, conversation_rename, conversations_clear, cancel, undo,
-///   regenerate, model_get, model_set, image_gen_model_set,
-///   conversation_search, message_content_request, delete_queued_message
+///   model_get, model_set, image_gen_model_set,
+///   conversation_search, message_content_request
 extension HTTPTransport {
 
     func registerConversationRoutes() {
@@ -31,9 +31,6 @@ extension HTTPTransport {
             } else if let msg = message as? UndoRequest {
                 Task { await self.undoLastMessage(conversationId: msg.conversationId) }
                 return true
-            } else if let msg = message as? RegenerateMessage {
-                Task { await self.regenerateLastResponse(conversationId: msg.conversationId) }
-                return true
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
                 return true
@@ -52,8 +49,8 @@ extension HTTPTransport {
             } else if message is MessageContentRequest {
                 // Handled by ConversationClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? DeleteQueuedMessageMessage {
-                Task { await self.deleteQueuedMessage(conversationId: msg.conversationId, requestId: msg.requestId) }
+            } else if message is DeleteQueuedMessageMessage {
+                // Handled by ConversationQueueClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ReorderConversationsRequest {
                 Task { await self.reorderConversations(updates: msg.updates) }

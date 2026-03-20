@@ -2,7 +2,11 @@ import { arch, hostname, platform, release } from "node:os";
 
 import * as Sentry from "@sentry/node";
 
-import { getPlatformOrganizationId, getSentryDsn } from "./config/env.js";
+import {
+  getPlatformOrganizationId,
+  getPlatformUserId,
+  getSentryDsn,
+} from "./config/env.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
@@ -51,6 +55,7 @@ export function initSentry(): void {
     initialScope: {
       tags: {
         commit: COMMIT_SHA,
+        assistant_version: APP_VERSION,
         os_platform: platform(),
         os_release: release(),
         os_arch: arch(),
@@ -58,9 +63,14 @@ export function initSentry(): void {
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
+        // NOTE: device_id is NOT set here. It is deferred to setSentryDeviceId()
+        // which is called after workspace migrations run, so that migration
+        // 003-seed-device-id can copy the legacy installationId into device.json
+        // before getDeviceId() eagerly creates a new random UUID.
         ...(getPlatformOrganizationId()
           ? { organization_id: getPlatformOrganizationId() }
           : {}),
+        ...(getPlatformUserId() ? { user_id: getPlatformUserId() } : {}),
       },
     },
     beforeSend(event) {
@@ -109,6 +119,28 @@ export function setSentryOrganizationId(
   Sentry.setTag("organization_id", organizationId || undefined);
 }
 
+/**
+ * Set (or clear) the user_id tag on the global Sentry scope.
+ *
+ * Called after the platform user ID is rehydrated from the credential
+ * store or updated at runtime so that every subsequent Sentry event
+ * includes the user context.
+ */
+export function setSentryUserId(userId: string | undefined): void {
+  Sentry.setTag("user_id", userId || undefined);
+}
+
+/**
+ * Set the device_id tag on the global Sentry scope.
+ *
+ * Called after workspace migrations complete so that migration
+ * 003-seed-device-id has a chance to copy the legacy installationId
+ * into device.json before getDeviceId() is invoked.
+ */
+export function setSentryDeviceId(deviceId: string): void {
+  Sentry.setTag("device_id", deviceId);
+}
+
 // ── Dynamic conversation-scoped Sentry tags ─────────────────────────
 //
 // These tags change per conversation turn and are set on the current
@@ -121,7 +153,6 @@ export function setSentryOrganizationId(
 const CONVERSATION_TAG_KEYS = [
   "assistant_id",
   "conversation_id",
-  "session_id",
   "message_count",
   "user_identifier",
 ] as const;
@@ -148,9 +179,6 @@ export function setSentryConversationContext(
 ): void {
   Sentry.setTag("assistant_id", ctx.assistantId);
   Sentry.setTag("conversation_id", ctx.conversationId);
-  // session_id mirrors conversation_id — downstream Sentry dashboards and
-  // alerts may still filter by the legacy tag name.
-  Sentry.setTag("session_id", ctx.conversationId);
   Sentry.setTag("message_count", String(ctx.messageCount));
   if (ctx.userIdentifier) {
     Sentry.setTag("user_identifier", ctx.userIdentifier);

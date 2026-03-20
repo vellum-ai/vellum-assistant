@@ -82,10 +82,12 @@ export async function sendTelegramAttachments(
 
   for (const meta of attachments) {
     // When size is known upfront, skip oversized attachments before downloading.
+    // Use the outbound limit (sendDocument supports 50 MB) rather than the
+    // inbound getFile limit (20 MB).
     if (
       meta.sizeBytes !== undefined &&
       meta.sizeBytes >
-        (config.maxAttachmentBytes.telegram ??
+        (config.maxAttachmentBytes.telegramOutbound ??
           config.maxAttachmentBytes.default)
     ) {
       log.warn(
@@ -111,7 +113,7 @@ export async function sendTelegramAttachments(
       // Check size after hydration for ID-only payloads where size was unknown.
       if (
         sizeBytes >
-        (config.maxAttachmentBytes.telegram ??
+        (config.maxAttachmentBytes.telegramOutbound ??
           config.maxAttachmentBytes.default)
       ) {
         log.warn(

@@ -590,6 +590,26 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-self-knowledge",
+      "name": "vellum-self-knowledge",
+      "description": "Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active",
+      "metadata": {
+        "emoji": "🪞",
+        "vellum": {
+          "display-name": "Vellum Self-Knowledge",
+          "activation-hints": [
+            "When the user asks what model the assistant is running on",
+            "When the user asks about Vellum, how the assistant works, or its architecture",
+            "When the user asks about the assistant's current configuration or settings"
+          ],
+          "avoid-when": [
+            "When the user wants to change configuration (use in-chat config instead)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",

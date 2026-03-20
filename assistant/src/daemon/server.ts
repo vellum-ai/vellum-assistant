@@ -6,6 +6,7 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -34,12 +35,14 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getConversationMemoryScopeId,
   getConversationType,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
@@ -75,7 +78,7 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
-import { resolveSlash } from "./conversation-slash.js";
+import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -806,7 +809,6 @@ export class DaemonServer {
           await newConversation.ensureActorScopedHistory();
         }
         this.applyTransportMetadata(newConversation, storedOptions);
-        newConversation.modelSetContext = this.handlerContext();
         this.conversations.set(conversationId, newConversation);
         return newConversation;
       })();
@@ -879,6 +881,7 @@ export class DaemonServer {
       filename: string;
       mimeType: string;
       data: string;
+      filePath?: string;
     }[];
   }> {
     const ingressCheck = checkIngressForSecrets(content);
@@ -961,12 +964,22 @@ export class DaemonServer {
     });
 
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
+      ? (() => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          });
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            data: a.dataBase64,
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        })()
       : [];
 
     return { conversation, attachments };
@@ -1058,14 +1071,32 @@ export class DaemonServer {
         sourceInterface,
       );
 
-    const slashResult = await resolveSlash(content);
+    const config = getConfig();
+    const serverInterfaceCtx = conversation.getTurnInterfaceContext();
+    const slashContext: SlashContext = {
+      messageCount: conversation.getMessages().length,
+      inputTokens: conversation.usageStats.inputTokens,
+      outputTokens: conversation.usageStats.outputTokens,
+      maxInputTokens: config.contextWindow.maxInputTokens,
+      model: config.services.inference.model,
+      provider: config.services.inference.provider,
+      estimatedCost: conversation.usageStats.estimatedCost,
+      userMessageInterface: serverInterfaceCtx?.userMessageInterface,
+    };
+    const slashResult = await resolveSlash(content, slashContext);
 
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = conversation.getTurnChannelContext();
-      const serverInterfaceCtx = conversation.getTurnInterfaceContext();
       const serverProvenance = provenanceFromTrustContext(
         conversation.trustContext,
       );
+      const imageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
@@ -1081,15 +1112,19 @@ export class DaemonServer {
                 serverInterfaceCtx.assistantMessageInterface,
             }
           : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(content, attachments);
+      const cleanMsg = createUserMessage(content, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         serverChannelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       if (serverTurnCtx) {
         try {
@@ -1114,6 +1149,21 @@ export class DaemonServer {
           log.warn(
             { err, conversationId },
             "Failed to set origin interface (best-effort)",
+          );
+        }
+      }
+
+      // Rewrite meta.json so the on-disk metadata reflects the origin channel
+      if (serverTurnCtx || serverInterfaceCtx) {
+        try {
+          const convForMeta = getConversation(conversationId);
+          if (convForMeta) {
+            updateMetaFile(convForMeta);
+          }
+        } catch (err) {
+          log.warn(
+            { err, conversationId },
+            "Failed to update disk meta (best-effort)",
           );
         }
       }
@@ -1199,9 +1249,29 @@ export class DaemonServer {
    * Look up an active conversation that owns a given surfaceId.
    */
   findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
+    // Fast path: exact surfaceId match in surfaceState
     for (const c of this.conversations.values()) {
       if (c.surfaceState.has(surfaceId)) return c;
     }
+
+    // Fallback: standalone app surfaces use "app-open-{appId}" IDs that
+    // were never part of any conversation.  Extract the appId and find
+    // a conversation whose surfaceState has a surface for that app.
+    const appOpenPrefix = "app-open-";
+    if (surfaceId.startsWith(appOpenPrefix)) {
+      const appId = surfaceId.slice(appOpenPrefix.length);
+      for (const c of this.conversations.values()) {
+        for (const [, state] of c.surfaceState.entries()) {
+          const data = state.data as unknown as Record<string, unknown>;
+          if (data?.appId === appId) {
+            // Register this surfaceId so subsequent lookups are O(1)
+            c.surfaceState.set(surfaceId, state);
+            return c;
+          }
+        }
+      }
+    }
+
     return undefined;
   }
 

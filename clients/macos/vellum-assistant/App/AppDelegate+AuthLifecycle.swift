@@ -46,11 +46,11 @@ extension AppDelegate {
             return
         }
 
-        let hasAssistants = lockfileHasAssistants()
+        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged }
         let authView: AnyView
 
-        if hasAssistants {
-            // Returning user with existing assistant — show clean sign-in, not full onboarding
+        if hasManagedAssistants {
+            // Returning managed user — show clean sign-in, not full onboarding
             authView = AnyView(ReauthView(
                 authManager: authManager,
                 onComplete: { [weak self] in
@@ -58,8 +58,8 @@ extension AppDelegate {
                 }
             ))
         } else {
-            // No assistants — show full onboarding (shouldn't normally happen via this path,
-            // but included as a safety net)
+            // No managed assistants — show full onboarding which includes
+            // skip/authless flows for local and remote assistant setups
             OnboardingState.clearPersistedState()
             let state = OnboardingState()
             state.shouldPersist = false
@@ -155,7 +155,7 @@ extension AppDelegate {
                 return
             }
             DispatchQueue.main.async {
-                self?.assistantCli.stop()
+                self?.vellumCli.stop()
                 NSApp.terminate(nil)
             }
         }
@@ -163,8 +163,9 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
-            // Capture assistant ID before logout clears it from UserDefaults
+            // Capture assistant/org IDs before logout clears them from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let connectedOrganizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -174,7 +175,14 @@ extension AppDelegate {
                     self?.mainWindow?.windowState.showToast(message: msg, style: style)
                 }
             } else {
-                await authManager.logout()
+                // Managed: user is redirected to the reauth screen regardless of
+                // HTTP outcome, so we don't toast. Log the error for diagnostics —
+                // the local session is always cleared and the stale server session
+                // will expire naturally or be replaced on re-login.
+                let logoutError = await authManager.logout()
+                if let logoutError {
+                    log.warning("Managed logout HTTP request failed (local session cleared): \(logoutError, privacy: .public)")
+                }
             }
 
             // Clear platform identity credentials from the running daemon (local assistants only).
@@ -183,9 +191,9 @@ extension AppDelegate {
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
-                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale platform identity state")
+                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed credential state")
                     daemonClient.disconnect()
-                    assistantCli.stop(name: connectedAssistantId)
+                    vellumCli.stop(name: connectedAssistantId)
                 }
             }
 
@@ -232,11 +240,15 @@ extension AppDelegate {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
 
-                // Restore connectedAssistantId — authManager.logout() clears it
-                // from UserDefaults, but the app stays running in this path and
-                // subsystems (avatar, gateway resolution, API key sync) need it.
+                // Restore connectedAssistantId and connectedOrganizationId —
+                // authManager.logout() clears both from UserDefaults, but the
+                // app stays running in this path and subsystems (avatar, gateway
+                // resolution, API key sync, Sentry tagging, billing) need them.
                 if let connectedAssistantId {
                     UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                }
+                if let connectedOrganizationId {
+                    UserDefaults.standard.set(connectedOrganizationId, forKey: "connectedOrganizationId")
                 }
 
                 actorTokenBootstrapTask?.cancel()
@@ -302,7 +314,6 @@ extension AppDelegate {
                 hasSetupDaemon = false
                 UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
                 showAuthWindow(reusingWindow: detachedWindow)
-                authManager.errorMessage = nil
             }
         }
     }
@@ -458,6 +469,10 @@ extension AppDelegate {
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
+        // to skip the wait. Mirrors the reset in proceedToApp().
+        localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
         // 6. Sync locally-stored API keys to the new daemon. The daemon may
@@ -509,12 +524,6 @@ extension AppDelegate {
             _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
         }
 
-        // ElevenLabs uses the credential type, not api_key
-        if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
-            let body: [String: Any] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
-        }
-
         log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
     }
 
@@ -537,7 +546,7 @@ extension AppDelegate {
 
         if let name = assistantName {
             do {
-                try await assistantCli.retire(name: name)
+                try await vellumCli.retire(name: name)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -553,17 +562,17 @@ extension AppDelegate {
                 // Retire failed but user chose Force Remove — stop the daemon
                 // before cleaning up local state.
                 daemonClient.disconnect()
-                assistantCli.stop(name: name)
+                vellumCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
 
             // Disconnect the client from the (now-dead) daemon.
             // The retire CLI already stopped the daemon process; an
-            // additional assistantCli.stop() here would block the main
+            // additional vellumCli.stop() here would block the main
             // thread and always fail because the process is already gone.
             daemonClient.disconnect()
         } else {
-            assistantCli.stop(name: assistantName)
+            vellumCli.stop(name: assistantName)
         }
 
         // Check if other assistants remain in the lockfile.
@@ -585,7 +594,7 @@ extension AppDelegate {
 
                 // Sleeping — try to wake it
                 do {
-                    try await assistantCli.wake(name: candidate.assistantId)
+                    try await vellumCli.wake(name: candidate.assistantId)
                     performSwitchAssistant(to: candidate)
                     return true
                 } catch {
@@ -693,7 +702,7 @@ extension AppDelegate {
             for assistant in localAssistants {
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
-                    try await assistantCli.retire(name: assistant.assistantId)
+                    try await vellumCli.retire(name: assistant.assistantId)
                 } catch {
                     log.error("Failed to retire '\(assistant.assistantId, privacy: .public)' during uninstall: \(error.localizedDescription)")
                 }
@@ -701,7 +710,7 @@ extension AppDelegate {
 
             // Stop any remaining daemon processes.
             daemonClient.disconnect()
-            assistantCli.stop()
+            vellumCli.stop()
 
             // Move the app bundle to the Trash.
             let bundleURL = Bundle.main.bundleURL

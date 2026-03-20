@@ -17,6 +17,9 @@ import type {
 
 const log = getLogger("openai-client");
 
+/** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
+const VALIDATION_TIMEOUT_MS = 10_000;
+
 /**
  * Validate an OpenAI API key by making a lightweight GET /v1/models call.
  * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
@@ -25,7 +28,11 @@ export async function validateOpenAIApiKey(
   apiKey: string,
 ): Promise<{ valid: true } | { valid: false; reason: string }> {
   try {
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({
+      apiKey,
+      timeout: VALIDATION_TIMEOUT_MS,
+      maxRetries: 0,
+    });
     await client.models.list();
     return { valid: true };
   } catch (error) {

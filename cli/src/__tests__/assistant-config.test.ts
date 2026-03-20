@@ -238,6 +238,7 @@ describe("migrateLegacyEntry", () => {
     expect(resources.daemonPort).toBe(7821);
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
+    expect(resources.cesPort).toBe(8090);
     expect(resources.pidFile).toContain("vellum.pid");
   });
 
@@ -310,6 +311,7 @@ describe("migrateLegacyEntry", () => {
     expect(resources.daemonPort).toBe(7821);
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
+    expect(resources.cesPort).toBe(8090);
     expect(resources.pidFile).toBe("/custom/path/.vellum/vellum.pid");
   });
 
@@ -328,6 +330,7 @@ describe("migrateLegacyEntry", () => {
         daemonPort: 8000,
         gatewayPort: 8001,
         qdrantPort: 8002,
+        cesPort: 8003,
         pidFile: "/my/path/.vellum/vellum.pid",
       },
     };
@@ -343,6 +346,7 @@ describe("migrateLegacyEntry", () => {
     expect(resources.daemonPort).toBe(8000);
     expect(resources.gatewayPort).toBe(8001);
     expect(resources.qdrantPort).toBe(8002);
+    expect(resources.cesPort).toBe(8003);
   });
 
   test("baseDataDir does not overwrite existing resources.instanceDir", () => {
@@ -376,6 +380,48 @@ describe("migrateLegacyEntry", () => {
     // AND the existing instanceDir should be preserved
     const resources = entry.resources as Record<string, unknown>;
     expect(resources.instanceDir).toBe("/new/path");
+  });
+
+  test("backfills cesPort with default 8090", () => {
+    // GIVEN a local entry with resources that has no cesPort
+    const entry: Record<string, unknown> = {
+      assistantId: "no-ces-port",
+      runtimeUrl: "http://localhost:7830",
+      cloud: "local",
+      resources: {
+        instanceDir: "/custom/path",
+        daemonPort: 7821,
+        gatewayPort: 7830,
+        qdrantPort: 6333,
+        pidFile: "/custom/path/.vellum/vellum.pid",
+      },
+    };
+    // WHEN we migrate the entry
+    const changed = migrateLegacyEntry(entry);
+    // THEN cesPort should be backfilled
+    expect(changed).toBe(true);
+    const resources = entry.resources as Record<string, unknown>;
+    expect(resources.cesPort).toBe(8090);
+  });
+
+  test("does not overwrite existing cesPort", () => {
+    const entry: Record<string, unknown> = {
+      assistantId: "has-ces-port",
+      runtimeUrl: "http://localhost:7830",
+      cloud: "local",
+      resources: {
+        instanceDir: "/my/path",
+        daemonPort: 8000,
+        gatewayPort: 8001,
+        qdrantPort: 8002,
+        cesPort: 9090,
+        pidFile: "/my/path/.vellum/vellum.pid",
+      },
+    };
+    const changed = migrateLegacyEntry(entry);
+    expect(changed).toBe(false);
+    const resources = entry.resources as Record<string, unknown>;
+    expect(resources.cesPort).toBe(9090);
   });
 });
 

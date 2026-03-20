@@ -112,7 +112,7 @@ struct TraceTimelineView: View {
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundColor(VColor.systemMidStrong)
                         .textSelection(.enabled)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
@@ -151,7 +151,7 @@ struct TraceTimelineView: View {
         switch status {
         case .active: return VColor.systemPositiveStrong
         case .completed: return VColor.systemPositiveStrong
-        case .cancelled: return VColor.systemNegativeHover
+        case .cancelled: return VColor.systemMidStrong
         case .handedOff: return VColor.systemPositiveWeak
         case .error: return VColor.systemNegativeStrong
         }

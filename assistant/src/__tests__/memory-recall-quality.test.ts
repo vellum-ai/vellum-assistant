@@ -287,7 +287,7 @@ describe("Memory Recall Quality", () => {
     test("preferences are recalled when querying about user preferences", async () => {
       const db = getDb();
       const now = 1_700_000_000_000;
-      insertConversation(db, "conv-pref", now);
+      insertConversation(db, "conv-pref", now, 3);
       insertMessage(
         db,
         "msg-pref-1",
@@ -408,7 +408,7 @@ describe("Memory Recall Quality", () => {
     test("high-importance preferences outrank low-importance facts in recall", async () => {
       const db = getDb();
       const now = 1_700_000_100_000;
-      insertConversation(db, "conv-rank", now);
+      insertConversation(db, "conv-rank", now, 2);
 
       // High-importance preference
       insertMessage(
@@ -517,7 +517,7 @@ describe("Memory Recall Quality", () => {
     test("superseded memory items do not appear in recall via recency", async () => {
       const db = getDb();
       const now = 1_700_000_200_000;
-      insertConversation(db, "conv-contra", now);
+      insertConversation(db, "conv-contra", now, 1);
 
       // New preference (active, supersedes the old one)
       insertMessage(
@@ -574,7 +574,7 @@ describe("Memory Recall Quality", () => {
     test("only active items are included in recall (superseded excluded)", async () => {
       const db = getDb();
       const now = 1_700_000_250_000;
-      insertConversation(db, "conv-entity-status", now);
+      insertConversation(db, "conv-entity-status", now, 1);
 
       insertMessage(
         db,
@@ -692,7 +692,7 @@ describe("Memory Recall Quality", () => {
       const db = getDb();
       const now = Date.now();
       const oneMonthAgo = now - 30 * 24 * 60 * 60 * 1000;
-      insertConversation(db, "conv-stale", now);
+      insertConversation(db, "conv-stale", now, 2);
 
       // Recent mention
       insertMessage(
@@ -774,7 +774,7 @@ describe("Memory Recall Quality", () => {
     test("frequently accessed items surface via recency search when seeded with segments", async () => {
       const db = getDb();
       const now = 1_700_000_400_000;
-      insertConversation(db, "conv-access", now);
+      insertConversation(db, "conv-access", now, 2);
 
       // Frequently accessed item with segment
       insertMessage(
@@ -885,7 +885,7 @@ describe("Memory Recall Quality", () => {
     test("recency search surfaces segments when hybrid search is unavailable", async () => {
       const db = getDb();
       const now = 1_700_000_500_000;
-      insertConversation(db, "conv-multi", now);
+      insertConversation(db, "conv-multi", now, 1);
 
       // Segment (recency source)
       insertMessage(

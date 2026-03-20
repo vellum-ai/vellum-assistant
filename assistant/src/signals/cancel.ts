@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -39,6 +40,8 @@ export function registerCancelCallback(cb: CancelCallback): void {
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleCancelSignal(): void {
+  if (getIsContainerized()) return;
+
   try {
     const content = readFileSync(join(getSignalsDir(), "cancel"), "utf-8");
     const parsed = JSON.parse(content) as { conversationId?: string };

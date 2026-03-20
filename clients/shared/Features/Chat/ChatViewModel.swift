@@ -178,16 +178,7 @@ public final class ChatViewModel: ObservableObject {
     }
     public var inputText: String {
         get { messageManager.inputText }
-        set {
-            let oldValue = messageManager.inputText
-            let oldSuggestion = messageManager.suggestion
-            messageManager.inputText = newValue
-            guard newValue != oldValue else { return }
-            if let oldSuggestion, !oldSuggestion.hasPrefix(newValue) {
-                messageManager.suggestion = nil
-                pendingSuggestionRequestId = nil
-            }
-        }
+        set { messageManager.inputText = newValue }
     }
     public var isThinking: Bool {
         get { messageManager.isThinking }
@@ -313,6 +304,11 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
     }
+    /// Full provider catalog from daemon, updated via `model_info` messages.
+    public var providerCatalog: [ProviderCatalogEntry] {
+        get { messageManager.providerCatalog }
+        set { messageManager.providerCatalog = newValue }
+    }
 
     // MARK: - Forwarding properties — ChatAttachmentManager
 
@@ -348,16 +344,26 @@ public final class ChatViewModel: ObservableObject {
         set { errorManager.connectionDiagnosticHint = newValue }
     }
 
+    /// Platform-provided policy controlling whether a conversation error should
+    /// produce an inline ChatMessage in the message list. When this returns false,
+    /// the error is still set on errorManager (for toasts, banners, sidebar state)
+    /// but no ChatMessage is appended. Defaults to true for all errors.
+    public var shouldCreateInlineErrorMessage: ((ConversationError) -> Bool)?
+
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
+    private let btwClient: any BtwClientProtocol = BtwClient()
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
+    private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
+    let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -572,6 +578,12 @@ public final class ChatViewModel: ObservableObject {
     /// Called every time a user message is sent. Used by ConversationManager to
     /// bump the conversation's lastInteractedAt so it rises to the top of the list.
     public var onUserMessageSent: (() -> Void)?
+    /// Called when the exact `/fork` composer command should be handled locally
+    /// by the client instead of being sent to the assistant.
+    public var onFork: (() -> Void)?
+
+    private static let privateConversationForkErrorText =
+        "Forking is unavailable in private conversations."
 
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
@@ -608,8 +620,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Recompute and cache the displayedMessages from the current messages array.
     /// Call this after any mutation to messages.
+    ///
+    /// Uses the shared `ChatVisibleMessageFilter` so that `displayedMessages` and the
+    /// macOS message list apply identical visibility rules — this keeps scroll-anchor
+    /// math stable across pagination boundaries.
     private func updateDisplayedMessages() {
-        displayedMessages = messages.filter { !$0.isSubagentNotification && !$0.isHidden }
+        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
     }
 
     // MARK: - Daemon History Pagination
@@ -728,17 +744,23 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - On-Demand Content Rehydration
 
+    /// Message IDs currently being rehydrated — prevents duplicate concurrent fetches.
+    private var rehydratingMessageIds: Set<UUID> = []
+
     /// Fetch full (untruncated) content for a message that was loaded with truncated
     /// text/tool results or had its heavy content stripped. No-ops if the message is
-    /// not found or doesn't need rehydration.
+    /// not found, doesn't need rehydration, or is already being fetched.
     public func rehydrateMessage(id: UUID) {
+        guard !rehydratingMessageIds.contains(id) else { return }
         guard let idx = messages.firstIndex(where: { $0.id == id }),
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         guard daemonClient.isConnected else { return }
+        rehydratingMessageIds.insert(id)
         Task { [weak self] in
             guard let self else { return }
+            defer { self.rehydratingMessageIds.remove(id) }
             if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
                 self.handleMessageContentResponse(response)
             }
@@ -793,6 +815,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let result = fullTC.result {
                     messages[idx].toolCalls[tcIdx].result = result
+                    messages[idx].toolCalls[tcIdx].resultLength = result.count
                 }
                 if let input = fullTC.input {
                     let formatted = ToolCallData.formatAllToolInput(input)
@@ -887,8 +910,14 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: any DaemonClientProtocol, interactionClient: any InteractionClientProtocol = InteractionClient(), onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(
+        daemonClient: any DaemonClientProtocol,
+        settingsClient: any SettingsClientProtocol = SettingsClient(),
+        interactionClient: any InteractionClientProtocol = InteractionClient(),
+        onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
+    ) {
         self.daemonClient = daemonClient
+        self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
@@ -915,7 +944,7 @@ public final class ChatViewModel: ObservableObject {
         messageManager.$messages
             .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
-                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification && !$0.isHidden }
+                self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
             }
             .store(in: &cancellables)
 
@@ -1101,12 +1130,45 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Sending
 
+    private var sendPathPlatform: ChatSlashCommandPlatform {
+        #if os(macOS)
+        return .macos
+        #elseif os(iOS)
+        return .ios
+        #else
+        #error("Unsupported platform")
+        #endif
+    }
+
     public func sendMessage(hidden: Bool = false) {
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
+
+        // Intercept the exact `/fork` command locally so it never falls
+        // through to the assistant as ordinary chat text.
+        if text == "/fork",
+           !hasAttachments,
+           !hasSkillInvocation
+        {
+            inputText = ""
+            suggestion = nil
+            pendingSuggestionRequestId = nil
+            flushCoalescedPublish()
+            if conversationType == "private" {
+                errorText = Self.privateConversationForkErrorText
+                conversationError = nil
+            } else if let onFork {
+                errorText = nil
+                conversationError = nil
+                onFork()
+            } else {
+                errorText = "Send a message before forking this conversation."
+            }
+            return
+        }
 
         // Intercept /btw side-chain messages before the normal send path.
         if text.hasPrefix("/btw ") {
@@ -1123,21 +1185,29 @@ public final class ChatViewModel: ObservableObject {
         // `confirmation_state_changed` events for all resolution paths.
         // No client-side pessimistic denial is needed.
 
-        // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
-        if (text == "/model" || text == "/models") && !hasSkillInvocation {
+        // Refresh model state only for slash commands that explicitly opt in.
+        let shouldRefreshModelMetadata = !hasSkillInvocation
+            && ChatSlashCommandCatalog.shouldRefreshModelMetadata(
+                forRawInput: text,
+                platform: sendPathPlatform
+            )
+        if shouldRefreshModelMetadata {
             Task {
-                let info = await SettingsClient().fetchModelInfo()
+                let info = await self.settingsClient.fetchModelInfo()
                 if let model = info?.model {
                     self.selectedModel = model
                 }
                 if let providers = info?.configuredProviders {
                     self.configuredProviders = Set(providers)
                 }
+                if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                    self.providerCatalog = allProviders
+                }
             }
         }
 
         // Fire auto-title callback on the first user message (skip slash commands
-        // like /model so the conversation title isn't set to a command string)
+        // so the conversation title isn't set to a command token)
         if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(rawText)
@@ -1159,7 +1229,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessageDisplayText = rawText
                 pendingUserMessageAutomated = hidden
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1197,8 +1267,11 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isModelCommand = text == "/model" || text == "/models" || text.hasPrefix("/model ")
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !isModelCommand
+        let shouldBypassWorkspaceRefinement = ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
+            forRawInput: text,
+            platform: sendPathPlatform
+        )
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !shouldBypassWorkspaceRefinement
 
         let willBeQueued = isSending && conversationId != nil
         var queuedMessageId: UUID?
@@ -1240,7 +1313,7 @@ public final class ChatViewModel: ObservableObject {
         flushCoalescedPublish()
 
         let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -1276,7 +1349,7 @@ public final class ChatViewModel: ObservableObject {
         btwTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let stream = self.daemonClient.sendBtwMessage(
+                let stream = self.btwClient.sendMessage(
                     content: question,
                     conversationKey: self.conversationId ?? ""
                 )
@@ -1318,8 +1391,8 @@ public final class ChatViewModel: ObservableObject {
             let key = "greeting"
             var result = ""
             do {
-                let stream = self.daemonClient.sendBtwMessage(
-                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
+                let stream = self.btwClient.sendMessage(
+                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words). Match your personality. Output ONLY the greeting text — no quotes, no formatting.",
                     conversationKey: key
                 )
                 for try await delta in stream {
@@ -1701,6 +1774,9 @@ public final class ChatViewModel: ObservableObject {
             if let providers = info?.configuredProviders {
                 self.configuredProviders = Set(providers)
             }
+            if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                self.providerCatalog = allProviders
+            }
         }
     }
 
@@ -1995,13 +2071,13 @@ public final class ChatViewModel: ObservableObject {
             startMessageLoop()
         }
 
-        do {
-            try daemonClient.send(RegenerateMessage(conversationId: conversationId))
-        } catch {
-            log.error("Failed to send regenerate: \(error.localizedDescription)")
-            isSending = false
-            isThinking = false
-            errorText = "Failed to regenerate message."
+        Task {
+            let success = await regenerateClient.regenerate(conversationId: conversationId)
+            if !success {
+                isSending = false
+                isThinking = false
+                errorText = "Failed to regenerate message."
+            }
         }
     }
 
@@ -2028,10 +2104,38 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        do {
-            try daemonClient.send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: entry.key))
-        } catch {
-            log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
+        Task {
+            let success = await conversationQueueClient.deleteQueuedMessage(
+                conversationId: conversationId,
+                requestId: entry.key
+            )
+            if success {
+                applyQueuedMessageDeletion(requestId: entry.key)
+            } else {
+                log.error("Failed to delete queued message")
+            }
+        }
+    }
+
+    /// Update local state after the server confirms a queued message deletion.
+    /// Mirrors the bookkeeping that `.messageQueuedDeleted` performs so that
+    /// the UI stays consistent when the delete originates from a direct HTTP call.
+    func applyQueuedMessageDeletion(requestId: String) {
+        pendingQueuedCount = max(0, pendingQueuedCount - 1)
+        let messageId = requestIdToMessageId.removeValue(forKey: requestId)
+            ?? activeRequestIdToMessageId.removeValue(forKey: requestId)
+        if let messageId {
+            messages.removeAll { $0.id == messageId }
+        }
+        var queuePosition = 0
+        for i in messages.indices {
+            if case .queued = messages[i].status {
+                messages[i].status = .queued(position: queuePosition)
+                queuePosition += 1
+            }
+        }
+        if pendingQueuedCount == 0 && !isThinking {
+            isSending = false
         }
     }
 
@@ -2126,15 +2230,20 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    /// Also removes the most recent inline error message from the message list.
+    /// Removes the most recent inline error message only if one was created.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        // Remove only the most recent inline error card (not all historical ones).
-        if let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
+        // Only remove the inline error card if the current error actually
+        // produced one. When shouldCreateInlineErrorMessage returned false
+        // (e.g. credits-exhausted on macOS), no card was appended, so
+        // removing the last .isError message would delete an unrelated
+        // historical error card.
+        if errorManager.isConversationErrorDisplayedInline,
+           let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
             messages.remove(at: lastErrorIndex)
         }
+        errorManager.isConversationErrorDisplayedInline = false
     }
 
     /// Copy conversation error details to the clipboard for debugging.
@@ -2161,7 +2270,23 @@ public final class ChatViewModel: ObservableObject {
     /// Retry the last message after a conversation error, if the error is retryable.
     /// The error may live on the view model (toast path) or on the last inline error
     /// message (inline card path, where `conversationError` was already cleared).
-    public func retryAfterConversationError() {
+    ///
+    /// When `messageId` is provided (inline card path), the method validates that no
+    /// successful messages follow the target error — preventing the retry button on
+    /// an older error card from regenerating a newer, perfectly good response.
+    public func retryAfterConversationError(messageId: UUID? = nil) {
+        // When a specific message triggered the retry, validate that it is still
+        // at the tail of the conversation so the retry targets the correct turn.
+        if let messageId {
+            guard let targetIndex = messages.firstIndex(where: { $0.id == messageId }) else { return }
+            let target = messages[targetIndex]
+            guard target.isError else { return }
+            // Bail if any non-error messages follow — the conversation has moved on.
+            let hasSuccessfulFollowup = messages.suffix(from: messages.index(after: targetIndex))
+                .contains(where: { !$0.isError })
+            if hasSuccessfulFollowup { return }
+        }
+
         let error = conversationError ?? messages.last(where: { $0.isError })?.conversationError
         guard let error, error.isRetryable else { return }
         guard conversationId != nil else { return }
@@ -2793,36 +2918,6 @@ public final class ChatViewModel: ObservableObject {
             activeSubagents.append(info)
         }
 
-        // Tag assistant messages that follow "/model" or "/models" user messages
-        // so the client renders the picker/table UI instead of plain text.
-        var hasModelCommand = false
-        for i in chatMessages.indices {
-            guard chatMessages[i].role == .user,
-                  i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
-            let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if userText == "/model" {
-                chatMessages[i + 1].modelPicker = ModelPickerData()
-                hasModelCommand = true
-            } else if userText == "/models" {
-                chatMessages[i + 1].modelList = ModelListData()
-                hasModelCommand = true
-            } else if userText == "/commands" {
-                chatMessages[i + 1].commandList = CommandListData()
-            }
-        }
-        // Refresh model/provider state so the picker/table has correct data on restart
-        if hasModelCommand {
-            Task {
-                let info = await SettingsClient().fetchModelInfo()
-                if let model = info?.model {
-                    self.selectedModel = model
-                }
-                if let providers = info?.configuredProviders {
-                    self.configuredProviders = Set(providers)
-                }
-            }
-        }
-
         // Update daemon pagination cursor from the response metadata.
         self.hasMoreHistory = hasMore
         self.historyCursor = oldestTimestamp
@@ -2834,7 +2929,9 @@ public final class ChatViewModel: ObservableObject {
             // Flush any buffered partial output before prepending — the prepend
             // shifts positional indices so stale buffer entries would corrupt.
             flushPartialOutputBuffer()
-            self.messages = chatMessages + self.messages
+            var mergedMessages = chatMessages + self.messages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Use Int.max if no more pages exist.
             if hasMore {
@@ -2848,6 +2945,7 @@ public final class ChatViewModel: ObservableObject {
             self.loadMoreTimeoutTask = nil
             self.isLoadingMoreMessages = false
             trimOldMessagesIfNeeded()
+            refreshModelMetadataIfNeeded(hasModelCommand)
             return
         }
 
@@ -2893,9 +2991,12 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if !isDuplicate { localOnly.append(local) }
             }
-            self.messages = chatMessages + localOnly
+            var mergedMessages = chatMessages + localOnly
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
             self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
+            refreshModelMetadataIfNeeded(hasModelCommand)
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -2910,9 +3011,15 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 uniqueHistory = chatMessages
             }
-            self.messages = uniqueHistory + self.messages
+            var mergedMessages = uniqueHistory + self.messages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            self.messages = mergedMessages
+            refreshModelMetadataIfNeeded(hasModelCommand)
         } else {
-            self.messages = chatMessages
+            var taggedMessages = chatMessages
+            let hasModelCommand = applyHistoryResponseMarkers(to: &taggedMessages)
+            self.messages = taggedMessages
+            refreshModelMetadataIfNeeded(hasModelCommand)
         }
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
@@ -2923,6 +3030,45 @@ public final class ChatViewModel: ObservableObject {
         trimOldMessagesIfNeeded()
         // Fetch pending guardian prompts when history loads (conversation open/restore)
         refreshGuardianPrompts()
+    }
+
+    private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
+        var hasModelCommand = false
+
+        for i in chatMessages.indices {
+            guard chatMessages[i].role == .user,
+                  i + 1 < chatMessages.count,
+                  chatMessages[i + 1].role == .assistant else {
+                continue
+            }
+
+            let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if userText == "/models" {
+                chatMessages[i + 1].modelList = ModelListData()
+                hasModelCommand = true
+            } else if userText == "/commands" {
+                chatMessages[i + 1].commandList = CommandListData()
+            }
+        }
+
+        return hasModelCommand
+    }
+
+    private func refreshModelMetadataIfNeeded(_ shouldRefresh: Bool) {
+        guard shouldRefresh else { return }
+
+        Task {
+            let info = await SettingsClient().fetchModelInfo()
+            if let model = info?.model {
+                self.selectedModel = model
+            }
+            if let providers = info?.configuredProviders {
+                self.configuredProviders = Set(providers)
+            }
+            if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                self.providerCatalog = allProviders
+            }
+        }
     }
 
     deinit {
@@ -3120,7 +3266,7 @@ public final class ChatViewModel: ObservableObject {
     /// platform. On non-macOS platforms, returns nil fields (PTT is desktop-only).
     static func currentPttMetadata() -> PttMetadata {
         #if os(macOS)
-        let key = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        let key = SharedUserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         return PttMetadata(activationKey: key, microphonePermissionGranted: micGranted)
         #else

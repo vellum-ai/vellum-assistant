@@ -338,13 +338,15 @@ public final class LocalAssistantBootstrapService {
         }
     }
 
-    /// Clears platform identity credentials from the daemon's secret store
-    /// by issuing `DELETE /v1/secrets` for each vellum-namespaced credential.
+    /// Clears platform identity credentials and the assistant API key from
+    /// the daemon's secret store by issuing `DELETE /v1/secrets` for each
+    /// vellum-namespaced credential.
     ///
     /// Returns `true` if all credentials were successfully cleared (or didn't exist).
     @discardableResult
     public static func clearDaemonCredentials() async -> Bool {
         let credentialNames = [
+            "vellum:assistant_api_key",
             "vellum:platform_assistant_id",
             "vellum:platform_base_url",
             "vellum:platform_organization_id",
@@ -369,9 +371,9 @@ public final class LocalAssistantBootstrapService {
             }
         }
         if allCleared {
-            log.info("All platform identity credentials cleared from daemon")
+            log.info("All managed credentials cleared from daemon")
         } else {
-            log.warning("Some platform identity credentials could not be cleared from daemon")
+            log.warning("Some managed credentials could not be cleared from daemon")
         }
         return allCleared
     }

@@ -68,9 +68,7 @@ mock.module("../util/retry.js", () => {
       const causeCode = (error.cause as NodeJS.ErrnoException).code;
       if (causeCode && retryableCodes.has(causeCode)) return true;
     }
-    if (
-      RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))
-    ) {
+    if (RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))) {
       return true;
     }
     const cause = error.cause;

@@ -1,8 +1,4 @@
 import Foundation
-#if os(macOS)
-import CryptoKit
-import IOKit
-#endif
 
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
@@ -207,6 +203,71 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
+    /// Performs an authenticated streaming POST request against the gateway.
+    ///
+    /// Returns an async byte stream suitable for SSE or other streaming transports
+    /// that need `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Pre-serialized request body data.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = body
+        return try await URLSession.shared.bytes(for: request)
+    }
+
+    /// Performs an authenticated streaming POST request with automatic 401 retry
+    /// for non-managed (bearer token) connections.
+    ///
+    /// On a 401 response, drains the response stream, attempts to refresh
+    /// credentials via `ActorCredentialRefresher`, and retries the request once
+    /// with fresh auth headers.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Pre-serialized request body data.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
+    /// - Throws: `ClientError` if the request cannot be constructed,
+    ///   `URLError(.userAuthenticationRequired)` if credential refresh fails,
+    ///   or network errors from `URLSession`.
+    public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = body
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 401,
+              !connection.isManaged else {
+            return (bytes, response)
+        }
+
+        // Drain the 401 response body before attempting credential refresh.
+        for try await _ in bytes {}
+
+        guard await refreshBearerCredentials(connection: connection) else {
+            throw URLError(.userAuthenticationRequired, userInfo: [
+                NSLocalizedDescriptionKey: "Authentication failed — please try again."
+            ])
+        }
+
+        // Rebuild with fresh credentials from the Keychain.
+        let freshConnection = try resolveConnection()
+        var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
+        retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        retryRequest.httpBody = body
+        return try await URLSession.shared.bytes(for: retryRequest)
+    }
+
     // MARK: - Internals
 
     #if os(macOS)
@@ -220,7 +281,7 @@ public enum GatewayHTTPClient {
     /// Resolved connection metadata used for request construction and auth retry.
     private struct ConnectionInfo {
         let baseURL: String
-        let authHeader: (field: String, value: String)
+        let authHeader: (field: String, value: String)?
         /// The connected assistant's identifier, used to replace `{assistantId}`
         /// placeholders in request paths.
         let assistantId: String
@@ -247,17 +308,18 @@ public enum GatewayHTTPClient {
             let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
-            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
+            let token = ActorTokenManager.getToken()
+            let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
+                ? ("Authorization", "Bearer \(token!)")
+                : nil
             if assistant.isRemote {
                 guard let runtimeUrl = assistant.runtimeUrl else {
                     throw ClientError.invalidURL
                 }
-                return ConnectionInfo(baseURL: runtimeUrl, authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
+                return ConnectionInfo(baseURL: runtimeUrl, authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
             } else {
                 let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
+                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
             }
         }
 
@@ -276,12 +338,13 @@ public enum GatewayHTTPClient {
         // QR-paired assistant: gateway URL with bearer token auth.
         if let gatewayBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url"),
            !gatewayBaseURL.isEmpty {
-            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
+            let token = ActorTokenManager.getToken()
+            let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
+                ? ("Authorization", "Bearer \(token!)")
+                : nil
             // QR-paired assistants don't carry an assistant ID in UserDefaults;
             // use an empty string so `{assistantId}` placeholders resolve harmlessly.
-            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: ("Authorization", "Bearer \(token)"), assistantId: "", isManaged: false)
+            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: authHeader, assistantId: "", isManaged: false)
         }
 
         throw ClientError.noConnectedAssistant
@@ -373,7 +436,9 @@ public enum GatewayHTTPClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(connection.authHeader.value, forHTTPHeaderField: connection.authHeader.field)
+        if let authHeader = connection.authHeader {
+            request.setValue(authHeader.value, forHTTPHeaderField: authHeader.field)
+        }
 
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
@@ -448,29 +513,9 @@ public enum GatewayHTTPClient {
 
     #if os(macOS)
     /// Compute a stable device ID from the IOPlatformUUID.
+    /// Delegates to the shared `HostIdComputer` implementation.
     private static func computeMacOSDeviceId() -> String {
-        let platformUUID = getMacOSPlatformUUID() ?? UUID().uuidString
-        let salt = "vellum-assistant-host-id"
-        let input = Data((platformUUID + salt).utf8)
-        let hash = SHA256.hash(data: input)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
-    private static func getMacOSPlatformUUID() -> String? {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        let key = kIOPlatformUUIDKey as CFString
-        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
-            .takeRetainedValue() as? String else {
-            return nil
-        }
-        return uuid
+        return HostIdComputer.computeHostId()
     }
     #endif
 }

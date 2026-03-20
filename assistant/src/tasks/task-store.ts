@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray, or } from "drizzle-orm";
 
 import { getDb } from "../memory/db.js";
 import { taskRuns, tasks, workItems } from "../memory/schema.js";
@@ -138,4 +138,46 @@ export function updateTaskRun(
 export function getTaskRun(id: string): TaskRun | undefined {
   const db = getDb();
   return db.select().from(taskRuns).where(eq(taskRuns.id, id)).get();
+}
+
+// ── Brief Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Lightweight read-only projection of a work item used by the brief compiler.
+ * Avoids pulling the full WorkItem type with all its tool/approval fields.
+ */
+export interface ActionableWorkItem {
+  id: string;
+  taskId: string;
+  title: string;
+  status: string;
+  priorityTier: number;
+  updatedAt: number;
+}
+
+/**
+ * Return actionable work items — those that are queued, running, or
+ * awaiting review. Ordered by priority (high first) then most-recently-updated.
+ */
+export function getActionableWorkItems(): ActionableWorkItem[] {
+  const db = getDb();
+  return db
+    .select({
+      id: workItems.id,
+      taskId: workItems.taskId,
+      title: workItems.title,
+      status: workItems.status,
+      priorityTier: workItems.priorityTier,
+      updatedAt: workItems.updatedAt,
+    })
+    .from(workItems)
+    .where(
+      or(
+        eq(workItems.status, "queued"),
+        eq(workItems.status, "running"),
+        eq(workItems.status, "awaiting_review"),
+      ),
+    )
+    .orderBy(asc(workItems.priorityTier), desc(workItems.updatedAt))
+    .all();
 }

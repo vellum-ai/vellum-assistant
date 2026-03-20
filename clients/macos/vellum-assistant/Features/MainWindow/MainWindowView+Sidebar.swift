@@ -19,22 +19,13 @@ extension MainWindowView {
 
     func startNewConversation() {
         conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let id = conversationManager.activeConversationId {
             windowState.selection = .conversation(id)
         } else {
             // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil
             windowState.persistentConversationId = nil
-        }
-    }
-
-    /// Maps a conversation's interaction state to a dot color for VConversationIcon.
-    func interactionDotColor(for conversation: ConversationModel) -> Color? {
-        switch conversationManager.interactionState(for: conversation.id) {
-        case .processing: return VColor.primaryBase
-        case .waitingForInput: return VColor.systemNegativeHover
-        case .error: return VColor.systemNegativeStrong
-        case .idle: return nil
         }
     }
 

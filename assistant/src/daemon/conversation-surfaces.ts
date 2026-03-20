@@ -1,6 +1,11 @@
 import { v4 as uuid } from "uuid";
 
-import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppPreview,
+  resolveAppDir,
+  updateApp,
+} from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -167,6 +172,7 @@ export interface SurfaceConversationContext {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
   sendToClient(msg: ServerMessage): void;
+  broadcastToAllClients?(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -187,6 +193,7 @@ export interface SurfaceConversationContext {
     }
   >;
   surfaceUndoStacks: Map<string, string[]>;
+  accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
   surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{
@@ -344,6 +351,39 @@ function handleDocumentContentChanged(
   } catch (err) {
     log.error({ err, appId }, "Failed to auto-save document");
   }
+}
+
+/**
+ * Handle state_update action from a dynamic page.
+ * Accumulates state via shallow merge without triggering an LLM turn.
+ */
+function handleStateUpdate(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!data) {
+    log.debug({ surfaceId }, "state_update action called with no data");
+    return;
+  }
+
+  const surfaceState = ctx.surfaceState.get(surfaceId);
+  if (!surfaceState || surfaceState.surfaceType !== "dynamic_page") {
+    log.warn(
+      { surfaceId, surfaceType: surfaceState?.surfaceType },
+      "state_update action received for non-dynamic_page surface",
+    );
+    return;
+  }
+
+  const existing = ctx.accumulatedSurfaceState.get(surfaceId) ?? {};
+  const merged = { ...existing, ...data };
+  ctx.accumulatedSurfaceState.set(surfaceId, merged);
+
+  log.debug(
+    { surfaceId, accumulatedState: merged },
+    "Accumulated surface state updated",
+  );
 }
 
 export function pushUndoState(
@@ -543,22 +583,76 @@ export function handleSurfaceAction(
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is
-  // no in-memory pendingSurfaceActions entry.  For relay_prompt / agent_prompt
-  // actions the client already sends the full payload (including { prompt }),
-  // so we can handle them without stored state.
+  // no in-memory pendingSurfaceActions entry.  Handle non-terminal actions
+  // directly, and forward custom/relay actions to the LLM.
   if (!pending) {
+    // Non-terminal actions don't need stored state — handle directly.
+    if (actionId === "selection_changed") {
+      log.debug(
+        { surfaceId, data },
+        "Selection changed (history-restored, not forwarding)",
+      );
+      return;
+    }
+    if (actionId === "content_changed") {
+      log.debug(
+        { surfaceId },
+        "Content changed (history-restored, no surface state — skipping)",
+      );
+      return;
+    }
+    if (actionId === "state_update") {
+      if (data) {
+        const existing = ctx.accumulatedSurfaceState.get(surfaceId) ?? {};
+        ctx.accumulatedSurfaceState.set(surfaceId, { ...existing, ...data });
+      }
+      log.debug(
+        { surfaceId, data },
+        "Silent state accumulated (history-restored)",
+      );
+      return;
+    }
+
+    // Determine message content from the action.
     const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
     const prompt =
       isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
 
-    if (!prompt) {
-      log.warn({ surfaceId, actionId }, "No pending surface action found");
-      return;
+    // Read accumulated state once — used by both relay and custom action paths.
+    const accState = ctx.accumulatedSurfaceState.get(surfaceId);
+    const hasAccState = accState && Object.keys(accState).length > 0;
+
+    let content: string;
+    let displayContent: string | undefined;
+    if (prompt) {
+      content = prompt;
+      // Re-append accumulated state so the LLM sees it, matching the pending path.
+      if (hasAccState) {
+        content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
+      }
+    } else {
+      // Custom action from an app (e.g. sendAction('answer_selected', {...}))
+      const summary = actionId
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      content = `[User action on app: ${summary}]`;
+      if (data && Object.keys(data).length > 0) {
+        content += `\n\nAction data: ${JSON.stringify(data)}`;
+      }
+      if (hasAccState) {
+        content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
+      }
+      displayContent = summary;
     }
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+    // Use broadcastToAllClients (publishes to the SSE event hub) instead of
+    // sendToClient, which is reset to a no-op between HTTP requests. Without
+    // this, surface action responses are persisted to DB but never reach the
+    // client's SSE stream.
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    const onEvent = (msg: ServerMessage) => emit(msg);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -567,11 +661,15 @@ export function handleSurfaceAction(
     });
 
     const result = ctx.enqueueMessage(
-      prompt,
+      content,
       [],
       onEvent,
       requestId,
       surfaceId,
+      undefined,
+      undefined,
+      undefined,
+      displayContent,
     );
 
     if (result.rejected) {
@@ -579,18 +677,26 @@ export function handleSurfaceAction(
       return;
     }
 
+    // One-shot: clear accumulated state now that the message has been accepted.
+    // Deferred until after rejection check so state is preserved for retry on rejection.
+    if (hasAccState) {
+      ctx.accumulatedSurfaceState.delete(surfaceId);
+    }
+
     // Echo the prompt to the client so it appears in the chat UI.
     // Deferred until after rejection check to avoid ghost messages.
-    ctx.sendToClient({
-      type: "user_message_echo",
-      text: prompt,
-      conversationId: ctx.conversationId,
-    });
+    if (prompt) {
+      emit({
+        type: "user_message_echo",
+        text: prompt,
+        conversationId: ctx.conversationId,
+      });
+    }
 
     if (result.queued) {
       log.info(
         { surfaceId, actionId, requestId },
-        "Relay prompt queued (conversation busy, history-restored)",
+        "Surface action queued (conversation busy, history-restored)",
       );
       return;
     }
@@ -598,22 +704,31 @@ export function handleSurfaceAction(
     // Conversation is idle — process the message immediately.
     log.info(
       { surfaceId, actionId, requestId },
-      "Processing relay prompt immediately (history-restored)",
+      "Processing surface action immediately (history-restored)",
     );
     ctx
-      .processMessage(prompt, [], onEvent, requestId, surfaceId)
+      .processMessage(
+        content,
+        [],
+        onEvent,
+        requestId,
+        surfaceId,
+        undefined,
+        undefined,
+        displayContent,
+      )
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(
           { err, surfaceId, actionId },
-          "Failed to process history-restored relay prompt",
+          "Failed to process history-restored surface action",
         );
         onEvent(
           buildConversationErrorMessage(ctx.conversationId, {
             code: "CONVERSATION_PROCESSING_FAILED",
             userMessage: `Something went wrong: ${message}`,
             retryable: false,
-            debugDetails: `History-restored relay prompt processing failed: ${message}`,
+            debugDetails: `History-restored surface action processing failed: ${message}`,
             errorCategory: "processing_failed",
           }),
         );
@@ -637,6 +752,14 @@ export function handleSurfaceAction(
     handleDocumentContentChanged(ctx, surfaceId, data);
     return;
   }
+
+  // state_update is a silent accumulation action — merge data into accumulated
+  // state without triggering an LLM turn.
+  if (actionId === "state_update") {
+    handleStateUpdate(ctx, surfaceId, data);
+    return;
+  }
+
   // Merge stored action-level data (from ui_show definition) with client-sent
   // data. This is critical for relay_prompt buttons: the client only sends the
   // actionId, but the prompt payload lives in the action definition's data.
@@ -663,11 +786,16 @@ export function handleSurfaceAction(
     surfaceData,
   );
 
+  // Use broadcastToAllClients so events reach the SSE hub — sendToClient is
+  // reset to a no-op between HTTP requests (see history-restored path for
+  // full rationale).
+  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+
   // Forms are one-shot surfaces — auto-complete immediately so the client
   // transitions from the "Submitting…" spinner to a completion chip without
   // requiring the LLM to call ui_dismiss.
   if (pending.surfaceType === "form") {
-    ctx.sendToClient({
+    emit({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -694,6 +822,10 @@ export function handleSurfaceAction(
       selectedIds,
     );
   }
+  const accumulatedState = ctx.accumulatedSurfaceState.get(surfaceId);
+  if (accumulatedState && Object.keys(accumulatedState).length > 0) {
+    fallbackContent += `\n\nAccumulated surface state: ${JSON.stringify(accumulatedState)}`;
+  }
   // When a relay_prompt button also carries selection data (e.g. list/table
   // surface with a canned prompt + user-selected rows), append the selection
   // context so the LLM sees both the prompt and the user's selections.
@@ -707,6 +839,11 @@ export function handleSurfaceAction(
       );
     }
   }
+  // When prompt is truthy, fallbackContent (which includes accumulated state)
+  // is discarded. Re-append accumulated state so the LLM sees it.
+  if (prompt && accumulatedState && Object.keys(accumulatedState).length > 0) {
+    content += `\n\nAccumulated surface state: ${JSON.stringify(accumulatedState)}`;
+  }
   // Show the user plain-text instead of raw JSON action data.
   const displayContent = prompt
     ? undefined
@@ -719,7 +856,7 @@ export function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+  const onEvent = (msg: ServerMessage) => emit(msg);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
@@ -743,10 +880,16 @@ export function handleSurfaceAction(
     return;
   }
 
+  // One-shot: clear accumulated state now that the message has been accepted.
+  // Deferred until after rejection check so state is preserved for retry on rejection.
+  if (accumulatedState && Object.keys(accumulatedState).length > 0) {
+    ctx.accumulatedSurfaceState.delete(surfaceId);
+  }
+
   // Echo the user's prompt to the client so it appears in the chat UI.
   // Deferred until after rejection check to avoid ghost messages.
   if (shouldRelayPrompt && prompt) {
-    ctx.sendToClient({
+    emit({
       type: "user_message_echo",
       text: prompt,
       conversationId: ctx.conversationId,
@@ -811,7 +954,7 @@ export function handleSurfaceAction(
 }
 
 /**
- * After an app_update, refresh any active surface that displays the updated app.
+ * After an app_refresh, refresh any active surface that displays the updated app.
  */
 export function refreshSurfacesForApp(
   ctx: SurfaceConversationContext,
@@ -860,7 +1003,7 @@ export function refreshSurfacesForApp(
     refreshed = true;
     log.info(
       { conversationId: ctx.conversationId, surfaceId, appId },
-      "Auto-refreshed surface after app_update",
+      "Auto-refreshed surface after app_refresh",
     );
   }
   return refreshed;
@@ -1201,6 +1344,7 @@ export async function surfaceProxyResolver(
     ctx.surfaceState.delete(surfaceId);
     ctx.surfaceUndoStacks.delete(surfaceId);
     ctx.lastSurfaceAction.delete(surfaceId);
+    ctx.accumulatedSurfaceState.delete(surfaceId);
     return {
       content: lastAction ? "Surface completed" : "Surface dismissed",
       isError: false,
@@ -1219,9 +1363,11 @@ export async function surfaceProxyResolver(
     const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);
+    const { dirName } = resolveAppDir(app.id);
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
+      dirName,
       preview: {
         ...defaultPreview,
         ...preview,

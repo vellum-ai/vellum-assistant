@@ -394,7 +394,9 @@ describe("Memory lifecycle E2E regression", () => {
     expect(b1.type === "text" && b1.text).toBe("Actual user request");
 
     // Stripped by prefix-based stripping (same mechanism as workspace/temporal)
-    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context __injected>"]);
+    const cleaned = stripUserTextBlocksByPrefix(injected, [
+      "<memory_context __injected>",
+    ]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toHaveLength(1);
     const cb0 = cleaned[0].content[0];

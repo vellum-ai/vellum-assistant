@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
@@ -37,6 +38,8 @@ function isUserDecision(value: string): value is UserDecision {
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleConfirmationSignal(): void {
+  if (getIsContainerized()) return;
+
   try {
     const content = readFileSync(join(getSignalsDir(), "confirm"), "utf-8");
     const parsed = JSON.parse(content) as {

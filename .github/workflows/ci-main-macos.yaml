@@ -270,13 +270,11 @@ jobs:
           echo "id=$SLACK_ID" >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
 
-      - uses: act10ns/slack@v2
+      - uses: ./.github/actions/send-build-alert
         continue-on-error: true
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_USER_ID: ${{ steps.slack-id.outputs.id }}
-          SHOULD_TAG: ${{ steps.slack-id.outputs.should_tag }}
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ steps.slack-id.outputs.status }}
+          slack-user-id: ${{ steps.slack-id.outputs.id }}
+          should-tag: ${{ steps.slack-id.outputs.should_tag }}
           channel: "#build-alerts"
-          config: .github/config/slack.yaml

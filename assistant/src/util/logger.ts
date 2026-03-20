@@ -76,20 +76,44 @@ let rootLogger: pino.Logger | null = null;
 let activeLogDate: string | null = null;
 let activeLogFileConfig: LogFileConfig | null = null;
 
+function resolveLogDir(config: LogFileConfig): string | undefined {
+  if (!config.dir) return undefined;
+
+  if (!existsSync(config.dir)) {
+    try {
+      mkdirSync(config.dir, { recursive: true });
+    } catch (err) {
+      if (getIsContainerized()) {
+        // Config has a host-specific path that can't be created inside the
+        // container (e.g. /Users/…). Fall back to the default log directory.
+        const fallback = join(getLogPath(), "..");
+        console.warn(
+          `[logger] Configured logFile.dir "${config.dir}" cannot be created ` +
+            `in container (${(err as Error).message}). Falling back to "${fallback}".`,
+        );
+        if (!existsSync(fallback)) {
+          mkdirSync(fallback, { recursive: true });
+        }
+        return fallback;
+      }
+      throw err;
+    }
+  }
+
+  return config.dir;
+}
+
 function buildRotatingLogger(config: LogFileConfig): pino.Logger {
-  if (!config.dir) {
+  const dir = resolveLogDir(config);
+  if (!dir) {
     return pino(
       { name: "assistant", serializers: logSerializers },
       pinoPretty(prettyOpts({ destination: 1 })),
     );
   }
 
-  if (!existsSync(config.dir)) {
-    mkdirSync(config.dir, { recursive: true });
-  }
-
   const today = formatDate(new Date());
-  const filePath = logFilePathForDate(config.dir, new Date());
+  const filePath = logFilePathForDate(dir, new Date());
   const fileDest = pino.destination({
     dest: filePath,
     sync: false,
@@ -107,7 +131,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   );
 
   activeLogDate = today;
-  activeLogFileConfig = config;
+  activeLogFileConfig = { ...config, dir };
 
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
@@ -144,8 +168,10 @@ function ensureCurrentDate(): void {
 export function initLogger(config: LogFileConfig): void {
   rootLogger = buildRotatingLogger(config);
 
-  if (config.dir && config.retentionDays > 0) {
-    const removed = pruneOldLogFiles(config.dir, config.retentionDays);
+  // Use the resolved dir (may differ from config.dir when containerized)
+  const resolvedDir = activeLogFileConfig?.dir;
+  if (resolvedDir && config.retentionDays > 0) {
+    const removed = pruneOldLogFiles(resolvedDir, config.retentionDays);
     if (removed > 0) {
       rootLogger.info(
         { removed, retentionDays: config.retentionDays },

@@ -53,10 +53,18 @@ mock.module("../memory/embedding-local.js", () => ({
 }));
 
 // Mock Qdrant client so semantic search returns empty results by default.
+// Tests can push entries into `mockQdrantResults` to simulate Qdrant returning
+// specific hits (e.g. item candidates).
+const mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => [...mockQdrantResults],
+    hybridSearch: async () => [...mockQdrantResults],
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -145,6 +153,7 @@ function insertMessage(
   role: string,
   text: string,
   createdAt: number,
+  opts?: { metadata?: string | null },
 ) {
   db.insert(messages)
     .values({
@@ -153,6 +162,7 @@ function insertMessage(
       role,
       content: JSON.stringify([{ type: "text", text }]),
       createdAt,
+      metadata: opts?.metadata ?? null,
     })
     .run();
 }
@@ -297,6 +307,7 @@ describe("Memory Retriever Pipeline", () => {
     db.run("DELETE FROM conversations");
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
+    mockQdrantResults.length = 0;
   });
 
   afterAll(() => {
@@ -857,5 +868,593 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.recencyHits).toBeGreaterThan(0);
     // Current-conversation segments are filtered out of merged results
     expect(result.mergedCount).toBe(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // Step 5b: in-context item filtering
+  // -----------------------------------------------------------------------
+
+  describe("step 5b: in-context item filtering", () => {
+    test("filters items whose all sources are in-context messages", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-filter";
+
+      insertConversation(db, convId, now - 60_000);
+      insertMessage(db, "msg-if-1", convId, "user", "hello", now - 50_000);
+      insertMessage(db, "msg-if-2", convId, "assistant", "world", now - 40_000);
+      insertMessage(
+        db,
+        "msg-if-3",
+        convId,
+        "user",
+        "memory items test",
+        now - 30_000,
+      );
+
+      // Insert a memory item sourced from msg-if-2 (in-context)
+      insertItem(db, {
+        id: "item-in-ctx",
+        kind: "fact",
+        subject: "test",
+        statement: "A fact from in-context message",
+        firstSeenAt: now - 35_000,
+      });
+      insertItemSource(db, "item-in-ctx", "msg-if-2", now - 35_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-1",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-in-ctx",
+          text: "test: A fact from in-context message",
+          created_at: now - 35_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "memory items test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item should be filtered because its only source is in-context
+      expect(result.mergedCount).toBe(0);
+    });
+
+    test("keeps items from compacted messages", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-compacted";
+
+      // 2 messages compacted away
+      insertConversation(db, convId, now - 120_000, {
+        contextCompactedMessageCount: 2,
+      });
+
+      // Compacted messages (first 2 by createdAt order)
+      insertMessage(
+        db,
+        "msg-ic-1",
+        convId,
+        "user",
+        "compacted old topic",
+        now - 100_000,
+      );
+      insertMessage(
+        db,
+        "msg-ic-2",
+        convId,
+        "assistant",
+        "compacted old reply",
+        now - 90_000,
+      );
+
+      // Still in context
+      insertMessage(
+        db,
+        "msg-ic-3",
+        convId,
+        "user",
+        "item compaction test",
+        now - 50_000,
+      );
+
+      // Item sourced from a compacted message — should be kept
+      insertItem(db, {
+        id: "item-compacted",
+        kind: "fact",
+        subject: "compaction",
+        statement: "A fact from a compacted message",
+        firstSeenAt: now - 95_000,
+      });
+      insertItemSource(db, "item-compacted", "msg-ic-1", now - 95_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-2",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-compacted",
+          text: "compaction: A fact from a compacted message",
+          created_at: now - 95_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "item compaction test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item sourced from a compacted message should survive filtering
+      // because its source is no longer in the context window
+      expect(result.mergedCount).toBeGreaterThan(0);
+    });
+
+    test("keeps items with cross-conversation sources", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-item-cross";
+      const otherConvId = "conv-item-other";
+
+      insertConversation(db, convId, now - 60_000);
+      insertConversation(db, otherConvId, now - 120_000);
+
+      // Messages in current conversation
+      insertMessage(
+        db,
+        "msg-cr-1",
+        convId,
+        "user",
+        "cross conv test",
+        now - 50_000,
+      );
+      insertMessage(
+        db,
+        "msg-cr-2",
+        convId,
+        "assistant",
+        "cross conv reply",
+        now - 40_000,
+      );
+
+      // Message in the other conversation
+      insertMessage(
+        db,
+        "msg-cr-other",
+        otherConvId,
+        "user",
+        "other conv msg",
+        now - 100_000,
+      );
+
+      // Item sourced from BOTH the current conversation AND a different one
+      insertItem(db, {
+        id: "item-cross",
+        kind: "fact",
+        subject: "cross",
+        statement: "A cross-conversation fact",
+        firstSeenAt: now - 95_000,
+      });
+      insertItemSource(db, "item-cross", "msg-cr-1", now - 45_000);
+      insertItemSource(db, "item-cross", "msg-cr-other", now - 95_000);
+
+      // Simulate Qdrant returning this item as a semantic hit
+      mockQdrantResults.push({
+        id: "qdrant-pt-3",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "item-cross",
+          text: "cross: A cross-conversation fact",
+          created_at: now - 95_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "cross conv test",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The item has a source outside the in-context set (from other conv),
+      // so it should NOT be filtered — it carries cross-conversation info
+      expect(result.mergedCount).toBeGreaterThan(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Step 5b: fork-aware filtering
+  // -----------------------------------------------------------------------
+
+  describe("step 5b: fork-aware filtering", () => {
+    test("filters segments sourced from fork-parent messages", async () => {
+      const db = getDb();
+      const now = Date.now();
+
+      // Parent conversation with messages
+      const parentConv = "conv-parent";
+      insertConversation(db, parentConv, now - 120_000);
+      insertMessage(
+        db,
+        "parent-msg-1",
+        parentConv,
+        "user",
+        "discuss fork patterns",
+        now - 110_000,
+      );
+      insertMessage(
+        db,
+        "parent-msg-2",
+        parentConv,
+        "assistant",
+        "fork patterns are useful",
+        now - 100_000,
+      );
+
+      // Fork conversation — messages are copies with forkSourceMessageId metadata
+      const forkConv = "conv-fork";
+      insertConversation(db, forkConv, now - 50_000);
+      insertMessage(
+        db,
+        "fork-msg-1",
+        forkConv,
+        "user",
+        "discuss fork patterns",
+        now - 50_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "parent-msg-1",
+          }),
+        },
+      );
+      insertMessage(
+        db,
+        "fork-msg-2",
+        forkConv,
+        "assistant",
+        "fork patterns are useful",
+        now - 49_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "parent-msg-2",
+          }),
+        },
+      );
+
+      // Segment sourced from a parent message — should be filtered when
+      // recalling for the fork conversation since the fork copy is in context.
+      insertSegment(
+        db,
+        "seg-parent-1",
+        "parent-msg-1",
+        parentConv,
+        "user",
+        "discuss fork patterns detail",
+        now - 110_000,
+      );
+
+      // Simulate Qdrant returning the parent-conversation segment as a
+      // semantic hit so it enters the candidate map (recency search is scoped
+      // to forkConv and would never find it).
+      mockQdrantResults.push({
+        id: "qdrant-fork-1",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-parent-1",
+          text: "discuss fork patterns detail",
+          created_at: now - 110_000,
+          message_id: "parent-msg-1",
+          conversation_id: parentConv,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "fork patterns",
+        forkConv,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The segment entered the candidate map via semantic search…
+      expect(result.semanticHits).toBeGreaterThanOrEqual(1);
+      // …but the fork-source filtering removed it because parent-msg-1 is
+      // in the in-context set (via forkSourceMessageId on fork-msg-1).
+      expect(result.mergedCount).toBe(0);
+    });
+
+    test("keeps segments from compacted fork messages' parents", async () => {
+      const db = getDb();
+      const now = Date.now();
+
+      // Parent conversation
+      const parentConv = "conv-parent-compact";
+      insertConversation(db, parentConv, now - 200_000);
+      insertMessage(
+        db,
+        "parent-compact-msg-1",
+        parentConv,
+        "user",
+        "compacted parent topic",
+        now - 190_000,
+      );
+      insertMessage(
+        db,
+        "parent-compact-msg-2",
+        parentConv,
+        "assistant",
+        "compacted parent response",
+        now - 180_000,
+      );
+
+      // Fork conversation with compaction — first 2 messages are compacted
+      const forkConv = "conv-fork-compact";
+      insertConversation(db, forkConv, now - 100_000, {
+        contextCompactedMessageCount: 2,
+      });
+
+      // These two messages are compacted (offset=2 means first 2 are compacted)
+      insertMessage(
+        db,
+        "fork-compact-msg-1",
+        forkConv,
+        "user",
+        "compacted parent topic",
+        now - 100_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "parent-compact-msg-1",
+          }),
+        },
+      );
+      insertMessage(
+        db,
+        "fork-compact-msg-2",
+        forkConv,
+        "assistant",
+        "compacted parent response",
+        now - 99_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "parent-compact-msg-2",
+          }),
+        },
+      );
+
+      // A newer message still in context
+      insertMessage(
+        db,
+        "fork-compact-msg-3",
+        forkConv,
+        "user",
+        "recent fork topic",
+        now - 50_000,
+      );
+
+      // Segment in the fork conversation sourced from a compacted fork
+      // message. Since the fork message is compacted, its forkSourceMessageId
+      // is NOT added to the in-context set, so the segment should survive.
+      insertSegment(
+        db,
+        "seg-compact-fork",
+        "fork-compact-msg-1",
+        forkConv,
+        "user",
+        "compacted parent topic detail",
+        now - 100_000,
+      );
+
+      // Also insert a segment from an in-context message for contrast —
+      // this one SHOULD be filtered.
+      insertSegment(
+        db,
+        "seg-in-context-fork",
+        "fork-compact-msg-3",
+        forkConv,
+        "user",
+        "recent fork topic detail",
+        now - 50_000,
+      );
+
+      const result = await buildMemoryRecall(
+        "compacted parent topic",
+        forkConv,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The segment from the compacted fork message survives filtering
+      // (its source message is no longer in context). The in-context segment
+      // is filtered out. Recency search returns both, but only the compacted
+      // one survives step 5b.
+      expect(result.mergedCount).toBeGreaterThan(0);
+    });
+
+    test("handles multi-level forks", async () => {
+      const db = getDb();
+      const now = Date.now();
+
+      // Grandparent conversation
+      const grandparentConv = "conv-grandparent";
+      insertConversation(db, grandparentConv, now - 300_000);
+      insertMessage(
+        db,
+        "gp-msg-1",
+        grandparentConv,
+        "user",
+        "grandparent topic",
+        now - 290_000,
+      );
+
+      // Parent conversation (fork of grandparent)
+      // The fork metadata preserves the original grandparent message ID
+      const parentConv = "conv-parent-multi";
+      insertConversation(db, parentConv, now - 200_000);
+      insertMessage(
+        db,
+        "parent-multi-msg-1",
+        parentConv,
+        "user",
+        "grandparent topic",
+        now - 200_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "gp-msg-1",
+          }),
+        },
+      );
+
+      // Child conversation (fork of parent)
+      // forkSourceMessageId still points to the original grandparent message
+      const childConv = "conv-child-multi";
+      insertConversation(db, childConv, now - 100_000);
+      insertMessage(
+        db,
+        "child-multi-msg-1",
+        childConv,
+        "user",
+        "grandparent topic",
+        now - 100_000,
+        {
+          metadata: JSON.stringify({
+            forkSourceMessageId: "gp-msg-1",
+          }),
+        },
+      );
+
+      // Segment sourced from the grandparent message
+      insertSegment(
+        db,
+        "seg-gp",
+        "gp-msg-1",
+        grandparentConv,
+        "user",
+        "grandparent topic detail",
+        now - 290_000,
+      );
+
+      // Simulate Qdrant returning the grandparent segment as a semantic hit
+      // so it enters the candidate map (recency search is scoped to childConv
+      // and would never find it).
+      mockQdrantResults.push({
+        id: "qdrant-gp-1",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-gp",
+          text: "grandparent topic detail",
+          created_at: now - 290_000,
+          message_id: "gp-msg-1",
+          conversation_id: grandparentConv,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "grandparent topic",
+        childConv,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The segment entered the candidate map via semantic search…
+      expect(result.semanticHits).toBeGreaterThanOrEqual(1);
+      // …but the fork-source filtering removed it because gp-msg-1 is in the
+      // in-context set (via forkSourceMessageId on child-multi-msg-1).
+      expect(result.mergedCount).toBe(0);
+    });
+
+    test("handles missing or invalid metadata gracefully", async () => {
+      const db = getDb();
+      const now = Date.now();
+
+      const forkConv = "conv-fork-bad-meta";
+      insertConversation(db, forkConv, now - 50_000);
+
+      // Message with null metadata (no forkSourceMessageId)
+      insertMessage(
+        db,
+        "fork-null-meta",
+        forkConv,
+        "user",
+        "null metadata topic",
+        now - 50_000,
+      );
+
+      // Message with malformed JSON metadata
+      insertMessage(
+        db,
+        "fork-bad-json",
+        forkConv,
+        "assistant",
+        "bad json topic",
+        now - 49_000,
+        { metadata: "not valid json {{{" },
+      );
+
+      // Message with metadata that is a JSON array (not an object)
+      insertMessage(
+        db,
+        "fork-array-meta",
+        forkConv,
+        "user",
+        "array metadata topic",
+        now - 48_000,
+        { metadata: JSON.stringify([1, 2, 3]) },
+      );
+
+      // Message with metadata object but no forkSourceMessageId field
+      insertMessage(
+        db,
+        "fork-no-field",
+        forkConv,
+        "assistant",
+        "no field topic",
+        now - 47_000,
+        { metadata: JSON.stringify({ someOtherField: "value" }) },
+      );
+
+      // Message with forkSourceMessageId that is not a string
+      insertMessage(
+        db,
+        "fork-non-string",
+        forkConv,
+        "user",
+        "non-string fork id",
+        now - 46_000,
+        { metadata: JSON.stringify({ forkSourceMessageId: 12345 }) },
+      );
+
+      // Insert a segment from this conversation — should be filtered normally
+      // (it's an in-context segment from the active conversation)
+      insertSegment(
+        db,
+        "seg-bad-meta",
+        "fork-null-meta",
+        forkConv,
+        "user",
+        "null metadata topic detail",
+        now - 50_000,
+      );
+
+      // This should not crash despite various malformed metadata
+      const result = await buildMemoryRecall(
+        "metadata topic",
+        forkConv,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // No crash — the pipeline completes successfully
+      // The in-context segment is still filtered normally
+      expect(result.mergedCount).toBe(0);
+    });
   });
 });

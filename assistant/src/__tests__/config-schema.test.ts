@@ -186,7 +186,7 @@ describe("AssistantConfigSchema", () => {
       enabled: true,
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
-      conversationRetentionDays: 90,
+      conversationRetentionDays: 0,
     });
   });
 

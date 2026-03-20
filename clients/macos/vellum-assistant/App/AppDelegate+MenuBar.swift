@@ -10,6 +10,43 @@ extension Notification.Name {
     static let activateChatSearch = Notification.Name("activateChatSearch")
 }
 
+/// Delegate installed on the app submenu to patch the menu bar title to
+/// "Vellum" right before macOS renders it.  SwiftUI resets the title from
+/// the bundle display name, so we override it in `menuWillOpen`.
+final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
+    let bundleDisplayName: String
+
+    init(bundleDisplayName: String) {
+        self.bundleDisplayName = bundleDisplayName
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        patchTitles(menu: menu)
+    }
+
+    @MainActor func patchTitles(menu: NSMenu) {
+        let name = AppDelegate.appName
+        // Patch the parent menu item title (the bold text in the menu bar).
+        if let mainMenu = NSApp.mainMenu,
+           let appMenuItem = mainMenu.items.first,
+           appMenuItem.title != name {
+            appMenuItem.title = name
+        }
+        if menu.title != name {
+            menu.title = name
+        }
+        // Patch only the system-generated app-name items (About, Hide, Quit).
+        // A blanket replacingOccurrences would break if the bundle name were
+        // a common word like "All" or "Settings".
+        let prefixes = ["About ", "Hide ", "Quit "]
+        for item in menu.items {
+            for prefix in prefixes where item.title == "\(prefix)\(bundleDisplayName)" {
+                item.title = "\(prefix)\(name)"
+            }
+        }
+    }
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -23,7 +60,7 @@ extension AppDelegate {
         // Set saved position to right side of menu bar (visible area, right of notch)
         UserDefaults.standard.set(1200, forKey: "NSStatusItem Preferred Position VellumMenuBar")
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "VellumMenuBar"
         statusItem.isVisible = true
         if let button = statusItem.button {
@@ -34,6 +71,19 @@ extension AppDelegate {
         }
 
         rebindConnectionStatusObserver()
+
+        // Update menu bar icon when the assistant's avatar changes.
+        if avatarChangeObserver == nil {
+            avatarChangeObserver = NotificationCenter.default.addObserver(
+                forName: AvatarAppearanceManager.avatarDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateMenuBarIcon()
+                }
+            }
+        }
     }
 
     /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
@@ -120,16 +170,20 @@ extension AppDelegate {
         let dotPadding: CGFloat = 0.5
 
         let appIcon: NSImage = {
-            let bundle = ResourceBundle.bundle
-            if let url = bundle.url(
-                forResource: "icon-64",
-                withExtension: "png",
-                subdirectory: "Assets.xcassets/MenuBarIcon.imageset"
-            ), let img = NSImage(contentsOf: url) {
-                return img
+            // Use the assistant's avatar (same image used for dock icon / chat),
+            // rendered as a circle at menu-bar size.
+            let avatarManager = AvatarAppearanceManager.shared
+            let avatar = avatarManager.customAvatarImage
+                ?? avatarManager.fullAvatarImage
+
+            let size = iconSize
+            let square = AvatarAppearanceManager.resizedImage(avatar, to: size)
+            return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+                NSBezierPath(ovalIn: rect).addClip()
+                square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
+                            operation: .copy, fraction: 1.0)
+                return true
             }
-            return VIcon.sparkles.nsImage(size: 18)
-                ?? NSImage()
         }()
 
         let status = currentAssistantStatus
@@ -213,7 +267,8 @@ extension AppDelegate {
         menu.autoenablesItems = false
 
         let status = currentAssistantStatus
-        let statusItem = NSMenuItem(title: status.menuTitle, action: nil, keyEquivalent: "")
+        let name = AssistantDisplayName.resolve(IdentityInfo.load()?.name)
+        let statusItem = NSMenuItem(title: status.menuTitle(assistantName: name), action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
@@ -325,6 +380,7 @@ extension AppDelegate {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let id = mainWindow?.conversationManager.activeConversationId {
             mainWindow?.windowState.selection = .conversation(id)
         }
@@ -403,7 +459,7 @@ extension AppDelegate {
         }
     }
 
-    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = nil) {
+    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = .bugReport) {
         // If the window is already showing, just bring it forward.
         if let existing = logReportWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)

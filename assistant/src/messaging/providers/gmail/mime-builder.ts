@@ -45,7 +45,9 @@ export function buildMultipartMime(options: MimeMessageOptions): string {
   const sanitizedSubject = sanitizeHeaderValue(subject);
   const sanitizedCc = cc ? sanitizeHeaderValue(cc) : undefined;
   const sanitizedBcc = bcc ? sanitizeHeaderValue(bcc) : undefined;
-  const sanitizedInReplyTo = inReplyTo ? sanitizeHeaderValue(inReplyTo) : undefined;
+  const sanitizedInReplyTo = inReplyTo
+    ? sanitizeHeaderValue(inReplyTo)
+    : undefined;
 
   const headers = [
     `To: ${sanitizedTo}`,

@@ -142,10 +142,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(
-      makeJob({ assetId: "asset-registered" }),
-      TEST_CONFIG,
-    );
+    await embedMediaJob(makeJob({ assetId: "asset-registered" }), TEST_CONFIG);
     expect(embedAndUpsertCalls).toHaveLength(0);
   });
 
@@ -186,6 +183,7 @@ describe("embedMediaJob", () => {
     expect(call.extraPayload).toEqual({
       created_at: now,
       kind: "image",
+      memory_scope_id: "default",
       subject: "My Screenshot",
     });
   });

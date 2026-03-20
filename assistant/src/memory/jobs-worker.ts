@@ -3,6 +3,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { backfillSimplifiedMemoryJob } from "./job-handlers/backfill-simplified-memory.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -11,8 +12,11 @@ import { generateConversationStartersJob } from "./job-handlers/conversation-sta
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
+  embedChunkJob,
+  embedEpisodeJob,
   embedItemJob,
   embedMediaJob,
+  embedObservationJob,
   embedSegmentJob,
   embedSummaryJob,
 } from "./job-handlers/embedding.js";
@@ -22,6 +26,7 @@ import {
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
+import { reduceConversationMemoryJob } from "./job-handlers/reduce-conversation-memory.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
@@ -267,6 +272,15 @@ async function processJob(
     case "embed_summary":
       await embedSummaryJob(job, config);
       return;
+    case "embed_chunk":
+      await embedChunkJob(job, config);
+      return;
+    case "embed_episode":
+      await embedEpisodeJob(job, config);
+      return;
+    case "embed_observation":
+      await embedObservationJob(job, config);
+      return;
     case "extract_items":
       await extractItemsJob(job);
       return;
@@ -306,6 +320,12 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
+      return;
+    case "reduce_conversation_memory":
+      await reduceConversationMemoryJob(job);
+      return;
+    case "backfill_simplified_memory":
+      await backfillSimplifiedMemoryJob(job);
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import OSLog
 @preconcurrency import Sentry
 import VellumAssistantShared
 
@@ -13,8 +14,10 @@ private let log = Logger(
 /// that users can share with support for debugging.
 ///
 /// Log sources included:
-/// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
-/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
+/// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSONL diagnostic logs
+/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes transcript diagnostics)
+/// - `~/Library/Application Support/vellum-assistant/hang-context.json` — hang diagnostic context written during main-thread stalls
+/// - `~/Library/Application Support/vellum-assistant/hang-sample*.txt` — process sample captures from prolonged stalls
 /// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
 /// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
@@ -24,6 +27,7 @@ private let log = Logger(
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
+/// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
@@ -97,12 +101,10 @@ enum LogExporter {
             if let activeConversation = conversationManager?.activeConversation {
                 extra["conversation_title"] = activeConversation.title
                 if let conversationId = activeConversation.conversationId {
-                    tags["session_id"] = conversationId
-                    // conversation_id mirrors session_id — the daemon tags its
-                    // Sentry events with both names for the same value. Setting
-                    // it here enables cross-project search: find the daemon error
-                    // that corresponds to a macOS log report by querying
-                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    // Setting conversation_id enables cross-project search: find
+                    // the daemon error that corresponds to a macOS log report by
+                    // querying conversation_id in the vellum-assistant-brain
+                    // Sentry project.
                     // For conversation-scoped exports, conversation_id was already set
                     // to the reported conversation's ID above — don't overwrite it with
                     // the active conversation's ID.
@@ -207,29 +209,17 @@ enum LogExporter {
             try? fileManager.removeItem(at: tempDir)
         }
 
-        // 1. Session logs — ~/Library/Application Support/vellum-assistant/logs/
+        // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
         if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let sessionLogDir = appSupport.appendingPathComponent("vellum-assistant/logs", isDirectory: true)
-            copyDirectoryContents(
-                from: sessionLogDir,
-                to: tempDir.appendingPathComponent("session-logs", isDirectory: true),
-                fileManager: fileManager
-            )
-
-            // 2. Debug state snapshot
-            let debugState = appSupport.appendingPathComponent("vellum-assistant/debug-state.json")
-            if fileManager.fileExists(atPath: debugState.path) {
-                try? fileManager.copyItem(
-                    at: debugState,
-                    to: tempDir.appendingPathComponent("debug-state.json")
-                )
-            }
+            let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+            collectClientArtifacts(from: appSupportDir, into: tempDir, fileManager: fileManager)
         }
 
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant = await MainActor.run { Self.isManagedAssistant }
+        let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+        let isManagedAssistant = connectedAssistant?.isManaged == true
 
         var daemonUnreachable = false
         if isManagedAssistant, let assistantId = connectedId,
@@ -239,7 +229,12 @@ enum LogExporter {
             let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
             if !success {
                 daemonUnreachable = true
-                collectFallbackDaemonLogs(into: tempDir, home: home, fileManager: fileManager)
+                collectFallbackDaemonLogs(
+                    into: tempDir,
+                    home: home,
+                    connectedAssistant: connectedAssistant,
+                    fileManager: fileManager
+                )
             }
         }
 
@@ -287,8 +282,15 @@ enum LogExporter {
             var metadata: [String: Any] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
+                // device_id intentionally matches ~/.vellum/device.json UUID
+                // so log exports correlate with daemon Sentry events and telemetry.
                 "device_id": SentryDeviceInfo.deviceId,
             ]
+            // user_id mirrors the Sentry user tag set by SentryDeviceInfo.updateUserTag
+            // so log exports can be correlated with authenticated Sentry events.
+            if let userId = await MainActor.run(body: { AppDelegate.shared?.authManager.currentUser?.id }) {
+                metadata["user_id"] = userId
+            }
             if !formData.name.isEmpty {
                 metadata["name"] = formData.name
             }
@@ -313,7 +315,12 @@ enum LogExporter {
             }
         }
 
-        // 11. Sanitized workspace config — client-side fallback if daemon export didn't include it.
+        // 11. macOS unified log — recent os.Logger entries for this app's subsystem.
+        collectUnifiedLog(
+            to: tempDir.appendingPathComponent("os-log.txt")
+        )
+
+        // 12. Sanitized workspace config — client-side fallback if daemon export didn't include it.
         //     The daemon archive extracts into daemon-exports/, so check both locations.
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
         let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
@@ -362,6 +369,66 @@ enum LogExporter {
                 try process.run()
             } catch {
                 continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    // MARK: - Client Artifact Collection
+
+    /// Copies client-side diagnostic artifacts from the Application Support
+    /// `vellum-assistant/` directory into the export staging directory.
+    ///
+    /// Artifacts collected:
+    /// - `logs/` — per-session JSONL diagnostic logs (→ `session-logs/`)
+    /// - `debug-state.json` — live debug snapshot
+    /// - `hang-context.json` — hang diagnostic context from main-thread stalls
+    /// - `hang-sample*.txt` — process sample captures from prolonged stalls
+    ///
+    /// All copies are best-effort: missing files are silently skipped.
+    nonisolated static func collectClientArtifacts(
+        from sourceDir: URL,
+        into destDir: URL,
+        fileManager: FileManager = .default
+    ) {
+        // Session logs
+        let sessionLogDir = sourceDir.appendingPathComponent("logs", isDirectory: true)
+        copyDirectoryContents(
+            from: sessionLogDir,
+            to: destDir.appendingPathComponent("session-logs", isDirectory: true),
+            fileManager: fileManager
+        )
+
+        // Debug state snapshot
+        let debugState = sourceDir.appendingPathComponent("debug-state.json")
+        if fileManager.fileExists(atPath: debugState.path) {
+            try? fileManager.copyItem(
+                at: debugState,
+                to: destDir.appendingPathComponent("debug-state.json")
+            )
+        }
+
+        // Hang context — written by MainThreadStallDetector during prolonged stalls
+        let hangContext = sourceDir.appendingPathComponent("hang-context.json")
+        if fileManager.fileExists(atPath: hangContext.path) {
+            try? fileManager.copyItem(
+                at: hangContext,
+                to: destDir.appendingPathComponent("hang-context.json")
+            )
+        }
+
+        // Hang sample files — process samples captured during prolonged main-thread stalls
+        if fileManager.fileExists(atPath: sourceDir.path),
+           let contents = try? fileManager.contentsOfDirectory(
+               at: sourceDir,
+               includingPropertiesForKeys: nil,
+               options: [.skipsHiddenFiles]
+           ) {
+            for file in contents where file.lastPathComponent.hasPrefix("hang-sample")
+                && file.pathExtension == "txt" {
+                try? fileManager.copyItem(
+                    at: file,
+                    to: destDir.appendingPathComponent(file.lastPathComponent)
+                )
             }
         }
     }
@@ -450,16 +517,24 @@ enum LogExporter {
     /// filesystem and copies them into `directory/daemon-logs-fallback/`.
     /// Includes the main daemon log (`vellum.log`) and the 3 most recent
     /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
+    ///
+    /// Resolves the workspace log directory from the connected assistant's
+    /// lockfile entry (via `instanceDir` or `baseDataDir`) to support
+    /// multi-instance setups. Falls back to `~/.vellum/workspace/` when
+    /// no lockfile entry is available.
     private nonisolated static func collectFallbackDaemonLogs(
         into directory: URL,
         home: String,
+        connectedAssistant: LockfileAssistant?,
         fileManager: FileManager
     ) {
         let fallbackDir = directory.appendingPathComponent("daemon-logs-fallback", isDirectory: true)
         try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
 
-        let workspaceLogDir = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
+        let workspaceDir: String = connectedAssistant?.workspaceDir
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".vellum/workspace").path
+        let workspaceLogDir = URL(fileURLWithPath: workspaceDir)
+            .appendingPathComponent("data/logs", isDirectory: true)
 
         var totalBytes = 0
 
@@ -680,6 +755,53 @@ enum LogExporter {
         log.info("Collected \(collectedCount) crash report(s) (\(totalBytes) bytes)")
     }
 
+    // MARK: - Unified Log Export
+
+    /// Exports recent entries from Apple's unified logging system (`os.Logger`)
+    /// for this app's subsystem. Includes CLI audit trail, lifecycle events,
+    /// and any other structured log output not written to files on disk.
+    ///
+    /// Uses `OSLogStore` to read entries from the last 24 hours. Falls back
+    /// silently if the API is unavailable or the subsystem has no entries.
+    private nonisolated static func collectUnifiedLog(to destination: URL) {
+        do {
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
+            let subsystem = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+
+            let entries = try store.getEntries(
+                at: oneDayAgo,
+                matching: NSPredicate(format: "subsystem == %@", subsystem)
+            )
+
+            var lines: [String] = []
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withFullDate, .withTime, .withFractionalSeconds, .withColonSeparatorInTime]
+
+            for entry in entries {
+                guard let logEntry = entry as? OSLogEntryLog else { continue }
+                let ts = formatter.string(from: logEntry.date)
+                let level: String
+                switch logEntry.level {
+                case .debug: level = "DEBUG"
+                case .info: level = "INFO"
+                case .notice: level = "NOTICE"
+                case .error: level = "ERROR"
+                case .fault: level = "FAULT"
+                default: level = "OTHER"
+                }
+                lines.append("[\(ts)] [\(level)] [\(logEntry.category)] \(logEntry.composedMessage)")
+            }
+
+            guard !lines.isEmpty else { return }
+            let content = lines.joined(separator: "\n")
+            try content.write(to: destination, atomically: true, encoding: .utf8)
+            log.info("Exported \(lines.count) unified log entries to os-log.txt")
+        } catch {
+            log.warning("Failed to export unified log: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Platform Log Helpers
 
     /// Fetches logs from the platform API for managed assistants, downloads
@@ -895,6 +1017,8 @@ enum LogExporter {
             "windowZoomLevel",
             "collectUsageData",
             "sendDiagnostics",
+            "ttsVoiceId",
+            "selectedImageGenModel",
         ]
 
         let boolKeys = [

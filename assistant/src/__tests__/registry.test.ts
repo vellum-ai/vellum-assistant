@@ -109,7 +109,7 @@ describe("tool registry dynamic-tools tools", () => {
 
 describe("tool manifest", () => {
   test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(11);
+    expect(eagerModuleToolNames.length).toBe(9);
   });
 
   test("explicit tools list includes memory and credential tools", () => {
@@ -187,14 +187,9 @@ describe("baseline characterization: core app tool surface", () => {
 
     const nonProxyAppTools = [
       "app_create",
-      "app_list",
-      "app_query",
-      "app_update",
       "app_delete",
-      "app_file_list",
-      "app_file_read",
-      "app_file_edit",
-      "app_file_write",
+      "app_generate_icon",
+      "app_refresh",
     ];
 
     for (const name of nonProxyAppTools) {

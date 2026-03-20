@@ -13,10 +13,33 @@ extension ComposerView {
                 ForEach(pendingAttachments) { attachment in
                     attachmentChip(attachment)
                 }
+                if isLoadingAttachment {
+                    attachmentLoadingChip
+                }
             }
             .padding(.top, VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
         }
+    }
+
+    private var attachmentLoadingChip: some View {
+        HStack(spacing: VSpacing.sm) {
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.borderBase.opacity(0.5))
+                .frame(width: 28, height: 28)
+                .overlay {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                }
+
+            Text("Processing…")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+        }
+        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.sm)
+        .background(VColor.borderBase.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     func attachmentChip(_ attachment: ChatAttachment) -> some View {

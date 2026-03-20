@@ -33,7 +33,7 @@ export class SkillExecuteTool implements Tool {
               "Brief non-technical explanation of what you are doing and why, shown to the user as a status update.",
           },
         },
-        required: ["tool", "input"],
+        required: ["tool", "input", "activity"],
       },
     };
   }

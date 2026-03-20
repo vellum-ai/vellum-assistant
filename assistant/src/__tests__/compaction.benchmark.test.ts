@@ -149,7 +149,8 @@ describe("Compaction benchmark", () => {
     );
     // Target is maxInputTokens * (targetBudgetRatio - summaryBudgetRatio)
     const targetTokens = Math.floor(
-      config.maxInputTokens * (config.targetBudgetRatio - config.summaryBudgetRatio),
+      config.maxInputTokens *
+        (config.targetBudgetRatio - config.summaryBudgetRatio),
     );
     expect(result.estimatedInputTokens).toBeLessThanOrEqual(targetTokens);
   });

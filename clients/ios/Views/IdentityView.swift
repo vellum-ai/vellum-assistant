@@ -14,7 +14,7 @@ final class IdentityViewModel {
 
     var skillsStore: SkillsStore?
     var contactsStore: ContactsStore?
-    var memoriesStore: MemoryItemsStore?
+    var memoriesStore: SimplifiedMemoryStore?
 
     // Cached counts — updated via Combine when the stores' @Published properties change.
     var installedSkillsCount: Int = 0
@@ -43,9 +43,9 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.contactsCount = count }
             .store(in: &cancellables)
 
-        let memories = MemoryItemsStore(memoryItemClient: MemoryItemClient())
+        let memories = SimplifiedMemoryStore(client: SimplifiedMemoryClient())
         memoriesStore = memories
-        memories.$items
+        memories.$observations
             .map(\.count)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] count in self?.memoriesCount = count }
@@ -53,7 +53,7 @@ final class IdentityViewModel {
 
         skills.fetchSkills(force: true)
         contacts.loadContacts()
-        Task { await memories.loadItems() }
+        Task { await memories.loadMemories() }
     }
 
     func tearDown() {
@@ -70,15 +70,16 @@ final class IdentityViewModel {
     }
 
     var identityClient: IdentityClientProtocol = IdentityClient()
+    private let btwClient: any BtwClientProtocol = BtwClient()
 
-    func fetchIdentity(client: any DaemonClientProtocol) async {
+    func fetchIdentity() async {
         isLoading = true
         identity = await identityClient.fetchRemoteIdentity()
         isLoading = false
-        generateIntro(client: client)
+        generateIntro()
     }
 
-    func generateIntro(client: any DaemonClientProtocol) {
+    func generateIntro() {
         introTask?.cancel()
         introText = nil
         introTask = Task { @MainActor [weak self] in
@@ -86,7 +87,7 @@ final class IdentityViewModel {
             let key = "identity-intro-\(UUID().uuidString)"
             var result = ""
             do {
-                let stream = client.sendBtwMessage(
+                let stream = self.btwClient.sendMessage(
                     content: "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else.",
                     conversationKey: key
                 )
@@ -136,7 +137,7 @@ struct IdentityView: View {
             if let daemonClient = clientProvider.client as? DaemonClient {
                 viewModel.setUp(daemonClient: daemonClient)
             }
-            await viewModel.fetchIdentity(client: clientProvider.client)
+            await viewModel.fetchIdentity()
         }
     }
 
@@ -273,9 +274,9 @@ struct IdentityView: View {
             viewModel.skillsStore?.fetchSkills(force: true)
             viewModel.contactsStore?.loadContacts()
             if let memoriesStore = viewModel.memoriesStore {
-                await memoriesStore.loadItems()
+                await memoriesStore.loadMemories()
             }
-            await viewModel.fetchIdentity(client: clientProvider.client)
+            await viewModel.fetchIdentity()
         }
     }
 

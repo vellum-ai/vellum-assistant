@@ -2,7 +2,8 @@
  * JWT token service for the gateway's auth system.
  *
  * Mirrors the assistant's token-service but manages its own signing key
- * using the same loadOrCreateSigningKey pattern, reading from
+ * using the same loadOrCreateSigningKey pattern. When GATEWAY_SECURITY_DIR
+ * is set the key is read from that directory; otherwise falls back to
  * ~/.vellum/protected/actor-token-signing-key.
  */
 
@@ -32,6 +33,10 @@ const log = getLogger("auth-token-service");
 let signingKey: Buffer | null = null;
 
 function getSigningKeyPath(): string {
+  const securityDir = process.env.GATEWAY_SECURITY_DIR;
+  if (securityDir) {
+    return join(securityDir, "actor-token-signing-key");
+  }
   return join(getRootDir(), "protected", "actor-token-signing-key");
 }
 

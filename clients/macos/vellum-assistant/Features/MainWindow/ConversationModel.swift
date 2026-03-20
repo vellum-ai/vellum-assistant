@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 enum ConversationKind: String, Hashable, Sendable {
     case standard
@@ -10,7 +11,7 @@ struct ConversationModel: Identifiable, Hashable {
     var title: String
     let createdAt: Date
     /// Daemon conversation ID for restored conversations. Nil for new, unsaved conversations.
-    /// Mutable so it can be backfilled when the daemon assigns a conversation to a new conversation.
+    /// Mutable so it can be backfilled when the daemon assigns a session ID to a new conversation.
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
@@ -27,8 +28,9 @@ struct ConversationModel: Identifiable, Hashable {
     var hasUnseenLatestAssistantMessage: Bool = false
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
+    var forkParent: ConversationForkParent?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -44,6 +46,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
+        self.forkParent = forkParent
     }
 
     /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
@@ -54,5 +57,47 @@ struct ConversationModel: Identifiable, Hashable {
             return source == "schedule" || source == "reminder"
         }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
+    }
+
+    static func == (lhs: ConversationModel, rhs: ConversationModel) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.title == rhs.title &&
+            lhs.createdAt == rhs.createdAt &&
+            lhs.conversationId == rhs.conversationId &&
+            lhs.isArchived == rhs.isArchived &&
+            lhs.isPinned == rhs.isPinned &&
+            lhs.pinnedOrder == rhs.pinnedOrder &&
+            lhs.displayOrder == rhs.displayOrder &&
+            lhs.lastInteractedAt == rhs.lastInteractedAt &&
+            lhs.kind == rhs.kind &&
+            lhs.source == rhs.source &&
+            lhs.scheduleJobId == rhs.scheduleJobId &&
+            lhs.hasUnseenLatestAssistantMessage == rhs.hasUnseenLatestAssistantMessage &&
+            lhs.latestAssistantMessageAt == rhs.latestAssistantMessageAt &&
+            lhs.lastSeenAssistantMessageAt == rhs.lastSeenAssistantMessageAt &&
+            lhs.forkParent?.conversationId == rhs.forkParent?.conversationId &&
+            lhs.forkParent?.messageId == rhs.forkParent?.messageId &&
+            lhs.forkParent?.title == rhs.forkParent?.title
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(createdAt)
+        hasher.combine(conversationId)
+        hasher.combine(isArchived)
+        hasher.combine(isPinned)
+        hasher.combine(pinnedOrder)
+        hasher.combine(displayOrder)
+        hasher.combine(lastInteractedAt)
+        hasher.combine(kind)
+        hasher.combine(source)
+        hasher.combine(scheduleJobId)
+        hasher.combine(hasUnseenLatestAssistantMessage)
+        hasher.combine(latestAssistantMessageAt)
+        hasher.combine(lastSeenAssistantMessageAt)
+        hasher.combine(forkParent?.conversationId)
+        hasher.combine(forkParent?.messageId)
+        hasher.combine(forkParent?.title)
     }
 }

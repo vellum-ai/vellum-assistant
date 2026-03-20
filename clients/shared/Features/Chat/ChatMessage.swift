@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -797,6 +798,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// rehydration (empty -> populated) without expensive full-string comparison.
     public var inputRawValueLength: Int = 0
     public var result: String?
+    /// Lightweight sentinel tracking `result?.count` so that `==` can detect
+    /// rehydration without expensive full-string comparison on multi-MB results.
+    public var resultLength: Int = 0
     public var isError: Bool
     public var isComplete: Bool
     /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
@@ -845,7 +849,7 @@ public struct ToolCallData: Identifiable, Equatable {
         lhs.id == rhs.id
             && lhs.toolName == rhs.toolName
             && lhs.inputSummary == rhs.inputSummary
-            && lhs.result == rhs.result
+            && lhs.resultLength == rhs.resultLength
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
@@ -877,6 +881,7 @@ public struct ToolCallData: Identifiable, Equatable {
         self.inputRawValue = rawValue
         self.inputRawValueLength = rawValue.count
         self.result = result
+        self.resultLength = result?.count ?? 0
         self.isError = isError
         self.isComplete = isComplete
         self.arrivedBeforeText = arrivedBeforeText
@@ -892,12 +897,26 @@ public struct ToolCallData: Identifiable, Equatable {
     #if os(macOS)
     public static func decodeImage(from base64String: String?) -> NSImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return NSImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = NSImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #elseif os(iOS)
     public static func decodeImage(from base64String: String?) -> UIImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        return UIImage(data: data)
+        let start = CFAbsoluteTimeGetCurrent()
+        let image = UIImage(data: data)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
+        }
+        return image
     }
     #else
     #error("Unsupported platform")
@@ -918,8 +937,9 @@ public struct ToolCallData: Identifiable, Equatable {
         case "browser_click":                      return "Click Element"
         case "browser_type":                       return "Type Text"
         case "app_create":                         return "Create App"
-        case "app_update":                         return "Update App"
+        case "app_refresh", "app_update":          return "Refresh App"
         case "request_system_permission":          return "Request Permission"
+        case "skill_execute":                      return "Use Skill"
         default:
             return toolName
                 .replacingOccurrences(of: "_", with: " ")
@@ -943,8 +963,9 @@ public struct ToolCallData: Identifiable, Equatable {
         case "browser_screenshot":                 return .scan
         case "browser_click":                      return .mousePointerClick
         case "browser_type":                       return .keyboard
-        case "app_create", "app_update":           return .smartphone
+        case "app_create", "app_refresh", "app_update": return .smartphone
         case "request_system_permission":          return .shield
+        case "skill_execute":                      return .puzzle
         default:                                   return .puzzle
         }
     }
@@ -979,8 +1000,8 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Typed in a field"
         case "app_create":
             return "Created an app"
-        case "app_update":
-            return "Updated the app"
+        case "app_refresh", "app_update":
+            return "Refreshed the app"
         case "app_open":
             return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
         case "request_system_permission":
@@ -1056,6 +1077,8 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Updated a playbook"
         case "playbook_list":
             return "Listed playbooks"
+        case "skill_execute":
+            return inputSummary.isEmpty ? "Used a skill" : inputSummary
         default:
             return friendlyName
         }
@@ -1411,6 +1434,8 @@ public struct ChatAttachment: Identifiable {
     public let id: String
     public let filename: String
     public let mimeType: String
+    /// Origin of the attachment on the daemon side, when known.
+    public let sourceType: String?
     /// Base64-encoded file data. Empty when the attachment was too large to embed
     /// in the history_response — use ``fetchData(port:)`` to load it lazily.
     /// Mutable so it can be nil'd out after the daemon has persisted the data,
@@ -1445,10 +1470,11 @@ public struct ChatAttachment: Identifiable {
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
     #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
+        self.sourceType = sourceType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
@@ -1457,10 +1483,11 @@ public struct ChatAttachment: Identifiable {
         self.filePath = filePath
     }
     #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
+        self.sourceType = sourceType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
@@ -1520,10 +1547,6 @@ public struct GuardianDecisionData: Equatable {
         self.kind = wire.kind
         self.state = wire.state == "resolved" ? .stale() : .pending
     }
-}
-
-public struct ModelPickerData: Equatable {
-    public init() {}
 }
 
 public struct ModelListData: Equatable {
@@ -1610,6 +1633,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.conversationError == rhs.conversationError
         && lhs.toolCalls == rhs.toolCalls
         && lhs.attachments.count == rhs.attachments.count
+        && lhs.attachmentWarnings == rhs.attachmentWarnings
         && lhs.inlineSurfaces == rhs.inlineSurfaces
         && lhs.confirmation?.state == rhs.confirmation?.state
         && lhs.guardianDecision?.state == rhs.guardianDecision?.state
@@ -1630,10 +1654,10 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Non-nil when this message is a guardian decision prompt.
     public var guardianDecision: GuardianDecisionData?
     public var skillInvocation: SkillInvocationData?
-    public var modelPicker: ModelPickerData?
     public var modelList: ModelListData?
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
+    public var attachmentWarnings: [String]
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]
     /// Streaming code preview from tool input generation (e.g. app_create HTML).
@@ -1671,7 +1695,7 @@ public struct ChatMessage: Identifiable, Equatable {
         textSegments.joined(separator: "\n")
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], attachmentWarnings: [String] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -1683,6 +1707,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.guardianDecision = guardianDecision
         self.skillInvocation = skillInvocation
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
@@ -1728,6 +1753,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].cachedImage = nil
             toolCalls[i].imageData = nil
             toolCalls[i].result = nil
+            toolCalls[i].resultLength = 0
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil

@@ -1,20 +1,16 @@
+import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import type { ModelIntent } from "./types.js";
 
-export const PROVIDER_DEFAULT_MODELS = {
-  anthropic: "claude-opus-4-6",
-  openai: "gpt-5.2",
-  gemini: "gemini-3-flash",
-  ollama: "llama3.2",
-  fireworks: "accounts/fireworks/models/kimi-k2p5",
-  openrouter: "x-ai/grok-4",
-} as const;
+/**
+ * Derived from PROVIDER_CATALOG — single source of truth for default models.
+ * Each provider's `defaultModel` in the catalog populates this map.
+ */
+export const PROVIDER_DEFAULT_MODELS: Record<string, string> =
+  Object.fromEntries(
+    PROVIDER_CATALOG.map((entry) => [entry.id, entry.defaultModel]),
+  );
 
-type KnownProviderName = keyof typeof PROVIDER_DEFAULT_MODELS;
-
-const PROVIDER_MODEL_INTENTS: Record<
-  KnownProviderName,
-  Record<ModelIntent, string>
-> = {
+const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-opus-4-6",
@@ -47,29 +43,42 @@ const PROVIDER_MODEL_INTENTS: Record<
   },
 };
 
+const FALLBACK_DEFAULT_MODEL = "claude-opus-4-6";
+
 const MODEL_INTENTS = new Set<ModelIntent>([
   "latency-optimized",
   "quality-optimized",
   "vision-optimized",
 ]);
 
+// ── Consistency validation ───────────────────────────────────────────
+// Eagerly verify that every model ID referenced by PROVIDER_MODEL_INTENTS
+// exists in PROVIDER_CATALOG, catching drift at module-load time rather
+// than at runtime when a user picks a model.
+for (const [provider, intents] of Object.entries(PROVIDER_MODEL_INTENTS)) {
+  for (const [intent, modelId] of Object.entries(intents)) {
+    if (!isModelInCatalog(provider, modelId)) {
+      throw new Error(
+        `PROVIDER_MODEL_INTENTS[${provider}][${intent}] references model "${modelId}" ` +
+          `which is not in PROVIDER_CATALOG. Update model-catalog.ts or model-intents.ts.`,
+      );
+    }
+  }
+}
+
 export function isModelIntent(value: unknown): value is ModelIntent {
   return typeof value === "string" && MODEL_INTENTS.has(value as ModelIntent);
 }
 
 export function getProviderDefaultModel(providerName: string): string {
-  const knownProvider = providerName as KnownProviderName;
-  return (
-    PROVIDER_DEFAULT_MODELS[knownProvider] ?? PROVIDER_DEFAULT_MODELS.anthropic
-  );
+  return PROVIDER_DEFAULT_MODELS[providerName] ?? FALLBACK_DEFAULT_MODEL;
 }
 
 export function resolveModelIntent(
   providerName: string,
   intent: ModelIntent,
 ): string {
-  const knownProvider = providerName as KnownProviderName;
-  const providerIntentModels = PROVIDER_MODEL_INTENTS[knownProvider];
+  const providerIntentModels = PROVIDER_MODEL_INTENTS[providerName];
   if (providerIntentModels) {
     return providerIntentModels[intent];
   }

@@ -51,6 +51,11 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
   if (!row) return row;
   return {
     ...row,
+    displayName: row.displayName ?? null,
+    description: row.description ?? null,
+    dashboardUrl: row.dashboardUrl ?? null,
+    clientIdPlaceholder: row.clientIdPlaceholder ?? null,
+    requiresClientSecret: row.requiresClientSecret ?? 1,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
@@ -203,6 +208,14 @@ Examples:
       "--ping-url <url>",
       "Health-check endpoint URL for token validation",
     )
+    .option("--display-name <name>", "Display name for the provider")
+    .option("--description <text>", "Short description")
+    .option("--dashboard-url <url>", "Developer console URL")
+    .option("--client-id-placeholder <text>", "Placeholder for client ID field")
+    .option(
+      "--no-client-secret",
+      "Set requires_client_secret to false (default is true)",
+    )
     .addHelpText(
       "after",
       `
@@ -220,6 +233,12 @@ Arguments (via options):
   --ping-url            Optional URL for a lightweight health-check endpoint.
                         Used by "connections ping" to validate that a stored token
                         is still functional (e.g. "https://api.example.com/user").
+  --display-name        Optional human-readable display name for the provider.
+  --description         Optional short description of the provider.
+  --dashboard-url       Optional URL to the provider's developer console / dashboard.
+  --client-id-placeholder  Optional placeholder text for the client ID input field.
+  --no-client-secret    If set, marks the provider as not requiring a client secret
+                        (sets requires_client_secret to 0). Default is true (1).
 
 Registers a new OAuth provider configuration in the local store. This is
 used for custom integrations not covered by the built-in provider seeds.
@@ -253,6 +272,11 @@ Examples:
           tokenAuthMethod?: string;
           callbackTransport?: string;
           pingUrl?: string;
+          displayName?: string;
+          description?: string;
+          dashboardUrl?: string;
+          clientIdPlaceholder?: string;
+          clientSecret: boolean;
         },
         cmd: Command,
       ) => {
@@ -268,6 +292,11 @@ Examples:
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
             pingUrl: opts.pingUrl,
+            displayName: opts.displayName,
+            description: opts.description,
+            dashboardUrl: opts.dashboardUrl,
+            clientIdPlaceholder: opts.clientIdPlaceholder,
+            requiresClientSecret: opts.clientSecret ? 1 : 0,
           });
 
           writeOutput(cmd, parseProviderRow(row));

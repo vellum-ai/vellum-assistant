@@ -40,3 +40,15 @@ Every command must have high-quality `--help` output. Follow the same standards 
 3. **Write for machines**: Be precise about formats, constraints, and side effects.
    AI agents parse help text to decide which command to run and how. Avoid vague
    language — say exactly what the command does and where state is stored.
+
+## Docker Volume Management
+
+The CLI creates and manages Docker volumes for containerized instances. See the root `AGENTS.md` § Docker Volume Architecture for the full volume layout.
+
+**Volume creation** (`hatch`): Creates four volumes per instance — workspace, gateway-security, ces-security, and socket. The legacy data volume is no longer created.
+
+**Volume migration** (`wake`/`hatch`): On startup, existing instances that still have a legacy data volume are migrated. `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `lib/docker.ts` copy security files from the data volume to their respective security volumes. Migrations are idempotent and non-fatal.
+
+**Volume cleanup** (`retire`): All volumes (including the legacy data volume if it exists) are removed when an instance is retired.
+
+**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.

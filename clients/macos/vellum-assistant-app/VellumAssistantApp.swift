@@ -4,6 +4,7 @@ import VellumAssistantLib
 @main
 struct VellumAssistantApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    private var appName: String { AppDelegate.appName }
 
     var body: some Scene {
         // The Settings scene exists solely to host the .commands menu items
@@ -22,7 +23,7 @@ struct VellumAssistantApp: App {
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About Vellum") {
+                Button("About \(appName)") {
                     appDelegate.showAboutPanel()
                 }
                 Button(appDelegate.updateManager.updateMenuItemTitle) {
@@ -30,11 +31,11 @@ struct VellumAssistantApp: App {
                 }
                 .disabled(!appDelegate.updateManager.updateMenuItemIsEnabled)
                 Divider()
-                Button("Send Logs to Vellum") {
+                Button("Send Logs to \(appName)") {
                     appDelegate.sendLogsToSentry()
                 }
                 Divider()
-                Button("Uninstall Vellum...") {
+                Button("Uninstall \(appName)...") {
                     appDelegate.performUninstall()
                 }
                 if appDelegate.authManager.isAuthenticated {
@@ -43,6 +44,28 @@ struct VellumAssistantApp: App {
                         appDelegate.performLogout()
                     }
                 }
+            }
+            // Replace the auto-generated Hide/Quit items so they always
+            // say "Vellum" instead of the bundle display name (which may
+            // be a custom dock label like the assistant's name).
+            CommandGroup(replacing: .appVisibility) {
+                Button("Hide \(appName)") {
+                    NSApp.hide(nil)
+                }
+                .keyboardShortcut("h", modifiers: .command)
+                Button("Hide Others") {
+                    NSApp.hideOtherApplications(nil)
+                }
+                .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Show All") {
+                    NSApp.unhideAllApplications(nil)
+                }
+            }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit \(appName)") {
+                    NSApp.terminate(nil)
+                }
+                .keyboardShortcut("q", modifiers: .command)
             }
             // Replace the default Settings menu item (which opens the SwiftUI
             // Settings scene window) with one that opens the in-app panel.

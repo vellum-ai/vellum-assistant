@@ -15,12 +15,13 @@ import VellumAssistantShared
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @Binding var apiKeyText: String
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
+    /// Local draft of the model selection — only persisted on Save.
+    @State private var draftModel: String = ""
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
     /// Whether to show the web search impact confirmation alert.
@@ -29,13 +30,17 @@ struct InferenceServiceCard: View {
     @State private var draftProvider: String = "anthropic"
     /// Snapshot of the provider at card appear — used to detect provider changes.
     @State private var initialProvider: String = ""
+    /// Guards against provider-change side-effects during initial load.
+    @State private var didInitialSync = false
+    /// Set `true` right before an external store sync updates `draftProvider`,
+    /// so `onChange(of: draftProvider)` can distinguish daemon-driven updates
+    /// from user-initiated picks and skip the model/key reset.
+    @State private var isSyncingProviderFromStore = false
 
     // MARK: - Feature Flag
 
-    private static let customInferenceProviderFlagKey = "feature_flags.custom-inference-provider.enabled"
-
     private var isCustomProviderEnabled: Bool {
-        assistantFeatureFlagStore.isEnabled(Self.customInferenceProviderFlagKey)
+        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
     }
 
     // MARK: - Provider Helpers
@@ -46,7 +51,7 @@ struct InferenceServiceCard: View {
     }
 
     private var providerDisplayName: String {
-        SettingsStore.inferenceProviderDisplayNames[effectiveProvider] ?? effectiveProvider
+        store.dynamicProviderDisplayName(effectiveProvider)
     }
 
     // MARK: - Computed State
@@ -83,10 +88,15 @@ struct InferenceServiceCard: View {
         if draftMode == "managed" && !isLoggedIn {
             return false
         }
+        // A valid model must be selected to save.
+        if draftModel.isEmpty {
+            return false
+        }
         let modeChanged = draftMode != store.inferenceMode
-        let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let modelChanged = store.selectedModel != initialModel
-        let providerChanged = isCustomProviderEnabled && draftProvider != initialProvider
+        let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let modelChanged = draftModel != initialModel
+        let effectiveDraftProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        let providerChanged = isCustomProviderEnabled && effectiveDraftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
     }
 
@@ -95,21 +105,15 @@ struct InferenceServiceCard: View {
             title: "Inference",
             subtitle: "Configure which LLM provider and model to use to power your assistant",
             draftMode: $draftMode,
-            hasChanges: hasChanges,
-            isSaving: store.apiKeySaving,
-            onSave: { save() },
-            onReset: {
-                if isCustomProviderEnabled {
-                    store.clearAPIKeyForProvider(effectiveProvider)
-                } else {
-                    store.clearAPIKey()
-                }
-                apiKeyText = ""
-            },
-            showReset: isConnected,
             managedContent: {
                 if isLoggedIn {
-                    modelPicker
+                    PickerWithInlineSave(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() }
+                    ) {
+                        modelPicker
+                    }
                 } else {
                     managedLoginPrompt
                 }
@@ -120,36 +124,148 @@ struct InferenceServiceCard: View {
                         providerPicker
                     }
 
+                    // Model picker
+                    modelPicker
+
                     // API Key field
                     apiKeyField
 
-                    // Model picker
-                    modelPicker
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() },
+                        savingLabel: "Validating...",
+                        onReset: {
+                            if isCustomProviderEnabled {
+                                store.clearAPIKeyForProvider(effectiveProvider)
+                            } else {
+                                store.clearAPIKey()
+                            }
+                            apiKeyText = ""
+                        },
+                        showReset: isConnected
+                    )
                 }
             }
         )
         .onAppear {
             draftMode = store.inferenceMode
+            draftModel = store.selectedModel
             initialModel = store.selectedModel
             draftProvider = store.selectedInferenceProvider
             initialProvider = store.selectedInferenceProvider
+            didInitialSync = true
+
+            // If the user is not authenticated and the persisted mode is
+            // "managed", reset the draft so the UI shows "your-own".
+            // When auth is still loading (startup), only reset the draft —
+            // the persisted mode is preserved so it can be restored when
+            // auth completes. When auth is confirmed absent, also persist
+            // the reset so the daemon doesn't attempt managed-proxy routing.
+            if !isLoggedIn && draftMode == "managed" {
+                draftMode = "your-own"
+                if !authManager.isLoading {
+                    store.setInferenceMode("your-own")
+                }
+            }
         }
         .onChange(of: store.inferenceMode) { _, newValue in
-            // Sync draft when external changes arrive (e.g. daemon reload)
-            draftMode = newValue
+            // Sync draft when external changes arrive (e.g. daemon reload),
+            // but guard against adopting managed mode while unauthenticated.
+            if newValue == "managed" && !isLoggedIn {
+                draftMode = "your-own"
+            } else {
+                draftMode = newValue
+            }
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if !isAuthenticated && draftMode == "managed" {
+                // When the user logs out while this card is mounted, reset
+                // both the draft and the persisted mode so the daemon doesn't
+                // attempt managed-proxy routing while unauthenticated.
+                draftMode = "your-own"
+                store.setInferenceMode("your-own")
+            } else if isAuthenticated && store.inferenceMode == "managed" {
+                // When auth becomes available (e.g. startup transition from
+                // loading to authenticated), restore the persisted managed
+                // mode that onAppear may have temporarily overridden.
+                draftMode = "managed"
+            }
+        }
+        .onChange(of: authManager.isLoading) { _, isLoading in
+            // When auth finishes loading without authenticating, persist
+            // the mode reset that onAppear deferred during the loading
+            // state. Without this, the persisted mode stays "managed"
+            // while the UI shows "your-own" — pressing Save for unrelated
+            // edits would not trigger a mode change since draftMode already
+            // equals the visual state.
+            if !isLoading && !isLoggedIn && store.inferenceMode == "managed" {
+                store.setInferenceMode("your-own")
+            }
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
+            // Sync draft & baseline when the daemon reports a provider
+            // update. Also refresh the model baseline so hasChanges does
+            // not flag a stale diff against the old provider's model.
+            // Flag the update so onChange(of: draftProvider) skips the
+            // model/key reset that is only appropriate for user picks.
+            let alreadyEqual = draftProvider == newValue
+            isSyncingProviderFromStore = true
             draftProvider = newValue
+            // If draftProvider already held this value, SwiftUI's
+            // onChange(of: draftProvider) won't fire (it only fires on
+            // actual value transitions), so clear the flag immediately
+            // to prevent the next user-initiated change from being
+            // misclassified as a store sync.
+            if alreadyEqual {
+                isSyncingProviderFromStore = false
+            }
             initialProvider = newValue
+            draftModel = store.selectedModel
+            initialModel = store.selectedModel
+        }
+        .onChange(of: store.selectedModel) { _, newValue in
+            // Sync draft & baseline when external changes arrive (e.g. daemon model info refresh)
+            draftModel = newValue
+            initialModel = newValue
         }
         .onChange(of: draftProvider) { _, newProvider in
+            // Only reset the model and API key text for user-initiated
+            // provider changes. Skip during initial load (onAppear sets
+            // draftProvider before didInitialSync is true) and during
+            // external store syncs (which set isSyncingProviderFromStore
+            // before updating draftProvider).
+            if isSyncingProviderFromStore {
+                isSyncingProviderFromStore = false
+                return
+            }
+            guard didInitialSync else { return }
             if isCustomProviderEnabled {
-                let defaultModel = SettingsStore.inferenceProviderDefaultModel[newProvider]
-                    ?? SettingsStore.inferenceProviderModels[newProvider]?.first?.id
-                    ?? ""
-                store.selectedModel = defaultModel
+                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
+                let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
+                draftModel = defaultModel.isEmpty ? fallback : defaultModel
             }
             apiKeyText = ""
+        }
+        .onChange(of: draftMode) { _, newMode in
+            if newMode == "managed" && isCustomProviderEnabled {
+                let anthropicModels = store.dynamicProviderModels("anthropic")
+                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
+                if !isCurrentModelAnthropic {
+                    let defaultModel = store.dynamicProviderDefaultModel("anthropic")
+                    draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
+                }
+            } else if newMode == "your-own" && isCustomProviderEnabled {
+                let providerModels = store.dynamicProviderModels(draftProvider)
+                let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
+                if !isCurrentModelValid {
+                    let defaultModel = store.dynamicProviderDefaultModel(draftProvider)
+                    draftModel = defaultModel.isEmpty
+                        ? (providerModels.first?.id ?? "")
+                        : defaultModel
+                }
+            }
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
@@ -175,11 +291,7 @@ struct InferenceServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    if let showToast {
-                        await authManager.loginWithToast(showToast: showToast)
-                    } else {
-                        await authManager.startWorkOSLogin()
-                    }
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }
@@ -195,9 +307,10 @@ struct InferenceServiceCard: View {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $draftProvider,
-                options: SettingsStore.inferenceProviders.map { provider in
-                    (label: SettingsStore.inferenceProviderDisplayNames[provider] ?? provider, value: provider)
-                }
+                options: store.dynamicProviderIds.map { provider in
+                    (label: store.dynamicProviderDisplayName(provider), value: provider)
+                },
+                maxWidth: 400
             )
         }
     }
@@ -205,12 +318,21 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let placeholder: String = {
+            if isConnected {
+                return "••••••••••••••••"
+            }
+            if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
+                return providerPlaceholder
+            }
+            return "Enter your API key"
+        }()
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            SecureField("Enter your API key", text: $apiKeyText)
-                .vInputStyle()
+            SecureField(placeholder, text: $apiKeyText)
+                .vInputStyle(maxWidth: 400)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .disabled(store.apiKeySaving)
@@ -238,31 +360,28 @@ struct InferenceServiceCard: View {
         }
     }
 
-    /// Hardcoded Anthropic-only model dropdown (flag off, backward compat).
+    /// Anthropic-only model dropdown (flag off, backward compat).
     private var defaultModelPicker: some View {
         VDropdown(
             placeholder: "Select a model\u{2026}",
-            selection: Binding(
-                get: { store.selectedModel },
-                set: { store.selectedModel = $0 }
-            ),
-            options: SettingsStore.availableModels.map { model in
-                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
-            }
+            selection: $draftModel,
+            options: store.dynamicProviderModels("anthropic").map { model in
+                (label: model.displayName, value: model.id)
+            },
+            maxWidth: 400
         )
     }
 
     /// Per-provider catalog model dropdown (flag on).
     private var providerModelPicker: some View {
-        VDropdown(
+        let provider = draftMode == "managed" ? "anthropic" : draftProvider
+        return VDropdown(
             placeholder: "Select a model\u{2026}",
-            selection: Binding(
-                get: { store.selectedModel },
-                set: { store.selectedModel = $0 }
-            ),
-            options: (SettingsStore.inferenceProviderModels[draftProvider] ?? []).map { model in
+            selection: $draftModel,
+            options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
-            }
+            },
+            maxWidth: 400
         )
     }
 
@@ -279,15 +398,28 @@ struct InferenceServiceCard: View {
     private func performSave() {
         store.apiKeySaveError = nil
 
+        // Detect mode change before persisting so downstream logic can
+        // force-persist provider/model even when IDs happen to match.
+        let modeChanged = draftMode != store.inferenceMode
+
         // Persist mode if changed
-        if draftMode != store.inferenceMode {
+        if modeChanged {
             store.setInferenceMode(draftMode)
         }
 
-        // Persist provider if changed and flag is on
-        if isCustomProviderEnabled && draftProvider != initialProvider {
-            store.setInferenceProvider(draftProvider)
-            initialProvider = draftProvider
+        // Persist provider if changed and flag is on. Also re-persist when
+        // the mode changed — switching between managed and your-own implies
+        // a provider change even if the resolved provider ID happens to
+        // match initialProvider (ensures config stays consistent).
+        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        if isCustomProviderEnabled && (persistProvider != initialProvider || modeChanged) {
+            store.setInferenceProvider(persistProvider)
+            initialProvider = persistProvider
+        }
+        // Normalize draftProvider to match what was persisted so hasChanges
+        // (which compares draftProvider against initialProvider) stays in sync.
+        if isCustomProviderEnabled && draftProvider != persistProvider {
+            draftProvider = persistProvider
         }
 
         // Persist API key if entered and in your-own mode.
@@ -296,23 +428,30 @@ struct InferenceServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
+            let displayName = providerDisplayName
             if isCustomProviderEnabled {
                 store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast("\(displayName) API key saved", .success)
                 })
             } else {
                 store.saveAPIKey(trimmedKey, onSuccess: {
                     keyTextBinding.wrappedValue = ""
+                    showToast("API key saved", .success)
                 })
             }
         }
 
-        // Persist model selection
+        // Persist model selection. Force-send to daemon when the mode
+        // changed so the model+provider pair is always re-persisted,
+        // even if IDs happen to match the daemon's cached state.
+        store.selectedModel = draftModel
         if isCustomProviderEnabled {
-            store.setModel(store.selectedModel, provider: draftProvider)
+            let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
+            store.setModel(draftModel, provider: saveProvider, force: modeChanged)
         } else {
-            store.setModel(store.selectedModel)
+            store.setModel(draftModel, force: modeChanged)
         }
-        initialModel = store.selectedModel
+        initialModel = draftModel
     }
 }
