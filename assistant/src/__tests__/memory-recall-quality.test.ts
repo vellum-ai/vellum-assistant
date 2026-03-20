@@ -65,7 +65,6 @@ import {
 } from "../memory/archive-recall.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
-  memoryChunks,
   memoryEpisodes,
   memoryObservations,
 } from "../memory/schema.js";
@@ -132,28 +131,6 @@ function insertObservation(
     .run();
 }
 
-function insertChunk(
-  db: ReturnType<typeof getDb>,
-  opts: {
-    id: string;
-    scopeId: string;
-    observationId: string;
-    content: string;
-    contentHash: string;
-    createdAt: number;
-  },
-) {
-  db.insert(memoryChunks)
-    .values({
-      id: opts.id,
-      scopeId: opts.scopeId,
-      observationId: opts.observationId,
-      content: opts.content,
-      contentHash: opts.contentHash,
-      createdAt: opts.createdAt,
-    })
-    .run();
-}
 
 function insertEpisode(
   db: ReturnType<typeof getDb>,

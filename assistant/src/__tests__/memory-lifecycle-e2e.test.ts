@@ -61,12 +61,12 @@ mock.module("../config/loader.js", () => ({
 
 import { v4 as uuid } from "uuid";
 
+import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
 import { buildArchiveRecall } from "../memory/archive-recall.js";
 import { insertObservation } from "../memory/archive-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { injectMemoryRecallAsUserBlock } from "../memory/inject.js";
 import { memoryEpisodes, memoryObservations } from "../memory/schema.js";
-import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../providers/types.js";
 
 describe("Memory lifecycle E2E (simplified path)", () => {
