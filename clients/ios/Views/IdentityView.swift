@@ -14,7 +14,7 @@ final class IdentityViewModel {
 
     var skillsStore: SkillsStore?
     var contactsStore: ContactsStore?
-    var memoriesStore: MemoryItemsStore?
+    var memoriesStore: SimplifiedMemoryStore?
 
     // Cached counts — updated via Combine when the stores' @Published properties change.
     var installedSkillsCount: Int = 0
@@ -43,9 +43,9 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.contactsCount = count }
             .store(in: &cancellables)
 
-        let memories = MemoryItemsStore(memoryItemClient: MemoryItemClient())
+        let memories = SimplifiedMemoryStore(client: SimplifiedMemoryClient())
         memoriesStore = memories
-        memories.$items
+        memories.$observations
             .map(\.count)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] count in self?.memoriesCount = count }
@@ -53,7 +53,7 @@ final class IdentityViewModel {
 
         skills.fetchSkills(force: true)
         contacts.loadContacts()
-        Task { await memories.loadItems() }
+        Task { await memories.loadMemories() }
     }
 
     func tearDown() {
@@ -274,7 +274,7 @@ struct IdentityView: View {
             viewModel.skillsStore?.fetchSkills(force: true)
             viewModel.contactsStore?.loadContacts()
             if let memoriesStore = viewModel.memoriesStore {
-                await memoriesStore.loadItems()
+                await memoriesStore.loadMemories()
             }
             await viewModel.fetchIdentity()
         }
