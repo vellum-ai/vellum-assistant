@@ -150,6 +150,21 @@ export function createChannelVerificationSessionProxyHandler(
       req: Request,
       clientIp?: string,
     ): Promise<Response> {
+      // When GUARDIAN_BOOTSTRAP_SECRET is set (Docker mode), require the
+      // caller to present the matching secret. This prevents unauthenticated
+      // remote callers from bootstrapping guardian tokens through the gateway.
+      const bootstrapSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
+      if (bootstrapSecret) {
+        const provided = req.headers.get("x-bootstrap-secret");
+        if (provided !== bootstrapSecret) {
+          log.warn("Guardian init rejected — invalid or missing bootstrap secret");
+          return Response.json(
+            { error: "Invalid bootstrap secret" },
+            { status: 403 },
+          );
+        }
+      }
+
       const lockDir = process.env.GATEWAY_SECURITY_DIR || getRootDir();
       const lockPath = join(lockDir, "guardian-init.lock");
       if (existsSync(lockPath) || guardianInitInFlight) {

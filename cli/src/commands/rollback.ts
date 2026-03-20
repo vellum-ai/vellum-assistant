@@ -18,6 +18,7 @@ import {
   stopContainers,
 } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
+import { loadBootstrapSecret } from "../lib/guardian-token";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
@@ -162,6 +163,10 @@ export async function rollback(): Promise<void> {
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
+  // Retrieve or generate a bootstrap secret for the gateway.
+  const bootstrapSecret =
+    loadBootstrapSecret(instanceName) || randomBytes(32).toString("hex");
+
   // Build extra env vars, excluding keys managed by serviceDockerRunArgs
   const envKeysSetByRunArgs = new Set([
     "CES_SERVICE_TOKEN",
@@ -220,6 +225,7 @@ export async function rollback(): Promise<void> {
   console.log("🚀 Starting containers with previous version...");
   await startContainers(
     {
+      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,

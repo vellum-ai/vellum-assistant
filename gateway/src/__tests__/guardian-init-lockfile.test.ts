@@ -80,6 +80,100 @@ afterEach(() => {
   writtenLockFiles = [];
 });
 
+describe("guardian/init bootstrap secret", () => {
+  test("rejects requests without secret when GUARDIAN_BOOTSTRAP_SECRET is set", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    try {
+      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const res = await handler.handleGuardianInit(
+        new Request("http://localhost:7830/v1/guardian/init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+        }),
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toBe("Invalid bootstrap secret");
+    } finally {
+      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    }
+  });
+
+  test("rejects requests with wrong secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    try {
+      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const res = await handler.handleGuardianInit(
+        new Request("http://localhost:7830/v1/guardian/init", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-bootstrap-secret": "wrong-secret",
+          },
+          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+        }),
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toBe("Invalid bootstrap secret");
+    } finally {
+      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    }
+  });
+
+  test("accepts requests with correct secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    try {
+      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const res = await handler.handleGuardianInit(
+        new Request("http://localhost:7830/v1/guardian/init", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-bootstrap-secret": "test-secret-abc123",
+          },
+          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+        }),
+      );
+
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    }
+  });
+
+  test("skips secret check when GUARDIAN_BOOTSTRAP_SECRET is not set", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("guardian/init one-time-use lockfile", () => {
   test("first call succeeds and creates lock file", async () => {
     fetchMock = mock(async () => {
