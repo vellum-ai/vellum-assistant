@@ -36,10 +36,6 @@ struct SettingsGeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
-            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
-                mobilePairingCard
-            }
-            SettingsAppearanceTab(store: store)
             if !lockfileAssistants.isEmpty {
                 AssistantUpgradeSection(
                     currentVersion: healthz?.version,
@@ -50,6 +46,10 @@ struct SettingsGeneralTab: View {
                     sparkleUpdateVersion: sparkleUpdateVersion
                 )
             }
+            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
+                mobilePairingCard
+            }
+            SettingsAppearanceTab(store: store)
         }
         .onAppear {
             Task { await authManager.checkSession() }

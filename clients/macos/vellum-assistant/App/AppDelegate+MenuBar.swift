@@ -309,11 +309,6 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let feedbackItem = NSMenuItem(title: "Send Feedback...", action: #selector(sendLogsToSentry), keyEquivalent: "")
-        feedbackItem.target = self
-        feedbackItem.image = VIcon.messageCircle.nsImage(size: 16)
-        menu.addItem(feedbackItem)
-
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.image = VIcon.settings.nsImage(size: 16)
@@ -404,20 +399,18 @@ extension AppDelegate {
     }
 
     @objc public func checkForUpdates() {
-        // For Docker/managed topologies with a service group update available,
-        // navigate to Settings > General (where the Software Update card lives)
-        // instead of triggering Sparkle's update dialog.
-        if updateManager.isServiceGroupUpdateAvailable {
-            let assistants = LockfileAssistant.loadAll()
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            if let id = connectedId,
-               let assistant = assistants.first(where: { $0.assistantId == id }),
-               assistant.isDocker || assistant.isManaged {
-                showSettingsTab("General")
-                return
-            }
+        // Docker/managed topologies: always navigate to Settings > General
+        // where the Software Update card lives and auto-loads releases.
+        // Sparkle is only relevant for local topology.
+        let assistants = LockfileAssistant.loadAll()
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        if let id = connectedId,
+           let assistant = assistants.first(where: { $0.assistantId == id }),
+           assistant.isDocker || assistant.isManaged {
+            showSettingsTab("General")
+            return
         }
-        // Local topology (or no service group update): use Sparkle
+        // Local topology: use Sparkle
         updateManager.checkForUpdates()
     }
 
@@ -505,7 +498,7 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
