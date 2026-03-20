@@ -64,8 +64,24 @@ export class CredentialWatcher {
 
     // Ensure directories exist so fs.watch() doesn't throw ENOENT
     // on a fresh hatch where no credentials have been written yet.
-    mkdirSync(metadataDir, { recursive: true });
-    mkdirSync(protectedDir, { recursive: true });
+    // Wrapped in try-catch because the gateway process may not have
+    // write permission to parent directories (e.g. /workspace owned by root).
+    try {
+      mkdirSync(metadataDir, { recursive: true });
+    } catch (err) {
+      log.warn(
+        { err, path: metadataDir },
+        "Could not create metadata directory — credential watching may be limited",
+      );
+    }
+    try {
+      mkdirSync(protectedDir, { recursive: true });
+    } catch (err) {
+      log.warn(
+        { err, path: protectedDir },
+        "Could not create protected directory — credential watching may be limited",
+      );
+    }
 
     // Watch the metadata directory for metadata.json changes.
     this.startWatcher(metadataDir, "metadata.json");

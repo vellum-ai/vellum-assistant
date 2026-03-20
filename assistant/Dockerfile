@@ -25,6 +25,9 @@ COPY packages/egress-proxy ./packages/egress-proxy
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile
 
+# Copy meta package (provider-env-vars.json consumed by assistant at runtime)
+COPY meta ./meta
+
 # Copy source
 COPY assistant ./assistant
 
