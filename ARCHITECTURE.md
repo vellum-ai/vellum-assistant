@@ -284,7 +284,7 @@ subgraph "Text Q&A Session"
             SWARM_TOOL["swarm_delegate tool<br/>recursion guard"]
             ROUTER_PLAN["Router Planner<br/>LLM → DAG plan"]
             DAG_SCHED["DAG Scheduler<br/>topological order<br/>bounded concurrency"]
-            WORKER_POOL["Worker Pool<br/>claude_code backend<br/>role-scoped profiles"]
+            WORKER_POOL["Worker Pool<br/>role-scoped profiles"]
             SYNTH["Synthesizer<br/>LLM + markdown fallback"]
         end
 
