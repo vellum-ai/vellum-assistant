@@ -7,9 +7,7 @@ import { insertObservation } from "../../memory/archive-store.js";
 import { getDb } from "../../memory/db.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { buildMemoryRecall } from "../../memory/retriever.js";
 import { memoryItems } from "../../memory/schema.js";
-import type { ScopePolicyOverride } from "../../memory/search/types.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import type { ToolExecutionResult } from "../types.js";
@@ -273,9 +271,9 @@ export interface MemoryRecallToolResult {
 
 export async function handleMemoryRecall(
   args: Record<string, unknown>,
-  config: AssistantConfig,
+  _config: AssistantConfig,
   scopeId?: string,
-  conversationId?: string,
+  _conversationId?: string,
 ): Promise<ToolExecutionResult> {
   const query = args.query;
   if (typeof query !== "string" || query.trim().length === 0) {
@@ -285,86 +283,7 @@ export async function handleMemoryRecall(
     };
   }
 
-  const scope =
-    typeof args.scope === "string" && args.scope.trim().length > 0
-      ? args.scope.trim()
-      : "default";
-
-  // When simplified memory is enabled, use the archive recall path
-  // instead of the legacy hybrid retriever.
-  if (config.memory.simplified.enabled) {
-    return handleSimplifiedMemoryRecall(query.trim(), scopeId ?? "default");
-  }
-
-  // Scope policy: "conversation" means strict (only that scope),
-  // anything else allows fallback to the default scope.
-  const scopePolicyOverride: ScopePolicyOverride | undefined = scopeId
-    ? {
-        scopeId,
-        fallbackToDefault: scope !== "conversation",
-      }
-    : undefined;
-
-  try {
-    const trimmedQuery = query.trim();
-
-    // Use the unified recall pipeline
-    const recall = await buildMemoryRecall(
-      trimmedQuery,
-      conversationId ?? "",
-      config,
-      {
-        scopeId,
-        scopePolicyOverride,
-      },
-    );
-
-    const degraded = recall.degraded;
-
-    if (recall.selectedCount === 0 || recall.injectedText.length === 0) {
-      const result: MemoryRecallToolResult = {
-        text: "No matching memories found.",
-        resultCount: 0,
-        degraded,
-        items: [],
-        sources: {
-          semantic: recall.semanticHits,
-          recency: recall.recencyHits,
-        },
-      };
-      return {
-        content: JSON.stringify(result),
-        isError: false,
-      };
-    }
-
-    const result: MemoryRecallToolResult = {
-      text: recall.injectedText,
-      resultCount: recall.selectedCount,
-      degraded,
-      items: recall.topCandidates.map((c) => ({
-        id: c.key,
-        type: c.type,
-        kind: c.kind,
-      })),
-      sources: {
-        semantic: recall.semanticHits,
-        recency: recall.recencyHits,
-      },
-    };
-
-    return {
-      content: JSON.stringify(result),
-      isError: false,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, query }, "memory_recall failed");
-    return {
-      content: `Error: Memory recall failed: ${msg}`,
-      isError: true,
-    };
-  }
+  return handleSimplifiedMemoryRecall(query.trim(), scopeId ?? "default");
 }
 
 // ── memory_delete ────────────────────────────────────────────────────

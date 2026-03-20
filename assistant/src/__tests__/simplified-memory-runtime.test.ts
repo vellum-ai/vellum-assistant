@@ -1,11 +1,10 @@
 /**
- * Tests for the simplified memory runtime injection path in
- * conversation-memory.ts.
+ * Tests for the memory runtime injection path in conversation-memory.ts.
  *
  * Covers:
  * - Brief-only turns (no archive recall trigger)
  * - Brief-plus-recall turns (archive recall fires)
- * - Disabled-flag fallback (legacy path used when flag is off)
+ * - Gate checks (untrusted actors, tool-result-only turns)
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,10 +54,6 @@ let testConfig: AssistantConfig = {
   memory: {
     ...DEFAULT_CONFIG.memory,
     enabled: true,
-    simplified: {
-      ...DEFAULT_CONFIG.memory.simplified,
-      enabled: true,
-    },
   },
 };
 
@@ -70,18 +65,9 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-// Stub out the legacy retriever to ensure the simplified path does not
-// call into the heavy V2 hybrid pipeline. If the legacy path is used
-// unexpectedly, the test will fail with a clear error.
-//
-// We provide the real `injectMemoryRecallAsUserBlock` inline since
-// it's a pure function used by both the legacy and simplified paths.
+// Provide `injectMemoryRecallAsUserBlock` inline — it's a pure function
+// used by the memory injection path.
 mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: () => {
-    throw new Error(
-      "buildMemoryRecall should not be called in simplified mode",
-    );
-  },
   injectMemoryRecallAsUserBlock: (
     msgs: import("../providers/types.js").Message[],
     memoryRecallText: string,
@@ -101,24 +87,6 @@ mock.module("../memory/retriever.js", () => ({
       },
     ];
   },
-}));
-
-// Stub out modules used only by the legacy pipeline (budget, token
-// estimator, query builder) so they never execute in simplified mode.
-mock.module("../memory/query-builder.js", () => ({
-  buildMemoryQuery: () => {
-    throw new Error("buildMemoryQuery should not be called in simplified mode");
-  },
-}));
-mock.module("../memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => {
-    throw new Error(
-      "computeRecallBudget should not be called in simplified mode",
-    );
-  },
-}));
-mock.module("../context/token-estimator.js", () => ({
-  estimatePromptTokens: () => 0,
 }));
 
 // ── Now import the module under test ────────────────────────────────
@@ -256,7 +224,7 @@ const DAY = 24 * HOUR;
 
 // ── Setup / Teardown ────────────────────────────────────────────────
 
-describe("Simplified Memory Runtime", () => {
+describe("Memory Runtime", () => {
   const events: ServerMessage[] = [];
   const onEvent = (msg: ServerMessage) => events.push(msg);
   const abortController = new AbortController();
@@ -270,16 +238,12 @@ describe("Simplified Memory Runtime", () => {
     resetDb();
     removeTestDbFiles();
     initializeDb();
-    // Reset config to simplified-enabled for each test
+    // Reset config for each test
     testConfig = {
       ...DEFAULT_CONFIG,
       memory: {
         ...DEFAULT_CONFIG.memory,
         enabled: true,
-        simplified: {
-          ...DEFAULT_CONFIG.memory.simplified,
-          enabled: true,
-        },
       },
     };
   });
@@ -496,62 +460,10 @@ describe("Simplified Memory Runtime", () => {
     });
   });
 
-  // ── Disabled-flag fallback ──────────────────────────────────────
-
-  describe("disabled-flag fallback", () => {
-    test("falls back to legacy path when memory.simplified.enabled is false", async () => {
-      // Disable the simplified flag
-      testConfig = {
-        ...DEFAULT_CONFIG,
-        memory: {
-          ...DEFAULT_CONFIG.memory,
-          enabled: true,
-          simplified: {
-            ...DEFAULT_CONFIG.memory.simplified,
-            enabled: false,
-          },
-        },
-      };
-
-      // The legacy retriever mock throws, so we need to unmock it for
-      // this test. Instead, we verify the flag gating by checking the
-      // code path via the mock that throws — if the simplified path is
-      // correctly bypassed, the legacy path will be invoked.
-      const ctx = buildCtx({
-        messages: [makeUserMessage("Hello there")],
-      });
-      const msgId = uuid();
-
-      // The legacy path calls buildMemoryRecall which we mocked to throw.
-      // This confirms the code took the legacy path, not the simplified one.
-      let hitLegacyPath = false;
-      try {
-        await prepareMemoryContext(
-          ctx,
-          "Hello there",
-          msgId,
-          abortController.signal,
-          onEvent,
-        );
-      } catch (err) {
-        if (
-          err instanceof Error &&
-          err.message.includes("should not be called in simplified mode")
-        ) {
-          hitLegacyPath = true;
-        } else {
-          throw err;
-        }
-      }
-
-      expect(hitLegacyPath).toBe(true);
-    });
-  });
-
   // ── Gate checks ─────────────────────────────────────────────────
 
   describe("gate checks", () => {
-    test("skips memory for untrusted actors in simplified mode", async () => {
+    test("skips memory for untrusted actors", async () => {
       const now = Date.now();
       insertTimeContext({
         id: "tc-1",
@@ -579,7 +491,7 @@ describe("Simplified Memory Runtime", () => {
       expect(result.recall.enabled).toBe(false);
     });
 
-    test("skips memory for tool-result-only turns in simplified mode", async () => {
+    test("skips memory for tool-result-only turns", async () => {
       const now = Date.now();
       insertTimeContext({
         id: "tc-1",

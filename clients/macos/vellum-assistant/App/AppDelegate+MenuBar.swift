@@ -374,6 +374,7 @@ extension AppDelegate {
     @objc func openCurrentConversation() {
         guard !isBootstrapping else { return }
         showMainWindow()
+        mainWindow?.windowState.dismissOverlay()
     }
 
     @objc func openNewChat() {

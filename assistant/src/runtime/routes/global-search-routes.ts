@@ -8,21 +8,12 @@
  * and merges results with lexical matches.
  */
 
-import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
-import {
-  embedWithBackend,
-  getMemoryBackendStatus,
-} from "../../memory/embedding-backend.js";
 import { rawAll } from "../../memory/raw-query.js";
-import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
-import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
-
-const log = getLogger("global-search");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,49 +119,6 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
   }));
 }
 
-async function searchMemoriesSemantic(
-  query: string,
-  limit: number,
-  existingIds: Set<string>,
-): Promise<GlobalSearchMemory[]> {
-  const config = getConfig();
-  const backendStatus = await getMemoryBackendStatus(config);
-  if (!backendStatus.provider) return [];
-
-  try {
-    const embedded = await embedWithBackend(config, [query]);
-    const queryVector = embedded.vectors[0];
-    if (!queryVector) return [];
-
-    const candidates = await semanticSearch(
-      queryVector,
-      embedded.provider,
-      embedded.model,
-      limit,
-    );
-
-    // Only include item-type candidates (not segments/summaries) for cleaner results
-    const results: GlobalSearchMemory[] = [];
-    for (const c of candidates) {
-      if (c.type !== "item") continue;
-      if (existingIds.has(c.id)) continue;
-      results.push({
-        id: c.id,
-        kind: c.kind,
-        text: c.text,
-        subject: null,
-        confidence: c.confidence,
-        updatedAt: c.createdAt,
-        source: "semantic",
-      });
-    }
-    return results;
-  } catch (err) {
-    log.warn({ err }, "Deep semantic search failed, returning lexical only");
-    return [];
-  }
-}
-
 function searchScheduleJobs(
   query: string,
   limit: number,
@@ -206,7 +154,6 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
     Math.min(Number(url.searchParams.get("limit") ?? 20), 100),
   );
   const categories = parseCategories(url.searchParams.get("categories"));
-  const deep = url.searchParams.get("deep") === "true";
 
   const results: GlobalSearchResponse["results"] = {
     conversations: [],
@@ -232,15 +179,6 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
   if (categories.has("memories")) {
     results.memories = searchMemoryItems(query, limit);
 
-    if (deep) {
-      const existingIds = new Set(results.memories.map((m) => m.id));
-      const semanticResults = await searchMemoriesSemantic(
-        query,
-        limit,
-        existingIds,
-      );
-      results.memories = [...results.memories, ...semanticResults];
-    }
   }
 
   if (categories.has("schedules")) {

@@ -1,9 +1,7 @@
-import { createHash } from "crypto";
 import { desc, eq } from "drizzle-orm";
 
 import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { computeChunkContentHash } from "./archive-store.js";
 import { getDb } from "./db.js";
@@ -13,7 +11,11 @@ import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import { memoryChunks, memoryObservations, memorySegments } from "./schema.js";
+import {
+  memoryChunks,
+  memoryObservations,
+  memorySegments,
+} from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
@@ -26,13 +28,16 @@ export interface IndexMessageInput {
   createdAt: number;
   scopeId?: string;
   /**
-   * Trust class of the actor who produced this message, captured at
-   * persist time. When `'guardian'` or `undefined` (legacy), extraction
-   * jobs run. Otherwise, the message is segmented and embedded but no
-   * profile mutations are triggered.
+   * @deprecated No longer used for job gating — legacy extraction jobs
+   * have been removed. Kept for backwards-compatible call-site signatures
+   * until callers are updated.
    */
-  provenanceTrustClass?: TrustClass;
-  /** When true, the message was auto-sent by the client (e.g. wake-up greeting) and should not trigger memory extraction. */
+  provenanceTrustClass?: unknown;
+  /**
+   * @deprecated No longer used for job gating — legacy extraction jobs
+   * have been removed. Kept for backwards-compatible call-site signatures
+   * until callers are updated.
+   */
   automated?: boolean;
 }
 
@@ -47,12 +52,6 @@ export async function indexMessageNow(
 ): Promise<IndexMessageResult> {
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
 
-  // Provenance-based trust gating: only guardian and legacy (undefined) actors
-  // are trusted for extraction.
-  const isTrustedActor =
-    input.provenanceTrustClass === "guardian" ||
-    input.provenanceTrustClass === undefined;
-
   const text = extractTextFromStoredMessageContent(input.content);
   const hasText = text.length > 0;
   const candidateMediaMeta = extractMediaBlockMeta(input.content).filter(
@@ -60,14 +59,10 @@ export async function indexMessageNow(
   );
   const hasMedia = candidateMediaMeta.length > 0;
   if (!hasText && !hasMedia) {
-    enqueueMemoryJob("build_conversation_summary", {
-      conversationId: input.conversationId,
-    });
-    return { indexedSegments: 0, enqueuedJobs: 1 };
+    return { indexedSegments: 0, enqueuedJobs: 0 };
   }
 
   const db = getDb();
-  const now = Date.now();
   const segments = hasText
     ? segmentText(
         text,
@@ -75,9 +70,6 @@ export async function indexMessageNow(
         config.segmentation.overlapTokens,
       )
     : [];
-  const shouldExtract =
-    input.role === "user" ||
-    (input.role === "assistant" && config.extraction.extractFromAssistant);
   // Check if the message has any image blocks before probing the backend.
   // extractMediaBlockMeta is synchronous and lightweight — it detects image
   // blocks without decoding base64 data into Buffers, avoiding CPU/memory
@@ -90,58 +82,12 @@ export async function indexMessageNow(
       ? candidateMediaMeta
       : [];
 
-  // Wrap all segment inserts and job enqueues in a single transaction so they
-  // either all succeed or all roll back, preventing partial/orphaned state.
-  let skippedEmbedJobs = 0;
+  // Wrap all observation/chunk inserts and job enqueues in a single
+  // transaction so they either all succeed or all roll back.
   let skippedChunkEmbedJobs = 0;
   const scopeId = input.scopeId ?? "default";
   db.transaction((tx) => {
-    // ── Legacy segment path (kept intact for parallel validation) ───
-    for (const segment of segments) {
-      const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
-      const hash = createHash("sha256").update(segment.text).digest("hex");
-
-      // Check if this segment already exists with the same content hash
-      const existing = tx
-        .select({ contentHash: memorySegments.contentHash })
-        .from(memorySegments)
-        .where(eq(memorySegments.id, segmentId))
-        .get();
-
-      tx.insert(memorySegments)
-        .values({
-          id: segmentId,
-          messageId: input.messageId,
-          conversationId: input.conversationId,
-          role: input.role,
-          segmentIndex: segment.segmentIndex,
-          text: segment.text,
-          tokenEstimate: segment.tokenEstimate,
-          scopeId,
-          contentHash: hash,
-          createdAt: input.createdAt,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: memorySegments.id,
-          set: {
-            text: segment.text,
-            tokenEstimate: segment.tokenEstimate,
-            scopeId,
-            contentHash: hash,
-            updatedAt: now,
-          },
-        })
-        .run();
-
-      if (existing?.contentHash === hash) {
-        skippedEmbedJobs++;
-      } else {
-        enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
-      }
-    }
-
-    // ── Archive chunk dual-write (mirrors segment boundaries) ──────
+    // ── Archive observation + chunk writes ─────────────────────────
     // Create a single observation per message, then create one chunk per
     // segment using the same segmentation boundaries. Chunks are
     // deduplicated by (scopeId, contentHash) via onConflictDoNothing so
@@ -210,28 +156,7 @@ export async function indexMessageNow(
         tx,
       );
     }
-
-    if (shouldExtract && isTrustedActor && !input.automated) {
-      enqueueMemoryJob(
-        "extract_items",
-        { messageId: input.messageId, scopeId },
-        Date.now(),
-        tx,
-      );
-    }
-    enqueueMemoryJob(
-      "build_conversation_summary",
-      { conversationId: input.conversationId },
-      Date.now(),
-      tx,
-    );
   });
-
-  if (skippedEmbedJobs > 0) {
-    log.debug(
-      `Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`,
-    );
-  }
 
   if (skippedChunkEmbedJobs > 0) {
     log.debug(
@@ -239,24 +164,8 @@ export async function indexMessageNow(
     );
   }
 
-  if (!isTrustedActor && shouldExtract) {
-    log.info(
-      `Skipping extraction jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
-    );
-  }
-
-  if (input.automated && shouldExtract) {
-    log.info("Skipping extraction jobs for automated message");
-  }
-
-  const extractionGated = !isTrustedActor || !!input.automated;
-  const segmentEmbedJobs = segments.length - skippedEmbedJobs;
   const chunkEmbedJobs = segments.length - skippedChunkEmbedJobs;
-  const enqueuedJobs =
-    segmentEmbedJobs +
-    chunkEmbedJobs +
-    mediaBlocks.length +
-    (shouldExtract && !extractionGated ? 2 : 1);
+  const enqueuedJobs = chunkEmbedJobs + mediaBlocks.length;
   return {
     indexedSegments: segments.length,
     enqueuedJobs,
@@ -283,10 +192,6 @@ export function getRecentSegmentsForConversation(
     .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();
-}
-
-function buildSegmentId(messageId: string, segmentIndex: number): string {
-  return `${messageId}:${segmentIndex}`;
 }
 
 /**
