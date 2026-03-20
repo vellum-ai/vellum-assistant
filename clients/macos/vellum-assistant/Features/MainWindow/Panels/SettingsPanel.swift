@@ -65,6 +65,11 @@ struct SettingsPanel: View {
         let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
         _isBillingEnabled = State(initialValue: billingEnabled)
 
+        // Pre-compute the sounds flag so deep-link validation below uses
+        // the actual config value instead of the @State default (true).
+        let soundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
+        _isSoundsEnabled = State(initialValue: soundsEnabled)
+
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
@@ -79,7 +84,7 @@ struct SettingsPanel: View {
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
             // Contacts and developer flags load asynchronously, so default
             // to false at init time — those tabs aren't visible yet.
-            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: false)
+            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, schedulesEnabled: false)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
@@ -220,6 +225,11 @@ struct SettingsPanel: View {
         }
         .onChange(of: billingVisible) { _, visible in
             if !visible && selectedTab == .billing {
+                selectedTab = .general
+            }
+        }
+        .onChange(of: isSoundsEnabled) { _, enabled in
+            if !enabled && selectedTab == .sounds {
                 selectedTab = .general
             }
         }
