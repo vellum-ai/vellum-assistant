@@ -48,6 +48,7 @@ export interface QdrantManagerConfig {
 export class QdrantManager {
   private process: Subprocess | null = null;
   private stderrBuffer = "";
+  private stderrDrained: Promise<void> = Promise.resolve();
   private readonly url: string;
   private readonly host: string;
   private readonly port: number;
@@ -266,6 +267,7 @@ export class QdrantManager {
     while (Date.now() - start < this.readyzTimeoutMs) {
       // Fail fast if the managed process exited before becoming ready
       if (this.process != null && this.process.exitCode != null) {
+        await this.stderrDrained;
         const stderr = this.stderrBuffer.trim();
         throw new Error(
           `Qdrant process exited with code ${this.process.exitCode} before becoming ready` +
@@ -290,7 +292,7 @@ export class QdrantManager {
   private drainStderrFrom(stream: ReadableStream<Uint8Array>): void {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    void (async () => {
+    this.stderrDrained = (async () => {
       try {
         for (;;) {
           const { done, value } = await reader.read();
