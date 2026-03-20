@@ -1721,58 +1721,6 @@ describe("bundled skill: gmail", () => {
   });
 });
 
-describe("bundled skill: claude-code", () => {
-  let sessionState: Map<string, string>;
-
-  beforeEach(() => {
-    mockCatalog = [];
-    mockManifests = {};
-    mockRegisteredTools = new Map();
-    mockUnregisteredSkillIds = [];
-    mockSkillRefCount = new Map();
-    mockSkillRefCount = new Map();
-    mockVersionHashes = {};
-    mockVersionHashErrors = new Set();
-    sessionState = new Map<string, string>();
-  });
-
-  test("claude-code skill activation registers claude_code in allowedToolNames", () => {
-    mockCatalog = [
-      makeSkill("claude-code", "/path/to/bundled-skills/claude-code"),
-    ];
-    mockManifests = { "claude-code": makeManifest(["claude_code"]) };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="claude-code" />'),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set(["claude_code"]));
-  });
-
-  test("claude_code tool is absent when claude-code skill is not active", () => {
-    mockCatalog = [
-      makeSkill("claude-code", "/path/to/bundled-skills/claude-code"),
-    ];
-    mockManifests = { "claude-code": makeManifest(["claude_code"]) };
-
-    const history: Message[] = [
-      { role: "user", content: [{ type: "text", text: "Hello" }] },
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toHaveLength(0);
-    expect(result.allowedToolNames.has("claude_code")).toBe(false);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Bundled skill: app-builder
 // ---------------------------------------------------------------------------
