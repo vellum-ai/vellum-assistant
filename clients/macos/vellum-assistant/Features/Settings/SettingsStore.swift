@@ -2940,8 +2940,8 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
-        dangerouslySkipPermissions = enabled
         guard !isCurrentAssistantRemote else { return }
+        dangerouslySkipPermissions = enabled
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var permissions = existingConfig["permissions"] as? [String: Any] ?? [:]
         permissions["dangerouslySkipPermissions"] = enabled
