@@ -176,6 +176,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Settings / integrations / identity
   { endpoint: "identity", scopes: ["settings.read"] },
+  { endpoint: "identity/intro", scopes: ["settings.read"] },
   { endpoint: "brain-graph", scopes: ["settings.read"] },
   { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
@@ -355,6 +356,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
 
+  // Conversation starters
+  { endpoint: "conversation-starters", scopes: ["chat.read"] },
+
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
@@ -380,6 +384,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory-items:POST", scopes: ["settings.write"] },
   { endpoint: "memory-items:PATCH", scopes: ["settings.write"] },
   { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
+
+  // Memories
+  { endpoint: "memories:GET", scopes: ["settings.read"] },
+  { endpoint: "memories:POST", scopes: ["settings.write"] },
+  { endpoint: "memories:DELETE", scopes: ["settings.write"] },
 
   // Trust rule CRUD management
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
