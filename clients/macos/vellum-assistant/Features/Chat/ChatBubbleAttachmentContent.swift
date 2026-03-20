@@ -22,13 +22,25 @@ private enum ImageActions {
         let sanitized = (filename as NSString).lastPathComponent
         let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
+        // When base64Data is unavailable we re-encode the NSImage as PNG.
+        // Force the suggested filename to .png so the extension matches the
+        // actual content encoding — mirrors the same pattern in openInPreview.
+        let hasFullData = base64Data.map { !$0.isEmpty } ?? false
+        let suggestedName: String
+        if hasFullData {
+            suggestedName = fallbackName
+        } else {
+            suggestedName = (fallbackName as NSString).deletingPathExtension + ".png"
+        }
+
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = fallbackName
+        panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                if let base64Data, !base64Data.isEmpty,
+                if hasFullData,
+                   let base64Data,
                    let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
                     try? decoded.write(to: url)
                 } else if let tiff = image.tiffRepresentation,
