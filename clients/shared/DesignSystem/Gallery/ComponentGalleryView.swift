@@ -372,20 +372,69 @@ struct GallerySectionHeader: View {
                 .foregroundStyle(VColor.contentSecondary)
             if let useInsteadOf {
                 HStack(spacing: VSpacing.xs) {
-                    Text("Use instead of:")
-                        .font(VFont.caption)
+                    Text("Replaces")
+                        .font(VFont.small)
                         .foregroundStyle(VColor.contentTertiary)
                     Text(useInsteadOf)
-                        .font(VFont.caption)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        .strikethrough()
+                        .font(VFont.small)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(VColor.surfaceActive)
+                        .clipShape(Capsule())
                 }
             }
         }
     }
 }
 
-// MARK: - Overview Cards
+// MARK: - Component Card
+
+struct GalleryComponentCard: View {
+    let component: GalleryComponent
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text(component.title)
+                    .font(VFont.headline)
+                    .foregroundStyle(VColor.contentDefault)
+
+                Text(component.description)
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 0)
+
+                if let useInsteadOf = component.useInsteadOf {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Replaces")
+                            .font(VFont.small)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text(useInsteadOf)
+                            .font(VFont.small)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xxs)
+                            .background(VColor.surfaceActive)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
+            .padding(VSpacing.lg)
+        }
+        .buttonStyle(.plain)
+        .vCard()
+        .pointerCursor()
+    }
+}
+
+// MARK: - Overview Grid
 
 struct GalleryOverview: View {
     let category: ComponentGalleryCategory
@@ -399,37 +448,9 @@ struct GalleryOverview: View {
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 400), spacing: VSpacing.md)], spacing: VSpacing.md) {
                 ForEach(category.components) { component in
-                    Button {
+                    GalleryComponentCard(component: component) {
                         onNavigate(.component(category, component.id))
-                    } label: {
-                        VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text(component.title)
-                                .font(VFont.headline)
-                                .foregroundStyle(VColor.contentDefault)
-                            Text(component.description)
-                                .font(VFont.caption)
-                                .foregroundStyle(VColor.contentSecondary)
-                                .lineLimit(3)
-                                .multilineTextAlignment(.leading)
-                            if let useInsteadOf = component.useInsteadOf {
-                                HStack(spacing: VSpacing.xxs) {
-                                    Text("Replaces:")
-                                        .font(VFont.small)
-                                        .foregroundStyle(VColor.contentTertiary)
-                                    Text(useInsteadOf)
-                                        .font(VFont.small)
-                                        .foregroundStyle(VColor.systemNegativeStrong)
-                                        .strikethrough()
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(VSpacing.lg)
                     }
-                    .buttonStyle(.plain)
-                    .vCard()
-                    .pointerCursor()
                 }
             }
         }
