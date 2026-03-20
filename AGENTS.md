@@ -67,7 +67,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 ## Keep Docs Up to Date
 
-- **README**: When modifying slash commands in `.claude/commands/`, update the README's "Slash Commands" section to match.
+- **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
 
