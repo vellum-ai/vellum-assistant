@@ -136,7 +136,7 @@ export async function getSecureKeyAsync(
 ): Promise<string | undefined> {
   const backend = resolveBackend();
   const result = await backend.get(account);
-  if (result != null) return result;
+  if (result.value != null) return result.value;
 
   // CES mode — no local fallback.
   if (backend.name === "ces-http") return undefined;
@@ -144,7 +144,8 @@ export async function getSecureKeyAsync(
   // Legacy fallback: if primary backend is NOT the encrypted store,
   // check the encrypted store for keys that haven't been migrated.
   if (backend !== getEncryptedStoreBackend()) {
-    return await getEncryptedStoreBackend().get(account);
+    const fallback = await getEncryptedStoreBackend().get(account);
+    return fallback.value;
   }
 
   return undefined;
