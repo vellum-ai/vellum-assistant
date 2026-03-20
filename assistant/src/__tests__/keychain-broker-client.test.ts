@@ -677,12 +677,16 @@ describe("keychain-broker-client", () => {
   // -----------------------------------------------------------------------
   describe("connect timeout", () => {
     let server: Server;
+    const connections = new Set<import("node:net").Socket>();
 
     beforeEach(() => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
     });
 
     afterEach(async () => {
+      // Destroy all active connections so server.close() completes promptly
+      for (const conn of connections) conn.destroy();
+      connections.clear();
       if (server) {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
@@ -691,7 +695,9 @@ describe("keychain-broker-client", () => {
     test("rejects connect within 3 seconds when broker is unresponsive", async () => {
       // Create a server that accepts connections but never completes the
       // handshake (simulates an unresponsive broker process).
-      server = createServer(() => {
+      server = createServer((conn) => {
+        connections.add(conn);
+        conn.on("close", () => connections.delete(conn));
         // Accept connection but do nothing — no data, no close
       });
       await new Promise<void>((resolve) => {
