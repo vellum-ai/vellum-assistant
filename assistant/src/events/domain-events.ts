@@ -25,7 +25,8 @@ export interface ToolDomainEvents {
       | "always_allow_high_risk"
       | "deny"
       | "always_deny"
-      | "temporary_override";
+      | "temporary_override"
+      | "dangerously_skip_permissions";
     riskLevel: string;
     decidedAtMs: number;
   };

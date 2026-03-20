@@ -15,6 +15,7 @@ describe("isAllowDecision", () => {
     "always_allow",
     "always_allow_high_risk",
     "temporary_override",
+    "dangerously_skip_permissions",
   ];
 
   for (const decision of allowDecisions) {
