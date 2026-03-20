@@ -390,6 +390,17 @@ struct MessageListView: View {
         // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
         // sub-pixel jitter during scroll would otherwise cause continuous re-renders.
         guard abs(avatarDisplayY - y) > 2 else { return }
+
+        // During streaming / sending / thinking, only allow the avatar to move
+        // downward (increasing Y).  Auto-scroll viewport adjustments can briefly
+        // report a smaller tail-anchor Y, which would yank the avatar back toward
+        // the top of the viewport.  Clamping to downward-only movement keeps the
+        // avatar tracking smoothly with the growing content.  When coalescing ends
+        // (streaming finishes), the onChange handler re-applies the true position.
+        if shouldCoalesceAvatarUpdates && avatarDisplayY.isFinite && y < avatarDisplayY {
+            return
+        }
+
         recordScrollLoopEvent(.avatarDisplayYApplied)
         withAnimation(ConversationAvatarFollower.spring) {
             avatarDisplayY = y
