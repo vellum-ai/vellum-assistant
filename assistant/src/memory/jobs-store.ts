@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb, rawAll, rawChanges } from "./db.js";
+import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");
@@ -201,8 +202,16 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
     .all();
 
   const remainingSlots = limit - nonEmbedCandidates.length;
+
+  // When the Qdrant circuit breaker is open, skip embed jobs entirely.
+  // They would just be claimed → fail → deferred, wasting CPU cycles.
+  const skipEmbedJobs = isQdrantBreakerOpen();
+  if (skipEmbedJobs && remainingSlots > 0) {
+    log.debug("Skipping embed job claims — Qdrant circuit breaker is open");
+  }
+
   const embedCandidates =
-    remainingSlots > 0
+    remainingSlots > 0 && !skipEmbedJobs
       ? db
           .select()
           .from(memoryJobs)
