@@ -2,6 +2,131 @@ import AppKit
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Image Context Menu Actions
+
+/// Standalone helper for image context menu actions used by both
+/// `InlineToolCallImageView` and `AttachmentImageGrid`. Kept at file scope
+/// so it is accessible from private structs without coupling to `ChatBubble`.
+private enum ImageActions {
+
+    /// Copies the image to the system clipboard as TIFF data.
+    static func copyToClipboard(_ image: NSImage) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([image])
+    }
+
+    /// Opens an NSSavePanel and writes the image to the chosen path.
+    /// Prefers `base64Data` (full resolution) when available, falling back to
+    /// PNG-encoding the in-memory NSImage.
+    static func saveImageAs(_ image: NSImage, filename: String, base64Data: String? = nil) {
+        let sanitized = (filename as NSString).lastPathComponent
+        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = fallbackName
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let base64Data, !base64Data.isEmpty,
+                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                    try? decoded.write(to: url)
+                } else if let tiff = image.tiffRepresentation,
+                          let rep = NSBitmapImageRep(data: tiff),
+                          let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: url)
+                }
+            }
+        }
+    }
+
+    /// Writes the image to a temporary file and opens it in the default app (Preview).
+    /// Prefers `base64Data` (full resolution), falling back to PNG-encoding the NSImage.
+    static func openInPreview(_ image: NSImage, filename: String, base64Data: String? = nil) {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sanitized = (filename as NSString).lastPathComponent
+        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
+
+        var usedPNGFallback = false
+        let fileData: Data? = {
+            if let base64Data, !base64Data.isEmpty,
+               let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                return decoded
+            }
+            if let tiff = image.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff) {
+                usedPNGFallback = true
+                return rep.representation(using: .png, properties: [:])
+            }
+            return nil
+        }()
+
+        let fileName: String
+        if usedPNGFallback {
+            fileName = (fallbackName as NSString).deletingPathExtension + ".png"
+        } else {
+            fileName = fallbackName
+        }
+        let fileURL = tempDir.appendingPathComponent(fileName)
+
+        guard let fileData else { return }
+        do {
+            try fileData.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        } catch {
+            // Silently fail — not critical
+        }
+    }
+
+    /// Presents the macOS share sheet anchored to the center of the key window.
+    static func shareImage(_ image: NSImage) {
+        let picker = NSSharingServicePicker(items: [image])
+        if let window = NSApp.keyWindow, let contentView = window.contentView {
+            let rect = CGRect(
+                x: contentView.bounds.midX,
+                y: contentView.bounds.midY,
+                width: 1,
+                height: 1
+            )
+            picker.show(relativeTo: rect, of: contentView, preferredEdge: .minY)
+        }
+    }
+
+    /// Builds a SwiftUI context menu with Copy, Save As, Open in Preview, and Share actions.
+    @ViewBuilder
+    static func contextMenuItems(
+        image: NSImage,
+        filename: String,
+        base64Data: String? = nil
+    ) -> some View {
+        Button {
+            copyToClipboard(image)
+        } label: {
+            Label { Text("Copy Image") } icon: { VIconView(.copy, size: 12) }
+        }
+
+        Button {
+            saveImageAs(image, filename: filename, base64Data: base64Data)
+        } label: {
+            Label { Text("Save Image As\u{2026}") } icon: { VIconView(.arrowDownToLine, size: 12) }
+        }
+
+        Button {
+            openInPreview(image, filename: filename, base64Data: base64Data)
+        } label: {
+            Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
+        }
+
+        Divider()
+
+        Button {
+            shareImage(image)
+        } label: {
+            Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 12) }
+        }
+    }
+}
+
 // MARK: - Inline Tool Call Image
 
 /// Renders a single tool-call-generated image at full width in the message flow.
@@ -11,6 +136,18 @@ private struct InlineToolCallImageView: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        imageContent
+            .onTapGesture {
+                ImageActions.openInPreview(image, filename: "image.png")
+            }
+            .contextMenu {
+                ImageActions.contextMenuItems(image: image, filename: "image.png")
+            }
+            .pointerCursor()
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
         if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
@@ -72,6 +209,13 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .onTapGesture {
                                 onTap(attachment, nsImage)
+                            }
+                            .contextMenu {
+                                ImageActions.contextMenuItems(
+                                    image: nsImage,
+                                    filename: attachment.filename,
+                                    base64Data: attachment.data.isEmpty ? nil : attachment.data
+                                )
                             }
                             .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
