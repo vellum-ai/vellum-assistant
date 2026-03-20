@@ -702,6 +702,11 @@ extension AppDelegate {
         let settingsTab: SettingsTab?
         switch tab {
         case "Archived Threads": settingsTab = .archivedConversations
+        case "Contacts":
+            // Contacts moved from Settings to Intelligence panel
+            showMainWindow()
+            mainWindow?.windowState.showPanel(.intelligence)
+            return
         default: settingsTab = SettingsTab(rawValue: tab)
         }
         if let settingsTab {
