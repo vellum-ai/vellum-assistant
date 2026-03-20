@@ -1764,7 +1764,7 @@ private struct MessageCellView: View, Equatable {
         } else {
             ChatBubble(
                 message: commandListFallbackMessage(for: message),
-                decidedConfirmation: nextDecidedConfirmation,
+                decidedConfirmation: nil,
                 onSurfaceAction: onSurfaceAction,
                 onDismissDocumentWidget: { surfaceId in
                     onDismissDocumentWidget?(surfaceId)
