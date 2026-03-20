@@ -10,6 +10,7 @@ import VellumAssistantShared
 @MainActor
 struct AssistantUpgradeSection: View {
     let currentVersion: String?
+    let isDocker: Bool
 
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
@@ -179,6 +180,31 @@ struct AssistantUpgradeSection: View {
         isUpgrading = true
         defer { isUpgrading = false }
 
+        if isDocker {
+            await performDockerUpgrade()
+        } else {
+            await performManagedUpgrade()
+        }
+    }
+
+    private func performDockerUpgrade() async {
+        guard let cli = AppDelegate.shared?.vellumCli else {
+            errorMessage = "CLI not available"
+            return
+        }
+        let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        let version = selectedVersion ?? latestRelease?.version
+        do {
+            try await cli.upgrade(name: name, version: version)
+            successMessage = "Upgrade complete."
+            await loadReleasesQuietly()
+            if successMessage != nil { errorMessage = nil }
+        } catch {
+            errorMessage = "Upgrade failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func performManagedUpgrade() async {
         do {
             let body: [String: String] = selectedVersion.map { ["version": $0] } ?? [:]
             let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)

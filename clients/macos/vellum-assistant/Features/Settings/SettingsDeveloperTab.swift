@@ -127,7 +127,7 @@ struct SettingsDeveloperTab: View {
             // Upgrade (managed/remote only)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isManaged || assistant.isRemote {
-                AssistantUpgradeSection(currentVersion: healthz?.version)
+                AssistantUpgradeSection(currentVersion: healthz?.version, isDocker: assistant.isDocker)
             }
             // Rollback (when previous version is available)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
