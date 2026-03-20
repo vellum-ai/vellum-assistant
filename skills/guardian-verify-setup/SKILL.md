@@ -8,13 +8,13 @@ metadata:
     display-name: "Guardian Verify Setup"
     activation-hints:
       - "Any guardian verification intent -> load this skill exclusively"
-      - '"help me set myself up as your guardian" = verification request'
+      - '"help me verify my identity" = verification request'
     avoid-when:
       - "Don't load phone-calls for verification intents"
       - "If the user already specified a channel, do not re-ask"
 ---
 
-You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
+You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity for verified message delivery on the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
 
 ## Prerequisites
 
@@ -159,7 +159,7 @@ For **voice** verification only: after telling the user their code and instructi
 assistant channel-verification-sessions status --channel phone --json
 ```
 
-3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
+3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Voice verification complete! Your phone number is now verified." Stop polling.
 4. If not yet bound: wait ~15 seconds and poll again.
 5. Continue polling for up to **2 minutes** (approximately 8 attempts).
 6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user - "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
@@ -190,7 +190,7 @@ For **Slack** verification: after telling the user their code and instructing th
 assistant channel-verification-sessions status --channel slack --json
 ```
 
-3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Slack verification complete! Your Slack account is now the trusted guardian. The DM channel has been captured for future message delivery." Stop polling.
+3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Slack verification complete! Your Slack account is now verified. The DM channel has been captured for future message delivery." Stop polling.
 4. If not yet bound: wait ~15 seconds and poll again.
 5. Continue polling for up to **2 minutes** (approximately 8 attempts).
 6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user - "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
@@ -216,7 +216,7 @@ CHANNEL="<channel>"
 assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
-If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now the trusted guardian."
+If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now verified."
 
 If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
@@ -234,8 +234,8 @@ Replace `<channel>` with the channel to unbind from (e.g. `phone`, `telegram`, `
 
 The response includes `bound: false` after the operation completes. Check the previous binding state to tailor the message:
 
-- If a binding was previously active (i.e., the user explicitly asked to revoke their guardian): "Guardian binding revoked for [channel]. The previous guardian no longer has access to this channel."
-- If no binding existed (`bound: false` and there was nothing to revoke): "There is no active guardian binding for [channel] - nothing to revoke. Any pending verification challenges have been cleared."
+- If a binding was previously active (i.e., the user explicitly asked to revoke their guardian): "Verification revoked for [channel]. The previous verified identity no longer has access to this channel."
+- If no binding existed (`bound: false` and there was nothing to revoke): "There is no active verification for [channel] - nothing to revoke. Any pending verification challenges have been cleared."
 
 ## Important Notes
 
@@ -244,4 +244,4 @@ The response includes `bound: false` after the operation completes. Check the pr
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
 - Channel verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice, Telegram chat-ID, and Slack flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
-- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's contact record, so they lose access to the channel. A new guardian can then be verified for that channel.
+- **Revoking verification**: To remove the current verified identity from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the verified identity's contact record, so they lose access to the channel. A new identity can then be verified for that channel.

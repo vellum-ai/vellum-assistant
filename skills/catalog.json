@@ -254,7 +254,7 @@
           "display-name": "Guardian Verify Setup",
           "activation-hints": [
             "Any guardian verification intent -> load this skill exclusively",
-            "\"help me set myself up as your guardian\" = verification request"
+            "\"help me verify my identity\" = verification request"
           ],
           "avoid-when": [
             "Don't load phone-calls for verification intents",
@@ -435,7 +435,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and identity verification",
       "metadata": {
         "emoji": "💬",
         "vellum": {
