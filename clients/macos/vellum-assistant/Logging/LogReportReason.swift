@@ -45,6 +45,23 @@ enum LogExportScope: Sendable {
                       startTime: Date? = nil, endTime: Date? = nil)
 }
 
+/// Time window for diagnostic log collection.
+enum LogTimeRange: String, CaseIterable, Identifiable, Sendable {
+    case pastHour
+    case past24Hours
+    case allTime
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .pastHour: return "Past hour"
+        case .past24Hours: return "Past 24 hours"
+        case .allTime: return "All time"
+        }
+    }
+}
+
 /// Aggregated form data collected from the log report sheet.
 struct LogReportFormData: Sendable {
     var reason: LogReportReason
@@ -52,4 +69,6 @@ struct LogReportFormData: Sendable {
     var message: String
     var email: String  // Required — used for follow-up via Sentry Feedback
     var scope: LogExportScope = .global
+    var includeLogs: Bool = true
+    var logTimeRange: LogTimeRange = .pastHour
 }
