@@ -82,18 +82,19 @@ function dropFtsShadowTables(raw: ReturnType<typeof getSqliteFrom>): void {
     logger.warn(
       "[messages-fts] DROP TABLE messages_fts failed — removing vtable entry via writable_schema",
     );
+    raw.exec(`PRAGMA writable_schema = ON`);
     try {
-      raw.exec(`PRAGMA writable_schema = ON`);
       raw.exec(
         `DELETE FROM sqlite_schema WHERE type = 'table' AND name = 'messages_fts'`,
       );
-      raw.exec(`PRAGMA writable_schema = OFF`);
     } catch (schemaErr) {
       logger.error(
         { err: schemaErr },
         "[messages-fts] Failed to remove vtable entry from sqlite_schema",
       );
       throw schemaErr;
+    } finally {
+      raw.exec(`PRAGMA writable_schema = OFF`);
     }
   }
 }
