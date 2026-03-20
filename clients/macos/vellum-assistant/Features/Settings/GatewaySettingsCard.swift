@@ -105,11 +105,11 @@ struct GatewaySettingsCard: View {
                     )
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .focused($isGatewayUrlFocused)
+                    VTextField(
+                        placeholder: "https://your-tunnel.example.com",
+                        text: $gatewayUrlText
+                    )
+                    .focused($isGatewayUrlFocused)
 
                     Button {
                         Task { await store.testTunnelOnly() }

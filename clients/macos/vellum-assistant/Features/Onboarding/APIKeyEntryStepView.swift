@@ -194,12 +194,12 @@ struct APIKeyEntryStepView: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            Group {
-                if hasExistingKey && !isEditing {
+        Group {
+            if hasExistingKey && !isEditing {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
                     Text(maskedKey)
                         .font(VFont.body)
                         .foregroundColor(VColor.contentDefault)
@@ -214,23 +214,23 @@ struct APIKeyEntryStepView: View {
                                 keyFieldFocused = true
                             }
                         }
-                } else {
-                    SecureField(
-                        currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
-                        text: $apiKey
-                    )
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .focused($keyFieldFocused)
-                    .onSubmit {
+                }
+            } else {
+                VTextField(
+                    isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key",
+                    placeholder: currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
+                    text: $apiKey,
+                    isSecure: true,
+                    onSubmit: {
                         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         saveAndHatch()
-                    }
-                }
+                    },
+                    maxWidth: 400
+                )
+                .focused($keyFieldFocused)
             }
-            .frame(maxWidth: 400)
         }
+        .frame(maxWidth: 400)
     }
 
     // MARK: - Helpers

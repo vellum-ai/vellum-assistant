@@ -209,21 +209,12 @@ public struct FormSurfaceView: View {
             case .select:
                 selectField(for: field)
             case .password:
-                SecureField(
-                    field.placeholder ?? "",
-                    text: textBinding(for: field.id)
+                VTextField(
+                    placeholder: field.placeholder ?? "",
+                    text: textBinding(for: field.id),
+                    isSecure: true,
+                    onSubmit: { handleEnterKey() }
                 )
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .padding(VSpacing.md)
-                .background(VColor.surfaceBase)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
-                )
-                .onSubmit { handleEnterKey() }
             case .toggle:
                 VToggle(isOn: toggleBinding(for: field.id))
             }

@@ -419,19 +419,19 @@ struct ChannelVerificationFlowView: View {
                 verificationLabel
             }
 
-            TextField(placeholder, text: $destinationText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: 360)
-                .focused($isDestinationFocused)
-                .onAppear {
-                    if autoFocus {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isDestinationFocused = true
-                        }
+            VTextField(
+                placeholder: placeholder,
+                text: $destinationText,
+                maxWidth: 360
+            )
+            .focused($isDestinationFocused)
+            .onAppear {
+                if autoFocus {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isDestinationFocused = true
                     }
                 }
+            }
 
             if state.channel == "telegram" {
                 HStack(spacing: 0) {

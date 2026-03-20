@@ -439,21 +439,18 @@ struct OAuthProviderServiceCard: View {
             closeAction: { showCreateAppSheet = false }
         ) {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Client ID")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                    VTextField(placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID", text: $createAppClientId)
-                }
+                VTextField(
+                    "Client ID",
+                    placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID",
+                    text: $createAppClientId
+                )
                 if (providerMeta?.requires_client_secret ?? 1) != 0 {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Client Secret")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                        SecureField("Enter client secret", text: $createAppClientSecret)
-                            .vInputStyle()
-                            .font(VFont.body)
-                    }
+                    VTextField(
+                        "Client Secret",
+                        placeholder: "Enter client secret",
+                        text: $createAppClientSecret,
+                        isSecure: true
+                    )
                 }
                 if providerMeta?.dashboard_url != nil {
                     VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)

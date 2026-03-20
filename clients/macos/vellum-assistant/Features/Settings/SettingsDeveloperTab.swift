@@ -265,11 +265,11 @@ struct SettingsDeveloperTab: View {
     private var platformUrlSection: some View {
         SettingsCard(title: "Platform URL") {
             HStack(spacing: VSpacing.sm) {
-                TextField("https://platform.vellum.ai", text: $platformUrlText)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .focused($isPlatformUrlFocused)
+                VTextField(
+                    placeholder: "https://platform.vellum.ai",
+                    text: $platformUrlText
+                )
+                .focused($isPlatformUrlFocused)
 
                 VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     store.savePlatformBaseUrl(platformUrlText)

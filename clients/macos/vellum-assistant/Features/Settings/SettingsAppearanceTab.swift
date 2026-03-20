@@ -293,13 +293,11 @@ struct SettingsAppearanceTab: View {
                                     .foregroundColor(VColor.contentTertiary)
 
                                 HStack(spacing: VSpacing.sm) {
-                                    TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                                        .vInputStyle()
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.contentDefault)
-                                        .onSubmit {
-                                            addAllowlistDomain()
-                                        }
+                                    VTextField(
+                                        placeholder: "Add domain (e.g. example.com)",
+                                        text: $newAllowlistDomain,
+                                        onSubmit: { addAllowlistDomain() }
+                                    )
 
                                     VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                         addAllowlistDomain()
