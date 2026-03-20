@@ -1065,11 +1065,12 @@ struct SettingsDeveloperTab: View {
                     .foregroundColor(VColor.contentTertiary)
             } else {
                 ScrollView {
-                    VStack(spacing: VSpacing.sm) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(filteredUnifiedFlags) { flag in
                             unifiedFlagRow(flag: flag)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 400)
             }
