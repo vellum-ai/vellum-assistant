@@ -133,10 +133,12 @@ export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
 
     if (resp.ok) {
       const body = (await resp.json()) as { key: string };
-      const keyBuf = Buffer.from(body.key, "hex");
-      if (keyBuf.length !== 32) {
-        throw new Error(`Invalid signing key length: ${keyBuf.length}`);
+      if (!/^[0-9a-f]{64}$/i.test(body.key)) {
+        throw new Error(
+          `Invalid signing key: expected 64 hex characters, got ${body.key.length} chars`,
+        );
       }
+      const keyBuf = Buffer.from(body.key, "hex");
       log.info("Signing key fetched from gateway bootstrap endpoint");
       return keyBuf;
     }
