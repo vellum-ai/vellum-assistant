@@ -8,21 +8,21 @@ public enum VInputSize {
     var height: CGFloat {
         switch self {
         case .regular: return 32
-        case .small: return 24
+        case .small: return 28
         }
     }
 
     var font: Font {
         switch self {
         case .regular: return VFont.body
-        case .small: return VFont.caption
+        case .small: return VFont.bodySmall
         }
     }
 
     var iconSize: CGFloat {
         switch self {
         case .regular: return 13
-        case .small: return 11
+        case .small: return 12
         }
     }
 
@@ -36,7 +36,7 @@ public enum VInputSize {
     var verticalPadding: CGFloat {
         switch self {
         case .regular: return VSpacing.xs
-        case .small: return VSpacing.xxs
+        case .small: return VSpacing.xs
         }
     }
 
