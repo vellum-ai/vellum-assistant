@@ -298,10 +298,10 @@ struct AgentPanelContent: View {
                     ScrollView {
                         LazyVGrid(
                             columns: [
-                                GridItem(.flexible(), spacing: VSpacing.md),
-                                GridItem(.flexible(), spacing: VSpacing.md)
+                                GridItem(.flexible(), spacing: VSpacing.sm),
+                                GridItem(.flexible(), spacing: VSpacing.sm)
                             ],
-                            spacing: VSpacing.md
+                            spacing: VSpacing.sm
                         ) {
                             ForEach(categoryFilteredSkills) { skill in
                                 skillCard(skill)
@@ -337,7 +337,7 @@ struct AgentPanelContent: View {
 
         var body: some View {
             Button(action: onSelect) {
-                HStack(alignment: .center, spacing: VSpacing.lg) {
+                HStack(alignment: .top, spacing: VSpacing.lg) {
                     // Icon — centered vertically, large
                     skillIcon(skill.emoji)
 
@@ -350,8 +350,6 @@ struct AgentPanelContent: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-
-                            Spacer()
 
                             VSkillTypePill(source: skill.source)
 
