@@ -251,6 +251,31 @@ export function applyReducerResult(params: ApplyReducerResultParams): void {
   });
 }
 
+// ── Force-advance (permanent failure bail-out) ───────────────────────
+
+/**
+ * Unconditionally advance the reducer checkpoint and clear the dirty tail
+ * marker without applying any reducer result.
+ *
+ * Used when the reducer encounters a permanent provider error (e.g. prompt
+ * too long) and retrying would loop forever. This lets the conversation
+ * move past the problematic window so future turns are not blocked.
+ */
+export function forceAdvanceDirtyTail(
+  conversationId: string,
+  reducedThroughMessageId: string,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      memoryReducedThroughMessageId: reducedThroughMessageId,
+      memoryDirtyTailSinceMessageId: null,
+      memoryLastReducedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
 // ── Internal helpers ─────────────────────────────────────────────────
 
 /**
