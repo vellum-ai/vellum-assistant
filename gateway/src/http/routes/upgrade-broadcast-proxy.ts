@@ -1,0 +1,90 @@
+/**
+ * Gateway proxy for the daemon upgrade-broadcast control-plane endpoint.
+ *
+ * Follows the same forwarding pattern as channel-readiness-proxy.ts:
+ * strips hop-by-hop headers, replaces the client's edge JWT with a
+ * minted service token, and proxies the request to the daemon.
+ */
+
+import { mintServiceToken } from "../../auth/token-exchange.js";
+import type { GatewayConfig } from "../../config.js";
+import { fetchImpl } from "../../fetch.js";
+import { getLogger } from "../../logger.js";
+import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
+
+const log = getLogger("upgrade-broadcast-proxy");
+
+export function createUpgradeBroadcastProxyHandler(config: GatewayConfig) {
+  return async function handleUpgradeBroadcast(
+    req: Request,
+  ): Promise<Response> {
+    const start = performance.now();
+    const bodyBuffer = await req.arrayBuffer();
+
+    const upstream = `${config.assistantRuntimeBaseUrl}/v1/admin/upgrade-broadcast`;
+
+    const reqHeaders = stripHopByHop(new Headers(req.headers));
+    reqHeaders.delete("host");
+    reqHeaders.delete("authorization");
+
+    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
+    reqHeaders.set("content-length", String(bodyBuffer.byteLength));
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
+    }, config.runtimeTimeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetchImpl(upstream, {
+        method: "POST",
+        headers: reqHeaders,
+        body: bodyBuffer,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const duration = Math.round(performance.now() - start);
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        log.error({ duration }, "Upgrade broadcast proxy upstream timed out");
+        return Response.json({ error: "Gateway Timeout" }, { status: 504 });
+      }
+      log.error(
+        { err, duration },
+        "Upgrade broadcast proxy upstream connection failed",
+      );
+      return Response.json({ error: "Bad Gateway" }, { status: 502 });
+    }
+
+    const resHeaders = stripHopByHop(new Headers(response.headers));
+    const duration = Math.round(performance.now() - start);
+
+    if (response.status >= 400) {
+      const body = await response.text();
+      log.warn(
+        { status: response.status, duration },
+        "Upgrade broadcast proxy upstream error",
+      );
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
+    }
+
+    log.info(
+      { status: response.status, duration },
+      "Upgrade broadcast proxy completed",
+    );
+    return new Response(response.body, {
+      status: response.status,
+      headers: resHeaders,
+    });
+  };
+}

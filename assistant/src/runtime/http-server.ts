@@ -172,6 +172,7 @@ import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.
 import { telemetryRouteDefinitions } from "./routes/telemetry-routes.js";
 import { traceEventRouteDefinitions } from "./routes/trace-event-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
+import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
@@ -918,6 +919,7 @@ export class RuntimeHttpServer {
         getCesClient: this.getCesClient,
       }),
       ...identityRouteDefinitions(),
+      ...upgradeBroadcastRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
