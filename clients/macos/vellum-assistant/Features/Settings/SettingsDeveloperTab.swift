@@ -135,7 +135,13 @@ struct SettingsDeveloperTab: View {
                 if assistant.isDocker {
                     DockerRollbackSection(
                         assistantName: assistant.assistantId,
-                        previousVersion: previousVersion
+                        previousVersion: previousVersion,
+                        currentVersion: healthz?.version,
+                        isRollingBack: $isRollingBack,
+                        rollbackError: $rollbackError,
+                        rollbackSuccess: $rollbackSuccess,
+                        showingRollbackConfirmation: $showingRollbackConfirmation,
+                        rollbackVersion: $rollbackVersion
                     )
                 } else if assistant.isManaged || assistant.isRemote {
                     ManagedRollbackSection(
@@ -551,20 +557,32 @@ struct SettingsDeveloperTab: View {
         isRollingBack = true
         defer { isRollingBack = false }
 
-        do {
-            let body: [String: String] = ["version": rollbackVersion]
-            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
-            if response.isSuccess {
-                rollbackSuccess = "Rollback initiated. The assistant may be briefly unavailable."
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+        let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
+
+        if assistant?.isDocker == true {
+            do {
+                try await AppDelegate.shared?.vellumCli.rollback(name: selectedAssistantId)
+                rollbackSuccess = "Rollback complete."
                 await fetchHealthz()
-            } else {
-                rollbackError = "Rollback failed (HTTP \(response.statusCode))"
+            } catch {
+                rollbackError = "Rollback failed: \(error.localizedDescription)"
             }
-        } catch let error as GatewayHTTPClient.ClientError {
-            rollbackError = error.localizedDescription
-        } catch {
-            rollbackError = "Rollback failed: \(error.localizedDescription)"
+        } else {
+            do {
+                let body: [String: String] = ["version": rollbackVersion]
+                let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
+                if response.isSuccess {
+                    rollbackSuccess = "Rollback initiated. The assistant may be briefly unavailable."
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await fetchHealthz()
+                } else {
+                    rollbackError = "Rollback failed (HTTP \(response.statusCode))"
+                }
+            } catch let error as GatewayHTTPClient.ClientError {
+                rollbackError = error.localizedDescription
+            } catch {
+                rollbackError = "Rollback failed: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -1397,9 +1415,19 @@ private struct DeveloperUpdateProgressRow: View {
 private struct DockerRollbackSection: View {
     let assistantName: String
     let previousVersion: String
+    let currentVersion: String?
+    @Binding var isRollingBack: Bool
+    @Binding var rollbackError: String?
+    @Binding var rollbackSuccess: String?
+    @Binding var showingRollbackConfirmation: Bool
+    @Binding var rollbackVersion: String
 
-    @State private var showingCopiedConfirmation = false
-    @State private var copiedDismissTask: Task<Void, Never>?
+    /// Whether the assistant is already running the previous version,
+    /// meaning a rollback would be a no-op.
+    private var alreadyOnPreviousVersion: Bool {
+        guard let currentVersion else { return false }
+        return currentVersion == previousVersion
+    }
 
     var body: some View {
         SettingsCard(
@@ -1415,24 +1443,38 @@ private struct DockerRollbackSection: View {
                     .foregroundColor(VColor.contentDefault)
             }
 
-            VButton(label: "Copy Rollback Command", style: .outlined) {
-                let command = "vellum rollback \(assistantName)"
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
-                copiedDismissTask?.cancel()
-                withAnimation { showingCopiedConfirmation = true }
-                copiedDismissTask = Task {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    withAnimation { showingCopiedConfirmation = false }
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Roll Back", style: .outlined) {
+                    rollbackVersion = previousVersion
+                    showingRollbackConfirmation = true
+                }
+                .disabled(isRollingBack || alreadyOnPreviousVersion)
+
+                if isRollingBack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Rolling back...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
-            if showingCopiedConfirmation {
-                Text("Copied! Run this command in your terminal.")
+            if alreadyOnPreviousVersion {
+                Text("You are already on this version.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+
+            if let error = rollbackError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+            }
+
+            if let success = rollbackSuccess {
+                Text(success)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemPositiveStrong)
-                    .transition(.opacity)
             }
         }
     }
