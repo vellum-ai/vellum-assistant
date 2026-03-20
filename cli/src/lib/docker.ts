@@ -771,8 +771,17 @@ export async function sleepContainers(
   ]) {
     try {
       await exec("docker", ["stop", container]);
-    } catch {
-      // container may not exist or already stopped
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message.toLowerCase() : String(err);
+      if (
+        msg.includes("no such container") ||
+        msg.includes("is not running")
+      ) {
+        // container doesn't exist or already stopped — expected, skip
+        continue;
+      }
+      throw err;
     }
   }
 }

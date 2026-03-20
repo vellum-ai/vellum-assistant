@@ -40,6 +40,14 @@ export async function wake(): Promise<void> {
   const entry = resolveTargetAssistant(nameArg);
 
   if (entry.cloud === "docker") {
+    if (watch || foreground) {
+      const ignored = [watch && "--watch", foreground && "--foreground"]
+        .filter(Boolean)
+        .join(" and ");
+      console.warn(
+        `Warning: ${ignored} ignored for Docker instances (not supported).`,
+      );
+    }
     const res = dockerResourceNames(entry.assistantId);
     await wakeContainers(res);
     console.log("Docker containers started.");
