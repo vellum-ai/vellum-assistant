@@ -552,7 +552,7 @@ export class CallController {
     const useFishAudio = isFishAudioTts(config);
     let fishSession: FishAudioSession | null = null;
     let sentenceBuffer = "";
-    const fishPendingQueue: Promise<void>[] = [];
+    let fishSynthesisChain: Promise<void> = Promise.resolve();
 
     const synthesizeAndPlay = async (text: string): Promise<void> => {
       if (!this.isCurrentRun(runVersion)) return;
@@ -580,7 +580,8 @@ export class CallController {
         sentenceBuffer += safeText;
         let split: ReturnType<typeof splitAtSentenceBoundary>;
         while ((split = splitAtSentenceBoundary(sentenceBuffer)) !== undefined) {
-          fishPendingQueue.push(synthesizeAndPlay(split.complete));
+          const sentence = split.complete;
+          fishSynthesisChain = fishSynthesisChain.then(() => synthesizeAndPlay(sentence));
           sentenceBuffer = split.remainder;
         }
       } else {
@@ -699,10 +700,10 @@ export class CallController {
     // all in-flight synthesis to finish before signaling end-of-turn.
     if (useFishAudio) {
       if (sentenceBuffer.trim().length > 0) {
-        fishPendingQueue.push(synthesizeAndPlay(sentenceBuffer.trim()));
+        fishSynthesisChain = fishSynthesisChain.then(() => synthesizeAndPlay(sentenceBuffer.trim()));
         sentenceBuffer = "";
       }
-      await Promise.all(fishPendingQueue);
+      await fishSynthesisChain;
       if (this.activeFishSession) {
         this.activeFishSession.close();
         this.activeFishSession = null;
