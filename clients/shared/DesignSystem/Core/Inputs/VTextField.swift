@@ -89,6 +89,13 @@ public struct VTextField: View {
     /// initiated by the user (e.g. clicking into the field).
     private var externalFocus: Binding<Bool>?
 
+    /// Non-optional proxy for `externalFocus` so `onChange` always has a concrete
+    /// `Bool` to observe instead of an optional wrapped value.
+    private var externalFocusValue: Bool {
+        get { externalFocus?.wrappedValue ?? false }
+        nonmutating set { externalFocus?.wrappedValue = newValue }
+    }
+
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
 
@@ -154,12 +161,12 @@ public struct VTextField: View {
         }
         .frame(maxWidth: maxWidth)
         .onChange(of: isFocused) { _, newValue in
-            if externalFocus?.wrappedValue != newValue {
-                externalFocus?.wrappedValue = newValue
+            if externalFocusValue != newValue {
+                externalFocusValue = newValue
             }
         }
-        .onChange(of: externalFocus?.wrappedValue) { _, newValue in
-            if let newValue, isFocused != newValue {
+        .onChange(of: externalFocusValue) { _, newValue in
+            if isFocused != newValue {
                 isFocused = newValue
             }
         }
