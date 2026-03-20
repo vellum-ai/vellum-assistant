@@ -173,11 +173,13 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
         vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "conversation_create sent")
+        // Bootstrap now generates conversation IDs locally and fires the callback
+        // directly — poll for the callback instead of waiting for a sent message.
+        let expectation = XCTestExpectation(description: "onConversationCreated fired")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            if !mockClient.sentMessages.isEmpty {
+            if capturedConversationId != nil {
                 expectation.fulfill()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
@@ -187,13 +189,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = conversationCreates.first?.correlationId
-
-        let info = ConversationInfoMessage(conversationId: "callback-conv-sess", title: "Callback", correlationId: correlationId)
-        vm.handleServerMessage(.conversationInfo(info))
-
-        XCTAssertEqual(capturedConversationId, "callback-conv-sess")
+        XCTAssertNotNil(capturedConversationId)
     }
 
     // MARK: - Conversation Lifecycle: Create, Use, Archive Pattern
@@ -426,14 +422,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [ConversationSeenSignal] = []
-        daemonClient.sendOverride = { message in
-            if let signal = message as? ConversationSeenSignal {
-                sentSignals.append(signal)
-            }
-        }
+        let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-2",
             "title": "Unread conversation",
@@ -453,6 +444,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
+        waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -460,13 +452,13 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         XCTAssertFalse(updatedConversation.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(sentSignals.count, 1)
-        XCTAssertEqual(sentSignals[0].conversationId, "connected-session-2")
-        XCTAssertEqual(sentSignals[0].sourceChannel, "vellum")
-        XCTAssertEqual(sentSignals[0].signalType, "ios_conversation_opened")
-        XCTAssertEqual(sentSignals[0].confidence, "explicit")
-        XCTAssertEqual(sentSignals[0].source, "ui-navigation")
-        XCTAssertEqual(sentSignals[0].evidenceText, "User opened conversation in app")
+        XCTAssertEqual(mockListClient.sentSeenSignals.count, 1)
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].conversationId, "connected-session-2")
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].sourceChannel, "vellum")
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].signalType, "ios_conversation_opened")
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].confidence, "explicit")
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].source, "ui-navigation")
+        XCTAssertEqual(mockListClient.sentSeenSignals[0].evidenceText, "User opened conversation in app")
 
         let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-2" }) else {
@@ -792,14 +784,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testPinningConnectedConversationUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderConversationsRequest] = []
-        daemonClient.sendOverride = { message in
-            if let request = message as? ReorderConversationsRequest {
-                reorderRequests.append(request)
-            }
-        }
+        let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
@@ -824,6 +811,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.pinConversation(conversation)
+        waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == conversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -832,10 +820,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
         XCTAssertTrue(updatedConversation.isPinned)
         XCTAssertEqual(updatedConversation.displayOrder, 1)
-        XCTAssertEqual(reorderRequests.count, 1)
+        XCTAssertEqual(mockListClient.reorderRequests.count, 1)
 
         let updatesByConversationId = Dictionary(
-            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
+            uniqueKeysWithValues: mockListClient.reorderRequests[0].map { ($0.conversationId, $0) }
         )
         XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.displayOrder, 0)
         XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.isPinned, true)
@@ -883,14 +871,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testUnpinningConnectedConversationRecompactsPinnedOrderAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderConversationsRequest] = []
-        daemonClient.sendOverride = { message in
-            if let request = message as? ReorderConversationsRequest {
-                reorderRequests.append(request)
-            }
-        }
+        let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-first",
@@ -917,6 +900,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.unpinConversation(conversation)
+        waitForAsyncMutation()
 
         guard let firstConversation = store.conversations.first(where: { $0.conversationId == "connected-session-first" }),
               let secondConversation = store.conversations.first(where: { $0.conversationId == "connected-session-second" }) else {
@@ -928,10 +912,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertNil(firstConversation.displayOrder)
         XCTAssertTrue(secondConversation.isPinned)
         XCTAssertEqual(secondConversation.displayOrder, 0)
-        XCTAssertEqual(reorderRequests.count, 1)
+        XCTAssertEqual(mockListClient.reorderRequests.count, 1)
 
         let updatesByConversationId = Dictionary(
-            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
+            uniqueKeysWithValues: mockListClient.reorderRequests[0].map { ($0.conversationId, $0) }
         )
         XCTAssertNil(updatesByConversationId["connected-session-first"]?.displayOrder)
         XCTAssertEqual(updatesByConversationId["connected-session-first"]?.isPinned, false)
@@ -957,6 +941,30 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
     #endif
+}
+
+@MainActor
+private final class MockConversationListClient: ConversationListClientProtocol {
+    private(set) var sentSeenSignals: [ConversationSeenSignal] = []
+    private(set) var reorderRequests: [[ReorderConversationsRequestUpdate]] = []
+
+    func fetchConversationList(offset: Int, limit: Int) async -> ConversationListResponse? { nil }
+    func switchConversation(conversationId: String) async -> Bool { true }
+    func renameConversation(conversationId: String, name: String) async -> Bool { true }
+    func clearAllConversations() async -> Bool { true }
+    func cancelGeneration(conversationId: String) async -> Bool { true }
+    func undoLastMessage(conversationId: String) async -> Int? { nil }
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse? { nil }
+
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool {
+        reorderRequests.append(updates)
+        return true
+    }
+
+    func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool {
+        sentSeenSignals.append(signal)
+        return true
+    }
 }
 
 @MainActor
