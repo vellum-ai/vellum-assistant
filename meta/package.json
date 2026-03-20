@@ -1,6 +1,7 @@
 {
   "name": "vellum",
   "version": "0.5.6",
+  "license": "MIT",
   "description": "Install the full Vellum stack locally",
   "bin": {
     "vellum": "./bin/vellum.js",
