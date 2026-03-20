@@ -128,9 +128,8 @@ struct SettingsDeveloperTab: View {
                 daemonClient: daemonClient,
                 isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
             )
-            // Upgrade (managed/remote only)
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
+            // Upgrade
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
                 let topo: AssistantTopology = assistant.isDocker ? .docker
                     : assistant.isManaged ? .managed
                     : assistant.cloud.lowercased() == "local" ? .local
