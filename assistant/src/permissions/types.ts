@@ -24,7 +24,8 @@ export type UserDecision =
   | "always_allow_high_risk"
   | "deny"
   | "always_deny"
-  | "temporary_override";
+  | "temporary_override"
+  | "dangerously_skip_permissions";
 
 /** Returns true for any allow-variant decision. Centralizes the check to prevent omissions when new allow variants are added. */
 export function isAllowDecision(decision: UserDecision): boolean {
@@ -34,7 +35,8 @@ export function isAllowDecision(decision: UserDecision): boolean {
     decision === "allow_conversation" ||
     decision === "always_allow" ||
     decision === "always_allow_high_risk" ||
-    decision === "temporary_override"
+    decision === "temporary_override" ||
+    decision === "dangerously_skip_permissions"
   );
 }
 
