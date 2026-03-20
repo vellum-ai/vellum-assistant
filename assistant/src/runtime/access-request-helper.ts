@@ -55,6 +55,8 @@ export interface AccessRequestParams {
   actorDisplayName?: string;
   actorUsername?: string;
   previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
+  /** Preview of the requester's original message, shown to the guardian. */
+  messagePreview?: string;
 }
 
 export type AccessRequestResult =
@@ -90,6 +92,7 @@ export function notifyGuardianOfAccessRequest(
     actorDisplayName,
     actorUsername,
     previousMemberStatus,
+    messagePreview,
   } = params;
 
   if (!actorExternalId) {
@@ -244,6 +247,7 @@ export function notifyGuardianOfAccessRequest(
       guardianBindingChannel,
       guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
+      messagePreview: messagePreview ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {

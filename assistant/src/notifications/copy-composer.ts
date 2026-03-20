@@ -130,6 +130,35 @@ export function buildAccessRequestIdentityLine(
   return `${parts.join(" ")} is requesting access to the assistant.`;
 }
 
+const MESSAGE_PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * Build a quoted preview of the requester's original message for inclusion
+ * in guardian-facing access-request copy. Sanitizes and truncates to keep
+ * the notification concise.
+ *
+ * Returns `undefined` when no usable preview is available.
+ */
+export function buildAccessRequestMessagePreview(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const raw =
+    typeof payload.messagePreview === "string"
+      ? payload.messagePreview
+      : undefined;
+  if (!raw) return undefined;
+
+  const sanitized = sanitizeIdentityField(raw);
+  if (sanitized.length === 0) return undefined;
+
+  const truncated =
+    sanitized.length > MESSAGE_PREVIEW_MAX_LENGTH
+      ? sanitized.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "..."
+      : sanitized;
+
+  return `> Their message: "${truncated}"`;
+}
+
 export function buildAccessRequestInviteDirective(): string {
   return 'Reply "open invite flow" to start Trusted Contacts invite flow.';
 }
@@ -240,6 +269,10 @@ export function buildAccessRequestContractText(
 
   const lines: string[] = [];
   lines.push(buildAccessRequestIdentityLine(payload));
+  const preview = buildAccessRequestMessagePreview(payload);
+  if (preview) {
+    lines.push(preview);
+  }
   if (previousMemberStatus === "revoked") {
     lines.push("Note: this user was previously revoked.");
   }

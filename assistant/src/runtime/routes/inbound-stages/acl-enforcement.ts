@@ -362,6 +362,7 @@ export async function enforceIngressAcl(
                 actorExternalId: canonicalSenderId ?? rawSenderId,
                 actorDisplayName,
                 actorUsername,
+                messagePreview: trimmedContent,
               });
             } catch (err) {
               log.error(
@@ -428,6 +429,7 @@ export async function enforceIngressAcl(
             actorExternalId: canonicalSenderId ?? rawSenderId,
             actorDisplayName,
             actorUsername,
+            messagePreview: trimmedContent,
           });
           guardianNotified = accessResult.notified;
         } catch (err) {
@@ -620,6 +622,7 @@ export async function enforceIngressAcl(
                   previousMemberStatus: channelStatusToMemberStatus(
                     resolvedMember.channel.status,
                   ),
+                  messagePreview: trimmedContent,
                 });
               } catch (err) {
                 log.error(
@@ -686,6 +689,7 @@ export async function enforceIngressAcl(
                 previousMemberStatus: channelStatusToMemberStatus(
                   resolvedMember.channel.status,
                 ),
+                messagePreview: trimmedContent,
               });
               guardianNotified = accessResult.notified;
             } catch (err) {
