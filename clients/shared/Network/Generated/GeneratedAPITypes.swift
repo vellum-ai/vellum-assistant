@@ -1279,32 +1279,6 @@ public struct DeleteQueuedMessage: Codable, Sendable {
     }
 }
 
-public struct DiagnosticsExportRequest: Codable, Sendable {
-    public let type: String
-    public let conversationId: String
-    public let anchorMessageId: String?
-
-    public init(type: String, conversationId: String, anchorMessageId: String? = nil) {
-        self.type = type
-        self.conversationId = conversationId
-        self.anchorMessageId = anchorMessageId
-    }
-}
-
-public struct DiagnosticsExportResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let filePath: String?
-    public let error: String?
-
-    public init(type: String, success: Bool, filePath: String? = nil, error: String? = nil) {
-        self.type = type
-        self.success = success
-        self.filePath = filePath
-        self.error = error
-    }
-}
-
 public struct DictationContext: Codable, Sendable {
     public let bundleIdentifier: String
     public let appName: String

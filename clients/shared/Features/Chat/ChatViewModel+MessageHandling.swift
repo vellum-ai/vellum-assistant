@@ -640,8 +640,8 @@ extension ChatViewModel {
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
             flushPartialOutputBuffer()
-            // Backfill the daemon's persisted message ID so diagnostics exports
-            // can anchor to it without requiring a history reload.
+            // Backfill the daemon's persisted message ID so fork, inspect,
+            // TTS, and other daemon-anchored actions work without a history reload.
             if let messageId = complete.messageId,
                let msgId = currentAssistantMessageId,
                let idx = messages.firstIndex(where: { $0.id == msgId }) {
@@ -1001,8 +1001,8 @@ extension ChatViewModel {
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
-                // Backfill the daemon's persisted message ID so diagnostics exports
-                // can anchor to it without requiring a history reload.
+                // Backfill the daemon's persisted message ID so fork, inspect,
+                // TTS, and other daemon-anchored actions work without a history reload.
                 if let messageId = handoff.messageId {
                     messages[index].daemonMessageId = messageId
                 }
