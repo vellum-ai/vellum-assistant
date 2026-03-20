@@ -138,7 +138,6 @@ describe("conversation-title-service", () => {
     await regenerateConversationTitle({ conversationId: "conv-1", provider });
 
     // The prompt sent to the sidechain should contain plain text, not raw JSON
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
       ?.content as string;
     expect(prompt).not.toContain('"type":"text"');
@@ -186,7 +185,6 @@ describe("conversation-title-service", () => {
 
     await regenerateConversationTitle({ conversationId: "conv-1", provider });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
       ?.content as string;
     expect(prompt).not.toContain('"type":"tool_result"');

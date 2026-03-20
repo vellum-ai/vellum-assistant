@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { getAudio, storeAudio } from "./audio-store.js";
 
 // ---------------------------------------------------------------------------
