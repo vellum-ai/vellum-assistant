@@ -7,7 +7,6 @@ import {
   enqueueCleanupStaleSupersededItemsJob,
   getMemoryJobCounts,
 } from "./jobs-store.js";
-import { queryMemoryForCli } from "./retriever.js";
 
 const log = getLogger("memory-admin");
 
@@ -101,8 +100,4 @@ export function requestMemoryCleanup(retentionMs?: number): {
     "Queued memory cleanup jobs",
   );
   return { staleSupersededItemsJobId };
-}
-
-export async function queryMemory(query: string, conversationId: string) {
-  return queryMemoryForCli(query, conversationId, getConfig());
 }

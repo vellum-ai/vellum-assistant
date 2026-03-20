@@ -2,12 +2,10 @@ import type { Command } from "commander";
 
 import {
   getMemorySystemStatus,
-  queryMemory,
   requestMemoryBackfill,
   requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from "../../memory/admin.js";
-import { listConversations } from "../../memory/conversation-queries.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 
@@ -31,7 +29,6 @@ Key concepts:
 
 Examples:
   $ assistant memory status
-  $ assistant memory query "What is the project deadline?"
   $ assistant memory backfill`,
   );
 
@@ -142,56 +139,6 @@ Examples:
       log.info(
         `Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`,
       );
-    });
-
-  memory
-    .command("query <text>")
-    .description(
-      "Run a memory recall query and print the injected memory payload",
-    )
-    .option("-c, --conversation <id>", "Optional conversation ID")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  text   The recall query string used to search memory (e.g. "What is the
-         project deadline?"). Matched against indexed segments using the full
-         recall pipeline: semantic (dense + sparse vector similarity) and recency
-         (time-weighted).
-
-Runs the complete memory recall pipeline and displays hit counts for each
-retrieval strategy, the total injected token count, query latency, and the
-assembled memory text that would be injected into context.
-
-The optional --conversation flag provides a conversation ID for
-context-aware recall. If omitted, the most recent conversation is used.
-
-Examples:
-  $ assistant memory query "What is the project deadline?"
-  $ assistant memory query "preferred communication style" --conversation conv_abc123
-  $ assistant memory query "API rate limits"`,
-    )
-    .action(async (text: string, opts?: { conversation?: string }) => {
-      initializeDb();
-      let conversationId = opts?.conversation;
-      if (!conversationId) {
-        const latest = listConversations(1)[0];
-        conversationId = latest?.id ?? "";
-      }
-      const result = await queryMemory(text, conversationId ?? "");
-      if (result.degraded) {
-        log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
-      }
-      log.info(`Semantic hits: ${result.semanticHits}`);
-      log.info(`Recency hits: ${result.recencyHits}`);
-      log.info(`Injected tokens: ${result.injectedTokens}`);
-      log.info(`Latency: ${result.latencyMs}ms`);
-      if (result.injectedText.length > 0) {
-        log.info("");
-        log.info(result.injectedText);
-      } else {
-        log.info("No memory injected.");
-      }
     });
 
   memory

@@ -54,16 +54,8 @@ const emptyRecall = {
   latencyMs: 0,
   topCandidates: [],
 };
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => emptyRecall,
-  queryMemoryForCli: async () => emptyRecall,
+mock.module("../memory/inject.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: unknown[]) => msgs,
-}));
-mock.module("../memory/query-builder.js", () => ({
-  buildMemoryQuery: (userRequest: string) => userRequest,
-}));
-mock.module("../memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => 4000,
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
