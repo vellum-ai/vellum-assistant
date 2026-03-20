@@ -27,7 +27,7 @@ struct VellumAssistantApp: App {
                     appDelegate.showAboutPanel()
                 }
                 Button(appDelegate.updateManager.updateMenuItemTitle) {
-                    appDelegate.updateManager.checkForUpdates()
+                    appDelegate.checkForUpdates()
                 }
                 .disabled(!appDelegate.updateManager.updateMenuItemIsEnabled)
                 Divider()
