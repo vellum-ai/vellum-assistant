@@ -28,7 +28,7 @@ public final class MockDaemonClient: DaemonStatusProtocol, ObservableObject {
     /// Messages recorded by `sendUserMessage()` for assertion in tests.
     public private(set) var sentMessages: [(content: String?, conversationId: String)] = []
 
-    public func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil) {
+    public func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil) {
         sentMessages.append((content: content, conversationId: conversationId))
     }
 

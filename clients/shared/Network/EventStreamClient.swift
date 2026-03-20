@@ -134,7 +134,8 @@ public final class EventStreamClient {
         conversationId: String,
         attachments: [UserMessageAttachment]? = nil,
         conversationType: String? = nil,
-        automated: Bool? = nil
+        automated: Bool? = nil,
+        bypassSecretCheck: Bool? = nil
     ) {
         locallyOwnedConversationIds.insert(conversationId)
 
@@ -181,7 +182,8 @@ public final class EventStreamClient {
                 conversationKey: conversationId,
                 attachmentIds: attachmentIds,
                 conversationType: resolvedConversationType,
-                automated: automated
+                automated: automated,
+                bypassSecretCheck: bypassSecretCheck
             )
 
             switch sendResult {
