@@ -13,6 +13,8 @@ public struct VDropdown<T: Hashable>: View {
     public var label: String? = nil
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
+    /// Size variant controlling height, font, padding, and corner radius.
+    public var size: VInputSize = .regular
     /// The maximum width of the dropdown. Defaults to .infinity (fills available width).
     public var maxWidth: CGFloat = .infinity
     /// Optional leading icon displayed before the label text.
@@ -30,6 +32,7 @@ public struct VDropdown<T: Hashable>: View {
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
+        size: VInputSize = .regular,
         maxWidth: CGFloat = .infinity,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
@@ -40,6 +43,7 @@ public struct VDropdown<T: Hashable>: View {
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
+        self.size = size
         self.maxWidth = maxWidth
         self.icon = icon
         self.optionIcon = optionIcon
@@ -80,10 +84,10 @@ public struct VDropdown<T: Hashable>: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                HStack(spacing: VSpacing.md) {
-                    HStack(spacing: VSpacing.sm) {
+                HStack(spacing: size.horizontalPadding) {
+                    HStack(spacing: size == .small ? VSpacing.xs : VSpacing.sm) {
                         if let resolvedIcon = icon ?? optionIcon?(selection) {
-                            VIconView(resolvedIcon, size: 13)
+                            VIconView(resolvedIcon, size: size.iconSize)
                                 .foregroundColor(VColor.contentTertiary)
                         }
 
@@ -96,19 +100,19 @@ public struct VDropdown<T: Hashable>: View {
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
-                        .font(VFont.body)
+                        .font(size.font)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VIconView(.chevronDown, size: 13)
+                    VIconView(.chevronDown, size: size.iconSize)
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xs)
+                .padding(.horizontal, size.horizontalPadding)
+                .padding(.vertical, size.verticalPadding)
                 .frame(maxWidth: .infinity)
-                .frame(height: 32)
-                .vInputChrome(isError: errorMessage != nil, isDisabled: !isEnabled)
+                .frame(height: size.height)
+                .vInputChrome(isError: errorMessage != nil, isDisabled: !isEnabled, cornerRadius: size.cornerRadius)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)

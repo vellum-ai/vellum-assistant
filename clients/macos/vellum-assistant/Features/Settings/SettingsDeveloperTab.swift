@@ -768,6 +768,7 @@ struct SettingsDeveloperTab: View {
                         placeholder: "",
                         selection: $selectedAssistantId,
                         options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) },
+                        size: .small,
                         maxWidth: 200
                     )
                 }

@@ -24,6 +24,8 @@ struct InputsGallerySection: View {
     @State private var formName = ""
     @State private var formDropdown = ""
     @State private var focusDemoValue = ""
+    @State private var smallTextFieldValue = ""
+    @State private var smallDropdownValue = ""
     @FocusState private var isFocusDemoFocused: Bool
 
     var body: some View {
@@ -191,6 +193,55 @@ struct InputsGallerySection: View {
                                     text: $secureFieldValue,
                                     isSecure: true,
                                     font: VFont.mono
+                                )
+                            }
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        // --- Size Variants ---
+                        Text("Size variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    "Label",
+                                    placeholder: "Regular size...",
+                                    text: $textFieldValue
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Small").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    "Label",
+                                    placeholder: "Small size...",
+                                    text: $smallTextFieldValue,
+                                    size: .small
+                                )
+                            }
+                        }
+
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Regular with icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Search...",
+                                    text: $textFieldValue,
+                                    leadingIcon: VIcon.search.rawValue,
+                                    trailingIcon: VIcon.circleX.rawValue
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Small with icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VTextField(
+                                    placeholder: "Search...",
+                                    text: $smallTextFieldValue,
+                                    leadingIcon: VIcon.search.rawValue,
+                                    trailingIcon: VIcon.circleX.rawValue,
+                                    size: .small
                                 )
                             }
                         }
@@ -447,6 +498,44 @@ struct InputsGallerySection: View {
                                     ],
                                     emptyValue: "",
                                     errorMessage: "Invalid selection"
+                                )
+                            }
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        // --- Size Variants ---
+                        Text("Size variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        HStack(alignment: .top, spacing: VSpacing.xl) {
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VDropdown(
+                                    "Label",
+                                    placeholder: "Regular size...",
+                                    selection: $dropdownValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b"),
+                                        (label: "Option C", value: "c")
+                                    ],
+                                    emptyValue: ""
+                                )
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Small").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VDropdown(
+                                    "Label",
+                                    placeholder: "Small size...",
+                                    selection: $smallDropdownValue,
+                                    options: [
+                                        (label: "Option A", value: "a"),
+                                        (label: "Option B", value: "b"),
+                                        (label: "Option C", value: "c")
+                                    ],
+                                    emptyValue: "",
+                                    size: .small
                                 )
                             }
                         }

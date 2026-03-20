@@ -74,6 +74,7 @@ public enum VFont {
     public static let body       = Font.custom("Inter", size: 13)
     public static let bodyMedium = Font.custom("Inter-Medium", size: 13)
     public static let bodyBold   = Font.custom("Inter-SemiBold", size: 13)
+    public static let bodySmall  = Font.custom("Inter", size: 12)
     public static let caption    = Font.custom("Inter", size: 11)
     public static let captionMedium = Font.custom("Inter-Medium", size: 11)
     public static let small      = Font.custom("Inter", size: 10)
