@@ -494,9 +494,9 @@ extension AppDelegate {
         window.contentViewController = hostingController
         switch scope {
         case .global:
-            window.title = "Send Logs to Vellum"
+            window.title = "Share Feedback"
         case .conversation:
-            window.title = "Send Logs for Conversation"
+            window.title = "Share Feedback"
         }
         window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false

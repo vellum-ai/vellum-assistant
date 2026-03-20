@@ -31,7 +31,7 @@ struct VellumAssistantApp: App {
                 }
                 .disabled(!appDelegate.updateManager.updateMenuItemIsEnabled)
                 Divider()
-                Button("Send Logs to \(appName)") {
+                Button("Share Feedback") {
                     appDelegate.sendLogsToSentry()
                 }
                 Divider()

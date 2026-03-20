@@ -37,7 +37,7 @@ struct DaemonStartupErrorView: View {
                 VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
                     onRetry()
                 }
-                VButton(label: "Send Logs to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
+                VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
                     onSendLogs()
                 }
             }
