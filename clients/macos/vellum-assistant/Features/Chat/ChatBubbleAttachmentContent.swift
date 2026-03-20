@@ -1,6 +1,163 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
+
+// MARK: - Image Context Menu Actions
+
+/// Standalone helper for image context menu actions used by both
+/// `InlineToolCallImageView` and `AttachmentImageGrid`. Kept at file scope
+/// so it is accessible from private structs without coupling to `ChatBubble`.
+private enum ImageActions {
+
+    /// Copies the image to the system clipboard.
+    /// Prefers full-resolution data decoded from `base64Data` when available,
+    /// falling back to the provided (possibly thumbnail) NSImage.
+    static func copyToClipboard(_ image: NSImage, base64Data: String? = nil) {
+        // Prefer full-res from base64 data when available
+        let imageToWrite: NSImage
+        if let base64Data, !base64Data.isEmpty,
+           let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
+           let fullRes = NSImage(data: decoded) {
+            imageToWrite = fullRes
+        } else {
+            imageToWrite = image
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([imageToWrite])
+    }
+
+    /// Opens an NSSavePanel and writes the image to the chosen path.
+    /// Prefers `base64Data` (full resolution) when available, falling back to
+    /// PNG-encoding the in-memory NSImage.
+    static func saveImageAs(_ image: NSImage, filename: String, base64Data: String? = nil) {
+        let sanitized = (filename as NSString).lastPathComponent
+        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
+
+        // Use non-emptiness as a lightweight proxy for valid base64 data to
+        // decide the suggested filename. Full decode is deferred to the
+        // background write block to avoid blocking the main thread for large
+        // payloads (multi-MB screenshots).
+        let hasBase64 = base64Data.map { !$0.isEmpty } ?? false
+        let suggestedName: String
+        if hasBase64 {
+            suggestedName = fallbackName
+        } else {
+            suggestedName = (fallbackName as NSString).deletingPathExtension + ".png"
+        }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedName
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            // Determine data to write on the main thread.
+            // tiffRepresentation is not thread-safe (see ChatAttachmentManager.swift)
+            // so PNG encoding must happen here, not in a background queue.
+            let dataToWrite: Data?
+            if let base64Data, !base64Data.isEmpty,
+               let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                dataToWrite = decoded
+            } else if let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]) {
+                dataToWrite = png
+            } else {
+                dataToWrite = nil
+            }
+            guard let dataToWrite else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? dataToWrite.write(to: url)
+            }
+        }
+    }
+
+    /// Writes the image to a temporary file and opens it in the default app (Preview).
+    /// Prefers `base64Data` (full resolution), falling back to PNG-encoding the NSImage.
+    static func openInPreview(_ image: NSImage, filename: String, base64Data: String? = nil) {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sanitized = (filename as NSString).lastPathComponent
+        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
+
+        var usedPNGFallback = false
+        let fileData: Data? = {
+            if let base64Data, !base64Data.isEmpty,
+               let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                return decoded
+            }
+            if let tiff = image.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff) {
+                usedPNGFallback = true
+                return rep.representation(using: .png, properties: [:])
+            }
+            return nil
+        }()
+
+        let fileName: String
+        if usedPNGFallback {
+            fileName = (fallbackName as NSString).deletingPathExtension + ".png"
+        } else {
+            fileName = fallbackName
+        }
+        let fileURL = tempDir.appendingPathComponent(fileName)
+
+        guard let fileData else { return }
+        do {
+            try fileData.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        } catch {
+            // Silently fail — not critical
+        }
+    }
+
+    /// Presents the macOS share sheet anchored to the center of the key window.
+    static func shareImage(_ image: NSImage) {
+        let picker = NSSharingServicePicker(items: [image])
+        if let window = NSApp.keyWindow, let contentView = window.contentView {
+            let rect = CGRect(
+                x: contentView.bounds.midX,
+                y: contentView.bounds.midY,
+                width: 1,
+                height: 1
+            )
+            picker.show(relativeTo: rect, of: contentView, preferredEdge: .minY)
+        }
+    }
+
+    /// Builds a SwiftUI context menu with Copy, Save As, Open in Preview, and Share actions.
+    @ViewBuilder
+    static func contextMenuItems(
+        image: NSImage,
+        filename: String,
+        base64Data: String? = nil
+    ) -> some View {
+        Button {
+            copyToClipboard(image, base64Data: base64Data)
+        } label: {
+            Label { Text("Copy Image") } icon: { VIconView(.copy, size: 12) }
+        }
+
+        Button {
+            saveImageAs(image, filename: filename, base64Data: base64Data)
+        } label: {
+            Label { Text("Save Image As\u{2026}") } icon: { VIconView(.arrowDownToLine, size: 12) }
+        }
+
+        Button {
+            openInPreview(image, filename: filename, base64Data: base64Data)
+        } label: {
+            Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
+        }
+
+        Divider()
+
+        Button {
+            shareImage(image)
+        } label: {
+            Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 12) }
+        }
+    }
+}
 
 // MARK: - Inline Tool Call Image
 
@@ -11,6 +168,31 @@ private struct InlineToolCallImageView: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        imageContent
+            .onTapGesture {
+                ImageActions.openInPreview(image, filename: "image.png")
+            }
+            .contextMenu {
+                ImageActions.contextMenuItems(image: image, filename: "image.png")
+            }
+            .onDrag {
+                let provider = NSItemProvider()
+                if let tiff = image.tiffRepresentation,
+                   let rep = NSBitmapImageRep(data: tiff),
+                   let pngData = rep.representation(using: .png, properties: [:]) {
+                    provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                        completion(pngData, nil)
+                        return nil
+                    }
+                }
+                provider.suggestedName = "image.png"
+                return provider
+            }
+            .pointerCursor()
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
         if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
@@ -72,6 +254,58 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .onTapGesture {
                                 onTap(attachment, nsImage)
+                            }
+                            .contextMenu {
+                                ImageActions.contextMenuItems(
+                                    image: nsImage,
+                                    filename: attachment.filename,
+                                    base64Data: attachment.data.isEmpty ? nil : attachment.data
+                                )
+                            }
+                            .onDrag {
+                                let provider = NSItemProvider()
+                                let hasBase64 = !attachment.data.isEmpty
+
+                                // Pre-compute thumbnail PNG on main thread as a fallback.
+                                // tiffRepresentation is not thread-safe so this must happen
+                                // here, not in the lazy registerDataRepresentation callback.
+                                let thumbnailPNG: Data? = {
+                                    guard let img = loadedImages[attachment.id],
+                                          let tiff = img.tiffRepresentation,
+                                          let rep = NSBitmapImageRep(data: tiff) else { return nil }
+                                    return rep.representation(using: .png, properties: [:])
+                                }()
+
+                                if hasBase64 {
+                                    let mimeType = attachment.mimeType
+                                    let utType = UTType(mimeType: mimeType) ?? .png
+                                    let base64String = attachment.data
+                                    provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
+                                        // Decode lazily when drop target requests data
+                                        if let decoded = Data(base64Encoded: base64String), !decoded.isEmpty {
+                                            completion(decoded, nil)
+                                        } else if let thumbnailPNG {
+                                            // Corrupt base64 — fall back to pre-computed thumbnail
+                                            completion(thumbnailPNG, nil)
+                                        } else {
+                                            completion(nil, nil)
+                                        }
+                                        return nil
+                                    }
+                                } else if let thumbnailPNG {
+                                    provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                                        completion(thumbnailPNG, nil)
+                                        return nil
+                                    }
+                                }
+                                // Force .png extension when falling back to PNG encoding
+                                let filename = attachment.filename
+                                if hasBase64 {
+                                    provider.suggestedName = filename
+                                } else {
+                                    provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
+                                }
+                                return provider
                             }
                             .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
@@ -165,7 +399,11 @@ extension ChatBubble {
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
         AttachmentImageGrid(imageAttachments: images, onTap: { attachment, image in
-            openImageInPreview(attachment, image: image)
+            ImageActions.openInPreview(
+                image,
+                filename: attachment.filename,
+                base64Data: attachment.data.isEmpty ? nil : attachment.data
+            )
         }) { attachment in
             fileAttachmentChip(attachment)
         }
@@ -198,47 +436,6 @@ extension ChatBubble {
             saveFileAttachment(attachment)
         }
         .pointerCursor()
-    }
-
-    func openImageInPreview(_ attachment: ChatAttachment, image: NSImage? = nil) {
-        let tempDir = FileManager.default.temporaryDirectory
-        let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
-
-        // Prefer the original base64 data when available (full resolution).
-        // Fall back to the in-memory NSImage (thumbnail) when data has been cleared.
-        var usedNSImageFallback = false
-        let fileData: Data? = {
-            if !attachment.data.isEmpty,
-               let decoded = Data(base64Encoded: attachment.data),
-               !decoded.isEmpty {
-                return decoded
-            }
-            if let image, let tiff = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: tiff) {
-                usedNSImageFallback = true
-                return rep.representation(using: .png, properties: [:])
-            }
-            return nil
-        }()
-
-        // When the NSImage fallback encodes as PNG, force the extension to .png
-        // so the file extension matches the actual content encoding.
-        let fileName: String
-        if usedNSImageFallback {
-            fileName = (fallbackName as NSString).deletingPathExtension + ".png"
-        } else {
-            fileName = fallbackName
-        }
-        let fileURL = tempDir.appendingPathComponent(fileName)
-
-        guard let fileData else { return }
-        do {
-            try fileData.write(to: fileURL)
-            NSWorkspace.shared.open(fileURL)
-        } catch {
-            // Silently fail — not critical
-        }
     }
 
     func saveFileAttachment(_ attachment: ChatAttachment) {
