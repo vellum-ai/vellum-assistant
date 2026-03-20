@@ -361,6 +361,23 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
 }
 
 /**
+ * Update just the serviceGroupVersion field on a lockfile entry.
+ * Reads the current entry, updates the version if changed, and writes back.
+ * No-op if the entry doesn't exist or the version hasn't changed.
+ */
+export function updateServiceGroupVersion(
+  assistantId: string,
+  version: string,
+): void {
+  const entries = readAssistants();
+  const entry = entries.find((e) => e.assistantId === assistantId);
+  if (!entry) return;
+  if (entry.serviceGroupVersion === version) return;
+  entry.serviceGroupVersion = version;
+  writeAssistants(entries);
+}
+
+/**
  * Scan upward from `basePort` to find an available port. A port is considered
  * available when `probePort()` returns false (nothing listening). Scans up to
  * 100 ports above the base before giving up.
