@@ -230,9 +230,7 @@ export function surfaceActionRouteDefinitions(deps: {
       handler: surfaceActionHandler,
     },
     {
-      // Singular alias — the managed platform proxy forwards the
-      // frontend's POST /v1/assistants/{id}/surface-action/ as
-      // v1/surface-action (singular).  Accept both forms.
+      // Accept singular form for callers that use /v1/surface-action.
       endpoint: "surface-action",
       method: "POST",
       policyKey: "surface-actions",
