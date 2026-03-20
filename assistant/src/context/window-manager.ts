@@ -734,7 +734,7 @@ function adjustForToolPairs(
 
     const hasOrphanedPair = prev.content.some(
       (block) =>
-        block.type === "tool_use" &&
+        (block.type === "tool_use" || block.type === "server_tool_use") &&
         "id" in block &&
         referencedIds.has((block as { id: string }).id),
     );
