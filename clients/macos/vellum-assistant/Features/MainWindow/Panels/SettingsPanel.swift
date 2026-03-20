@@ -392,9 +392,7 @@ struct SettingsPanel: View {
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .schedules:
-            Text("Schedules") // Placeholder — replaced in PR 6
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
+            SettingsSchedulesTab()
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
