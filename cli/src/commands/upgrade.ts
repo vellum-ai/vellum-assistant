@@ -538,12 +538,12 @@ async function upgradePlatform(
 
   const result = (await response.json()) as UpgradeApiResponse;
 
-  // Notify clients that the platform upgrade was initiated successfully.
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "complete",
-    installedVersion: result.version ?? targetVersion,
-    success: true,
-  });
+  // NOTE: We intentionally do NOT broadcast a "complete" event here.
+  // The platform API returning 200 only means "upgrade request accepted" —
+  // the service group has not yet restarted with the new version.  The
+  // completion signal will come from the client's health-check
+  // version-change detection (DaemonConnection.swift) once the new
+  // version actually appears after the platform restarts the service group.
 
   console.log(`✅ ${result.detail}`);
   if (result.version) {
