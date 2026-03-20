@@ -203,7 +203,7 @@ struct InputsGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Pass a FocusState<Bool>.Binding via isFocused: to control focus programmatically.")
                                 .font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            HStack(spacing: VSpacing.md) {
+                            VAdaptiveStack(horizontalAlignment: .bottom) {
                                 VTextField(
                                     "Focusable field",
                                     placeholder: "Click the button to focus me...",

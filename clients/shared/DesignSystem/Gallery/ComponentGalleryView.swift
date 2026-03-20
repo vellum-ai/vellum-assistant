@@ -169,6 +169,13 @@ struct ComponentGalleryView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                Text("Component Gallery")
+                    .font(VFont.headlineMedium)
+                    .foregroundColor(VColor.contentDefault)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.top, VSpacing.md)
+                    .padding(.bottom, VSpacing.xs)
+
                 HStack {
                     VSearchBar(placeholder: "Filter components...", text: $searchText)
 
