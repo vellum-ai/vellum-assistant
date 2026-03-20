@@ -55,6 +55,8 @@ export interface ApprovalInterceptionParams {
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Original approval message timestamp (Slack ts) for editing after resolution. */
+  approvalMessageTs?: string;
 }
 
 export interface ApprovalInterceptionResult {
@@ -92,6 +94,7 @@ export async function handleApprovalInterception(
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
+    approvalMessageTs,
   } = params;
 
   // ── Guardian approval decision path ──
@@ -110,6 +113,7 @@ export async function handleApprovalInterception(
       assistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
+      approvalMessageTs,
     });
     if (guardianResult) {
       return guardianResult;
@@ -478,6 +482,19 @@ export async function handleApprovalInterception(
             { conversationId, callbackRequestId: cbDecision.requestId },
             "Callback request ID does not match any pending interaction, ignoring stale button press",
           );
+
+          // Edit the original Slack approval message to remove stale buttons
+          if (sourceChannel === "slack" && approvalMessageTs) {
+            editStaleSlackApprovalMessage({
+              replyCallbackUrl,
+              chatId: conversationExternalId,
+              messageTs: approvalMessageTs,
+              assistantId,
+              bearerToken,
+              conversationId,
+            });
+          }
+
           return { handled: true, type: "stale_ignored" };
         }
       }
@@ -485,6 +502,32 @@ export async function handleApprovalInterception(
       const result = handleChannelDecision(conversationId, cbDecision);
 
       if (result.applied) {
+        // Edit the original Slack approval message to show the decision
+        // and remove stale action buttons.
+        if (sourceChannel === "slack" && approvalMessageTs) {
+          const decisionOutcome: "approved" | "denied" =
+            cbDecision.action === "reject" ? "denied" : "approved";
+          const statusEmoji =
+            decisionOutcome === "approved" ? "\u2713" : "\u2717";
+          const statusLabel =
+            decisionOutcome === "approved" ? "Approved" : "Denied";
+          deliverChannelReply(
+            replyCallbackUrl,
+            {
+              chatId: conversationExternalId,
+              text: `${statusEmoji} ${statusLabel}`,
+              messageTs: approvalMessageTs,
+              assistantId,
+            },
+            bearerToken,
+          ).catch((err) => {
+            log.error(
+              { err, conversationId, messageTs: approvalMessageTs },
+              "Failed to edit Slack approval message after decision",
+            );
+          });
+        }
+
         // Post-decision delivery is handled by the onEvent callback
         // in the session that registered the pending interaction.
         return { handled: true, type: "decision_applied" };
@@ -492,6 +535,18 @@ export async function handleApprovalInterception(
 
       // Race condition: request was already resolved between the stale check
       // above and the decision attempt.
+      // Edit the original Slack approval message to remove stale buttons
+      if (sourceChannel === "slack" && approvalMessageTs) {
+        editStaleSlackApprovalMessage({
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          messageTs: approvalMessageTs,
+          assistantId,
+          bearerToken,
+          conversationId,
+        });
+      }
+
       return { handled: true, type: "stale_ignored" };
     }
   }
@@ -559,4 +614,43 @@ export async function handleApprovalInterception(
   });
 
   return { handled: true, type: "assistant_turn" };
+}
+
+// ---------------------------------------------------------------------------
+// Slack approval message edit helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire-and-forget: edit a stale Slack approval message to indicate it has
+ * been resolved and remove the action buttons. Used when a button click
+ * arrives for an already-resolved approval.
+ */
+function editStaleSlackApprovalMessage(params: {
+  replyCallbackUrl: string;
+  chatId: string;
+  messageTs: string;
+  assistantId: string;
+  bearerToken?: string;
+  conversationId: string;
+}): void {
+  const statusText = "This approval request has been resolved.";
+  deliverChannelReply(
+    params.replyCallbackUrl,
+    {
+      chatId: params.chatId,
+      text: statusText,
+      messageTs: params.messageTs,
+      assistantId: params.assistantId,
+    },
+    params.bearerToken,
+  ).catch((err) => {
+    log.error(
+      {
+        err,
+        conversationId: params.conversationId,
+        messageTs: params.messageTs,
+      },
+      "Failed to edit stale Slack approval message",
+    );
+  });
 }
