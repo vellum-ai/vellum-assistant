@@ -159,7 +159,7 @@ enum LogExporter {
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
             let feedback = MetricKitManager.UserFeedbackData(
-                comments: formData.message.isEmpty ? nil : formData.message,
+                comments: formData.message.isEmpty ? "(No message provided)" : formData.message,
                 email: formData.email,
                 name: formData.name.isEmpty ? nil : formData.name
             )
