@@ -30,12 +30,14 @@ public struct TTSClient: TTSClientProtocol {
 
     public func synthesize(messageId: String, conversationId: String?) async -> TTSResult {
         do {
-            var path = "assistants/{assistantId}/messages/\(messageId)/tts"
+            let encoded = messageId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageId
+            let path = "assistants/{assistantId}/messages/\(encoded)/tts"
+            var params: [String: String]? = nil
             if let conversationId, !conversationId.isEmpty {
-                path += "?conversationId=\(conversationId)"
+                params = ["conversationId": conversationId]
             }
 
-            let response = try await GatewayHTTPClient.post(path: path, timeout: 60)
+            let response = try await GatewayHTTPClient.post(path: path, params: params, timeout: 60)
 
             switch response.statusCode {
             case 200:

@@ -83,11 +83,13 @@ public enum GatewayHTTPClient {
     /// - Parameters:
     ///   - path: Path segment after `/v1/` (e.g. `"assistants/upgrade"`).
     ///   - body: Optional HTTP body data.
+    ///   - params: Optional query parameters. Keys and values are percent-encoded
+    ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func post(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+    public static func post(path: String, body: Data? = nil, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "POST", timeout: timeout) { request in
             request.httpBody = body
         }
     }
