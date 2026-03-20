@@ -306,6 +306,14 @@ public final class SettingsStore: ObservableObject {
             .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
     }
 
+    /// Whether the connected assistant runs in Docker on the local machine.
+    /// Docker assistants are "remote" for filesystem purposes (workspace is on
+    /// a Docker volume) but support config changes via the HTTP API.
+    private var isCurrentAssistantDocker: Bool {
+        UserDefaults.standard.string(forKey: "connectedAssistantId")
+            .flatMap { LockfileAssistant.loadByName($0) }?.isDocker ?? false
+    }
+
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
@@ -458,6 +466,7 @@ public final class SettingsStore: ObservableObject {
                 self?.refreshChannelVerificationStatus(channel: "slack")
                 self?.loadProviderRoutingSources()
                 self?.refreshEmbeddingConfig()
+                self?.refreshDangerouslySkipPermissions()
             }
             .store(in: &cancellables)
 
@@ -1014,6 +1023,17 @@ public final class SettingsStore: ObservableObject {
                 self.embeddingEnabled = status.enabled
                 self.embeddingDegraded = status.degraded
             }
+        }
+    }
+
+    /// Fetches the current dangerouslySkipPermissions state from the daemon
+    /// over HTTP. Only meaningful for Docker assistants where the config lives
+    /// inside the container and cannot be read from the host filesystem.
+    func refreshDangerouslySkipPermissions() {
+        guard isCurrentAssistantDocker else { return }
+        Task { @MainActor in
+            guard let enabled = await settingsClient.fetchDangerouslySkipPermissions() else { return }
+            self.dangerouslySkipPermissions = enabled
         }
     }
 
@@ -2940,7 +2960,22 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
+        // Docker assistants: use the HTTP API (workspace is on a Docker volume,
+        // not directly writable from the host).
+        if isCurrentAssistantDocker {
+            dangerouslySkipPermissions = enabled
+            Task {
+                let success = await settingsClient.setDangerouslySkipPermissions(enabled)
+                if !success {
+                    // Revert optimistic toggle on failure
+                    dangerouslySkipPermissions = !enabled
+                }
+            }
+            return
+        }
+        // Truly remote (managed/cloud) assistants: not supported.
         guard !isCurrentAssistantRemote else { return }
+        // Local assistants: write directly to workspace config file.
         dangerouslySkipPermissions = enabled
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var permissions = existingConfig["permissions"] as? [String: Any] ?? [:]

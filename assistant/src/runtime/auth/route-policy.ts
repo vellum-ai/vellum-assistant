@@ -348,6 +348,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config/embeddings:GET", scopes: ["settings.read"] },
   { endpoint: "config/embeddings:PUT", scopes: ["settings.write"] },
 
+  // Permissions config
+  { endpoint: "config/permissions/skip:GET", scopes: ["settings.read"] },
+  { endpoint: "config/permissions/skip:PUT", scopes: ["settings.write"] },
+
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },

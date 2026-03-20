@@ -32,6 +32,10 @@ final class MockSettingsClient: SettingsClientProtocol {
     var setEmbeddingConfigResponse: EmbeddingConfigMessage?
     var telegramConfigResponse: TelegramConfigResponseMessage?
     var setTelegramConfigResponse: TelegramConfigResponseMessage?
+    var fetchDangerouslySkipPermissionsResponse: Bool?
+    var setDangerouslySkipPermissionsResponse: Bool = true
+    var fetchDangerouslySkipPermissionsCallCount = 0
+    var setDangerouslySkipPermissionsCalls: [Bool] = []
     var setSlackWebhookConfigResponse: Bool = true
     var channelVerificationResponses: [String: ChannelVerificationSessionResponseMessage] = [:]
     var sendChannelVerificationSessionResponse: ChannelVerificationSessionResponseMessage?
@@ -86,6 +90,16 @@ final class MockSettingsClient: SettingsClientProtocol {
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage? {
         setTelegramConfigCalls.append((action: action, botToken: botToken, commands: commands))
         return setTelegramConfigResponse
+    }
+
+    func fetchDangerouslySkipPermissions() async -> Bool? {
+        fetchDangerouslySkipPermissionsCallCount += 1
+        return fetchDangerouslySkipPermissionsResponse
+    }
+
+    func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool {
+        setDangerouslySkipPermissionsCalls.append(enabled)
+        return setDangerouslySkipPermissionsResponse
     }
 
     func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool {
