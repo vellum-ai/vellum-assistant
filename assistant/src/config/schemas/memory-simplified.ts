@@ -72,7 +72,11 @@ export const MemorySimplifiedConfigSchema = z
         error: "memory.simplified.enabled must be a boolean",
       })
       .default(true)
-      .describe("Whether the simplified memory system is enabled"),
+      .describe(
+        "Legacy toggle — the simplified memory system is now always active. " +
+          "This field is retained for backwards compatibility and will be " +
+          "removed in a future release.",
+      ),
     brief: MemorySimplifiedBriefConfigSchema.default(
       MemorySimplifiedBriefConfigSchema.parse({}),
     ),
@@ -84,7 +88,7 @@ export const MemorySimplifiedConfigSchema = z
     ),
   })
   .describe(
-    "Simplified two-layer memory system — a brief plus archive recall, replacing the legacy item/tier/staleness model",
+    "Simplified two-layer memory system — a brief plus archive recall",
   );
 
 export type MemorySimplifiedConfig = z.infer<
