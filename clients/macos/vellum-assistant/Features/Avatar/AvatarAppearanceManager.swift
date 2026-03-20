@@ -97,8 +97,6 @@ final class AvatarAppearanceManager {
 
     static let shared = AvatarAppearanceManager()
 
-    private var fileMonitor: DispatchSourceFileSystemObject?
-    private var traitsFileMonitor: DispatchSourceFileSystemObject?
     private var identityObserver: NSObjectProtocol?
 
     /// Workspace path for custom avatar -- canonical storage location.
@@ -246,6 +244,12 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
+            characterBodyShape = nil
+            characterEyeStyle = nil
+            characterColor = nil
+            cachedFallbackAvatar = nil
+            cachedFullFallbackAvatar = nil
+            updateDockIcon()
         }
     }
 
@@ -271,21 +275,6 @@ final class AvatarAppearanceManager {
             return legacyURL
         }
         return nil
-    }
-
-    private func loadCustomAvatar() {
-        guard let url = Self.resolveCustomAvatarURL(
-            workspaceURL: customAvatarURL,
-            legacyURL: Self.legacyAppSupportCustomAvatarURL()
-        ) else {
-            customAvatarImage = nil
-            cachedChatAvatar = nil
-            updateDockIcon()
-            return
-        }
-        cachedChatAvatar = nil
-        customAvatarImage = NSImage(contentsOf: url)
-        updateDockIcon()
     }
 
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
@@ -385,166 +374,6 @@ final class AvatarAppearanceManager {
         let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
         guard let data = try? JSONEncoder().encode(components) else { return }
         try? data.write(to: avatarComponentsURL)
-    }
-
-    private func loadAvatarComponents() {
-        guard let data = try? Data(contentsOf: avatarComponentsURL),
-              let components = try? JSONDecoder().decode(AvatarComponents.self, from: data) else {
-            characterBodyShape = nil
-            characterEyeStyle = nil
-            characterColor = nil
-            cachedFallbackAvatar = nil
-            cachedFullFallbackAvatar = nil
-            updateDockIcon()
-            return
-        }
-        characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
-        characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
-        characterColor = AvatarColor(rawValue: components.color)
-        cachedFallbackAvatar = nil
-        cachedFullFallbackAvatar = nil
-        updateDockIcon()
-    }
-
-    // MARK: - File Watching
-
-    /// Watch the custom avatar PNG for external changes (e.g. user replaces the file manually).
-    private func watchAvatarFile() {
-        fileMonitor?.cancel()
-        fileMonitor = nil
-
-        let path = customAvatarURL.path
-        let fd = open(path, O_EVTONLY)
-
-        if fd < 0 {
-            watchAvatarDirectory()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            let flags = source.data
-            Task { @MainActor [weak self] in
-                self?.loadCustomAvatar()
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    self?.watchAvatarFile()
-                    self?.loadAvatarComponents()
-                    self?.watchTraitsFile()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        fileMonitor = source
-        source.resume()
-    }
-
-    /// Watch the avatar directory for file creation when the avatar file doesn't exist yet.
-    private func watchAvatarDirectory() {
-        let dirPath = (customAvatarURL.path as NSString).deletingLastPathComponent
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.loadAvatarComponents()
-                if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
-                    self.watchTraitsFile()
-                }
-                if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
-                    self.loadCustomAvatar()
-                    self.watchAvatarFile()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        fileMonitor = source
-        source.resume()
-    }
-
-    /// Watch character-traits.json for external changes (e.g. assistant writes new traits).
-    private func watchTraitsFile() {
-        traitsFileMonitor?.cancel()
-        traitsFileMonitor = nil
-
-        let path = avatarComponentsURL.path
-        let fd = open(path, O_EVTONLY)
-
-        if fd < 0 {
-            // File doesn't exist yet — fall back to watching the directory for its creation.
-            // This mirrors the watchAvatarFile() → watchAvatarDirectory() pattern.
-            // We store the directory watcher in traitsFileMonitor (not fileMonitor) to
-            // avoid clobbering the avatar file/directory watcher.
-            let dirPath = (avatarComponentsURL.path as NSString).deletingLastPathComponent
-            let dirFd = open(dirPath, O_EVTONLY)
-            guard dirFd >= 0 else { return }
-
-            let dirSource = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: dirFd,
-                eventMask: .write,
-                queue: .global(qos: .utility)
-            )
-
-            dirSource.setEventHandler { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
-                        self.loadAvatarComponents()
-                        self.watchTraitsFile()
-                    }
-                }
-            }
-
-            dirSource.setCancelHandler {
-                close(dirFd)
-            }
-
-            traitsFileMonitor = dirSource
-            dirSource.resume()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            let flags = source.data
-            Task { @MainActor [weak self] in
-                self?.loadAvatarComponents()
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    self?.watchTraitsFile()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        traitsFileMonitor = source
-        source.resume()
     }
 
     // MARK: - Dock Icon
