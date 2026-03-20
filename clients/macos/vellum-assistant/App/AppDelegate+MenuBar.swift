@@ -398,7 +398,7 @@ extension AppDelegate {
         mainWindow?.windowState.selection = .panel(.apps)
     }
 
-    @objc func checkForUpdates() {
+    @objc public func checkForUpdates() {
         // For Docker/managed topologies with a service group update available,
         // navigate to Settings > General (where the Software Update card lives)
         // instead of triggering Sparkle's update dialog.

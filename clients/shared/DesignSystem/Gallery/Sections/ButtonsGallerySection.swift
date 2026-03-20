@@ -15,7 +15,8 @@ struct ButtonsGallerySection: View {
                 // MARK: - VButton (Text + Icon)
                 GallerySectionHeader(
                     title: "VButton",
-                    description: "Primary action button with style, full-width, and disabled options."
+                    description: "Primary action button with style, full-width, and disabled options.",
+                    useInsteadOf: "Custom Button with manual styling"
                 )
 
                 VCard {

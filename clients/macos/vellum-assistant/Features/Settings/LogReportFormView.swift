@@ -72,7 +72,7 @@ struct LogReportFormView: View {
     // MARK: - Sections
 
     private var shouldShowEmail: Bool {
-        authManager.currentUser?.email == nil
+        authManager.currentUser?.email?.isEmpty != false
     }
 
     private var reasonCards: some View {
@@ -194,6 +194,7 @@ private struct ReasonCard: View {
                             .stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
                             .frame(width: 16, height: 16)
                     )
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
@@ -207,5 +208,6 @@ private struct ReasonCard: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
