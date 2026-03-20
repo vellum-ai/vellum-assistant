@@ -253,7 +253,7 @@ export async function findMatchingRule(
 ): Promise<TrustRule | null> {
   const params = new URLSearchParams({
     tool,
-    candidates: candidates.join(","),
+    commands: candidates.join(","),
     scope,
   });
   const data = await request<{ rule: TrustRule | null }>(
