@@ -215,7 +215,7 @@ struct SidebarConversationItem: View {
             }
             .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
         }
-        .pointerCursor { hovering in
+        .vPointerCursor { hovering in
             withAnimation(VAnimation.fast) {
                 sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             }
