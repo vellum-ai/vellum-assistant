@@ -41,6 +41,15 @@ struct AssistantUpgradeSection: View {
         return target != current
     }
 
+    /// Whether the selected target version is older than the current version.
+    private var isRollback: Bool {
+        guard let target = effectiveSelectedVersion,
+              let current = currentVersion, !current.isEmpty else {
+            return false
+        }
+        return target.compare(current, options: .numeric) == .orderedAscending
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Upgrade")
@@ -108,8 +117,10 @@ struct AssistantUpgradeSection: View {
                 } else if topology != .remote {
                     // Docker and managed get the upgrade button
                     VButton(
-                        label: isUpgrading ? "Upgrading..." : "Upgrade Now",
-                        style: .primary
+                        label: isUpgrading
+                            ? (isRollback ? "Rolling back..." : "Upgrading...")
+                            : (isRollback ? "Roll Back" : "Upgrade Now"),
+                        style: isRollback ? .outlined : .primary
                     ) {
                         showingUpgradeConfirmation = true
                     }
@@ -152,13 +163,17 @@ struct AssistantUpgradeSection: View {
         .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { await loadReleases() }
-        .alert("Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
+        .alert(isRollback ? "Roll Back Assistant" : "Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Upgrade") {
+            Button(isRollback ? "Roll Back" : "Upgrade") {
                 Task { await performUpgrade() }
             }
         } message: {
-            Text("Upgrade to version \(selectedVersion ?? latestRelease?.version ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
+            if isRollback {
+                Text("Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+            } else {
+                Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
+            }
         }
     }
 
