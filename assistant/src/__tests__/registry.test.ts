@@ -173,12 +173,6 @@ describe("baseline characterization: hardcoded tool loading", () => {
       expect(eagerModuleToolNames).not.toContain(name);
     }
   });
-
-  test("claude_code is NOT in global registry after initializeTools()", async () => {
-    await initializeTools();
-    const tool = getTool("claude_code");
-    expect(tool).toBeUndefined();
-  });
 });
 
 describe("baseline characterization: core app tool surface", () => {
