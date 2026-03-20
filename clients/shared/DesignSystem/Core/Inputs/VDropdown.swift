@@ -21,6 +21,8 @@ public struct VDropdown<T: Hashable>: View {
     public var optionIcon: ((T) -> VIcon?)? = nil
     /// Optional error message displayed below the dropdown.
     public var errorMessage: String? = nil
+    /// Size variant controlling height, font, padding, and corner radius.
+    public var size: VInputSize = .regular
 
     @Environment(\.isEnabled) private var isEnabled
 
@@ -33,7 +35,8 @@ public struct VDropdown<T: Hashable>: View {
         maxWidth: CGFloat = .infinity,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        size: VInputSize = .regular
     ) {
         self.label = label
         self.placeholder = placeholder
@@ -44,6 +47,7 @@ public struct VDropdown<T: Hashable>: View {
         self.icon = icon
         self.optionIcon = optionIcon
         self.errorMessage = errorMessage
+        self.size = size
     }
 
     private var selectedLabel: String? {
@@ -81,9 +85,9 @@ public struct VDropdown<T: Hashable>: View {
                 .labelsHidden()
             } label: {
                 HStack(spacing: VSpacing.md) {
-                    HStack(spacing: VSpacing.sm) {
+                    HStack(spacing: size == .small ? VSpacing.xs : VSpacing.sm) {
                         if let resolvedIcon = icon ?? optionIcon?(selection) {
-                            VIconView(resolvedIcon, size: 13)
+                            VIconView(resolvedIcon, size: size.iconSize)
                                 .foregroundColor(VColor.contentTertiary)
                         }
 
@@ -96,19 +100,19 @@ public struct VDropdown<T: Hashable>: View {
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
-                        .font(VFont.body)
+                        .font(size.font)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VIconView(.chevronDown, size: 13)
+                    VIconView(.chevronDown, size: size.iconSize)
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xs)
+                .padding(.horizontal, size.horizontalPadding)
+                .padding(.vertical, size.verticalPadding)
                 .frame(maxWidth: .infinity)
-                .frame(height: 32)
-                .vInputChrome(isError: errorMessage != nil, isDisabled: !isEnabled)
+                .frame(height: size.height)
+                .vInputChrome(isError: errorMessage != nil, isDisabled: !isEnabled, cornerRadius: size.cornerRadius)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)

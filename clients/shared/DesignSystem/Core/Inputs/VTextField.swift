@@ -1,5 +1,53 @@
 import SwiftUI
 
+/// Size variants for input components (VTextField, VDropdown).
+public enum VInputSize {
+    case regular
+    case small
+
+    var height: CGFloat {
+        switch self {
+        case .regular: return 32
+        case .small: return 24
+        }
+    }
+
+    var font: Font {
+        switch self {
+        case .regular: return VFont.body
+        case .small: return VFont.caption
+        }
+    }
+
+    var iconSize: CGFloat {
+        switch self {
+        case .regular: return 13
+        case .small: return 11
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .regular: return VSpacing.md
+        case .small: return VSpacing.sm
+        }
+    }
+
+    var verticalPadding: CGFloat {
+        switch self {
+        case .regular: return VSpacing.xs
+        case .small: return VSpacing.xxs
+        }
+    }
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .regular: return VRadius.md
+        case .small: return VRadius.sm
+        }
+    }
+}
+
 extension View {
     public func vInputChrome(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
         modifier(VInputChromeModifier(isFocused: isFocused, isError: isError, isDisabled: isDisabled, cornerRadius: cornerRadius))
@@ -69,6 +117,7 @@ public struct VTextField: View {
     public var onSubmit: (() -> Void)? = nil
     public var maxWidth: CGFloat = .infinity
     public var font: Font = VFont.body
+    public var size: VInputSize = .regular
 
     /// Internal focus state — used only when the caller does NOT provide
     /// an external `FocusState<Bool>.Binding`.
@@ -99,7 +148,8 @@ public struct VTextField: View {
         errorMessage: String? = nil,
         onSubmit: (() -> Void)? = nil,
         maxWidth: CGFloat = .infinity,
-        font: Font = VFont.body
+        font: Font? = nil,
+        size: VInputSize = .regular
     ) {
         self.label = label
         self.placeholder = placeholder
@@ -110,7 +160,8 @@ public struct VTextField: View {
         self.errorMessage = errorMessage
         self.onSubmit = onSubmit
         self.maxWidth = maxWidth
-        self.font = font
+        self.size = size
+        self.font = font ?? size.font
         self.externalFocus = nil
     }
 
@@ -127,7 +178,8 @@ public struct VTextField: View {
         errorMessage: String? = nil,
         onSubmit: (() -> Void)? = nil,
         maxWidth: CGFloat = .infinity,
-        font: Font = VFont.body,
+        font: Font? = nil,
+        size: VInputSize = .regular,
         isFocused: FocusState<Bool>.Binding
     ) {
         self.label = label
@@ -139,7 +191,8 @@ public struct VTextField: View {
         self.errorMessage = errorMessage
         self.onSubmit = onSubmit
         self.maxWidth = maxWidth
-        self.font = font
+        self.size = size
+        self.font = font ?? size.font
         self.externalFocus = isFocused
     }
 
@@ -152,9 +205,9 @@ public struct VTextField: View {
                     .accessibilityHidden(true)
             }
 
-            HStack(spacing: VSpacing.md) {
+            HStack(spacing: size.horizontalPadding) {
                 if let leadingIcon {
-                    VIconView(.resolve(leadingIcon), size: 13)
+                    VIconView(.resolve(leadingIcon), size: size.iconSize)
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
@@ -162,15 +215,15 @@ public struct VTextField: View {
                 inputField
 
                 if let trailingIcon {
-                    VIconView(.resolve(trailingIcon), size: 13)
+                    VIconView(.resolve(trailingIcon), size: size.iconSize)
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome(isFocused: isFocused, isError: errorMessage != nil, isDisabled: !isEnabled)
+            .padding(.horizontal, size.horizontalPadding)
+            .padding(.vertical, size.verticalPadding)
+            .frame(height: size.height)
+            .vInputChrome(isFocused: isFocused, isError: errorMessage != nil, isDisabled: !isEnabled, cornerRadius: size.cornerRadius)
 
             if let errorMessage {
                 Text(errorMessage)
