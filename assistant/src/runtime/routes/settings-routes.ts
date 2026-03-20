@@ -728,6 +728,42 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: () => handleEnvVars(),
     },
 
+    // Platform config (GET / PUT)
+    {
+      endpoint: "config/platform",
+      method: "GET",
+      policyKey: "config/platform:GET",
+      handler: () => {
+        const raw = loadRawConfig();
+        const platform = (raw?.platform ?? {}) as Record<string, unknown>;
+        const baseUrl = (platform.baseUrl as string | undefined) ?? "";
+        return Response.json({ baseUrl, success: true });
+      },
+    },
+    {
+      endpoint: "config/platform",
+      method: "PUT",
+      policyKey: "config/platform",
+      handler: async ({ req }) => {
+        try {
+          const body = (await req.json()) as { baseUrl?: string };
+          const value = (body.baseUrl ?? "").trim().replace(/\/+$/, "");
+          const raw = loadRawConfig();
+          const platform = (raw?.platform ?? {}) as Record<string, unknown>;
+          platform.baseUrl = value || undefined;
+          saveRawConfig({ ...raw, platform });
+          return Response.json({ baseUrl: value, success: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error({ err }, "Failed to update platform config via HTTP");
+          return Response.json(
+            { baseUrl: "", success: false, error: message },
+            { status: 500 },
+          );
+        }
+      },
+    },
+
     // Ingress config (GET / PUT)
     {
       endpoint: "integrations/ingress/config",

@@ -171,4 +171,7 @@ final class MockSettingsClient: SettingsClientProtocol {
         fetchSuggestionCalls.append((conversationId: conversationId, requestId: requestId))
         return fetchSuggestionResponse
     }
+
+    func fetchPlatformConfig() async -> PlatformConfigResponseMessage? { nil }
+    func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
 }

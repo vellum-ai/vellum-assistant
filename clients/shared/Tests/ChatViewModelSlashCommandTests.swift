@@ -58,6 +58,8 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func fetchIngressConfig() async -> IngressConfigResponseMessage? { nil }
         func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage? { nil }
         func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? { nil }
+        func fetchPlatformConfig() async -> PlatformConfigResponseMessage? { nil }
+        func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
     }
 
     private var daemonClient: MockDaemonClient!

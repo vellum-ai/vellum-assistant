@@ -129,9 +129,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Body
 
     public func fetchSkillBody(skillId: String) {
-        // No-op: skill body fetching only worked with the legacy WebSocket
-        // transport and has no REST equivalent. The SkillDetailRequestMessage
-        // is no longer handled by any dispatcher.
+        guard loadedBodies[skillId] == nil else { return }
+        Task {
+            guard let result = await skillsClient.fetchSkillFiles(skillId: skillId) else { return }
+            // Extract the body from the SKILL.md file entry
+            if let skillFile = result.files.first(where: { $0.name == "SKILL.md" }),
+               let content = skillFile.content {
+                loadedBodies[skillId] = content
+            }
+        }
     }
 
     // MARK: - Search Skills

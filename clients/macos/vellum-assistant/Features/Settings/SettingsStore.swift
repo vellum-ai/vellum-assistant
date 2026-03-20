@@ -545,17 +545,6 @@ public final class SettingsStore: ObservableObject {
             self?.handleIngressConfigResponse(response)
         }
 
-        // Wire up platform config response (SSE-pushed updates)
-        daemonClient?.onPlatformConfigResponse = { [weak self] response in
-            guard let self else { return }
-            if response.success {
-                self.platformBaseUrl = response.baseUrl
-                AuthService.shared.configuredBaseURL = response.baseUrl
-            } else if let error = response.error {
-                log.error("Platform config update failed: \(error)")
-            }
-        }
-
         // Wire up Telegram config response
         daemonClient?.onTelegramConfigResponse = { [weak self] response in
             guard let self else { return }
@@ -2066,20 +2055,34 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Platform Config
 
     func refreshPlatformConfig() {
-        // No-op: platform config fetching only worked with the legacy WebSocket
-        // transport. The PlatformConfigRequestMessage is no longer handled by
-        // any dispatcher. The onPlatformConfigResponse callback still handles
-        // SSE-pushed responses if they arrive.
-        log.debug("refreshPlatformConfig: skipped — no REST endpoint available")
+        Task {
+            guard let response = await settingsClient.fetchPlatformConfig() else { return }
+            if response.success {
+                self.platformBaseUrl = response.baseUrl
+                AuthService.shared.configuredBaseURL = response.baseUrl
+            }
+        }
     }
 
     func savePlatformBaseUrl(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previous = platformBaseUrl
         platformBaseUrl = trimmed
         AuthService.shared.configuredBaseURL = trimmed
-        // Note: platform config save only worked with the legacy WebSocket
-        // transport. The local state is updated but the daemon is not notified.
-        log.debug("savePlatformBaseUrl: local state updated — no REST endpoint available")
+        Task {
+            guard let response = await settingsClient.setPlatformConfig(baseUrl: trimmed) else {
+                self.platformBaseUrl = previous
+                AuthService.shared.configuredBaseURL = previous
+                return
+            }
+            if !response.success {
+                self.platformBaseUrl = previous
+                AuthService.shared.configuredBaseURL = previous
+                if let error = response.error {
+                    log.error("Platform config update failed: \(error)")
+                }
+            }
+        }
     }
 
     // MARK: - Provider Routing Sources

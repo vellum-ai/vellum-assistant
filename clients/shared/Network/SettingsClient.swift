@@ -40,6 +40,8 @@ public protocol SettingsClientProtocol {
     func fetchIngressConfig() async -> IngressConfigResponseMessage?
     func updateIngressConfig(publicBaseUrl: String?, enabled: Bool?) async -> IngressConfigResponseMessage?
     func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage?
+    func fetchPlatformConfig() async -> PlatformConfigResponseMessage?
+    func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -508,6 +510,43 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(SuggestionResponseMessage.self, from: enriched)
         } catch {
             log.error("fetchSuggestion error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - Platform Config
+
+    public func fetchPlatformConfig() async -> PlatformConfigResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config/platform", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchPlatformConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("platform_config_response", into: response.data)
+            return try JSONDecoder().decode(PlatformConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("fetchPlatformConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? {
+        do {
+            let body: [String: Any] = ["baseUrl": baseUrl]
+            let response = try await GatewayHTTPClient.put(
+                path: "config/platform", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setPlatformConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("platform_config_response", into: response.data)
+            return try JSONDecoder().decode(PlatformConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("setPlatformConfig error: \(error.localizedDescription)")
             return nil
         }
     }

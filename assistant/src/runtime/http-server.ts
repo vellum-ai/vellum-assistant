@@ -154,6 +154,7 @@ import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
+import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
@@ -931,6 +932,7 @@ export class RuntimeHttpServer {
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
+      ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...logExportRouteDefinitions(),
       ...documentRouteDefinitions(),

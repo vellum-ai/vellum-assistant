@@ -309,10 +309,14 @@ extension AppDelegate {
         errorCode: String?
     ) {
         guard let deliveryId else { return }
-        // No-op: notification intent result acking only worked with the legacy
-        // WebSocket transport. The NotificationIntentResult message is no longer
-        // handled by any dispatcher or REST endpoint.
-        log.debug("sendNotificationIntentResult: skipped for deliveryId \(deliveryId) — no REST endpoint available")
+        Task {
+            await NotificationClient().sendIntentResult(
+                deliveryId: deliveryId,
+                success: success,
+                errorMessage: errorMessage,
+                errorCode: errorCode
+            )
+        }
     }
 
     func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
