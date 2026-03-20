@@ -722,7 +722,7 @@ function adjustForToolPairs(
     // Collect tool_use_ids referenced by tool_results in this user message
     const referencedIds = new Set<string>();
     for (const block of msg.content) {
-      if (block.type === "tool_result" && "tool_use_id" in block) {
+      if ((block.type === "tool_result" || block.type === "web_search_tool_result") && "tool_use_id" in block) {
         referencedIds.add((block as { tool_use_id: string }).tool_use_id);
       }
     }
