@@ -27,7 +27,7 @@ mock.module("node:fs", () => ({
     if (p === SIGNING_KEY_PATH) {
       return Buffer.from(TEST_SIGNING_KEY);
     }
-    return (actualFs.readFileSync as Function)(p, ...args);
+    return (actualFs.readFileSync as (...a: unknown[]) => unknown)(p, ...args);
   },
   writeFileSync: (
     p: string,
