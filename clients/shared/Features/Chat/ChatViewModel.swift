@@ -228,6 +228,10 @@ public final class ChatViewModel: ObservableObject {
                         self.messages[index].isStreaming = false
                         self.messages[index].streamingCodePreview = nil
                         self.messages[index].streamingCodeToolName = nil
+                        for j in self.messages[index].toolCalls.indices where !self.messages[index].toolCalls[j].isComplete {
+                            self.messages[index].toolCalls[j].isComplete = true
+                            self.messages[index].toolCalls[j].completedAt = Date()
+                        }
                     }
                     self.currentAssistantMessageId = nil
                     self.currentTurnUserText = nil
@@ -235,12 +239,30 @@ public final class ChatViewModel: ObservableObject {
                     self.lastContentWasToolCall = false
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
+                    // Voice state
+                    self.pendingVoiceMessage = false
+                    // Bootstrap state — if the first message triggered the watchdog
+                    // before a conversationId was assigned, clear these so the next
+                    // sendMessage() doesn't take the isBootstrapping early-return path.
+                    self.bootstrapCorrelationId = nil
+                    self.pendingUserMessage = nil
+                    self.pendingUserMessageDisplayText = nil
+                    self.pendingUserAttachments = nil
+                    self.pendingUserMessageAutomated = false
                     // Queue tracking state
                     self.pendingQueuedCount = 0
                     self.pendingMessageIds.removeAll()
                     self.requestIdToMessageId.removeAll()
                     self.activeRequestIdToMessageId.removeAll()
                     self.pendingLocalDeletions.removeAll()
+                    // Reset queued/processing user messages to .sent
+                    for i in self.messages.indices {
+                        if case .queued = self.messages[i].status, self.messages[i].role == .user {
+                            self.messages[i].status = .sent
+                        } else if self.messages[i].role == .user && self.messages[i].status == .processing {
+                            self.messages[i].status = .sent
+                        }
+                    }
                     // Setting isSending = false triggers the setter again which
                     // cancels this watchdog task — use the backing store directly.
                     self.messageManager.isSending = false
