@@ -102,7 +102,7 @@ struct MemoriesPanel: View {
         }
         .overlay {
             if let item = selectedItem {
-                Color.black.opacity(0.3)
+                VColor.auxBlack.opacity(0.3)
                     .ignoresSafeArea()
                     .onTapGesture {
                         withAnimation(VAnimation.fast) { selectedItem = nil }
