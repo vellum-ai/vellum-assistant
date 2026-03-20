@@ -1604,7 +1604,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public var conversationError: ConversationError?
     /// The daemon's persisted message ID, populated from history responses.
     /// Nil for freshly streamed messages that haven't been loaded from history.
-    /// Used for anchoring diagnostics exports so the daemon can locate the message.
+    /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
     /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
     /// reconstructed from history. It should be hidden from the chat UI since the

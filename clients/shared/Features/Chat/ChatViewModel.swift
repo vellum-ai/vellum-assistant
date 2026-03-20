@@ -2901,9 +2901,9 @@ public final class ChatViewModel: ObservableObject {
                 )
             }
 
-            // Store the daemon's persisted message ID so diagnostics exports can
-            // anchor to it. This is the database ID from the daemon, not the
-            // client-side UUID.
+            // Store the daemon's persisted message ID so fork, inspect, TTS,
+            // and other daemon-anchored actions can locate it. This is the
+            // database ID from the daemon, not the client-side UUID.
             chatMsg.daemonMessageId = item.id
 
             // Preserve truncation flag so the UI can offer on-demand rehydration.
