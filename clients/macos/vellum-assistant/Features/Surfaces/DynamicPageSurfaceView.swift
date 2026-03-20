@@ -552,6 +552,28 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onSnapshotCaptured = onSnapshotCaptured
 
 
+        // Recompute isInlineFallback: if the app directory has appeared since the
+        // initial makeNSView fallback, switch back to disk-backed reloads.
+        if context.coordinator.isInlineFallback, let appId = appId {
+            let localDir = data.dirName ?? appId
+            let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
+            let appDir = appsDirectory.appendingPathComponent(localDir)
+            if FileManager.default.fileExists(atPath: appDir.path) {
+                context.coordinator.isInlineFallback = false
+                // Reload from disk so the web view picks up the real app files.
+                let entryPath: String
+                let distIndex = appDir.appendingPathComponent("dist/index.html")
+                if FileManager.default.fileExists(atPath: distIndex.path) {
+                    entryPath = "dist/index.html"
+                } else {
+                    entryPath = "index.html"
+                }
+                let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
+                webView.load(URLRequest(url: schemeURL))
+                return
+            }
+        }
+
         // For file-based apps, reload on generation change (picks up CSS/JS/HTML edits)
         if let gen = data.reloadGeneration, gen != context.coordinator.lastReloadGeneration {
             context.coordinator.lastReloadGeneration = gen
