@@ -93,7 +93,7 @@ import { eq } from "drizzle-orm";
 import { getChunkByObservationId } from "../memory/archive-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, rawAll, resetDb } from "../memory/db.js";
-import { memoryObservations, memorySegments } from "../memory/schema.js";
+import { memoryObservations } from "../memory/schema.js";
 
 function removeTestDbFiles(): void {
   rmSync(dbPath, { force: true });
@@ -258,49 +258,46 @@ describe("memory observation dual-write from addMessage", () => {
     });
   });
 
-  // ── Legacy indexing unchanged ───────────────────────────────────
+  // ── Legacy jobs are no longer produced ──────────────────────────
 
-  describe("legacy indexing continues alongside dual-write", () => {
-    test("legacy memory_segments are still created for text messages", async () => {
-      const conv = createConversation("test-conv");
-      await addMessage(conv.id, "user", "A fact worth remembering for memory");
-
-      // Legacy segments should exist
-      const db = getDb();
-      const segments = db
-        .select()
-        .from(memorySegments)
-        .where(eq(memorySegments.conversationId, conv.id))
-        .all();
-      expect(segments.length).toBeGreaterThanOrEqual(1);
-
-      // Observation should also exist
-      const observations = getObservationsByConversation(conv.id);
-      expect(observations).toHaveLength(1);
-    });
-
-    test("legacy extract_items jobs are still enqueued for user messages", async () => {
+  describe("legacy jobs are no longer produced", () => {
+    test("no extract_items jobs are enqueued for user messages", async () => {
       const conv = createConversation("test-conv");
       await addMessage(conv.id, "user", "The user lives in San Francisco");
 
       const extractJobs = getJobsByType("extract_items");
-      expect(extractJobs.length).toBeGreaterThanOrEqual(1);
+      expect(extractJobs).toHaveLength(0);
     });
 
-    test("skipping indexing skips both legacy and observation writes", async () => {
+    test("no embed_segment jobs are enqueued for text messages", async () => {
+      const conv = createConversation("test-conv");
+      await addMessage(conv.id, "user", "A fact worth remembering for memory");
+
+      const embedSegmentJobs = getJobsByType("embed_segment");
+      expect(embedSegmentJobs).toHaveLength(0);
+    });
+
+    test("no build_conversation_summary jobs are enqueued", async () => {
+      const conv = createConversation("test-conv");
+      await addMessage(conv.id, "user", "Some message content");
+
+      const summaryJobs = getJobsByType("build_conversation_summary");
+      expect(summaryJobs).toHaveLength(0);
+    });
+
+    test("observations are still created (new archive write path)", async () => {
+      const conv = createConversation("test-conv");
+      await addMessage(conv.id, "user", "A fact worth remembering for memory");
+
+      const observations = getObservationsByConversation(conv.id);
+      expect(observations).toHaveLength(1);
+    });
+
+    test("skipping indexing skips observation writes", async () => {
       const conv = createConversation("test-conv");
       await addMessage(conv.id, "user", "No indexing please", undefined, {
         skipIndexing: true,
       });
-
-      // No legacy segments
-      const db = getDb();
-      const segments = db
-        .select()
-        .from(memorySegments)
-        .where(eq(memorySegments.conversationId, conv.id))
-        .all();
-      expect(segments).toHaveLength(0);
 
       // No observations
       const observations = getObservationsByConversation(conv.id);
