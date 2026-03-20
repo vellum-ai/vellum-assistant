@@ -140,6 +140,12 @@ export class PermissionChecker {
         // dangerouslySkipPermissions: when enabled, auto-approve all prompts
         // without user interaction. Deny rules are still respected (they
         // return before reaching this block).
+        //
+        // Note: unlike guardian auto-approve and temporary overrides below,
+        // this intentionally does NOT check `context.requireFreshApproval`.
+        // The setting is designed to skip ALL interactive prompts
+        // unconditionally — it is an explicit operator opt-out from the
+        // permission system, so requireFreshApproval does not apply.
         const cfg = getConfig();
         if (cfg.permissions.dangerouslySkipPermissions) {
           log.info(
