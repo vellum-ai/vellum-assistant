@@ -21,8 +21,8 @@ import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 const log = getLogger("ces-credential-client");
 
 const REQUEST_TIMEOUT_MS = 10_000;
-const SET_MAX_RETRIES = 3;
-const SET_RETRY_DELAY_MS = 2_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 250;
 
 // ---------------------------------------------------------------------------
 // Env helpers
@@ -47,7 +47,13 @@ async function cesRequest(
 ): Promise<Response | null> {
   const baseUrl = getBaseUrl();
   const token = getServiceToken();
-  if (!baseUrl || !token) return null;
+  if (!baseUrl || !token) {
+    log.warn(
+      { method, path, hasBaseUrl: !!baseUrl, hasToken: !!token },
+      "CES credential request skipped — missing config",
+    );
+    return null;
+  }
 
   const url = `${baseUrl.replace(/\/+$/, "")}${path}`;
   const headers: Record<string, string> = {
@@ -55,17 +61,32 @@ async function cesRequest(
     "Content-Type": "application/json",
   };
 
-  try {
-    return await fetch(url, {
-      method,
-      headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch (err) {
-    log.warn({ err, method, path }, "CES credential request failed");
-    return null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fetch(url, {
+        method,
+        headers,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) {
+        log.warn(
+          { err, method, path, attempt },
+          `CES credential request failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying`,
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
   }
+
+  log.warn(
+    { err: lastError, method, path },
+    "CES credential request failed after all retries",
+  );
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,56 +124,26 @@ export class CesCredentialBackend implements CredentialBackend {
   }
 
   async set(account: string, value: string): Promise<boolean> {
-    for (let attempt = 0; attempt < SET_MAX_RETRIES; attempt++) {
-      try {
-        const res = await cesRequest(
-          "POST",
-          `/v1/credentials/${encodeURIComponent(account)}`,
-          { value },
+    try {
+      const res = await cesRequest(
+        "POST",
+        `/v1/credentials/${encodeURIComponent(account)}`,
+        { value },
+      );
+      if (!res) return false;
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        log.warn(
+          { account, status: res.status, detail },
+          "CES credential set returned non-OK status",
         );
-        if (!res) {
-          // CES not reachable or env vars missing — retry in case sidecar
-          // is still starting up after pod creation.
-          if (attempt < SET_MAX_RETRIES - 1) {
-            log.warn(
-              { account, attempt },
-              "CES credential set got no response, retrying",
-            );
-            await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
-            continue;
-          }
-          return false;
-        }
-        if (!res.ok) {
-          if (attempt < SET_MAX_RETRIES - 1) {
-            log.warn(
-              { account, status: res.status, attempt },
-              "CES credential set returned non-OK status, retrying",
-            );
-            await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
-            continue;
-          }
-          log.warn(
-            { account, status: res.status },
-            "CES credential set returned non-OK status",
-          );
-          return false;
-        }
-        return true;
-      } catch (err) {
-        if (attempt < SET_MAX_RETRIES - 1) {
-          log.warn(
-            { err, account, attempt },
-            "CES credential set threw, retrying",
-          );
-          await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
-          continue;
-        }
-        log.warn({ err, account }, "CES credential set threw unexpectedly");
         return false;
       }
+      return true;
+    } catch (err) {
+      log.warn({ err, account }, "CES credential set threw unexpectedly");
+      return false;
     }
-    return false;
   }
 
   async delete(account: string): Promise<DeleteResult> {
@@ -164,8 +155,9 @@ export class CesCredentialBackend implements CredentialBackend {
       if (!res) return "error";
       if (res.status === 404) return "not-found";
       if (!res.ok) {
+        const detail = await res.text().catch(() => "");
         log.warn(
-          { account, status: res.status },
+          { account, status: res.status, detail },
           "CES credential delete returned non-OK status",
         );
         return "error";

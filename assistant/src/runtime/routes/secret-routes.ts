@@ -103,11 +103,16 @@ export async function handleAddSecret(
   req: Request,
   getCesClient?: () => CesClient | undefined,
 ): Promise<Response> {
-  const body = (await req.json()) as {
-    type?: string;
-    name?: string;
-    value?: string;
-  };
+  let body: { type?: string; name?: string; value?: string };
+  try {
+    body = (await req.json()) as {
+      type?: string;
+      name?: string;
+      value?: string;
+    };
+  } catch {
+    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+  }
 
   const { type, name, value } = body;
 
@@ -309,10 +314,12 @@ export async function handleAddSecret(
 }
 
 export async function handleDeleteSecret(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
-    type?: string;
-    name?: string;
-  };
+  let body: { type?: string; name?: string };
+  try {
+    body = (await req.json()) as { type?: string; name?: string };
+  } catch {
+    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+  }
 
   const { type, name } = body;
 
