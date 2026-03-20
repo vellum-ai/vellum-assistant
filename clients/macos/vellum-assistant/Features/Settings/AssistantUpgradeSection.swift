@@ -70,24 +70,68 @@ struct AssistantUpgradeSection: View {
         return targetParsed.patch < currentParsed.patch
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(isRollback ? "Roll Back" : "Upgrade")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
+    /// Human-readable label for the current topology.
+    private var topologySubtitle: String {
+        switch topology {
+        case .local: return "Local"
+        case .docker: return "Docker"
+        case .managed: return "Managed"
+        case .remote: return "Remote"
+        }
+    }
 
+    /// The client app version from the bundle (always available).
+    private var appVersion: String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    var body: some View {
+        SettingsCard(title: "Assistant Version", subtitle: topologySubtitle) {
+            // Version info — always visible
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if let current = currentVersion, !current.isEmpty {
+                if topology == .local {
+                    // Local: app and service group are bundled, show single version
+                    if let version = appVersion {
+                        HStack(spacing: VSpacing.sm) {
+                            Text("Version:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text(version)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.contentDefault)
+                        }
+                    }
+                } else {
+                    // Docker/managed/remote: show both app and service group versions
+                    if let version = appVersion {
+                        HStack(spacing: VSpacing.sm) {
+                            Text("App version:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text(version)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.contentDefault)
+                        }
+                    }
                     HStack(spacing: VSpacing.sm) {
-                        Text("Current version:")
+                        Text("Service group:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
-                        Text(current)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.contentDefault)
+                        if let sgVersion = currentVersion, !sgVersion.isEmpty {
+                            Text(sgVersion)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.contentDefault)
+                        } else {
+                            Text("Loading...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
                     }
                 }
+            }
 
+            // Update status
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if topology == .local {
                     if sparkleUpdateAvailable, let updateVersion = sparkleUpdateVersion {
                         HStack(spacing: VSpacing.sm) {
@@ -98,10 +142,14 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.primaryBase)
                         }
-                    } else if !sparkleUpdateAvailable && currentVersion != nil {
-                        Text("You are on the latest version.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                    } else if !sparkleUpdateAvailable {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.circleCheck, size: 12)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                            Text("You are on the latest version.")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
                     }
                 }
 
@@ -125,11 +173,15 @@ struct AssistantUpgradeSection: View {
                 }
 
                 if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty && topology != .local {
-                    Text(selectedVersion == nil
-                         ? "You are on the latest version."
-                         : "You are already on this version.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.circleCheck, size: 12)
+                            .foregroundColor(VColor.systemPositiveStrong)
+                        Text(selectedVersion == nil
+                             ? "You are on the latest version."
+                             : "You are already on this version.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemPositiveStrong)
+                    }
                 }
 
                 if availableReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
@@ -151,7 +203,7 @@ struct AssistantUpgradeSection: View {
 
             HStack(spacing: VSpacing.md) {
                 if topology == .local {
-                    VButton(label: "Check for App Updates", style: .outlined) {
+                    VButton(label: "Check for Updates", style: .outlined) {
                         AppDelegate.shared?.updateManager.checkForUpdates()
                     }
                 } else if topology != .remote {
@@ -200,9 +252,6 @@ struct AssistantUpgradeSection: View {
                     .foregroundColor(VColor.systemPositiveStrong)
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
         .task { await loadReleases() }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
