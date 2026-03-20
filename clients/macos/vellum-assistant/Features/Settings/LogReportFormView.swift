@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// category, describe the issue, and provide an email for follow-up.
 @MainActor
 struct LogReportFormView: View {
-    enum Field { case email, name, message }
+    enum Field { case email, message }
 
     let authManager: AuthManager
     let initialReason: LogReportReason?
@@ -13,14 +13,16 @@ struct LogReportFormView: View {
     let onCancel: () -> Void
 
     @State private var selectedReason: LogReportReason?
-    @State private var name: String = ""
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
+    @State private var includeLogs: Bool = true
+    @State private var logTimeRange: LogTimeRange = .pastHour
     @FocusState private var focusedField: Field?
 
     init(
         authManager: AuthManager,
         initialReason: LogReportReason? = nil,
+        initialIncludeLogs: Bool = true,
         onSend: @escaping (LogReportFormData) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -29,6 +31,7 @@ struct LogReportFormView: View {
         self.onSend = onSend
         self.onCancel = onCancel
         self._selectedReason = State(initialValue: initialReason)
+        self._includeLogs = State(initialValue: initialIncludeLogs)
     }
 
     private var canSend: Bool {
@@ -39,9 +42,9 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             header
             reasonList
-            emailField
-            nameField
             messageField
+            logAttachmentSection
+            emailField
             Spacer(minLength: 0)
             actionRow
         }
@@ -52,15 +55,18 @@ struct LogReportFormView: View {
             if email.isEmpty, let userEmail = authManager.currentUser?.email {
                 email = userEmail
             }
-            if name.isEmpty, let displayName = authManager.currentUser?.display {
-                name = displayName
-            }
             if email.isEmpty {
                 focusedField = .email
-            } else if name.isEmpty {
-                focusedField = .name
             } else {
                 focusedField = .message
+            }
+        }
+        .onChange(of: selectedReason) { _, newReason in
+            guard let reason = newReason else { return }
+            if reason.isErrorCategory {
+                includeLogs = true
+            } else {
+                includeLogs = false
             }
         }
     }
@@ -69,10 +75,10 @@ struct LogReportFormView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            Text("Send Logs")
+            Text("Share Feedback")
                 .font(VFont.headline)
                 .foregroundColor(VColor.contentDefault)
-            Text("Select a reason for your report so we can triage it faster.")
+            Text("Let us know what's going on.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -88,20 +94,6 @@ struct LogReportFormView: View {
                     action: { selectedReason = reason }
                 )
             }
-        }
-    }
-
-    private var nameField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Name (optional)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
-            VTextField(
-                placeholder: "Your name",
-                text: $name,
-                leadingIcon: VIcon.user.rawValue
-            )
-            .focused($focusedField, equals: .name)
         }
     }
 
@@ -134,6 +126,44 @@ struct LogReportFormView: View {
         }
     }
 
+    @ViewBuilder
+    private var logAttachmentSection: some View {
+        if selectedReason != .featureRequest {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.md) {
+                    Toggle(isOn: $includeLogs) {
+                        Text("Include diagnostic logs")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                    }
+                    .toggleStyle(.checkbox)
+
+                    if includeLogs {
+                        Picker("", selection: $logTimeRange) {
+                            ForEach(LogTimeRange.allCases) { range in
+                                Text(range.displayName).tag(range)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 130)
+                    }
+
+                    Spacer()
+                }
+
+                Text("Logs include conversation messages and app diagnostics but never passwords or credentials.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceActive.opacity(0.3))
+            )
+        }
+    }
+
     private var actionRow: some View {
         HStack {
             Spacer()
@@ -141,7 +171,7 @@ struct LogReportFormView: View {
                 onCancel()
             }
             VButton(
-                label: "Send Logs",
+                label: "Submit",
                 leftIcon: VIcon.send.rawValue,
                 style: .primary,
                 isDisabled: !canSend
@@ -149,9 +179,11 @@ struct LogReportFormView: View {
                 guard let reason = selectedReason else { return }
                 onSend(LogReportFormData(
                     reason: reason,
-                    name: name,
+                    name: "",
                     message: message,
-                    email: email
+                    email: email,
+                    includeLogs: includeLogs,
+                    logTimeRange: logTimeRange
                 ))
             }
         }
