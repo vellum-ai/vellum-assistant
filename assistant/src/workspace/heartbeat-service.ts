@@ -210,13 +210,11 @@ export class WorkspaceHeartbeatService {
 
       try {
         const now = this.now();
-        let shutdownFiles: string[] = [];
         const { committed } = await service.commitIfDirty(
           (st) => {
             const uniqueFiles = [
               ...new Set([...st.staged, ...st.modified, ...st.untracked]),
             ];
-            shutdownFiles = uniqueFiles;
             log.info(
               { workspaceDir, totalChanges: uniqueFiles.length },
               "Committing pending changes on shutdown",
@@ -237,28 +235,11 @@ export class WorkspaceHeartbeatService {
         if (committed) {
           firstSeenDirty.delete(workspaceDir);
           result.committed++;
-
-          // Fire-and-forget enrichment
-          try {
-            const commitHash = await service.getHeadHash();
-            const shutdownCtx: CommitContext = {
-              workspaceDir,
-              trigger: "shutdown",
-              changedFiles: shutdownFiles,
-              timestampMs: this.now(),
-            };
-            getEnrichmentService().enqueue({
-              workspaceDir,
-              commitHash,
-              context: shutdownCtx,
-              gitService: service,
-            });
-          } catch (enrichErr) {
-            log.debug(
-              { enrichErr },
-              "Failed to enqueue shutdown enrichment (non-fatal)",
-            );
-          }
+          // Skip enrichment for shutdown commits — the enrichment queue is
+          // about to be shut down anyway, and the fire-and-forget writeNote()
+          // can race with subsequent commitAllPending() calls (the async
+          // git-notes operation acquires the mutex and may leave behind an
+          // index.lock on some git versions, causing the next commit to fail).
         } else {
           result.skipped++;
         }
