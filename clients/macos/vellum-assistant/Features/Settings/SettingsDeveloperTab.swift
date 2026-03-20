@@ -1449,6 +1449,13 @@ private struct ManagedRollbackSection: View {
     @Binding var showingRollbackConfirmation: Bool
     @Binding var rollbackVersion: String
 
+    /// Whether the assistant is already running the previous version,
+    /// meaning a rollback would be a no-op.
+    private var alreadyOnPreviousVersion: Bool {
+        guard let currentVersion else { return false }
+        return currentVersion == previousVersion
+    }
+
     var body: some View {
         SettingsCard(
             title: "Rollback",
@@ -1468,7 +1475,7 @@ private struct ManagedRollbackSection: View {
                     rollbackVersion = previousVersion
                     showingRollbackConfirmation = true
                 }
-                .disabled(isRollingBack)
+                .disabled(isRollingBack || alreadyOnPreviousVersion)
 
                 if isRollingBack {
                     ProgressView()
@@ -1477,6 +1484,12 @@ private struct ManagedRollbackSection: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
+            }
+
+            if alreadyOnPreviousVersion {
+                Text("You are already on this version.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             if let error = rollbackError {
