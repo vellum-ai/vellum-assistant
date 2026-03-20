@@ -78,6 +78,10 @@ export interface AssistantEntry {
   serviceGroupVersion?: string;
   /** Docker image metadata for rollback. Only present for docker topology entries. */
   containerInfo?: ContainerInfo;
+  /** The service group version that was running before the last upgrade. */
+  previousServiceGroupVersion?: string;
+  /** Docker image metadata from before the last upgrade. Enables rollback to the prior version. */
+  previousContainerInfo?: ContainerInfo;
   [key: string]: unknown;
 }
 
