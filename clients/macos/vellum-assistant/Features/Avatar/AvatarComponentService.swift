@@ -69,7 +69,7 @@ final class AvatarComponentService {
     static func fetch() async -> ComponentsResponse? {
         do {
             let (decoded, response): (ComponentsResponse?, GatewayHTTPClient.Response) =
-                try await GatewayHTTPClient.get(path: "avatar/character-components", timeout: 10)
+                try await GatewayHTTPClient.get(path: "assistants/{assistantId}/avatar/character-components", timeout: 10)
             guard response.isSuccess else {
                 log.warning("character-components fetch failed with status \(response.statusCode)")
                 return nil
