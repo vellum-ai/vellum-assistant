@@ -431,7 +431,7 @@ struct ChatBubble: View {
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
-            if !isUser && hasCopyableText && isTTSEnabled {
+            if !isUser && hasCopyableText && isTTSEnabled && message.daemonMessageId != nil {
                 ttsButton
             }
             if let onReportMessage, !isUser {
@@ -497,11 +497,11 @@ struct ChatBubble: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .accessibilityLabel("Stop audio")
-        } else {
+        } else if let daemonMessageId = message.daemonMessageId {
             Button {
                 Task {
                     await audioPlayer.playMessage(
-                        messageId: message.daemonMessageId ?? "",
+                        messageId: daemonMessageId,
                         conversationId: nil
                     )
                 }
