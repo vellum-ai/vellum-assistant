@@ -1,16 +1,16 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConnectionManager")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
 
-/// Manages the HTTP transport connection lifecycle: connect, disconnect,
+/// Manages the gateway connection lifecycle: connect, disconnect,
 /// reconfigure, auto-wake, and bearer token updates.
 ///
 /// Owns `HTTPTransport` (health checks) and coordinates with `EventStreamClient`
 /// (SSE start/stop). Does NOT own published state — `DaemonStatus` observes
 /// this manager's callbacks to update its `@Published` properties.
 @MainActor
-public final class ConnectionManager {
+public final class GatewayConnectionManager {
 
     // MARK: - Transport
 
