@@ -70,7 +70,7 @@ Slack connects via Socket Mode using a bot token and app-level token (not OAuth)
 - Call `skill_load` with `skill: "slack-app-setup"` to load the dependency skill.
 - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then follow the skill's guided flow.
 
-The slack-app-setup skill handles: manifest-driven app creation, app token and bot token collection via secure prompt (never accept tokens pasted in plaintext chat), and Slack connection setup through the same settings handler used by the Settings UI. That handler validates the bot token, stores workspace metadata, and activates Socket Mode. The skill also covers optional guardian verification.
+The slack-app-setup skill handles: manifest-driven app creation, app token and bot token collection via secure prompt (never accept tokens pasted in plaintext chat), and Slack connection setup through the same settings handler used by the Settings UI. That handler validates the bot token, stores workspace metadata, and activates Socket Mode. The skill also covers optional identity verification.
 
 ### Telegram
 
@@ -81,15 +81,15 @@ Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which 
 
 The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering bot commands, and storing credentials securely via the secure credential prompt flow. **Never accept a Telegram bot token pasted in plaintext chat - always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
 
-The telegram-setup skill also includes **guardian verification**, which links your Telegram account as the trusted guardian for the bot.
+The telegram-setup skill also includes **guardian verification**, which links your Telegram account for verified message delivery.
 
-### Guardian Verification (Voice or Telegram)
+### Channel Verification (Voice or Telegram)
 
-If the user asks to verify their guardian identity for voice or Telegram, load the **guardian-verify-setup** skill:
+If the user asks to verify their identity for voice or Telegram, load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
-The guardian-verify-setup skill handles the full outbound verification flow for voice and Telegram channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
+The guardian-verify-setup skill handles the full outbound verification flow for voice and Telegram channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for channel verification setup -- do not duplicate the verification flow inline.
 
 ## Error Recovery
 
