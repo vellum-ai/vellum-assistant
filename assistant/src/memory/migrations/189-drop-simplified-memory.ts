@@ -20,9 +20,9 @@ export function migrateDropSimplifiedMemory(database: DrizzleDb): void {
   // SQLite doesn't support DROP COLUMN before 3.35.0, but Bun's built-in
   // SQLite is >= 3.38, so this is safe.
   for (const col of [
-    "memoryReducedThroughMessageId",
-    "memoryDirtyTailSinceMessageId",
-    "memoryLastReducedAt",
+    "memory_reduced_through_message_id",
+    "memory_dirty_tail_since_message_id",
+    "memory_last_reduced_at",
   ]) {
     try {
       raw.exec(`ALTER TABLE conversations DROP COLUMN ${col}`);
@@ -34,9 +34,9 @@ export function migrateDropSimplifiedMemory(database: DrizzleDb): void {
   // Remove embedding rows for archive target types that no longer exist.
   try {
     raw.exec(
-      `DELETE FROM memory_embeddings WHERE targetType IN ('observation', 'chunk', 'episode')`,
+      `DELETE FROM memory_embeddings WHERE target_type IN ('observation', 'chunk', 'episode')`,
     );
   } catch {
-    // Column doesn't exist — table was never migrated to include targetType.
+    // Column doesn't exist — table was never migrated to include target_type.
   }
 }
