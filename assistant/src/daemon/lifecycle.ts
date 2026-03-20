@@ -7,7 +7,6 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getQdrantHttpPortEnv,
   getQdrantUrlEnv,
@@ -21,7 +20,6 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
-import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
@@ -139,8 +137,6 @@ export async function runDaemon(): Promise<void> {
     // captured. After config loads we check the opt-out flag and call
     // closeSentry() if the user has disabled it.
     initSentry();
-
-    await initLogfire();
 
     ensureDataDir();
 
@@ -328,18 +324,6 @@ export async function runDaemon(): Promise<void> {
       telemetryReporter = new UsageTelemetryReporter();
       telemetryReporter.start();
       log.info("Usage telemetry reporter started");
-    }
-
-    // If Logfire observability is not explicitly enabled, disable it so
-    // wrapWithLogfire() calls during provider setup become no-ops. Logfire
-    // is initialized eagerly (before config loads) for the same reason as
-    // Sentry — but the feature flag gates whether it actually traces.
-    const logfireEnabled = isAssistantFeatureFlagEnabled(
-      "feature_flags.logfire.enabled",
-      config,
-    );
-    if (!logfireEnabled) {
-      disableLogfire();
     }
 
     await initializeProvidersAndTools(config);

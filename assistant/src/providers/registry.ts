@@ -1,4 +1,3 @@
-import { wrapWithLogfire } from "../logfire.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
@@ -293,15 +292,13 @@ export async function initializeProviders(
     registerProvider(
       "anthropic",
       new RetryProvider(
-        wrapWithLogfire(
-          new AnthropicProvider(anthropicCreds.apiKey, model, {
-            useNativeWebSearch,
-            streamTimeoutMs,
-            ...(anthropicCreds.baseURL
-              ? { baseURL: anthropicCreds.baseURL }
-              : {}),
-          }),
-        ),
+        new AnthropicProvider(anthropicCreds.apiKey, model, {
+          useNativeWebSearch,
+          streamTimeoutMs,
+          ...(anthropicCreds.baseURL
+            ? { baseURL: anthropicCreds.baseURL }
+            : {}),
+        }),
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
@@ -314,12 +311,10 @@ export async function initializeProviders(
     registerProvider(
       "openai",
       new RetryProvider(
-        wrapWithLogfire(
-          new OpenAIProvider(openaiCreds.apiKey, model, {
-            streamTimeoutMs,
-            ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
-          }),
-        ),
+        new OpenAIProvider(openaiCreds.apiKey, model, {
+          streamTimeoutMs,
+          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
+        }),
       ),
     );
     routingSources.set("openai", openaiCreds.source);
@@ -332,14 +327,12 @@ export async function initializeProviders(
     registerProvider(
       "gemini",
       new RetryProvider(
-        wrapWithLogfire(
-          new GeminiProvider(geminiCreds.apiKey, model, {
-            streamTimeoutMs,
-            ...(geminiCreds.baseURL
-              ? { managedBaseUrl: geminiCreds.baseURL }
-              : {}),
-          }),
-        ),
+        new GeminiProvider(geminiCreds.apiKey, model, {
+          streamTimeoutMs,
+          ...(geminiCreds.baseURL
+            ? { managedBaseUrl: geminiCreds.baseURL }
+            : {}),
+        }),
       ),
     );
     routingSources.set("gemini", geminiCreds.source);
@@ -352,12 +345,10 @@ export async function initializeProviders(
     registerProvider(
       "ollama",
       new RetryProvider(
-        wrapWithLogfire(
-          new OllamaProvider(model, {
-            apiKey: ollamaKey ?? undefined,
-            streamTimeoutMs,
-          }),
-        ),
+        new OllamaProvider(model, {
+          apiKey: ollamaKey ?? undefined,
+          streamTimeoutMs,
+        }),
       ),
     );
     routingSources.set("ollama", "user-key");
@@ -370,11 +361,9 @@ export async function initializeProviders(
     registerProvider(
       "fireworks",
       new RetryProvider(
-        wrapWithLogfire(
-          new FireworksProvider(fireworksKey, model, {
-            streamTimeoutMs,
-          }),
-        ),
+        new FireworksProvider(fireworksKey, model, {
+          streamTimeoutMs,
+        }),
       ),
     );
     routingSources.set("fireworks", "user-key");
@@ -387,11 +376,9 @@ export async function initializeProviders(
     registerProvider(
       "openrouter",
       new RetryProvider(
-        wrapWithLogfire(
-          new OpenRouterProvider(openrouterKey, model, {
-            streamTimeoutMs,
-          }),
-        ),
+        new OpenRouterProvider(openrouterKey, model, {
+          streamTimeoutMs,
+        }),
       ),
     );
     routingSources.set("openrouter", "user-key");
