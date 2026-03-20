@@ -161,6 +161,56 @@ export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
   throw new Error("Signing key bootstrap: timed out waiting for gateway");
 }
 
+/**
+ * Persist a signing key to disk using an atomic-write pattern.
+ * Used after fetching the key from the gateway so daemon restarts can
+ * load it from disk when the gateway returns 403.
+ */
+function persistSigningKey(key: Buffer): void {
+  const keyPath = getSigningKeyPath();
+  const dir = dirname(keyPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = keyPath + ".tmp." + process.pid;
+  writeFileSync(tmpPath, key, { mode: 0o600 });
+  renameSync(tmpPath, keyPath);
+  chmodSync(keyPath, 0o600);
+}
+
+/**
+ * Resolve the signing key for the current environment.
+ *
+ * In Docker mode (IS_CONTAINERIZED=true + GATEWAY_INTERNAL_URL set), fetches
+ * the key from the gateway's bootstrap endpoint and persists it locally for
+ * restart resilience. On daemon restart (gateway returns 403), falls back to
+ * loading the key from disk.
+ *
+ * In local mode, delegates to the existing file-based loadOrCreateSigningKey().
+ */
+export async function resolveSigningKey(): Promise<Buffer> {
+  const isContainerized = process.env.IS_CONTAINERIZED === "true";
+  const gatewayUrl = process.env.GATEWAY_INTERNAL_URL;
+
+  if (isContainerized && gatewayUrl) {
+    try {
+      const key = await fetchSigningKeyFromGateway();
+      // Persist locally so daemon restarts (where gateway returns 403) load from disk.
+      persistSigningKey(key);
+      return key;
+    } catch (err) {
+      if (err instanceof BootstrapAlreadyCompleted) {
+        // Gateway already bootstrapped (daemon restart) — load from disk.
+        return loadOrCreateSigningKey();
+      }
+      throw err;
+    }
+  }
+
+  // Local mode: use file-based load/create (unchanged behavior).
+  return loadOrCreateSigningKey();
+}
+
 function getSigningKey(): Buffer {
   if (!_authSigningKey) {
     if (process.env.NODE_ENV === "test") {
