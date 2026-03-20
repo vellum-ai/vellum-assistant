@@ -50,15 +50,16 @@ struct SettingsAppearanceTab: View {
                                 .textFieldStyle(.plain)
                                 .focused($isTimezoneSearchFocused)
                             if !timezoneSearchText.isEmpty {
-                                Button {
+                                VButton(
+                                    label: "Clear search",
+                                    iconOnly: VIcon.x.rawValue,
+                                    style: .ghost,
+                                    iconSize: 18,
+                                    iconColor: VColor.contentTertiary
+                                ) {
                                     timezoneSearchText = ""
                                     isTimezoneDropdownOpen = false
-                                } label: {
-                                    VIconView(.x, size: 11)
-                                        .foregroundColor(VColor.contentTertiary)
                                 }
-                                .buttonStyle(.plain)
-                                .pointerCursor()
                             }
                         }
                         .padding(.horizontal, VSpacing.md)

@@ -418,17 +418,15 @@ struct ChatBubble: View {
                 .foregroundColor(VColor.contentTertiary)
                 .help(detailedTimestamp)
             if hasCopyableText {
-                Button {
+                VButton(
+                    label: showCopyConfirmation ? "Copied" : "Copy message",
+                    iconOnly: (showCopyConfirmation ? VIcon.check : VIcon.copy).rawValue,
+                    style: .ghost,
+                    iconSize: 24,
+                    iconColor: showCopyConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary
+                ) {
                     copyMessageText()
-                } label: {
-                    VIconView(showCopyConfirmation ? .check : .copy, size: 11)
-                        .foregroundColor(showCopyConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .vTooltip(showCopyConfirmation ? "Copied" : "Copy", edge: .bottom)
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
@@ -436,45 +434,39 @@ struct ChatBubble: View {
                 ttsButton
             }
             if let onReportMessage, !isUser {
-                Button {
+                VButton(
+                    label: "Report message",
+                    iconOnly: VIcon.bug.rawValue,
+                    style: .ghost,
+                    iconSize: 24,
+                    iconColor: VColor.contentTertiary
+                ) {
                     onReportMessage(message.daemonMessageId)
-                } label: {
-                    VIconView(.bug, size: 11)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel("Report message")
                 .vTooltip("Report", edge: .bottom)
             }
             if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
-                Button {
+                VButton(
+                    label: "Fork from here",
+                    iconOnly: VIcon.gitBranch.rawValue,
+                    style: .ghost,
+                    iconSize: 24,
+                    iconColor: VColor.contentTertiary
+                ) {
                     onForkFromMessage(daemonMessageId)
-                } label: {
-                    VIconView(.gitBranch, size: 11)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel("Fork from here")
                 .vTooltip("Fork from here", edge: .bottom)
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
-                Button {
+                VButton(
+                    label: "Inspect LLM context",
+                    iconOnly: VIcon.fileCode.rawValue,
+                    style: .ghost,
+                    iconSize: 24,
+                    iconColor: VColor.contentTertiary
+                ) {
                     onInspectMessage?(daemonMsgId)
-                } label: {
-                    VIconView(.fileCode, size: 11)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel("Inspect LLM context")
                 .vTooltip("Inspect", edge: .bottom)
             }
         }
@@ -490,34 +482,30 @@ struct ChatBubble: View {
                 .frame(width: 24, height: 24)
                 .tint(VColor.contentTertiary)
         } else if audioPlayer.isPlaying {
-            Button {
+            VButton(
+                label: "Stop audio",
+                iconOnly: VIcon.square.rawValue,
+                style: .ghost,
+                iconSize: 24,
+                iconColor: VColor.systemPositiveStrong
+            ) {
                 audioPlayer.stop()
-            } label: {
-                VIconView(.square, size: 11)
-                    .foregroundColor(VColor.systemPositiveStrong)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel("Stop audio")
         } else if let daemonMessageId = message.daemonMessageId {
-            Button {
+            VButton(
+                label: "Play as audio",
+                iconOnly: VIcon.volume2.rawValue,
+                style: .ghost,
+                iconSize: 24,
+                iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
+            ) {
                 Task {
                     await audioPlayer.playMessage(
                         messageId: daemonMessageId,
                         conversationId: nil
                     )
                 }
-            } label: {
-                VIconView(.volume2, size: 11)
-                    .foregroundColor(audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel("Play as audio")
             .vTooltip(audioPlayer.error ?? "Read aloud", edge: .bottom)
         }
     }

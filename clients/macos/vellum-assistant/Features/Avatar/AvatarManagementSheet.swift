@@ -239,15 +239,14 @@ struct AvatarManagementSheet: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(spacing: 0) {
-            Button(action: onLeft) {
-                VIconView(.arrowLeft, size: 14)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel("Previous \(label.lowercased())")
+            VButton(
+                label: "Previous \(label.lowercased())",
+                iconOnly: VIcon.arrowLeft.rawValue,
+                style: .ghost,
+                iconSize: 36,
+                iconColor: VColor.contentTertiary,
+                action: onLeft
+            )
 
             Spacer()
 
@@ -256,15 +255,14 @@ struct AvatarManagementSheet: View {
 
             Spacer()
 
-            Button(action: onRight) {
-                VIconView(.arrowRight, size: 14)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel("Next \(label.lowercased())")
+            VButton(
+                label: "Next \(label.lowercased())",
+                iconOnly: VIcon.arrowRight.rawValue,
+                style: .ghost,
+                iconSize: 36,
+                iconColor: VColor.contentTertiary,
+                action: onRight
+            )
         }
         .padding(.horizontal, VSpacing.sm)
         .frame(maxWidth: .infinity)
