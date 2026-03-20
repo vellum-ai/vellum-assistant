@@ -676,19 +676,6 @@ describe("keychain-broker-client", () => {
   // Connect timeout
   // -----------------------------------------------------------------------
   describe("connect timeout", () => {
-    let server: Server;
-
-    afterEach(async () => {
-      if (server) {
-        const conns = new Set<import("node:net").Socket>();
-        server.on("connection", (c) => conns.add(c));
-        for (const c of conns) c.destroy();
-        await new Promise<void>((resolve) => {
-          server.close(() => resolve());
-        });
-      }
-    });
-
     test("returns null within bounded time when broker accepts but never responds", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
 
@@ -696,27 +683,38 @@ describe("keychain-broker-client", () => {
       // simulating an unresponsive broker. The OS-level connect succeeds
       // (so connect timeout won't fire), but the request will hit the
       // REQUEST_TIMEOUT (5s) since no response arrives.
-      server = createServer(() => {
-        // Accept connection but do nothing
+      const connections = new Set<import("node:net").Socket>();
+      const server = createServer((conn) => {
+        connections.add(conn);
+        conn.on("close", () => connections.delete(conn));
+        // Accept connection but never respond
       });
       await new Promise<void>((resolve) => {
         server.listen(SOCKET_PATH, () => resolve());
       });
 
-      const client = createBrokerClient();
-      const start = Date.now();
+      try {
+        const client = createBrokerClient();
+        const start = Date.now();
 
-      // get() should resolve to null (timeout) within a bounded time,
-      // not hang indefinitely.
-      const result = await client.get("test-account");
-      const elapsed = Date.now() - start;
+        // get() should resolve to null (timeout) within a bounded time,
+        // not hang indefinitely.
+        const result = await client.get("test-account");
+        const elapsed = Date.now() - start;
 
-      expect(result).toBeNull();
-      // Should complete well under 10s (request timeout is 5s)
-      expect(elapsed).toBeLessThan(10_000);
+        expect(result).toBeNull();
+        // Should complete well under 10s (request timeout is 5s)
+        expect(elapsed).toBeLessThan(10_000);
+      } finally {
+        for (const conn of connections) conn.destroy();
+        connections.clear();
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      }
     }, 15_000);
 
-    test("connect timeout fires when socket exists but connect never completes", async () => {
+    test("connect rejects when socket file is not a real socket", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
 
       // Write a regular file at the socket path. createConnection to a
