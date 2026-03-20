@@ -36,8 +36,7 @@ extension ComposerView {
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
         }
-        .padding(.vertical, VSpacing.xs)
-        .padding(.horizontal, VSpacing.sm)
+        .padding(VSpacing.xs)
         .background(VColor.borderBase.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
@@ -90,8 +89,7 @@ extension ComposerView {
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.filename)")
         }
-        .padding(.vertical, VSpacing.xs)
-        .padding(.horizontal, VSpacing.sm)
+        .padding(VSpacing.xs)
         .background(VColor.borderBase.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: 280)

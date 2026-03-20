@@ -188,7 +188,7 @@ extension ChatBubble {
             }
         }
         .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(isUser ? VColor.contentDefault.opacity(0.15) : VColor.borderBase.opacity(0.5))
