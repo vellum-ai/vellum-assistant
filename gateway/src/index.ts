@@ -536,7 +536,7 @@ async function main() {
       path: "/internal/signing-key-bootstrap",
       method: "GET",
       auth: "none",
-      handler: () => signingKeyBootstrap.handleGetSigningKey(),
+      handler: (req) => signingKeyBootstrap.handleGetSigningKey(req),
     },
 
     // ── Channel verification sessions ──
