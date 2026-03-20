@@ -17,14 +17,18 @@ TOTAL_STEPS=16
 
 # Run a step inside a subshell so that any failure is caught and reported
 # without aborting the rest of the script.
+#
+# The subshell must NOT be placed in an `if` condition or `||` chain because
+# Bash silently disables `set -e` (errexit) in those contexts. Instead we run
+# it as a plain command and capture its exit code on the next line.
 run_step() {
     local step_number="$1"
     local step_label="$2"
     shift 2
     echo "$step_number/$TOTAL_STEPS — $step_label..."
-    if (set -e; "$@"); then
-        :
-    else
+    (set -e; "$@")
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
         echo "      ⚠️  Step $step_number failed, continuing..."
     fi
 }
