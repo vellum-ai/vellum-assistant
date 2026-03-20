@@ -66,7 +66,7 @@ public struct ConfirmationSurfaceView: View {
     }
 
     private var pendingContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Header with icon
             HStack(alignment: .top, spacing: VSpacing.md) {
                 VIconView(.triangleAlert, size: 24)
@@ -84,9 +84,7 @@ public struct ConfirmationSurfaceView: View {
             }
 
             // Action buttons
-            HStack(spacing: VSpacing.lg) {
-                Spacer()
-
+            HStack(spacing: VSpacing.sm) {
                 VButton(
                     label: data.cancelLabel ?? "Cancel",
                     style: .outlined
