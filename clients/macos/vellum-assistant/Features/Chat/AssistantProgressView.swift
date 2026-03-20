@@ -402,6 +402,7 @@ struct AssistantProgressView: View {
             }
         }
         .onAppear {
+            let wasExpandedOnEntry = isExpanded
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
             }
@@ -440,7 +441,9 @@ struct AssistantProgressView: View {
             // Rehydrate stripped tool calls for cards that start expanded.
             // When isExpanded is set to true in init(), onChange(of: isExpanded)
             // never fires (no false→true transition), so we must check here.
-            if isExpanded, onRehydrate != nil {
+            // Gate on wasExpandedOnEntry so cards that just expanded above
+            // don't double-fire — onChange already handles their rehydration.
+            if wasExpandedOnEntry, onRehydrate != nil {
                 let hasStrippedToolCall = toolCalls.contains { tc in
                     tc.isComplete
                         && tc.inputFull.isEmpty
