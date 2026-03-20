@@ -130,6 +130,9 @@ const EXCLUDED_FROM_SCHEMA = new Set([
 
   // Runtime proxy catch-all — documented as /{path} in the schema
   "catch-all",
+
+  // Internal Docker bootstrap endpoint — not a public API
+  "/internal/signing-key-bootstrap",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
