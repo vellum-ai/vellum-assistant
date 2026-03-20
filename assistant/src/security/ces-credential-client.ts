@@ -21,6 +21,8 @@ import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 const log = getLogger("ces-credential-client");
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const SET_MAX_RETRIES = 3;
+const SET_RETRY_DELAY_MS = 2_000;
 
 // ---------------------------------------------------------------------------
 // Env helpers
@@ -101,25 +103,56 @@ export class CesCredentialBackend implements CredentialBackend {
   }
 
   async set(account: string, value: string): Promise<boolean> {
-    try {
-      const res = await cesRequest(
-        "POST",
-        `/v1/credentials/${encodeURIComponent(account)}`,
-        { value },
-      );
-      if (!res) return false;
-      if (!res.ok) {
-        log.warn(
-          { account, status: res.status },
-          "CES credential set returned non-OK status",
+    for (let attempt = 0; attempt < SET_MAX_RETRIES; attempt++) {
+      try {
+        const res = await cesRequest(
+          "POST",
+          `/v1/credentials/${encodeURIComponent(account)}`,
+          { value },
         );
+        if (!res) {
+          // CES not reachable or env vars missing — retry in case sidecar
+          // is still starting up after pod creation.
+          if (attempt < SET_MAX_RETRIES - 1) {
+            log.warn(
+              { account, attempt },
+              "CES credential set got no response, retrying",
+            );
+            await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
+            continue;
+          }
+          return false;
+        }
+        if (!res.ok) {
+          if (attempt < SET_MAX_RETRIES - 1) {
+            log.warn(
+              { account, status: res.status, attempt },
+              "CES credential set returned non-OK status, retrying",
+            );
+            await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
+            continue;
+          }
+          log.warn(
+            { account, status: res.status },
+            "CES credential set returned non-OK status",
+          );
+          return false;
+        }
+        return true;
+      } catch (err) {
+        if (attempt < SET_MAX_RETRIES - 1) {
+          log.warn(
+            { err, account, attempt },
+            "CES credential set threw, retrying",
+          );
+          await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
+          continue;
+        }
+        log.warn({ err, account }, "CES credential set threw unexpectedly");
         return false;
       }
-      return true;
-    } catch (err) {
-      log.warn({ err, account }, "CES credential set threw unexpectedly");
-      return false;
     }
+    return false;
   }
 
   async delete(account: string): Promise<DeleteResult> {

@@ -103,6 +103,7 @@ function mapUserDecisionToCesDecision(
         userDecision: decision,
       };
     case "temporary_override":
+    case "dangerously_skip_permissions":
       return {
         grantDecision: "approved",
         ttl: undefined,
