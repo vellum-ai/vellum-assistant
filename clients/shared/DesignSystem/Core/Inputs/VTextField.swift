@@ -84,6 +84,10 @@ public struct VTextField: View {
     public var errorMessage: String? = nil
     public var onSubmit: (() -> Void)? = nil
     public var maxWidth: CGFloat = .infinity
+    /// Optional external focus binding. When provided, setting this to `true`
+    /// programmatically focuses the field; the binding also reflects focus changes
+    /// initiated by the user (e.g. clicking into the field).
+    private var externalFocus: Binding<Bool>?
 
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
@@ -97,7 +101,8 @@ public struct VTextField: View {
         isSecure: Bool = false,
         errorMessage: String? = nil,
         onSubmit: (() -> Void)? = nil,
-        maxWidth: CGFloat = .infinity
+        maxWidth: CGFloat = .infinity,
+        isFocused: Binding<Bool>? = nil
     ) {
         self.label = label
         self.placeholder = placeholder
@@ -108,6 +113,7 @@ public struct VTextField: View {
         self.errorMessage = errorMessage
         self.onSubmit = onSubmit
         self.maxWidth = maxWidth
+        self.externalFocus = isFocused
     }
 
     public var body: some View {
@@ -147,6 +153,16 @@ public struct VTextField: View {
             }
         }
         .frame(maxWidth: maxWidth)
+        .onChange(of: isFocused) { _, newValue in
+            if externalFocus?.wrappedValue != newValue {
+                externalFocus?.wrappedValue = newValue
+            }
+        }
+        .onChange(of: externalFocus?.wrappedValue) { _, newValue in
+            if let newValue, isFocused != newValue {
+                isFocused = newValue
+            }
+        }
     }
 
     @ViewBuilder

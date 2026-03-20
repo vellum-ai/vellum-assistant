@@ -40,6 +40,12 @@ struct AssistantChannelsDetailView: View {
     @State private var voiceRowExpanded: Bool = false
     @State private var emailRowExpanded: Bool = false
 
+    // Auto-focus first input when setup expands
+    @State private var isTelegramTokenFocused: Bool = false
+    @State private var isSlackBotTokenFocused: Bool = false
+    @State private var isVoiceAccountSidFocused: Bool = false
+    @State private var focusTask: Task<Void, Never>?
+
     var body: some View {
         Group {
             if showCardBorders {
@@ -109,6 +115,25 @@ struct AssistantChannelsDetailView: View {
                 store.refreshAssistantEmail()
             }
         }
+        .onChange(of: telegramSetupExpanded) { _, expanded in
+            if expanded { scheduleFocus { isTelegramTokenFocused = true } }
+        }
+        .onChange(of: slackChannelSetupExpanded) { _, expanded in
+            if expanded { scheduleFocus { isSlackBotTokenFocused = true } }
+        }
+        .onChange(of: voiceSetupExpanded) { _, expanded in
+            if expanded { scheduleFocus { isVoiceAccountSidFocused = true } }
+        }
+        .onChange(of: telegramRowExpanded) { _, expanded in
+            if expanded { scheduleFocus { isTelegramTokenFocused = true } }
+        }
+        .onChange(of: slackRowExpanded) { _, expanded in
+            if expanded { scheduleFocus { isSlackBotTokenFocused = true } }
+        }
+        .onChange(of: voiceRowExpanded) { _, expanded in
+            if expanded { scheduleFocus { isVoiceAccountSidFocused = true } }
+        }
+        .onDisappear { focusTask?.cancel() }
     }
 
     // MARK: - Layouts
@@ -456,6 +481,16 @@ struct AssistantChannelsDetailView: View {
         }
     }
 
+    /// Schedule a cancellable focus action after a short delay.
+    private func scheduleFocus(_ action: @escaping @MainActor () -> Void) {
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
+            action()
+        }
+    }
+
     // MARK: - Email Channel Card
 
     private var emailCard: some View {
@@ -565,7 +600,8 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Telegram bot token",
                 text: $telegramBotTokenText,
                 isSecure: true,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isTelegramTokenFocused
             )
 
             Text("Get your bot token from @BotFather on Telegram")
@@ -667,7 +703,8 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Bot Token (xoxb-...)",
                 text: $slackChannelBotTokenInput,
                 isSecure: true,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isSlackBotTokenFocused
             )
 
             VTextField(
@@ -778,7 +815,8 @@ struct AssistantChannelsDetailView: View {
                 "Account SID",
                 placeholder: "Account SID",
                 text: $voiceAccountSidText,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isVoiceAccountSidFocused
             )
 
             VTextField(
