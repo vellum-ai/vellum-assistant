@@ -26,7 +26,7 @@ final class IdentityViewModel {
     func setUp(daemonClient: DaemonClient) {
         cancellables.removeAll()
 
-        let skills = SkillsStore(daemonClient: daemonClient)
+        let skills = SkillsStore()
         skillsStore = skills
         let contacts = ContactsStore(daemonClient: daemonClient)
         contactsStore = contacts

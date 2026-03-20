@@ -243,7 +243,6 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
-    private var pendingPlatformUrl: String?
 
     // MARK: - Ingress Config State
 
@@ -546,22 +545,14 @@ public final class SettingsStore: ObservableObject {
             self?.handleIngressConfigResponse(response)
         }
 
-        // Wire up platform config response
+        // Wire up platform config response (SSE-pushed updates)
         daemonClient?.onPlatformConfigResponse = { [weak self] response in
             guard let self else { return }
             if response.success {
                 self.platformBaseUrl = response.baseUrl
                 AuthService.shared.configuredBaseURL = response.baseUrl
-            } else {
-                // Revert optimistic state on failure
-                if let previous = self.pendingPlatformUrl {
-                    self.platformBaseUrl = previous
-                    AuthService.shared.configuredBaseURL = previous
-                    self.pendingPlatformUrl = nil
-                }
-                if let error = response.error {
-                    log.error("Platform config update failed: \(error)")
-                }
+            } else if let error = response.error {
+                log.error("Platform config update failed: \(error)")
             }
         }
 
@@ -2075,27 +2066,20 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Platform Config
 
     func refreshPlatformConfig() {
-        do {
-            try daemonClient?.send(PlatformConfigRequestMessage(action: "get"))
-        } catch {
-            log.error("Failed to send platform config get: \(error)")
-        }
+        // No-op: platform config fetching only worked with the legacy WebSocket
+        // transport. The PlatformConfigRequestMessage is no longer handled by
+        // any dispatcher. The onPlatformConfigResponse callback still handles
+        // SSE-pushed responses if they arrive.
+        log.debug("refreshPlatformConfig: skipped — no REST endpoint available")
     }
 
     func savePlatformBaseUrl(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previous = platformBaseUrl
-        pendingPlatformUrl = previous
         platformBaseUrl = trimmed
         AuthService.shared.configuredBaseURL = trimmed
-        do {
-            try daemonClient?.send(PlatformConfigRequestMessage(action: "set", baseUrl: trimmed))
-        } catch {
-            pendingPlatformUrl = nil
-            platformBaseUrl = previous
-            AuthService.shared.configuredBaseURL = previous
-            log.error("Failed to send platform config set: \(error)")
-        }
+        // Note: platform config save only worked with the legacy WebSocket
+        // transport. The local state is updated but the daemon is not notified.
+        log.debug("savePlatformBaseUrl: local state updated — no REST endpoint available")
     }
 
     // MARK: - Provider Routing Sources

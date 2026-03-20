@@ -229,19 +229,6 @@ public final class HTTPTransport {
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
 
-    /// Registered domain dispatchers. Each handler receives the message as `Any`
-    /// and returns `true` if it handled the message, `false` otherwise.
-    /// Dispatchers are tried in registration order; the first match wins.
-    private var domainDispatchers: [(Any) -> Bool] = []
-
-    /// Register a domain dispatcher that can handle specific message types.
-    /// The handler receives the message as `Any` and returns `true` if it
-    /// handled the message. Return `false` to let subsequent dispatchers
-    /// (or the default fallback) handle it.
-    func registerDomainDispatcher(_ handler: @escaping (Any) -> Bool) {
-        domainDispatchers.append(handler)
-    }
-
     // MARK: - Init
 
     init(baseURL: String, bearerToken: String?, conversationKey: String, transportMetadata: TransportMetadata = .defaultLocal) {
@@ -252,14 +239,6 @@ public final class HTTPTransport {
             locallyOwnedConversationIds.insert(conversationKey)
         }
         self.transportMetadata = transportMetadata
-
-        // Register dispatchers for existing HTTP-transported message types
-        registerExistingRoutes()
-        registerComputerUseRoutes()
-        registerSettingsRoutes()
-        registerAppsRoutes()
-        registerSubagentsRoutes()
-        registerConversationRoutes()
     }
 
     // MARK: - Endpoint Builder
@@ -677,17 +656,13 @@ public final class HTTPTransport {
     // MARK: - Send (HTTP API Calls)
 
     /// Translate a message to the appropriate HTTP API call.
-    /// Domain dispatchers are tried in registration order; the first match wins.
-    /// If no dispatcher handles the message, it falls through to a default log.
+    /// Only UserMessageMessage still uses this path — all other message types
+    /// have been migrated to focused clients backed by GatewayHTTPClient.
     func send<T: Encodable>(_ message: T) throws {
-        // Try registered domain dispatchers first
-        for dispatcher in domainDispatchers {
-            if dispatcher(message) {
-                return
-            }
+        if let msg = message as? UserMessageMessage {
+            Task { await sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
+            return
         }
-
-        // No dispatcher handled the message
         log.debug("HTTPTransport: unhandled send message type \(String(describing: type(of: message)))")
     }
 

@@ -21,7 +21,7 @@ final class SkillsManager: ObservableObject {
     typealias UninstallResult = SkillsStore.UninstallResult
 
     init(daemonClient: DaemonClient) {
-        self.skillsStore = SkillsStore(daemonClient: daemonClient)
+        self.skillsStore = SkillsStore()
         bindStore()
     }
 

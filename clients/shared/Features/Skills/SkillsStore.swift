@@ -88,9 +88,6 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Private State
 
     private let skillsClient: SkillsClientProtocol
-    /// Legacy daemon client retained only for `fetchSkillBody` which uses a
-    /// message-transport endpoint without a REST equivalent.
-    private weak var daemonClient: DaemonClient?
     private var inspectCache: [String: ClawhubInspectData] = [:]
     private var currentInspectSlug: String?
     private var lastSearchQuery: String?
@@ -105,14 +102,12 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient) {
+    public init() {
         self.skillsClient = SkillsClient()
-        self.daemonClient = daemonClient
     }
 
-    public init(skillsClient: SkillsClientProtocol, daemonClient: DaemonClient? = nil) {
+    public init(skillsClient: SkillsClientProtocol) {
         self.skillsClient = skillsClient
-        self.daemonClient = daemonClient
     }
 
     // MARK: - Fetch Skills
@@ -134,32 +129,9 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Body
 
     public func fetchSkillBody(skillId: String) {
-        guard loadedBodies[skillId] == nil else { return }
-        guard let daemonClient else { return }
-
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillDetailRequestMessage(skillId: skillId))
-            } catch {
-                return
-            }
-
-            let body = await stream.firstMatch { message -> String? in
-                if case .skillDetailResponse(let response) = message,
-                   response.skillId == skillId {
-                    if let error = response.error {
-                        return "Error: \(error)"
-                    }
-                    return response.body
-                }
-                return nil
-            }
-            if let body {
-                loadedBodies[skillId] = body
-            }
-        }
+        // No-op: skill body fetching only worked with the legacy WebSocket
+        // transport and has no REST equivalent. The SkillDetailRequestMessage
+        // is no longer handled by any dispatcher.
     }
 
     // MARK: - Search Skills
