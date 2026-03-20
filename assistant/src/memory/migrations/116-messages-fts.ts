@@ -28,10 +28,12 @@ const logger = getLogger("messages-fts");
  * ## Auto-recovery from corruption
  *
  * After creating (or finding an existing) messages_fts table, we probe it
- * with a lightweight SELECT. If the probe throws SQLITE_CORRUPT_VTAB, we
- * drop the virtual table and all its FTS5 shadow tables, then recreate it.
- * The subsequent `migrateMessagesFtsBackfill` call in db-init.ts will
- * repopulate the index from the messages table — no message data is lost.
+ * with an `integrity-check` command that validates the FTS index shadow
+ * tables (_idx, _docsize, _content, etc.). If the probe throws
+ * SQLITE_CORRUPT_VTAB or SQLITE_CORRUPT, we drop the virtual table and
+ * recreate it. The subsequent `migrateMessagesFtsBackfill` call in
+ * db-init.ts will repopulate the index from the messages table — no
+ * message data is lost.
  */
 export function createMessagesFts(database: DrizzleDb): void {
   database.run(/*sql*/ `
@@ -41,12 +43,15 @@ export function createMessagesFts(database: DrizzleDb): void {
     )
   `);
 
-  // Probe the FTS table for corruption. A corrupt vtable will throw
-  // SQLITE_CORRUPT_VTAB on any query; catching it here lets us rebuild
-  // before the rest of startup touches it.
+  // Probe the FTS index for corruption. The integrity-check command
+  // validates shadow tables (_idx, _docsize, etc.) — not just row access.
+  // A corrupt vtable will throw SQLITE_CORRUPT_VTAB; catching it here
+  // lets us rebuild before the rest of startup touches it.
   const raw = getSqliteFrom(database);
   try {
-    raw.query(`SELECT COUNT(*) FROM messages_fts`).get();
+    raw.exec(
+      `INSERT INTO messages_fts(messages_fts, rank) VALUES ('integrity-check', 1)`,
+    );
   } catch (err: unknown) {
     const code =
       err != null && typeof err === "object" && "code" in err
