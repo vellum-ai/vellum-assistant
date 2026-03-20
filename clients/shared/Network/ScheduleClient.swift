@@ -86,7 +86,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
         let response = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/schedules/\(id)/run",
             json: [:],
-            timeout: 30
+            timeout: 120
         )
         guard response.isSuccess else {
             log.error("runNow failed (HTTP \(response.statusCode))")
