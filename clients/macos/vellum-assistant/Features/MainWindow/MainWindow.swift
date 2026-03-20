@@ -463,11 +463,12 @@ public final class MainWindow {
         guard let origin = defaultTrafficLightOrigin else { return }
 
         // Vertically center the traffic light buttons in the 48pt custom toolbar.
-        // Derive the system titlebar height from contentLayoutRect (a documented
-        // API) using the window frame — not contentView.frame, which may be
-        // zero-sized before makeKeyAndOrderFront on NSHostingController windows.
-        let contentRect = window.contentRect(forFrameRect: window.frame)
-        let titlebarHeight = contentRect.height - window.contentLayoutRect.maxY
+        // With fullSizeContentView, contentView.frame spans the entire window
+        // interior (including under the titlebar), while contentLayoutRect covers
+        // only the non-obscured portion. The difference gives the titlebar height.
+        // This call runs after makeKeyAndOrderFront so contentView.frame is valid.
+        guard let contentView = window.contentView else { return }
+        let titlebarHeight = contentView.frame.height - window.contentLayoutRect.maxY
         let toolbarHeight: CGFloat = 48
         guard titlebarHeight > 0, titlebarHeight < toolbarHeight else { return }
         let verticalShift = (toolbarHeight - titlebarHeight) / 2
