@@ -205,25 +205,38 @@ export function surfaceActionRouteDefinitions(deps: {
   findConversation?: ConversationLookup;
   findConversationBySurfaceId?: ConversationLookupBySurfaceId;
 }): RouteDefinition[] {
+  const surfaceActionHandler = async ({
+    req,
+    authContext,
+  }: {
+    req: Request;
+    authContext: AuthContext;
+  }): Promise<Response> => {
+    if (!deps.findConversation) {
+      return httpError("NOT_IMPLEMENTED", "Surface actions not available", 501);
+    }
+    return handleSurfaceAction(
+      req,
+      deps.findConversation,
+      deps.findConversationBySurfaceId,
+      authContext,
+    );
+  };
+
   return [
     {
       endpoint: "surface-actions",
       method: "POST",
-      handler: async ({ req, authContext }) => {
-        if (!deps.findConversation) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Surface actions not available",
-            501,
-          );
-        }
-        return handleSurfaceAction(
-          req,
-          deps.findConversation,
-          deps.findConversationBySurfaceId,
-          authContext,
-        );
-      },
+      handler: surfaceActionHandler,
+    },
+    {
+      // Singular alias — the managed platform proxy forwards the
+      // frontend's POST /v1/assistants/{id}/surface-action/ as
+      // v1/surface-action (singular).  Accept both forms.
+      endpoint: "surface-action",
+      method: "POST",
+      policyKey: "surface-actions",
+      handler: surfaceActionHandler,
     },
     {
       endpoint: "surfaces/:id/undo",
