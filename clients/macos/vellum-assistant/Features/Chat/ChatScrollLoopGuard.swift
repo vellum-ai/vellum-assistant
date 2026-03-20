@@ -195,11 +195,15 @@ final class ChatScrollLoopGuard {
 
     /// Returns the current rolling event counts for a conversation.
     /// Used by `DebugStateWriter` to include hot-path rates in `debug-state.json`.
-    func currentCounts(conversationId: String) -> [EventKind: Int] {
+    func currentCounts(
+        conversationId: String,
+        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> [EventKind: Int] {
         guard let state = states[conversationId] else { return [:] }
+        let windowStart = timestamp - Self.windowDuration
         var counts: [EventKind: Int] = [:]
         for kind in EventKind.allCases {
-            let count = state.events[kind]?.count ?? 0
+            let count = (state.events[kind] ?? []).filter { $0 > windowStart }.count
             if count > 0 {
                 counts[kind] = count
             }
