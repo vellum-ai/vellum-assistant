@@ -99,6 +99,44 @@ function handleCancelSchedule(id: string): Response {
   return handleListSchedules();
 }
 
+function handleUpdateSchedule(
+  id: string,
+  body: Record<string, unknown>,
+): Response {
+  const updates: Record<string, unknown> = {};
+  for (const key of [
+    "name",
+    "expression",
+    "timezone",
+    "message",
+    "mode",
+    "routingIntent",
+    "quiet",
+  ] as const) {
+    if (key in body) {
+      updates[key] = body[key];
+    }
+  }
+
+  try {
+    const updated = updateSchedule(id, updates);
+    if (!updated) {
+      return httpError("NOT_FOUND", "Schedule not found", 404);
+    }
+    log.info({ id, updates }, "Schedule updated via HTTP");
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes("Invalid") || err.message.includes("invalid"))
+    ) {
+      return httpError("BAD_REQUEST", err.message, 400);
+    }
+    log.error({ err }, "Failed to update schedule");
+    return httpError("INTERNAL_ERROR", "Failed to update schedule", 500);
+  }
+  return handleListSchedules();
+}
+
 async function handleRunScheduleNow(
   id: string,
   sendMessageDeps?: SendMessageDeps,
@@ -242,6 +280,13 @@ export function scheduleRouteDefinitions(deps: {
       method: "DELETE",
       policyKey: "schedules",
       handler: ({ params }) => handleDeleteSchedule(params.id),
+    },
+    {
+      endpoint: "schedules/:id",
+      method: "PATCH",
+      policyKey: "schedules",
+      handler: async ({ req, params }) =>
+        handleUpdateSchedule(params.id, await req.json()),
     },
     {
       endpoint: "schedules/:id/run",
