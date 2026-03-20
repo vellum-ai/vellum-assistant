@@ -59,7 +59,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vCodeView", "VCodeView", ["code view", "syntax"]),
                 ("vDiffView", "VDiffView", ["diff view"]),
                 ("vStreamingWaveform", "VStreamingWaveform", ["waveform", "streaming"]),
-                ("vConversationIcon", "VConversationIcon", ["conversation icon", "avatar", "initial"]),
             ]
         case .feedback:
             return [

@@ -358,81 +358,6 @@ struct DisplayGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "vConversationIcon" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - VConversationIcon
-                GallerySectionHeader(
-                    title: "VConversationIcon",
-                    description: "Deterministic initial-letter icon for conversations. Same title always produces the same color."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.xl) {
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Sizes").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            HStack(spacing: VSpacing.xl) {
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Small (20pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Design Review", size: .small)
-                                }
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Medium (28pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Design Review", size: .medium)
-                                }
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Active state (primary border)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            HStack(spacing: VSpacing.xl) {
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Inactive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Weekly Sync", size: .medium)
-                                }
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Active").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Weekly Sync", size: .medium, isActive: true)
-                                }
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("With dot overlay").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            HStack(spacing: VSpacing.xl) {
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Positive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Bug Triage", size: .medium, dotColor: VColor.systemPositiveStrong)
-                                }
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Negative").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Bug Triage", size: .medium, dotColor: VColor.systemNegativeStrong)
-                                }
-                                VStack(spacing: VSpacing.xs) {
-                                    Text("Primary").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    VConversationIcon(title: "Bug Triage", size: .medium, dotColor: VColor.primaryBase)
-                                }
-                            }
-                        }
-
-                        Divider().background(VColor.borderBase)
-
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Deterministic color (same title = same color)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                            HStack(spacing: VSpacing.lg) {
-                                ForEach(["Alpha", "Beta", "Gamma", "Delta", "Epsilon"], id: \.self) { title in
-                                    VStack(spacing: VSpacing.xs) {
-                                        VConversationIcon(title: title, size: .medium)
-                                        Text(title).font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
         }
     }
 
@@ -465,7 +390,6 @@ extension DisplayGallerySection {
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
-        case "vConversationIcon": DisplayGallerySection(filter: "vConversationIcon")
         default: EmptyView()
         }
     }
