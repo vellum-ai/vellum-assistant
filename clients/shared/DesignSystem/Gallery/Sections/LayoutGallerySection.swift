@@ -230,13 +230,13 @@ struct LayoutGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "appWorkspaceDockLayout" {
+            if filter == nil || filter == "vAppWorkspaceDockLayout" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - AppWorkspaceDockLayout
+                // MARK: - VAppWorkspaceDockLayout
                 GallerySectionHeader(
-                    title: "AppWorkspaceDockLayout",
+                    title: "VAppWorkspaceDockLayout",
                     description: "Workspace layout with a togglable, resizable dock panel and a draggable divider."
                 )
 
@@ -251,7 +251,7 @@ struct LayoutGallerySection: View {
 
                         Divider().background(VColor.borderBase)
 
-                        AppWorkspaceDockLayout(
+                        VAppWorkspaceDockLayout(
                             dockWidth: $dockWidth,
                             showDock: showDock
                         ) {
@@ -299,7 +299,7 @@ extension LayoutGallerySection {
         case "vAdaptiveStack": LayoutGallerySection(filter: "vAdaptiveStack")
         case "vSidePanel": LayoutGallerySection(filter: "vSidePanel")
         case "vSplitView": LayoutGallerySection(filter: "vSplitView")
-        case "appWorkspaceDockLayout": LayoutGallerySection(filter: "appWorkspaceDockLayout")
+        case "vAppWorkspaceDockLayout": LayoutGallerySection(filter: "vAppWorkspaceDockLayout")
         default: EmptyView()
         }
     }

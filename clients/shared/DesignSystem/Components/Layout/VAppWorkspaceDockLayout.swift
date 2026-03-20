@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
+public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     // MARK: - Properties
 
     public let dock: Dock
