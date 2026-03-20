@@ -1,14 +1,13 @@
 /**
- * Tests for the chunk dual-write path in the memory indexer.
+ * Tests for the chunk write path in the memory indexer.
  *
- * The indexer now writes both legacy memory_segments AND archive
- * memory_chunks using the same segmentation boundaries. These tests
- * verify:
+ * The indexer writes archive memory_chunks (legacy memory_segments are no
+ * longer produced). These tests verify:
  *
- * 1. Chunks are created alongside segments with matching boundaries.
+ * 1. Chunks are created with correct boundaries and content.
  * 2. Unchanged chunk content does not enqueue duplicate embed_chunk jobs.
  * 3. Changed chunk content enqueues an embed_chunk job.
- * 4. The legacy memory_segments path remains intact.
+ * 4. Legacy embed_segment and extract_items jobs are no longer enqueued.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -77,7 +76,6 @@ import {
   memoryChunks,
   memoryJobs,
   memoryObservations,
-  memorySegments,
   messages,
 } from "../memory/schema.js";
 
@@ -135,15 +133,15 @@ function seedConversationAndMessage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test suite: chunk dual-write alongside legacy segments
+// Test suite: chunk writes (legacy segment production removed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("chunk dual-write from the memory indexer", () => {
+describe("chunk writes from the memory indexer", () => {
   beforeEach(() => {
     resetTables();
   });
 
-  test("indexing a message creates chunks alongside segments with matching boundaries", async () => {
+  test("indexing a message creates observation and chunks", async () => {
     const conversationId = "conv-dual-write-basic";
     const messageId = "msg-dual-write-basic";
     const text =
@@ -167,22 +165,14 @@ describe("chunk dual-write from the memory indexer", () => {
 
     const db = getDb();
 
-    // Verify segments were created (legacy path)
-    const segments = db
-      .select()
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-    expect(segments.length).toBeGreaterThanOrEqual(1);
-
-    // Verify chunks were created (dual-write path)
+    // Verify chunks were created
     const observationId = `obs:${messageId}`;
     const chunks = db
       .select()
       .from(memoryChunks)
       .where(eq(memoryChunks.observationId, observationId))
       .all();
-    expect(chunks.length).toBe(segments.length);
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
 
     // Verify the observation was created
     const observation = db
@@ -195,14 +185,13 @@ describe("chunk dual-write from the memory indexer", () => {
     expect(observation!.messageId).toBe(messageId);
     expect(observation!.role).toBe("user");
 
-    // Verify chunk content matches segment content (same boundaries)
-    for (let i = 0; i < segments.length; i++) {
+    // Verify chunk content is populated
+    for (let i = 0; i < chunks.length; i++) {
       const chunkId = `chunk:${messageId}:${i}`;
       const chunk = chunks.find((c) => c.id === chunkId);
       expect(chunk).toBeDefined();
-      expect(chunk!.content).toBe(segments[i].text);
-      expect(chunk!.tokenEstimate).toBe(segments[i].tokenEstimate);
-      expect(chunk!.scopeId).toBe(segments[i].scopeId);
+      expect(chunk!.content.length).toBeGreaterThan(0);
+      expect(chunk!.tokenEstimate).toBeGreaterThan(0);
     }
   });
 
@@ -314,16 +303,16 @@ describe("chunk dual-write from the memory indexer", () => {
     expect(jobsAfterSecond.length).toBeGreaterThan(firstChunkJobCount);
   });
 
-  test("legacy memory_segments path remains intact", async () => {
-    const conversationId = "conv-legacy-compat";
-    const messageId = "msg-legacy-compat";
+  test("legacy jobs are no longer enqueued", async () => {
+    const conversationId = "conv-no-legacy-jobs";
+    const messageId = "msg-no-legacy-jobs";
     const text =
       "I always prefer concise code reviews and I work in a distributed team.";
 
     seedConversationAndMessage(conversationId, messageId, text);
 
     const config = TEST_CONFIG.memory;
-    const result = await indexMessageNow(
+    await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -336,32 +325,40 @@ describe("chunk dual-write from the memory indexer", () => {
 
     const db = getDb();
 
-    // Legacy segments must be present and correctly formed
-    const segments = db
-      .select()
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-    expect(segments.length).toBe(result.indexedSegments);
-
-    for (const seg of segments) {
-      expect(seg.id.startsWith(messageId + ":")).toBe(true);
-      expect(seg.conversationId).toBe(conversationId);
-      expect(seg.role).toBe("user");
-      expect(seg.text.length).toBeGreaterThan(0);
-      expect(seg.contentHash).toBeTruthy();
-    }
-
-    // Legacy embed_segment jobs must be enqueued
+    // No legacy embed_segment jobs
     const segmentJobs = db
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.type, "embed_segment"))
       .all();
-    expect(segmentJobs.length).toBeGreaterThanOrEqual(1);
+    expect(segmentJobs).toHaveLength(0);
+
+    // No legacy extract_items jobs
+    const extractJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "extract_items"))
+      .all();
+    expect(extractJobs).toHaveLength(0);
+
+    // No legacy build_conversation_summary jobs
+    const summaryJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "build_conversation_summary"))
+      .all();
+    expect(summaryJobs).toHaveLength(0);
+
+    // embed_chunk jobs ARE still enqueued (new archive path)
+    const chunkJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "embed_chunk"))
+      .all();
+    expect(chunkJobs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("repeated indexing produces exactly one chunk per segment boundary", async () => {
+  test("repeated indexing produces stable chunk count with unique IDs", async () => {
     const conversationId = "conv-chunk-dedup";
     const messageId = "msg-chunk-dedup";
     const text =
@@ -372,8 +369,31 @@ describe("chunk dual-write from the memory indexer", () => {
     const config = TEST_CONFIG.memory;
     const content = JSON.stringify([{ type: "text", text }]);
 
-    // Index the same message multiple times
-    for (let i = 0; i < 5; i++) {
+    // Index the same message once to get the baseline chunk count
+    const firstResult = await indexMessageNow(
+      {
+        messageId,
+        conversationId,
+        role: "user",
+        content,
+        createdAt: Date.now(),
+      },
+      config,
+    );
+
+    const db = getDb();
+    const observationId = `obs:${messageId}`;
+
+    const chunksAfterFirst = db
+      .select()
+      .from(memoryChunks)
+      .where(eq(memoryChunks.observationId, observationId))
+      .all();
+    const baselineChunkCount = chunksAfterFirst.length;
+    expect(baselineChunkCount).toBe(firstResult.indexedSegments);
+
+    // Index the same message multiple more times
+    for (let i = 0; i < 4; i++) {
       await indexMessageNow(
         {
           messageId,
@@ -386,22 +406,13 @@ describe("chunk dual-write from the memory indexer", () => {
       );
     }
 
-    const db = getDb();
-    const observationId = `obs:${messageId}`;
-
-    // Verify no duplicate chunks — one chunk per segment boundary
+    // Verify no duplicate chunks — count stays the same
     const chunks = db
       .select()
       .from(memoryChunks)
       .where(eq(memoryChunks.observationId, observationId))
       .all();
-    const segments = db
-      .select()
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-
-    expect(chunks.length).toBe(segments.length);
+    expect(chunks.length).toBe(baselineChunkCount);
 
     // Verify chunk IDs are unique
     const chunkIds = chunks.map((c) => c.id);
