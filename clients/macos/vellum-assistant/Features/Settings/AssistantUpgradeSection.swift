@@ -10,11 +10,11 @@ enum AssistantTopology {
     case remote      // GCP, custom, SSH — no automatic upgrade mechanism
 }
 
-/// Upgrade section for managed/remote assistants.
+/// Upgrade and rollback section shown for all assistant topologies.
 ///
-/// Shows the current version, checks for available releases, and provides
-/// an "Upgrade Now" button to trigger a platform-side upgrade.
-/// Only displayed when the assistant is managed (`isManaged == true`).
+/// Shows the current version, available releases via a version picker,
+/// and topology-appropriate actions (CLI upgrade for Docker, platform API
+/// for managed, Sparkle for local, informational for remote).
 @MainActor
 struct AssistantUpgradeSection: View {
     let currentVersion: String?
@@ -40,22 +40,34 @@ struct AssistantUpgradeSection: View {
     }
 
     private var upgradeAvailable: Bool {
-        guard let target = effectiveSelectedVersion, let current = currentVersion, !current.isEmpty else { return false }
-        return target != current
+        guard let target = effectiveSelectedVersion,
+              let current = currentVersion, !current.isEmpty else { return false }
+        guard let targetParsed = VersionCompat.parse(target),
+              let currentParsed = VersionCompat.parse(current) else {
+            // Fall back to string comparison if versions can't be parsed
+            return target != current
+        }
+        return targetParsed.major != currentParsed.major
+            || targetParsed.minor != currentParsed.minor
+            || targetParsed.patch != currentParsed.patch
     }
 
     /// Whether the selected target version is older than the current version.
     private var isRollback: Bool {
         guard let target = effectiveSelectedVersion,
-              let current = currentVersion, !current.isEmpty else {
+              let current = currentVersion, !current.isEmpty,
+              let targetParsed = VersionCompat.parse(target),
+              let currentParsed = VersionCompat.parse(current) else {
             return false
         }
-        return target.compare(current, options: .numeric) == .orderedAscending
+        if targetParsed.major != currentParsed.major { return targetParsed.major < currentParsed.major }
+        if targetParsed.minor != currentParsed.minor { return targetParsed.minor < currentParsed.minor }
+        return targetParsed.patch < currentParsed.patch
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Upgrade")
+            Text(isRollback ? "Roll Back" : "Upgrade")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.contentDefault)
 
@@ -71,9 +83,9 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if !availableReleases.isEmpty {
+                if !availableReleases.isEmpty && topology != .remote {
                     HStack(spacing: VSpacing.sm) {
-                        Text("Upgrade to:")
+                        Text(isRollback ? "Roll back to:" : "Upgrade to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                         Picker("", selection: Binding<String>(
@@ -83,10 +95,7 @@ struct AssistantUpgradeSection: View {
                             }
                         )) {
                             ForEach(availableReleases) { release in
-                                Text(release.version == latestRelease?.version
-                                     ? "\(release.version) (latest)"
-                                     : release.version)
-                                    .tag(release.version)
+                                Text(releaseLabel(for: release)).tag(release.version)
                             }
                         }
                         .pickerStyle(.menu)
@@ -130,13 +139,15 @@ struct AssistantUpgradeSection: View {
                     .disabled(!upgradeAvailable || isUpgrading)
                 }
 
-                VButton(
-                    label: isLoadingReleases ? "Checking..." : "Check for Updates",
-                    style: .outlined
-                ) {
-                    Task { await loadReleases() }
+                if topology != .local {
+                    VButton(
+                        label: isLoadingReleases ? "Checking..." : "Check for Updates",
+                        style: .outlined
+                    ) {
+                        Task { await loadReleases() }
+                    }
+                    .disabled(isLoadingReleases || isUpgrading)
                 }
-                .disabled(isLoadingReleases || isUpgrading)
             }
 
             if isLoadingReleases || isUpgrading {
@@ -164,8 +175,10 @@ struct AssistantUpgradeSection: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceOverlay)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .task { await loadReleases() }
+        .onChange(of: currentVersion) { _, _ in
+            Task { await loadReleasesQuietly() }
+        }
         .alert(isRollback ? "Roll Back Assistant" : "Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button(isRollback ? "Roll Back" : "Upgrade") {
@@ -265,7 +278,8 @@ struct AssistantUpgradeSection: View {
 
     private func performManagedUpgrade() async {
         do {
-            let body: [String: String] = selectedVersion.map { ["version": $0] } ?? [:]
+            let version = selectedVersion ?? latestRelease?.version
+            let body: [String: String] = version.map { ["version": $0] } ?? [:]
             let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
             if response.isSuccess {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
@@ -284,6 +298,26 @@ struct AssistantUpgradeSection: View {
     }
 
     // MARK: - Helpers
+
+    /// Build a display label for a release in the version picker,
+    /// annotating with "(latest)" and/or "(current)" as appropriate.
+    private func releaseLabel(for release: AssistantRelease) -> String {
+        let isCurrent: Bool = {
+            guard let cv = currentVersion,
+                  let currentParsed = VersionCompat.parse(cv),
+                  let releaseParsed = VersionCompat.parse(release.version) else {
+                return false
+            }
+            return releaseParsed.major == currentParsed.major
+                && releaseParsed.minor == currentParsed.minor
+                && releaseParsed.patch == currentParsed.patch
+        }()
+        let isLatest = release.version == latestRelease?.version
+        var parts = [release.version]
+        if isLatest { parts.append("(latest)") }
+        if isCurrent { parts.append("(current)") }
+        return parts.joined(separator: " ")
+    }
 
     private func clearMessages() {
         errorMessage = nil
