@@ -32,7 +32,7 @@ const log = getLogger("auth-token-service");
 
 let signingKey: Buffer | null = null;
 
-function getSigningKeyPath(): string {
+export function getSigningKeyPath(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
   if (securityDir) {
     return join(securityDir, "actor-token-signing-key");
