@@ -82,12 +82,76 @@ describe("deriveShellActionKeys", () => {
     ]);
   });
 
-  test("pipelines are marked non-simple", async () => {
+  test("pipelines are marked non-simple but produce action keys", async () => {
     const analysis = await analyzeShellCommand("git log | grep fix");
     const result = deriveShellActionKeys(analysis);
 
     expect(result.isSimpleAction).toBe(false);
-    expect(result.keys).toHaveLength(0);
+    expect(result.keys).toEqual([
+      { key: "action:git log", depth: 2 },
+      { key: "action:git", depth: 1 },
+    ]);
+  });
+
+  test("pipeline extracts action keys from first segment", async () => {
+    const analysis = await analyzeShellCommand(
+      "pdftotext file.pdf | head -100",
+    );
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    // file.pdf is treated as a subcommand token (doesn't start with . or contain /)
+    expect(result.keys).toEqual([
+      { key: "action:pdftotext file.pdf", depth: 2 },
+      { key: "action:pdftotext", depth: 1 },
+    ]);
+  });
+
+  test("setup-prefix + pipeline extracts action keys", async () => {
+    const analysis = await analyzeShellCommand(
+      "cd /tmp && pdftotext file.pdf | grep oil",
+    );
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toEqual([
+      { key: "action:pdftotext file.pdf", depth: 2 },
+      { key: "action:pdftotext", depth: 1 },
+    ]);
+  });
+
+  test("pipeline with subcommand extracts deeper keys", async () => {
+    const analysis = await analyzeShellCommand("cd repo && gh pr list | head");
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toEqual([
+      { key: "action:gh pr list", depth: 3 },
+      { key: "action:gh pr", depth: 2 },
+      { key: "action:gh", depth: 1 },
+    ]);
+  });
+
+  test("multi-pipe pipeline extracts first segment only", async () => {
+    const analysis = await analyzeShellCommand("cat file | grep error | wc -l");
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toEqual([
+      { key: "action:cat file", depth: 2 },
+      { key: "action:cat", depth: 1 },
+    ]);
+  });
+
+  test("dangerous pipe_to_shell still extracts keys", async () => {
+    const analysis = await analyzeShellCommand("curl url | bash");
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toEqual([
+      { key: "action:curl url", depth: 2 },
+      { key: "action:curl", depth: 1 },
+    ]);
   });
 
   test("complex chains with multiple actions are non-simple", async () => {
@@ -198,9 +262,19 @@ describe("buildShellCommandCandidates", () => {
     expect(candidates).toEqual(['git add . && git commit -m "fix"']);
   });
 
-  test("pipeline returns raw-only", async () => {
+  test("pipeline returns raw and action key candidates", async () => {
     const candidates = await buildShellCommandCandidates("git log | grep fix");
-    expect(candidates).toEqual(["git log | grep fix"]);
+    expect(candidates[0]).toBe("git log | grep fix");
+    expect(candidates).toContain("action:git log");
+    expect(candidates).toContain("action:git");
+  });
+
+  test("pipeline with setup prefix includes action candidates", async () => {
+    const candidates = await buildShellCommandCandidates(
+      "cd /tmp && pdftotext file.pdf | wc -c",
+    );
+    expect(candidates[0]).toBe("cd /tmp && pdftotext file.pdf | wc -c");
+    expect(candidates).toContain("action:pdftotext");
   });
 
   test("candidate order is stable", async () => {
@@ -241,13 +315,29 @@ describe("buildShellAllowlistOptions — complex command restrictions", () => {
     expect(options[0].description).toContain("compound");
   });
 
-  test("pipeline offers exact only", async () => {
+  test("pipeline offers exact and action-key options", async () => {
     const options = await buildShellAllowlistOptions(
       "cat file.txt | grep error | wc -l",
     );
-    expect(options).toHaveLength(1);
+    expect(options.length).toBeGreaterThanOrEqual(2);
     expect(options[0].pattern).toBe("cat file.txt | grep error | wc -l");
     expect(options[0].description).toContain("compound");
+    expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
+  });
+
+  test("pipeline offers action-key options from first segment", async () => {
+    const options = await buildShellAllowlistOptions(
+      "pdftotext file.pdf | head -100",
+    );
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    expect(options[0].pattern).toBe("pdftotext file.pdf | head -100");
+    expect(
+      options.some(
+        (o) =>
+          o.pattern === "action:pdftotext" &&
+          o.description.includes('Any "pdftotext" command'),
+      ),
+    ).toBe(true);
   });
 
   test("semicolon chain offers exact only", async () => {
