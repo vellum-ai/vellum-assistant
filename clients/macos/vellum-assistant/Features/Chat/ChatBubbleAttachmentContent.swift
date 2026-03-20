@@ -264,35 +264,43 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             }
                             .onDrag {
                                 let provider = NSItemProvider()
-                                let hasFullData = !attachment.data.isEmpty
-                                if hasFullData {
+                                let hasBase64 = !attachment.data.isEmpty
+
+                                // Pre-compute thumbnail PNG on main thread as a fallback.
+                                // tiffRepresentation is not thread-safe so this must happen
+                                // here, not in the lazy registerDataRepresentation callback.
+                                let thumbnailPNG: Data? = {
+                                    guard let img = loadedImages[attachment.id],
+                                          let tiff = img.tiffRepresentation,
+                                          let rep = NSBitmapImageRep(data: tiff) else { return nil }
+                                    return rep.representation(using: .png, properties: [:])
+                                }()
+
+                                if hasBase64 {
                                     let mimeType = attachment.mimeType
                                     let utType = UTType(mimeType: mimeType) ?? .png
-                                    // Capture attachment data string by value for lazy decode in callback
                                     let base64String = attachment.data
                                     provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
-                                        // Decode lazily when drop target requests data (off main thread)
+                                        // Decode lazily when drop target requests data
                                         if let decoded = Data(base64Encoded: base64String), !decoded.isEmpty {
                                             completion(decoded, nil)
+                                        } else if let thumbnailPNG {
+                                            // Corrupt base64 — fall back to pre-computed thumbnail
+                                            completion(thumbnailPNG, nil)
                                         } else {
                                             completion(nil, nil)
                                         }
                                         return nil
                                     }
-                                } else if let nsImage = loadedImages[attachment.id] {
-                                    // tiffRepresentation is called here on the main thread (thread-safe)
-                                    if let tiff = nsImage.tiffRepresentation,
-                                       let rep = NSBitmapImageRep(data: tiff),
-                                       let pngData = rep.representation(using: .png, properties: [:]) {
-                                        provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
-                                            completion(pngData, nil)
-                                            return nil
-                                        }
+                                } else if let thumbnailPNG {
+                                    provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                                        completion(thumbnailPNG, nil)
+                                        return nil
                                     }
                                 }
                                 // Force .png extension when falling back to PNG encoding
                                 let filename = attachment.filename
-                                if hasFullData {
+                                if hasBase64 {
                                     provider.suggestedName = filename
                                 } else {
                                     provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
