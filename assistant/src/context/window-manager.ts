@@ -538,12 +538,12 @@ export class ContextWindowManager {
     }
 
     const keepTurns = lo;
-    const keepFromIndex =
+    const rawKeepFromIndex =
       keepTurns === 0
         ? messages.length
         : (userTurnStarts[userTurnStarts.length - keepTurns] ??
           messages.length);
-
+    const keepFromIndex = adjustForToolPairs(messages, rawKeepFromIndex);
     return { keepFromIndex, keepTurns };
   }
 
@@ -701,6 +701,57 @@ function isToolResultOnly(message: Message): boolean {
         isSystemNoticeBlock(block),
     )
   );
+}
+
+/**
+ * Walk the keep boundary backward to ensure tool_use/tool_result pairs are
+ * never split across the compaction boundary. If the first kept message is
+ * a user message containing tool_result blocks whose matching tool_use blocks
+ * live in the preceding (compacted-away) assistant message, include that
+ * assistant message in the kept set.
+ */
+function adjustForToolPairs(
+  messages: Message[],
+  keepFromIndex: number,
+): number {
+  let idx = keepFromIndex;
+  while (idx > 0) {
+    const msg = messages[idx];
+    if (!msg || msg.role !== "user") break;
+
+    // Collect tool_use_ids referenced by tool_results in this user message
+    const referencedIds = new Set<string>();
+    for (const block of msg.content) {
+      if (block.type === "tool_result" && "tool_use_id" in block) {
+        referencedIds.add((block as { tool_use_id: string }).tool_use_id);
+      }
+    }
+    if (referencedIds.size === 0) break;
+
+    // Check if the preceding assistant message contains matching tool_uses
+    const prev = messages[idx - 1];
+    if (!prev || prev.role !== "assistant") break;
+
+    const hasOrphanedPair = prev.content.some(
+      (block) =>
+        block.type === "tool_use" &&
+        "id" in block &&
+        referencedIds.has((block as { id: string }).id),
+    );
+    if (!hasOrphanedPair) break;
+
+    // Include the assistant message
+    idx--;
+
+    // The assistant message may itself be preceded by a tool_result user
+    // message that pairs with an even earlier assistant — continue the check
+    if (idx > 0 && messages[idx - 1]?.role === "user") {
+      idx--;
+    } else {
+      break;
+    }
+  }
+  return idx;
 }
 
 export function getSummaryFromContextMessage(
