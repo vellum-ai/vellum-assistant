@@ -243,8 +243,8 @@ export function completeMemoryJob(id: string): void {
 
 /** Max times a job can be deferred before it is marked as failed. */
 const MAX_DEFERRALS = 50;
-/** Warn when deferrals reach 80% of the limit. */
-const DEFER_WARNING_THRESHOLD = Math.floor(MAX_DEFERRALS * 0.8);
+/** Log warnings at these milestone counts to avoid flooding logs. */
+const DEFERRAL_WARN_MILESTONES = [40, 45];
 /** Base delay in ms for deferred jobs (grows with exponential backoff). */
 const DEFER_BASE_DELAY_MS = 30_000;
 /** Maximum delay cap for deferred jobs (5 minutes). */
@@ -286,7 +286,9 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
     return "failed";
   }
 
-  if (deferrals >= DEFER_WARNING_THRESHOLD) {
+  // Log at milestones only (40, 45) to avoid flooding logs.
+  // At 50, the job fails via the check above, so 40 and 45 are the warnings.
+  if (DEFERRAL_WARN_MILESTONES.includes(deferrals)) {
     log.warn(
       { jobId: id, type: row.type, deferrals, max: MAX_DEFERRALS },
       "Job approaching max deferral limit",
