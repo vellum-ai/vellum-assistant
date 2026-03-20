@@ -30,10 +30,9 @@ struct LogReportFormView: View {
         self.initialReason = initialReason
         self.onSend = onSend
         self.onCancel = onCancel
-        self._selectedReason = State(initialValue: initialReason)
-        if let reason = initialReason {
-            self._includeLogs = State(initialValue: reason.isErrorCategory)
-        }
+        let effectiveReason = initialReason ?? .somethingBroken
+        self._selectedReason = State(initialValue: effectiveReason)
+        self._includeLogs = State(initialValue: effectiveReason.isErrorCategory)
     }
 
     private var canSend: Bool {
@@ -42,10 +41,12 @@ struct LogReportFormView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            reasonDropdown
+            if shouldShowEmail {
+                emailField
+            }
+            reasonCards
             messageField
             logAttachmentRow
-            emailField
             Spacer(minLength: 0)
             actionRow
         }
@@ -53,7 +54,7 @@ struct LogReportFormView: View {
         .background(VColor.surfaceOverlay)
         .frame(width: 480)
         .onAppear {
-            if email.isEmpty, let userEmail = authManager.currentUser?.email {
+            if let userEmail = authManager.currentUser?.email {
                 email = userEmail
             }
             if email.isEmpty {
@@ -70,15 +71,21 @@ struct LogReportFormView: View {
 
     // MARK: - Sections
 
-    private var reasonDropdown: some View {
-        VDropdown(
-            "Category",
-            placeholder: "Select a category\u{2026}",
-            selection: $selectedReason,
-            options: LogReportReason.allCases.map { (label: $0.displayName, value: Optional($0)) },
-            emptyValue: .some(nil),
-            optionIcon: { $0.flatMap { .resolve($0.icon) } }
-        )
+    private var shouldShowEmail: Bool {
+        authManager.currentUser?.email == nil
+    }
+
+    private var reasonCards: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Category")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            ForEach(LogReportReason.allCases) { reason in
+                ReasonCard(reason: reason, isSelected: selectedReason == reason) {
+                    selectedReason = reason
+                }
+            }
+        }
     }
 
     private var messageField: some View {
@@ -110,26 +117,25 @@ struct LogReportFormView: View {
     private var logAttachmentRow: some View {
         if selectedReason != .featureRequest {
             HStack(spacing: VSpacing.sm) {
-                Toggle(isOn: Binding(
-                    get: { includeLogs },
-                    set: { newValue in
-                        includeLogs = newValue
-                        hasManuallyToggledLogs = true
-                    }
-                )) {
-                    Text("Include diagnostic logs")
-                        .font(VFont.body)
-                }
-                .toggleStyle(.checkbox)
+                VToggle(
+                    isOn: Binding(
+                        get: { includeLogs },
+                        set: { newValue in
+                            includeLogs = newValue
+                            hasManuallyToggledLogs = true
+                        }
+                    ),
+                    label: "Include conversation logs"
+                )
 
                 if includeLogs {
-                    Picker("", selection: $logTimeRange) {
-                        ForEach(LogTimeRange.allCases) { range in
-                            Text(range.displayName).tag(range)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 130)
+                    VDropdown(
+                        placeholder: "",
+                        selection: $logTimeRange,
+                        options: LogTimeRange.allCases.map { (label: $0.displayName, value: $0) },
+                        size: .small,
+                        maxWidth: 140
+                    )
                 }
 
                 VInfoTooltip("Logs include conversation messages and app diagnostics but never passwords or credentials.")
@@ -162,5 +168,44 @@ struct LogReportFormView: View {
                 ))
             }
         }
+    }
+}
+
+private struct ReasonCard: View {
+    let reason: LogReportReason
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.resolve(reason.icon), size: 14)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
+                Text(reason.displayName)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                Spacer()
+                Circle()
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
+                    .frame(width: 8, height: 8)
+                    .padding(4)
+                    .overlay(
+                        Circle()
+                            .stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
+                            .frame(width: 16, height: 16)
+                    )
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : VColor.surfaceBase)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: isSelected ? 1.5 : 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
