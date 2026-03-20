@@ -382,7 +382,7 @@ struct MainWindowView: View {
             DaemonLoadingOverlayContent(
                 error: daemonStartupError,
                 onRetry: { handleDaemonRetry() },
-                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue) },
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
                     windowState.selection = .panel(.settings)

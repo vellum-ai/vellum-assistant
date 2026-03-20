@@ -16,13 +16,13 @@ struct LogReportFormView: View {
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
     @State private var includeLogs: Bool = true
+    @State private var hasManuallyToggledLogs: Bool = false
     @State private var logTimeRange: LogTimeRange = .pastHour
     @FocusState private var focusedField: Field?
 
     init(
         authManager: AuthManager,
         initialReason: LogReportReason? = nil,
-        initialIncludeLogs: Bool = true,
         onSend: @escaping (LogReportFormData) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -31,7 +31,9 @@ struct LogReportFormView: View {
         self.onSend = onSend
         self.onCancel = onCancel
         self._selectedReason = State(initialValue: initialReason)
-        self._includeLogs = State(initialValue: initialIncludeLogs)
+        if let reason = initialReason {
+            self._includeLogs = State(initialValue: reason.isErrorCategory)
+        }
     }
 
     private var canSend: Bool {
@@ -62,12 +64,8 @@ struct LogReportFormView: View {
             }
         }
         .onChange(of: selectedReason) { _, newReason in
-            guard let reason = newReason else { return }
-            if reason.isErrorCategory {
-                includeLogs = true
-            } else {
-                includeLogs = false
-            }
+            guard !hasManuallyToggledLogs, let reason = newReason else { return }
+            includeLogs = reason.isErrorCategory
         }
     }
 
@@ -131,7 +129,13 @@ struct LogReportFormView: View {
         if selectedReason != .featureRequest {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack(spacing: VSpacing.md) {
-                    Toggle(isOn: $includeLogs) {
+                    Toggle(isOn: Binding(
+                        get: { includeLogs },
+                        set: { newValue in
+                            includeLogs = newValue
+                            hasManuallyToggledLogs = true
+                        }
+                    )) {
                         Text("Include diagnostic logs")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
