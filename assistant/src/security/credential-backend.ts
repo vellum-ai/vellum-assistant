@@ -46,6 +46,10 @@ export interface CredentialBackend {
 // KeychainBackend
 // ---------------------------------------------------------------------------
 
+/** Suppress repeated "unreachable" warnings — log at most once per 5 minutes. */
+const UNREACHABLE_WARN_COOLDOWN_MS = 5 * 60 * 1000;
+let lastUnreachableWarnMs = 0;
+
 export class KeychainBackend implements CredentialBackend {
   readonly name = "keychain";
 
@@ -59,12 +63,17 @@ export class KeychainBackend implements CredentialBackend {
     try {
       const result = await this.client.get(account);
       if (result == null) {
-        log.warn(
-          { account },
-          "Keychain broker unreachable during get — falling back",
-        );
+        const now = Date.now();
+        if (now - lastUnreachableWarnMs >= UNREACHABLE_WARN_COOLDOWN_MS) {
+          log.warn(
+            { account },
+            "Keychain broker unreachable during get — falling back",
+          );
+          lastUnreachableWarnMs = now;
+        }
         return undefined;
       }
+      lastUnreachableWarnMs = 0; // Reset so next outage is logged immediately
       if (!result.found) return undefined;
       return result.value;
     } catch (err) {
