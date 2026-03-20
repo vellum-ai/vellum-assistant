@@ -181,9 +181,11 @@ export async function runInlineCommand(
 
       // ── Non-zero exit ────────────────────────────────────────────────
       // When stdout was capped we destroyed the read end of the pipe,
-      // which typically causes SIGPIPE (code=null). Treat that as
-      // success and fall through to process the buffered output.
-      if (code !== 0 && !stdoutCapped) {
+      // which typically causes SIGPIPE — the process is killed by the
+      // signal so the exit code is null. Only suppress the error in that
+      // specific case; a command that outputs a lot but exits with a
+      // genuine non-zero code (e.g. exit 1) should still be an error.
+      if (code !== 0 && !(stdoutCapped && code === null)) {
         log.debug(
           { command, exitCode: code },
           "Inline command exited with non-zero code",
