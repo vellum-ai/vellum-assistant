@@ -176,6 +176,10 @@ final class ChatViewModelIOSTests: XCTestCase {
         // Bootstrap should have created a conversation ID locally and cleared bootstrap state
         XCTAssertNotNil(viewModel.conversationId)
         XCTAssertNil(viewModel.bootstrapCorrelationId)
+
+        // Verify the user message was actually dispatched to the daemon
+        XCTAssertEqual(mockClient.sentMessages.count, 1, "Bootstrap should send the user message to the daemon")
+        XCTAssertEqual(mockClient.sentMessages[0].content, "Hello")
     }
 
     // MARK: - Streaming Deltas
@@ -324,6 +328,10 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // 2. Bootstrap should have created a conversation ID locally
         XCTAssertNotNil(viewModel.conversationId)
+
+        // Verify the user message was actually dispatched to the daemon
+        XCTAssertEqual(mockClient.sentMessages.count, 1, "Bootstrap should send the user message to the daemon")
+        XCTAssertEqual(mockClient.sentMessages[0].content, "Tell me about iOS")
 
         // 3. Assistant starts streaming
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "iOS is ")))
