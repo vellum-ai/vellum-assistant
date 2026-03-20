@@ -26,7 +26,11 @@ import {
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
-import { loadBootstrapSecret, saveBootstrapSecret, loadGuardianToken } from "../lib/guardian-token";
+import {
+  loadBootstrapSecret,
+  saveBootstrapSecret,
+  loadGuardianToken,
+} from "../lib/guardian-token";
 import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
@@ -421,6 +425,17 @@ async function upgradeDocker(
       try {
         await stopContainers(res);
 
+        await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
+        await migrateCesSecurityFiles(res, (msg) => console.log(msg));
+        try {
+          await clearSigningKeyBootstrapLock(res);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
+          );
+        }
+
         await startContainers(
           {
             bootstrapSecret,
@@ -436,34 +451,37 @@ async function upgradeDocker(
 
         const rollbackReady = await waitForReady(entry.runtimeUrl);
         if (rollbackReady) {
+          // Capture fresh digests from the now-running rolled-back containers.
+          const rollbackDigests = await captureImageRefs(res);
+
           // Restore previous container info in lockfile after rollback.
-          // previousImageRefs contains sha256 digests from `docker inspect
-          // --format {{.Image}}`.  The *Image fields should hold
-          // human-readable image:tag names, so prefer the pre-upgrade
-          // containerInfo values and store digests in the *Digest fields.
-          if (previousImageRefs) {
-            const rolledBackEntry: AssistantEntry = {
-              ...entry,
-              containerInfo: {
-                assistantImage:
-                  entry.containerInfo?.assistantImage ??
-                  previousImageRefs.assistant,
-                gatewayImage:
-                  entry.containerInfo?.gatewayImage ??
-                  previousImageRefs.gateway,
-                cesImage:
-                  entry.containerInfo?.cesImage ??
-                  previousImageRefs["credential-executor"],
-                assistantDigest: previousImageRefs.assistant,
-                gatewayDigest: previousImageRefs.gateway,
-                cesDigest: previousImageRefs["credential-executor"],
-                networkName: res.network,
-              },
-              previousServiceGroupVersion: undefined,
-              previousContainerInfo: undefined,
-            };
-            saveAssistantEntry(rolledBackEntry);
-          }
+          // The *Image fields hold human-readable image:tag names from the
+          // pre-upgrade containerInfo; *Digest fields get fresh values from
+          // the running containers (or fall back to previousImageRefs).
+          const rolledBackEntry: AssistantEntry = {
+            ...entry,
+            containerInfo: {
+              assistantImage:
+                entry.containerInfo?.assistantImage ??
+                previousImageRefs.assistant,
+              gatewayImage:
+                entry.containerInfo?.gatewayImage ?? previousImageRefs.gateway,
+              cesImage:
+                entry.containerInfo?.cesImage ??
+                previousImageRefs["credential-executor"],
+              assistantDigest:
+                rollbackDigests?.assistant ?? previousImageRefs.assistant,
+              gatewayDigest:
+                rollbackDigests?.gateway ?? previousImageRefs.gateway,
+              cesDigest:
+                rollbackDigests?.["credential-executor"] ??
+                previousImageRefs["credential-executor"],
+              networkName: res.network,
+            },
+            previousServiceGroupVersion: undefined,
+            previousContainerInfo: undefined,
+          };
+          saveAssistantEntry(rolledBackEntry);
 
           // Notify clients that the upgrade failed and rolled back.
           await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
