@@ -7,42 +7,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension HTTPTransport {
 
-    /// Post the result of a host file operation back to the daemon.
-    func postHostFileResult(_ result: HostFileResultPayload, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .hostFileResult) else {
-            log.error("Failed to build URL for host_file_result")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            request.httpBody = try encoder.encode(result)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await postHostFileResult(result, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Host file result failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Host file result failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Host file result error: \(error.localizedDescription)")
-        }
-    }
-
     #if os(macOS)
     /// Execute a host file request locally and post the result back to the daemon.
     /// Dispatches by operation: read, write, or edit.
@@ -104,7 +68,7 @@ extension HTTPTransport {
             }
 
             log.debug("Host file completed — requestId=\(request.requestId, privacy: .public) op=\(request.operation, privacy: .public) isError=\(result.isError)")
-            await self.postHostFileResult(result)
+            _ = await HostProxyClient().postFileResult(result)
         }
     }
 

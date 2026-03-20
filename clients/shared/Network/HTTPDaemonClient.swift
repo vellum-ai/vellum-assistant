@@ -122,23 +122,7 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let sourceChannel: String
     let transportMetadata: TransportMetadata
-
-    private static var defaultSourceChannel: String {
-        return "vellum"
-    }
-
-    /// Platform-derived default interface identifier.
-    private static var defaultInterface: String {
-        #if os(macOS)
-        return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
-    }
 
     // MARK: - SSE Parse Time Tracking
 
@@ -267,7 +251,6 @@ public final class HTTPTransport {
         if !conversationKey.isEmpty {
             locallyOwnedConversationIds.insert(conversationKey)
         }
-        self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
         // Register dispatchers for existing HTTP-transported message types
@@ -309,70 +292,12 @@ public final class HTTPTransport {
     enum Endpoint {
         case healthz
         case eventsAll  // SSE subscription for all events
-        case sendMessage
-        case conversationsSeen
         case identity
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
-        // Apps
-        case appData(id: String)
-        case appsSignBundle
-        case appsSigningIdentity
-        // Subagents
-        case subagentMessage(id: String)
-        // Conversation management
-        case conversationsSwitch
-        case conversationRename(id: String)
-        case conversationsClear
-        case conversationCancel(id: String)
-        case conversationUndo(id: String)
         case model
-        case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case conversationsReorder
-        // Computer Use
-        case cuWatch
-
-        // Recordings
-        case recordingStatus
-
-        // Settings
-        case settingsVoice
         case settingsClient
-
-        // Diagnostics
-        case dictation
-
-        // Tools
-        case tools
-        case toolsSimulatePermission
-
-        // Integrations
-        case integrationsOAuthStart
-        case integrationsIngressConfig
-
-        // Suggestion
-        case suggestion
-
-        // Workspace Files (legacy HTTP)
-        case workspaceFiles
-        case workspaceFilesRead
-
-        // Attachments
-        case uploadAttachment
-
-        // Host Bash Proxy
-        case hostBashResult
-
-        // Host File Proxy
-        case hostFileResult
-
-        // Host CU Proxy
-        case hostCuResult
-
-        // Misc
-        case registerDeviceToken
-
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -406,10 +331,6 @@ public final class HTTPTransport {
             return ("/healthz", nil)
         case .eventsAll:
             return ("/v1/events", nil)
-        case .sendMessage:
-            return ("/v1/messages", nil)
-        case .conversationsSeen:
-            return ("/v1/conversations/seen", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .trustRulesManage:
@@ -423,89 +344,10 @@ public final class HTTPTransport {
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
-        // Apps
-        case .appData(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/data", nil)
-        case .appsSignBundle:
-            return ("/v1/apps/sign-bundle", nil)
-        case .appsSigningIdentity:
-            return ("/v1/apps/signing-identity", nil)
-        // Subagents
-        case .subagentMessage(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/subagents/\(encoded)/message", nil)
-        // Conversation management
-        case .conversationsSwitch:
-            return ("/v1/conversations/switch", nil)
-        case .conversationRename(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/name", nil)
-        case .conversationsClear:
-            return ("/v1/conversations", nil)
-        case .conversationCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/cancel", nil)
-        case .conversationUndo(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/undo", nil)
         case .model:
             return ("/v1/model", nil)
-        case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            var qs = "q=\(qEncoded)"
-            if let limit { qs += "&limit=\(limit)" }
-            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
-            return ("/v1/conversations/search", qs)
-        case .conversationsReorder:
-            return ("/v1/conversations/reorder", nil)
-        // Computer Use
-        case .cuWatch:
-            return ("/v1/computer-use/watch", nil)
-        // Recordings
-        case .recordingStatus:
-            return ("/v1/recordings/status", nil)
-        // Settings
-        case .settingsVoice:
-            return ("/v1/settings/voice", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
-        // Diagnostics
-        case .dictation:
-            return ("/v1/dictation", nil)
-        // Tools
-        case .tools:
-            return ("/v1/tools", nil)
-        case .toolsSimulatePermission:
-            return ("/v1/tools/simulate-permission", nil)
-        // Integrations
-        case .integrationsOAuthStart:
-            return ("/v1/oauth/start", nil)
-        case .integrationsIngressConfig:
-            return ("/v1/integrations/ingress/config", nil)
-        // Suggestion
-        case .suggestion:
-            return ("/v1/suggestion", nil)
-        // Workspace Files (legacy HTTP)
-        case .workspaceFiles:
-            return ("/v1/workspace-files", nil)
-        case .workspaceFilesRead:
-            return ("/v1/workspace-files/read", nil)
-        // Attachments
-        case .uploadAttachment:
-            return ("/v1/attachments", nil)
-        // Host Bash Proxy
-        case .hostBashResult:
-            return ("/v1/host-bash-result", nil)
-        // Host File Proxy
-        case .hostFileResult:
-            return ("/v1/host-file-result", nil)
-        // Host CU Proxy
-        case .hostCuResult:
-            return ("/v1/host-cu-result", nil)
-        // Misc
-        case .registerDeviceToken:
-            return ("/v1/device-token", nil)
         }
     }
 
@@ -520,10 +362,6 @@ public final class HTTPTransport {
             return ("\(prefix)/healthz/", nil)
         case .eventsAll:
             return ("\(prefix)/events/", nil)
-        case .sendMessage:
-            return ("\(prefix)/messages/", nil)
-        case .conversationsSeen:
-            return ("\(prefix)/conversations/seen/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .trustRulesManage:
@@ -537,89 +375,11 @@ public final class HTTPTransport {
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
-        // Apps
-        case .appData(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/data/", nil)
-        case .appsSignBundle:
-            return ("\(prefix)/apps/sign-bundle/", nil)
-        case .appsSigningIdentity:
-            return ("\(prefix)/apps/signing-identity/", nil)
-        // Subagents
-        case .subagentMessage(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/subagents/\(encoded)/message/", nil)
-        // Conversation management
-        case .conversationsSwitch:
-            return ("\(prefix)/conversations/switch/", nil)
-        case .conversationRename(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/name/", nil)
-        case .conversationsClear:
-            return ("\(prefix)/conversations/", nil)
-        case .conversationCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/cancel/", nil)
-        case .conversationUndo(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/undo/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
-        case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            var qs = "q=\(qEncoded)"
-            if let limit { qs += "&limit=\(limit)" }
-            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
-            return ("\(prefix)/conversations/search/", qs)
-        case .conversationsReorder:
-            return ("\(prefix)/conversations/reorder/", nil)
-        // Computer Use
-        case .cuWatch:
-            return ("\(prefix)/computer-use/watch/", nil)
-        // Recordings
-        case .recordingStatus:
-            return ("\(prefix)/recordings/status/", nil)
         // Settings
-        case .settingsVoice:
-            return ("\(prefix)/settings/voice/", nil)
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
-        // Diagnostics
-        case .dictation:
-            return ("\(prefix)/dictation/", nil)
-        // Tools
-        case .tools:
-            return ("\(prefix)/tools/", nil)
-        case .toolsSimulatePermission:
-            return ("\(prefix)/tools/simulate-permission/", nil)
-        // Integrations
-        case .integrationsOAuthStart:
-            return ("\(prefix)/oauth/start/", nil)
-        case .integrationsIngressConfig:
-            return ("\(prefix)/integrations/ingress/config/", nil)
-        // Suggestion
-        case .suggestion:
-            return ("\(prefix)/suggestion/", nil)
-        // Workspace Files (legacy HTTP)
-        case .workspaceFiles:
-            return ("\(prefix)/workspace-files/", nil)
-        case .workspaceFilesRead:
-            return ("\(prefix)/workspace-files/read/", nil)
-        // Attachments
-        case .uploadAttachment:
-            return ("\(prefix)/attachments/", nil)
-        // Host Bash Proxy
-        case .hostBashResult:
-            return ("\(prefix)/host-bash-result/", nil)
-        // Host File Proxy
-        case .hostFileResult:
-            return ("\(prefix)/host-file-result/", nil)
-        // Host CU Proxy
-        case .hostCuResult:
-            return ("\(prefix)/host-cu-result/", nil)
-        // Misc
-        case .registerDeviceToken:
-            return ("\(prefix)/device-token/", nil)
         }
     }
 
@@ -994,84 +754,29 @@ public final class HTTPTransport {
         log.debug("HTTPTransport: unhandled send message type \(String(describing: type(of: message)))")
     }
 
-    // MARK: - HTTP Endpoints
+    // MARK: - Message Sending (via MessageClient)
 
-    private enum AttachmentUploadResult {
-        case success(id: String)
-        case transientFailure
-        case terminalAuthFailure
-    }
-
-    /// Upload a single attachment and return its server-assigned ID.
-    private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
-        guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
-
-        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .private), mimeType=\(attachment.mimeType, privacy: .public)")
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "filename": attachment.filename,
-            "mimeType": attachment.mimeType,
-            "data": attachment.data
-        ]
-        if let filePath = attachment.filePath {
-            body["filePath"] = filePath
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return .transientFailure }
-
-            if http.statusCode == 200 || http.statusCode == 201 {
-                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                if let id = json?["id"] as? String {
-                    log.info("[send-pipeline] attachment upload success — id=\(id, privacy: .public)")
-                    return .success(id: id)
-                }
-                log.error("[send-pipeline] attachment upload response missing id")
-                return .transientFailure
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    return await uploadAttachment(attachment, isRetry: true)
-                case .terminalFailure:
-                    // handleAuthenticationFailureAsync already emitted .authenticationRequired
-                    return .terminalAuthFailure
-                case .transientFailure:
-                    return .transientFailure
-                }
-            } else {
-                log.error("[send-pipeline] attachment upload failed (\(http.statusCode))")
-                return .transientFailure
-            }
-        } catch {
-            log.error("[send-pipeline] attachment upload error: \(error.localizedDescription)")
-            return .transientFailure
-        }
-    }
-
-    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, automated: Bool? = nil, isRetry: Bool = false) async {
+    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, automated: Bool? = nil) async {
         locallyOwnedConversationIds.insert(conversationId)
 
+        let messageClient = MessageClient()
         let attachmentCount = attachments?.count ?? 0
-        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount), hasUploadedIds=\(uploadedAttachmentIds != nil), isRetry=\(isRetry)")
+        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount)")
 
-        // On retry, reuse already-uploaded attachment IDs to avoid duplicates
-        var attachmentIds: [String] = uploadedAttachmentIds ?? []
-
-        if attachmentIds.isEmpty, let attachments, !attachments.isEmpty {
+        // Upload attachments
+        var attachmentIds: [String] = []
+        if let attachments, !attachments.isEmpty {
             for attachment in attachments {
-                switch await uploadAttachment(attachment) {
+                let result = await messageClient.uploadAttachment(
+                    filename: attachment.filename,
+                    mimeType: attachment.mimeType,
+                    data: attachment.data,
+                    filePath: attachment.filePath
+                )
+                switch result {
                 case .success(let id):
                     attachmentIds.append(id)
                 case .terminalAuthFailure:
-                    // .authenticationRequired already emitted — don't overwrite with a generic error
                     return
                 case .transientFailure:
                     log.error("Failed to upload attachment: \(attachment.filename)")
@@ -1088,115 +793,52 @@ public final class HTTPTransport {
             }
         }
 
-        if isRetry && !(uploadedAttachmentIds ?? []).isEmpty {
-            log.info("[send-pipeline] send retry reusing \(attachmentIds.count) previously uploaded attachment IDs")
-        }
+        // Send the message
+        let conversationType = privateConversationIds.contains(conversationId) ? "private" : nil
+        let sendResult = await messageClient.sendMessage(
+            content: content,
+            conversationKey: conversationId,
+            attachmentIds: attachmentIds,
+            conversationType: conversationType,
+            automated: automated
+        )
 
-        log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
+        switch sendResult {
+        case .success(let serverConvId):
+            // Learn the server's conversationId for this conversation's conversationKey.
+            if let serverConvId, serverConvId != conversationId {
+                self.serverToLocalConversationMap[serverConvId] = conversationId
+                self.locallyOwnedConversationIds.insert(serverConvId)
+                self.onConversationIdResolved?(conversationId, serverConvId)
 
-        guard let url = buildURL(for: .sendMessage) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationKey": conversationId,
-            "sourceChannel": sourceChannel,
-            "interface": Self.defaultInterface
-        ]
-        if let content, !content.isEmpty {
-            body["content"] = content
-        }
-        if !attachmentIds.isEmpty {
-            body["attachmentIds"] = attachmentIds
-        }
-        if privateConversationIds.contains(conversationId) {
-            body["conversationType"] = "private"
-        }
-        if automated == true {
-            body["automated"] = true
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Message sent successfully")
-                // Learn the server's conversationId for this conversation's conversationKey.
-                // For new conversations, the conversationId (used as conversationKey) differs from
-                // the server's internal conversationId. Store the mapping so parseSSEData
-                // can remap incoming events to the client's local conversation ID.
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let serverConvId = json["conversationId"] as? String,
-                   serverConvId != conversationId {
-                    self.serverToLocalConversationMap[serverConvId] = conversationId
-                    self.locallyOwnedConversationIds.insert(serverConvId)
-                    self.onConversationIdResolved?(conversationId, serverConvId)
-
-                    // Evict arbitrary entries when over cap to prevent unbounded growth.
-                    // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
-                    while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
-                        if let key = self.serverToLocalConversationMap.keys.first {
-                            self.serverToLocalConversationMap.removeValue(forKey: key)
-                        }
+                while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
+                    if let key = self.serverToLocalConversationMap.keys.first {
+                        self.serverToLocalConversationMap.removeValue(forKey: key)
                     }
+                }
 
-                    log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    // Reuse already-uploaded IDs to avoid duplicate uploads
-                    await sendMessage(content: content, conversationId: conversationId, uploadedAttachmentIds: attachmentIds, automated: automated, isRetry: true)
-                case .terminalFailure:
-                    // performRefresh() already emitted .authenticationRequired — don't overwrite it
-                    break
-                case .transientFailure:
-                    onMessage?(.conversationError(ConversationErrorMessage(
-                        conversationId: conversationId,
-                        code: .providerApi,
-                        userMessage: "Failed to send message — authentication error. Please try again.",
-                        retryable: true,
-                        failedMessageContent: content
-                    )))
-                }
-            } else if http.statusCode == 422,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let errorCategory = json["error"] as? String,
-                      errorCategory == "secret_blocked" {
-                // Route through .error(category: "secret_blocked") so ChatViewModel
-                // activates the "Send Anyway" UI. The backend now respects
-                // bypassSecretCheck, so resending won't loop.
-                let message = (json["message"] as? String) ?? "Message blocked — contains secrets"
-                log.warning("Message blocked by secret-ingress check")
-                onMessage?(.error(ErrorMessage(
-                    type: "error",
-                    message: message,
-                    category: "secret_blocked"
-                )))
-            } else {
-                let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-                log.error("Send message failed (\(http.statusCode)): \(errorBody)")
-                onMessage?(.conversationError(ConversationErrorMessage(
-                    conversationId: conversationId,
-                    code: .providerApi,
-                    userMessage: "Failed to send message (HTTP \(http.statusCode))",
-                    retryable: true,
-                    failedMessageContent: content
-                )))
+                log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
             }
-        } catch {
-            log.error("Send message error: \(error.localizedDescription)")
+        case .authRequired:
             onMessage?(.conversationError(ConversationErrorMessage(
                 conversationId: conversationId,
                 code: .providerApi,
-                userMessage: error.localizedDescription,
+                userMessage: "Failed to send message — authentication error. Please try again.",
+                retryable: true,
+                failedMessageContent: content
+            )))
+        case .secretBlocked(let message):
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: conversationId,
+                code: .providerApi,
+                userMessage: message,
+                retryable: false
+            )))
+        case .error(_, let message, _):
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: conversationId,
+                code: .providerApi,
+                userMessage: message,
                 retryable: true,
                 failedMessageContent: content
             )))
@@ -1212,317 +854,6 @@ public final class HTTPTransport {
             jsonCompatible[key] = value.value
         }
         return jsonCompatible
-    }
-
-    func sendConversationSeen(_ signal: ConversationSeenSignal, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsSeen) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationId": signal.conversationId,
-            "sourceChannel": signal.sourceChannel,
-            "signalType": signal.signalType,
-            "confidence": signal.confidence,
-            "source": signal.source
-        ]
-        if let evidenceText = signal.evidenceText {
-            body["evidenceText"] = evidenceText
-        }
-        if let observedAt = signal.observedAt {
-            body["observedAt"] = observedAt
-        }
-        if let metadata = signal.metadata {
-            body["metadata"] = jsonCompatibleDictionary(metadata)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await sendConversationSeen(signal, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Conversation seen signal failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Conversation seen signal error: \(error.localizedDescription)")
-        }
-    }
-
-
-    private func decodeHTTPErrorMessage(from data: Data) -> String? {
-        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
-            return envelope.error.message
-        }
-        guard let body = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !body.isEmpty else { return nil }
-        return body
-    }
-
-    // MARK: - Conversation Management HTTP Handlers
-
-    func switchConversation(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsSwitch) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["conversationId": conversationId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Successful switch — conversation_info will arrive via SSE
-                log.info("Conversation switch to \(conversationId) succeeded")
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await switchConversation(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Conversation switch failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation switch error: \(error.localizedDescription)")
-        }
-    }
-
-    func renameConversation(conversationId: String, name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRename(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["name": name]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Emit conversation_title_updated so the UI refreshes
-                onMessage?(.conversationTitleUpdated(ConversationTitleUpdatedMessage(
-                    type: "conversation_title_updated",
-                    conversationId: conversationId,
-                    title: name
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await renameConversation(conversationId: conversationId, name: name, isRetry: true)
-                }
-            } else {
-                log.error("Conversation rename failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation rename error: \(error.localizedDescription)")
-        }
-    }
-
-    func clearAllConversations(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsClear) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("clear-all-conversations", forHTTPHeaderField: "X-Confirm-Destructive")
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 204 || http.statusCode == 200 {
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(
-                    type: "conversation_list_response",
-                    conversations: [],
-                    hasMore: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await clearAllConversations(isRetry: true)
-                }
-            } else {
-                log.error("Clear conversations failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Clear conversations error: \(error.localizedDescription)")
-        }
-    }
-
-    func cancelGeneration(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationCancel(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Cancel generation succeeded for \(conversationId)")
-                // generation_cancelled will arrive via SSE
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await cancelGeneration(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Cancel generation failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Cancel generation error: \(error.localizedDescription)")
-        }
-    }
-
-    func undoLastMessage(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationUndo(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let removedCount = json["removedCount"] as? Int {
-                    onMessage?(.undoComplete(UndoCompleteMessage(
-                        type: "undo_complete",
-                        removedCount: removedCount,
-                        conversationId: conversationId
-                    )))
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await undoLastMessage(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Undo failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Undo error: \(error.localizedDescription)")
-        }
-    }
-
-
-    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("conversation_search_response", into: data)
-                let decoded = try decoder.decode(ConversationSearchResponse.self, from: patched)
-                onMessage?(.conversationSearchResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await searchConversations(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation, isRetry: true)
-                }
-            } else {
-                log.error("Conversation search failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Conversation search error: \(error.localizedDescription)")
-        }
-    }
-
-
-    func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsReorder) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = [
-            "updates": updates.map { u in
-                var entry: [String: Any] = [
-                    "conversationId": u.conversationId,
-                    "isPinned": u.isPinned
-                ]
-                if let order = u.displayOrder {
-                    entry["displayOrder"] = order
-                }
-                return entry
-            }
-        ]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // Success — no response event needed
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await reorderConversations(updates: updates, isRetry: true)
-                }
-            } else {
-                log.error("Reorder conversations failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Reorder conversations error: \(error.localizedDescription)")
-        }
-    }
-
-    /// Extract an error message from an HTTP error response body.
-    private func extractErrorMessage(from data: Data) -> String {
-        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
-            return envelope.error.message
-        }
-        return "Unknown error"
-    }
-
-    /// Inject a `"type"` field into a JSON response before decoding.
-    /// HTTP endpoints return raw payloads without the `type` discriminator.
-    /// This helper patches the JSON so existing Codable types (which expect
-    /// `type`) can decode unchanged.
-    private func injectType(_ typeValue: String, into data: Data) -> Data {
-        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return data
-        }
-        json["type"] = typeValue
-        return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
     // MARK: - Disconnect

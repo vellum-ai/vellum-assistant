@@ -26,7 +26,7 @@ extension AppDelegate {
                 error: "Screen recording permission is required. Please grant access in System Settings > Privacy & Security > Screen Recording, then try again.",
                 operationToken: msg.operationToken
             )
-            try? daemonClient.send(statusMsg)
+            Task { await computerUseClient.sendRecordingStatus(statusMsg) }
             return
         }
 
@@ -101,7 +101,7 @@ extension AppDelegate {
                         attachToConversationId: attachToConversationId,
                         operationToken: operationToken
                     )
-                    try? self?.daemonClient.send(statusMsg)
+                    Task { await self?.computerUseClient.sendRecordingStatus(statusMsg) }
                     log.info("Restart cancelled — source picker dismissed for session \(recordingId, privacy: .public)")
                 } else {
                     // Normal start flow: picker cancelled
@@ -111,7 +111,7 @@ extension AppDelegate {
                         status: "failed",
                         error: "Recording cancelled by user"
                     )
-                    try? self?.daemonClient.send(statusMsg)
+                    Task { await self?.computerUseClient.sendRecordingStatus(statusMsg) }
                 }
             }
         )

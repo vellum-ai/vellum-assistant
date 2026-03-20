@@ -362,7 +362,7 @@ extension DaemonClient {
                 content: "Host file operations are not supported on iOS",
                 isError: true
             )
-            await httpTransport?.postHostFileResult(result)
+            _ = await HostProxyClient().postFileResult(result)
         }
         #endif
     }
@@ -385,7 +385,7 @@ extension DaemonClient {
                 exitCode: nil,
                 timedOut: false
             )
-            await httpTransport?.postHostBashResult(result)
+            _ = await HostProxyClient().postBashResult(result)
         }
         #endif
     }
@@ -426,7 +426,7 @@ extension DaemonClient {
                     secondaryWindows: nil,
                     userGuidance: nil
                 )
-                await httpTransport?.postHostCuResult(result)
+                _ = await HostProxyClient().postCuResult(result)
             }
         }
     }

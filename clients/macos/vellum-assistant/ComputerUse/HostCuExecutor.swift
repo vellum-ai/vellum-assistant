@@ -43,7 +43,7 @@ enum HostCuExecutor {
                 let proxy = overlayProvider(request.conversationId, request)
                 let result = await HostCuActionRunner.perform(request, overlayProxy: proxy)
                 log.debug("Host CU completed — requestId=\(request.requestId, privacy: .public) toolName=\(request.toolName, privacy: .public)")
-                await client.httpTransport?.postHostCuResult(result)
+                _ = await HostProxyClient().postCuResult(result)
             }
         }
     }

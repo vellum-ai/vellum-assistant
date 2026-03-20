@@ -13,23 +13,21 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension HTTPTransport {
 
     func registerConversationRoutes() {
-        registerDomainDispatcher { [weak self] message in
-            guard let self else { return false }
-
-            if let msg = message as? ConversationSwitchRequest {
-                Task { await self.switchConversation(conversationId: msg.conversationId) }
+        registerDomainDispatcher { message in
+            if message is ConversationSwitchRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? ConversationRenameRequest {
-                Task { await self.renameConversation(conversationId: msg.conversationId, name: msg.title) }
+            } else if message is ConversationRenameRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if message is ConversationsClearRequest {
-                Task { await self.clearAllConversations() }
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? CancelMessage {
-                Task { await self.cancelGeneration(conversationId: msg.conversationId ?? "") }
+            } else if message is CancelMessage {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? UndoRequest {
-                Task { await self.undoLastMessage(conversationId: msg.conversationId) }
+            } else if message is UndoRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
@@ -37,14 +35,8 @@ extension HTTPTransport {
             } else if message is ImageGenModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? ConversationSearchRequest {
-                Task {
-                    await self.searchConversations(
-                        query: msg.query,
-                        limit: msg.limit.flatMap { Int($0) },
-                        maxMessagesPerConversation: msg.maxMessagesPerConversation.flatMap { Int($0) }
-                    )
-                }
+            } else if message is ConversationSearchRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if message is MessageContentRequest {
                 // Handled by ConversationClient via GatewayHTTPClient.
@@ -52,8 +44,8 @@ extension HTTPTransport {
             } else if message is DeleteQueuedMessageMessage {
                 // Handled by ConversationQueueClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? ReorderConversationsRequest {
-                Task { await self.reorderConversations(updates: msg.updates) }
+            } else if message is ReorderConversationsRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             }
 

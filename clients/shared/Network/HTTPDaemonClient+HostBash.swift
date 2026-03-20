@@ -7,42 +7,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension HTTPTransport {
 
-    /// Post the result of a host bash execution back to the daemon.
-    func postHostBashResult(_ result: HostBashResultPayload, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .hostBashResult) else {
-            log.error("Failed to build URL for host_bash_result")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            request.httpBody = try encoder.encode(result)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await postHostBashResult(result, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Host bash result failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Host bash result failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Host bash result error: \(error.localizedDescription)")
-        }
-    }
-
     #if os(macOS)
     /// Execute a host bash request locally and post the result back to the daemon.
     /// Spawns `/bin/bash -c -- <command>` via `Foundation.Process`, enforces a
@@ -169,7 +133,7 @@ extension HTTPTransport {
                     exitCode: nil,
                     timedOut: false
                 )
-                await self.postHostBashResult(result)
+                _ = await HostProxyClient().postBashResult(result)
                 return
             }
             timerSource.cancel()
@@ -188,7 +152,7 @@ extension HTTPTransport {
             )
 
             log.debug("Host bash completed — requestId=\(request.requestId, privacy: .public) exitCode=\(exitCode) timedOut=\(timedOut)")
-            await self.postHostBashResult(result)
+            _ = await HostProxyClient().postBashResult(result)
         }
     }
     #endif

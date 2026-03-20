@@ -377,6 +377,7 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     let interactionClient: any InteractionClientProtocol
@@ -1951,52 +1952,53 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        do {
-            try daemonClient.send(CancelMessage(conversationId: conversationId!))
-        } catch {
-            log.error("Failed to send cancel: \(error.localizedDescription)")
-            // Cancel failed to send, so no generationCancelled or
-            // messageComplete event will arrive from the daemon. Reset
-            // all transient state now to avoid stuck UI.
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            cancelledDuringRefinement = false
-            isSending = false
-            isThinking = false
-            isCancelling = false
-            // Mark current assistant message as stopped
-            if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
-                messages[index].isStreaming = false
-                messages[index].streamingCodePreview = nil
-                messages[index].streamingCodeToolName = nil
-                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                    messages[index].toolCalls[j].isComplete = true
-                    messages[index].toolCalls[j].completedAt = Date()
+        let cancelConversationId = conversationId!
+        Task {
+            let success = await conversationListClient.cancelGeneration(conversationId: cancelConversationId)
+            if !success {
+                log.error("Failed to send cancel")
+                // Cancel failed to send, so no generationCancelled or
+                // messageComplete event will arrive from the daemon. Reset
+                // all transient state now to avoid stuck UI.
+                isWorkspaceRefinementInFlight = false
+                refinementMessagePreview = nil
+                refinementStreamingText = nil
+                cancelledDuringRefinement = false
+                isSending = false
+                isThinking = false
+                isCancelling = false
+                // Mark current assistant message as stopped
+                if let existingId = currentAssistantMessageId,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    messages[index].isStreaming = false
+                    messages[index].streamingCodePreview = nil
+                    messages[index].streamingCodeToolName = nil
+                    for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
+                        messages[index].toolCalls[j].isComplete = true
+                        messages[index].toolCalls[j].completedAt = Date()
+                    }
                 }
-            }
-            currentAssistantMessageId = nil
-            currentTurnUserText = nil
-            currentAssistantHasText = false
-            lastContentWasToolCall = false
-            discardStreamingBuffer()
-            discardPartialOutputBuffer()
-            pendingQueuedCount = 0
-            pendingMessageIds = []
-            requestIdToMessageId = [:]
-            activeRequestIdToMessageId = [:]
-            pendingLocalDeletions.removeAll()
-            // Reset processing/queued messages to sent
-            for i in messages.indices {
-                if case .queued = messages[i].status, messages[i].role == .user {
-                    messages[i].status = .sent
-                } else if messages[i].role == .user && messages[i].status == .processing {
-                    messages[i].status = .sent
+                currentAssistantMessageId = nil
+                currentTurnUserText = nil
+                currentAssistantHasText = false
+                lastContentWasToolCall = false
+                discardStreamingBuffer()
+                discardPartialOutputBuffer()
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
+                pendingLocalDeletions.removeAll()
+                // Reset processing/queued messages to sent
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    } else if messages[i].role == .user && messages[i].status == .processing {
+                        messages[i].status = .sent
+                    }
                 }
+                dispatchPendingSendDirect()
             }
-            dispatchPendingSendDirect()
-            return
         }
 
         // Flush any buffered streaming text so already-received tokens are
@@ -2692,14 +2694,12 @@ public final class ChatViewModel: ObservableObject {
         let requestId = UUID().uuidString
         pendingSuggestionRequestId = requestId
 
-        do {
-            try daemonClient.send(SuggestionRequestMessage(
-                conversationId: conversationId,
-                requestId: requestId
-            ))
-        } catch {
-            log.error("Failed to send suggestion_request: \(error.localizedDescription)")
+        Task {
+            let settingsClient = SettingsClient()
+            let response = await settingsClient.fetchSuggestion(conversationId: conversationId, requestId: requestId)
+            guard pendingSuggestionRequestId == requestId else { return }
             pendingSuggestionRequestId = nil
+            suggestion = response?.suggestion
         }
     }
 

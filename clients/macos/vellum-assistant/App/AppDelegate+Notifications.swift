@@ -431,10 +431,11 @@ extension AppDelegate {
             source: source,
             evidenceText: evidenceText
         )
-        do {
-            try daemonClient.send(signal)
-        } catch {
-            log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
+        Task {
+            let success = await conversationListClient.sendConversationSeen(signal)
+            if !success {
+                log.warning("Failed to send conversation_seen_signal for \(conversationId)")
+            }
         }
     }
 

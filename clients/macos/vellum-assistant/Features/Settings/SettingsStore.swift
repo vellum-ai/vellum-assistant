@@ -541,45 +541,9 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Wire up ingress config response
+        // Wire up ingress config response (for SSE-pushed updates)
         daemonClient?.onIngressConfigResponse = { [weak self] response in
-            guard let self else { return }
-            // For remote assistants, prefer the lockfile's runtimeUrl because the
-            // daemon reports its own loopback address which is not reachable from
-            // the client. For local assistants, use the daemon's authoritative value
-            // since it reflects the daemon's actual runtime environment.
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-                ?? LockfileAssistant.loadLatest()
-            if let assistant, assistant.isRemote {
-                self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
-                    connectedAssistantId: assistant.assistantId
-                )
-            } else {
-                self.localGatewayTarget = response.localGatewayTarget
-            }
-            if response.success {
-                if let pending = self.pendingIngressEnabled, response.enabled != pending {
-                    // A set operation is in-flight and this response disagrees
-                    // with the optimistic value — it's a stale get response.
-                    // Skip updating enabled to prevent the toggle from bouncing.
-                    self.ingressPublicBaseUrl = response.publicBaseUrl
-                    self.ingressConfigLoaded = true
-                    return
-                }
-                self.pendingIngressEnabled = nil
-                self.pendingIngressUrl = nil
-                self.ingressEnabled = response.enabled
-                self.ingressPublicBaseUrl = response.publicBaseUrl
-            } else {
-                // On failure, revert optimistic updates so the UI reflects reality
-                if let previousUrl = self.pendingIngressUrl {
-                    self.ingressPublicBaseUrl = previousUrl
-                }
-                self.pendingIngressUrl = nil
-                self.pendingIngressEnabled = nil
-            }
-            self.ingressConfigLoaded = true
+            self?.handleIngressConfigResponse(response)
         }
 
         // Wire up platform config response
@@ -2732,10 +2696,12 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Ingress Config
 
     func refreshIngressConfig() {
-        do {
-            try daemonClient?.send(IngressConfigRequestMessage(action: "get"))
-        } catch {
-            log.error("Failed to send ingress config get: \(error)")
+        Task {
+            guard let response = await settingsClient.fetchIngressConfig() else {
+                log.error("Failed to fetch ingress config")
+                return
+            }
+            handleIngressConfigResponse(response)
         }
     }
 
@@ -2758,25 +2724,68 @@ public final class SettingsStore: ObservableObject {
         // that controls the enabled flag.
         let shouldEnable = !trimmed.isEmpty
         ingressEnabled = shouldEnable
-        do {
-            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: shouldEnable))
-        } catch {
-            // Send failed — roll back the optimistic update
-            ingressPublicBaseUrl = previous
-            pendingIngressUrl = nil
-            ingressReachable = previousReachable
-            tunnelLastChecked = previousLastChecked
+        Task {
+            if let response = await settingsClient.updateIngressConfig(publicBaseUrl: trimmed, enabled: shouldEnable) {
+                handleIngressConfigResponse(response)
+            } else {
+                // Send failed — roll back the optimistic update
+                ingressPublicBaseUrl = previous
+                pendingIngressUrl = nil
+                ingressReachable = previousReachable
+                tunnelLastChecked = previousLastChecked
+            }
         }
     }
 
     func setIngressEnabled(_ enabled: Bool) {
         ingressEnabled = enabled
         pendingIngressEnabled = enabled
-        do {
-            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
-        } catch {
-            log.error("Failed to send ingress config set (enabled): \(error)")
+        Task {
+            if let response = await settingsClient.updateIngressConfig(publicBaseUrl: ingressPublicBaseUrl, enabled: enabled) {
+                handleIngressConfigResponse(response)
+            } else {
+                log.error("Failed to send ingress config set (enabled)")
+            }
         }
+    }
+
+    private func handleIngressConfigResponse(_ response: IngressConfigResponseMessage) {
+        // For remote assistants, prefer the lockfile's runtimeUrl because the
+        // daemon reports its own loopback address which is not reachable from
+        // the client. For local assistants, use the daemon's authoritative value
+        // since it reflects the daemon's actual runtime environment.
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+            ?? LockfileAssistant.loadLatest()
+        if let assistant, assistant.isRemote {
+            self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
+                connectedAssistantId: assistant.assistantId
+            )
+        } else {
+            self.localGatewayTarget = response.localGatewayTarget
+        }
+        if response.success {
+            if let pending = self.pendingIngressEnabled, response.enabled != pending {
+                // A set operation is in-flight and this response disagrees
+                // with the optimistic value — it's a stale get response.
+                // Skip updating enabled to prevent the toggle from bouncing.
+                self.ingressPublicBaseUrl = response.publicBaseUrl
+                self.ingressConfigLoaded = true
+                return
+            }
+            self.pendingIngressEnabled = nil
+            self.pendingIngressUrl = nil
+            self.ingressEnabled = response.enabled
+            self.ingressPublicBaseUrl = response.publicBaseUrl
+        } else {
+            // On failure, revert optimistic updates so the UI reflects reality
+            if let previousUrl = self.pendingIngressUrl {
+                self.ingressPublicBaseUrl = previousUrl
+            }
+            self.pendingIngressUrl = nil
+            self.pendingIngressEnabled = nil
+        }
+        self.ingressConfigLoaded = true
     }
 
     // MARK: - Connection Health Check

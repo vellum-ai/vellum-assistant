@@ -21,6 +21,7 @@ public final class WatchSession: ObservableObject {
     public let intervalSeconds: Int
 
     private var daemonClient: (any DaemonClientProtocol)?
+    private let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     private var captureTask: Task<Void, Never>?
     private var elapsedTask: Task<Void, Never>?
     private var startedAt: Date?
@@ -135,13 +136,12 @@ public final class WatchSession: ObservableObject {
                 totalExpected: totalExpected
             )
 
-            do {
-                let hasDaemon = daemonClient != nil
-                log.debug("Sending observation \(self.captureCount)/\(self.totalExpected) watchId=\(self.watchId) hasDaemon=\(hasDaemon) ocrLen=\(screenContent.count)")
-                try daemonClient?.send(observation)
+            log.debug("Sending observation \(self.captureCount)/\(self.totalExpected) watchId=\(self.watchId) ocrLen=\(screenContent.count)")
+            let success = await computerUseClient.sendWatchObservation(observation)
+            if success {
                 log.debug("Observation \(self.captureCount) sent successfully for \(appName)")
-            } catch {
-                log.error("Failed to send watch observation: \(error.localizedDescription)")
+            } else {
+                log.error("Failed to send watch observation")
             }
 
             try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)

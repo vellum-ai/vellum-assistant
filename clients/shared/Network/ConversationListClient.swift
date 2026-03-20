@@ -3,10 +3,18 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationListClient")
 
-/// Focused client for fetching the conversation list via the gateway.
+/// Focused client for conversation list and management operations via the gateway.
 @MainActor
 public protocol ConversationListClientProtocol {
     func fetchConversationList(offset: Int, limit: Int) async -> ConversationListResponse?
+    func switchConversation(conversationId: String) async -> Bool
+    func renameConversation(conversationId: String, name: String) async -> Bool
+    func clearAllConversations() async -> Bool
+    func cancelGeneration(conversationId: String) async -> Bool
+    func undoLastMessage(conversationId: String) async -> Int?
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse?
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool
+    func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool
 }
 
 /// Gateway-backed implementation of ``ConversationListClientProtocol``.
@@ -57,9 +65,189 @@ public struct ConversationListClient: ConversationListClientProtocol {
             return nil
         }
     }
+
+    // MARK: - Conversation Management
+
+    public func switchConversation(conversationId: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/conversations/switch",
+                json: ["conversationId": conversationId],
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("switchConversation failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("switchConversation error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func renameConversation(conversationId: String, name: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.patch(
+                path: "assistants/{assistantId}/conversations/\(conversationId)/name",
+                json: ["name": name],
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("renameConversation failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("renameConversation error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func clearAllConversations() async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/conversations",
+                timeout: 10
+            )
+            guard response.isSuccess || response.statusCode == 204 else {
+                log.error("clearAllConversations failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("clearAllConversations error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func cancelGeneration(conversationId: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/conversations/\(conversationId)/cancel",
+                json: [:] as [String: String],
+                timeout: 10
+            )
+            guard response.isSuccess || response.statusCode == 202 else {
+                log.error("cancelGeneration failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("cancelGeneration error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Returns the number of messages removed, or `nil` on failure.
+    public func undoLastMessage(conversationId: String) async -> Int? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/conversations/\(conversationId)/undo",
+                json: [:] as [String: String],
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("undoLastMessage failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let removedCount = json["removedCount"] as? Int {
+                return removedCount
+            }
+            return 0
+        } catch {
+            log.error("undoLastMessage error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func searchConversations(query: String, limit: Int? = nil, maxMessagesPerConversation: Int? = nil) async -> ConversationSearchResponse? {
+        do {
+            var params: [String: String] = ["q": query]
+            if let limit { params["limit"] = "\(limit)" }
+            if let maxMessagesPerConversation { params["maxMessagesPerConversation"] = "\(maxMessagesPerConversation)" }
+
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/conversations/search",
+                params: params,
+                timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("searchConversations failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(HTTPConversationSearchResponse.self, from: response.data).toPublic(query: query)
+        } catch {
+            log.error("searchConversations error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool {
+        do {
+            let body: [String: Any] = [
+                "updates": updates.map { u in
+                    var entry: [String: Any] = [
+                        "conversationId": u.conversationId,
+                        "isPinned": u.isPinned
+                    ]
+                    if let order = u.displayOrder {
+                        entry["displayOrder"] = order
+                    }
+                    return entry
+                }
+            ]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/conversations/reorder",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("reorderConversations failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("reorderConversations error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool {
+        do {
+            var body: [String: Any] = [
+                "conversationId": signal.conversationId,
+                "sourceChannel": signal.sourceChannel,
+                "signalType": signal.signalType,
+                "confidence": signal.confidence,
+                "source": signal.source
+            ]
+            if let evidenceText = signal.evidenceText {
+                body["evidenceText"] = evidenceText
+            }
+            if let observedAt = signal.observedAt {
+                body["observedAt"] = observedAt
+            }
+
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/conversations/seen",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("sendConversationSeen failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("sendConversationSeen error: \(error.localizedDescription)")
+            return false
+        }
+    }
 }
 
-// MARK: - Private HTTP Response DTO
+// MARK: - Private HTTP Response DTOs
 
 /// Mirrors the HTTP API's conversation list response shape. The public
 /// ``ConversationListResponse`` type requires a `type` discriminant that
@@ -83,4 +271,18 @@ private struct HTTPConversationsListResponse: Decodable {
     }
     let conversations: [Conversation]
     let hasMore: Bool?
+}
+
+/// The HTTP search endpoint omits the `type` discriminator, so we decode
+/// into this private DTO and map to the public type.
+private struct HTTPConversationSearchResponse: Decodable {
+    let results: [ConversationSearchResultItem]
+
+    func toPublic(query: String) -> ConversationSearchResponse {
+        ConversationSearchResponse(
+            type: "conversation_search_response",
+            query: query,
+            results: results
+        )
+    }
 }
