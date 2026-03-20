@@ -36,6 +36,11 @@ export type { DeleteResult } from "./credential-backend.js";
  */
 export type { SecureKeyBackend, SecureKeyDeleteResult };
 
+export interface SecureKeyResult {
+  value: string | undefined;
+  unreachable: boolean;
+}
+
 const log = getLogger("secure-keys");
 
 let _keychain: CredentialBackend | undefined;
@@ -125,30 +130,53 @@ export async function listSecureKeysAsync(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 /**
- * Retrieve a secret from secure storage. Reads from the primary backend
- * first. In CES mode, the sidecar is the single source of truth — no
- * local fallback. In local mode, if the primary backend is the keychain,
- * falls back to the encrypted store for legacy keys that haven't been
- * migrated.
+ * Retrieve a secret from secure storage with richer result metadata.
+ *
+ * Returns both the value (if found) and whether the backend was
+ * unreachable. Callers that need to distinguish "not found" from
+ * "backend down" should use this instead of `getSecureKeyAsync`.
+ *
+ * Reads from the primary backend first. In CES mode, the sidecar is
+ * the single source of truth — no local fallback. In local mode, if
+ * the primary backend is the keychain, falls back to the encrypted
+ * store for legacy keys that haven't been migrated.
  */
-export async function getSecureKeyAsync(
+export async function getSecureKeyResultAsync(
   account: string,
-): Promise<string | undefined> {
+): Promise<SecureKeyResult> {
   const backend = resolveBackend();
   const result = await backend.get(account);
-  if (result.value != null) return result.value;
+  if (result.value != null) {
+    return { value: result.value, unreachable: false };
+  }
 
-  // CES mode — no local fallback.
-  if (backend.name === "ces-http") return undefined;
+  // CES mode — the sidecar is the single source of truth, no local fallback.
+  if (backend.name === "ces-http") {
+    return { value: undefined, unreachable: result.unreachable };
+  }
 
   // Legacy fallback: if primary backend is NOT the encrypted store,
   // check the encrypted store for keys that haven't been migrated.
   if (backend !== getEncryptedStoreBackend()) {
     const fallback = await getEncryptedStoreBackend().get(account);
-    return fallback.value;
+    if (fallback.value != null) {
+      return { value: fallback.value, unreachable: false };
+    }
+    return { value: undefined, unreachable: result.unreachable };
   }
 
-  return undefined;
+  return { value: undefined, unreachable: false };
+}
+
+/**
+ * Retrieve a secret from secure storage. Convenience wrapper over
+ * `getSecureKeyResultAsync` that returns only the value.
+ */
+export async function getSecureKeyAsync(
+  account: string,
+): Promise<string | undefined> {
+  const result = await getSecureKeyResultAsync(account);
+  return result.value;
 }
 
 /**
