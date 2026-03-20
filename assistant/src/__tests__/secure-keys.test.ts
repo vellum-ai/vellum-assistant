@@ -75,6 +75,7 @@ import {
   _resetBackend,
   deleteSecureKeyAsync,
   getSecureKeyAsync,
+  getSecureKeyResultAsync,
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
@@ -466,6 +467,61 @@ describe("secure-keys", () => {
 
       const keys = await listSecureKeysAsync();
       expect(keys).toEqual([]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // getSecureKeyResultAsync — richer result with unreachable flag
+  // -----------------------------------------------------------------------
+  describe("getSecureKeyResultAsync", () => {
+    test("returns unreachable true when broker errors", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      const result = await getSecureKeyResultAsync("api-key");
+      expect(result.value).toBeUndefined();
+      expect(result.unreachable).toBe(true);
+    });
+
+    test("returns value and unreachable false on success", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("api-key", "broker-value");
+      const result = await getSecureKeyResultAsync("api-key");
+      expect(result.value).toBe("broker-value");
+      expect(result.unreachable).toBe(false);
+    });
+
+    test("falls back to encrypted store when broker is unreachable", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      encryptedStore.setKey("legacy-key", "legacy-value");
+      const result = await getSecureKeyResultAsync("legacy-key");
+      expect(result.value).toBe("legacy-value");
+      expect(result.unreachable).toBe(false);
+    });
+
+    test("propagates unreachable when broker errors and encrypted store also missing", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      const result = await getSecureKeyResultAsync("missing-key");
+      expect(result.value).toBeUndefined();
+      expect(result.unreachable).toBe(true);
+    });
+
+    test("returns unreachable false in dev mode (encrypted store backend)", async () => {
+      process.env.VELLUM_DEV = "1";
+      _resetBackend();
+
+      const result = await getSecureKeyResultAsync("missing-key");
+      expect(result.value).toBeUndefined();
+      expect(result.unreachable).toBe(false);
     });
   });
 });
