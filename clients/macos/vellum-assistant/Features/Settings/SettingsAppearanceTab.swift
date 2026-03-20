@@ -10,10 +10,13 @@ struct SettingsAppearanceTab: View {
     @State private var isVideoDomainsExpanded: Bool = false
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
+    @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
     @State private var recordingDisplayString: String?
     @State private var shortcutConflictWarning: String?
+    @State private var voiceRecordingMonitors: [Any] = []
+    @State private var voiceModifierHoldTimer: Timer? = nil
     @State private var selectedTimezone: String = ""
     @State private var timezoneSearchText: String = ""
     @State private var debouncedTimezoneSearchText: String = ""
@@ -254,12 +257,25 @@ struct SettingsAppearanceTab: View {
                     Spacer()
                     // Read activationKey to establish SwiftUI dependency tracking
                     let activator = { _ = activationKey; return PTTActivator.fromStored() }()
-                    VShortcutTag(activator.kind != .none ? "Hold \(activator.displayName)" : "Disabled")
-                    if activator.kind != .none {
-                        VButton(label: "Unbind", style: .outlined) {
-                            PTTActivator.off.store()
-                            activationKey = "none"
-                            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+
+                    if isRecordingVoiceInput {
+                        VShortcutTag("Press key...")
+                        VButton(label: "Cancel", style: .outlined) {
+                            stopRecordingVoiceInput()
+                        }
+                    } else {
+                        VShortcutTag(activator.kind != .none ? "Hold \(activator.displayName)" : "Disabled")
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingVoiceInput()
+                            }
+                            if activator.kind != .none {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    PTTActivator.off.store()
+                                    activationKey = "none"
+                                    NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+                                }
+                            }
                         }
                     }
                 }
@@ -516,6 +532,98 @@ struct SettingsAppearanceTab: View {
             NSEvent.removeMonitor(monitor)
             flagsMonitor = nil
         }
+    }
+
+    // MARK: - Voice Input Recording
+
+    private func selectVoiceActivator(_ newActivator: PTTActivator) {
+        stopRecordingVoiceInput()
+        if let legacy = newActivator.legacyString {
+            activationKey = legacy
+        } else {
+            let json = (try? JSONEncoder().encode(newActivator))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "fn"
+            activationKey = json
+        }
+        NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+    }
+
+    private func startRecordingVoiceInput() {
+        stopRecordingVoiceInput()
+        isRecordingVoiceInput = true
+
+        let globalFlags = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [self] event in
+            handleVoiceRecordingFlagsChanged(event)
+        }
+        let localFlags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [self] event in
+            handleVoiceRecordingFlagsChanged(event)
+            return event
+        }
+
+        let globalKeyDown = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [self] event in
+            handleVoiceRecordingKeyDown(event)
+        }
+        let localKeyDown = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+            if handleVoiceRecordingKeyDown(event) {
+                return nil
+            }
+            return event
+        }
+
+        if let m = globalFlags { voiceRecordingMonitors.append(m) }
+        if let m = localFlags { voiceRecordingMonitors.append(m) }
+        if let m = globalKeyDown { voiceRecordingMonitors.append(m) }
+        if let m = localKeyDown { voiceRecordingMonitors.append(m) }
+    }
+
+    private func stopRecordingVoiceInput() {
+        isRecordingVoiceInput = false
+        voiceModifierHoldTimer?.invalidate()
+        voiceModifierHoldTimer = nil
+        for monitor in voiceRecordingMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        voiceRecordingMonitors = []
+    }
+
+    private func handleVoiceRecordingFlagsChanged(_ event: NSEvent) {
+        voiceModifierHoldTimer?.invalidate()
+        voiceModifierHoldTimer = nil
+
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
+        let held = event.modifierFlags.intersection(relevant)
+
+        guard !held.isEmpty else { return }
+
+        voiceModifierHoldTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [self] _ in
+            selectVoiceActivator(.modifierOnly(flags: held))
+        }
+    }
+
+    @discardableResult
+    private func handleVoiceRecordingKeyDown(_ event: NSEvent) -> Bool {
+        guard !event.isARepeat else { return false }
+
+        if event.keyCode == 53 {
+            stopRecordingVoiceInput()
+            return true
+        }
+
+        voiceModifierHoldTimer?.invalidate()
+        voiceModifierHoldTimer = nil
+
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
+        let held = event.modifierFlags.intersection(relevant)
+
+        let activator: PTTActivator
+        if held.isEmpty {
+            activator = .key(code: event.keyCode)
+        } else {
+            activator = .modifierKey(code: event.keyCode, flags: held)
+        }
+
+        selectVoiceActivator(activator)
+        return true
     }
 
 }
