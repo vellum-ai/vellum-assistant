@@ -125,14 +125,29 @@ struct AnimatedImageView: View {
         return (urlString as NSString, nil)
     }
 
+    /// Returns a cache key that incorporates the file's modification date so
+    /// overwritten local images (e.g. regenerated avatars) are not served stale.
+    private func localCacheKey(path: String) -> NSString {
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let mtime = attrs[.modificationDate] as? Date {
+            return "\(path)?\(mtime.timeIntervalSince1970)" as NSString
+        }
+        return path as NSString
+    }
+
     private func loadImage() async {
         isLoading = true
         defer { isLoading = false }
 
         let (cacheKey, localFileURL) = resolveCacheKey()
 
+        // For local files, incorporate mtime so overwritten files bust the cache.
+        let effectiveKey: NSString = localFileURL != nil
+            ? localCacheKey(path: cacheKey as String)
+            : cacheKey
+
         // Check in-memory cache first to avoid redundant disk reads / decoding.
-        if let entry = Self.cache.object(forKey: cacheKey) {
+        if let entry = Self.cache.object(forKey: effectiveKey) {
             self.loadedImage = entry.image
             self.imageData = entry.gifData
             return
@@ -142,7 +157,7 @@ struct AnimatedImageView: View {
         if let fileURL = localFileURL {
             imageData = try? Data(contentsOf: fileURL)
             loadedImage = imageData.flatMap { NSImage(data: $0) }
-            cacheLoadedImage(forKey: cacheKey)
+            cacheLoadedImage(forKey: effectiveKey)
             return
         }
 
@@ -153,7 +168,7 @@ struct AnimatedImageView: View {
             let data = try await ImageCache.shared.imageData(for: url)
             self.imageData = data
             self.loadedImage = NSImage(data: data)
-            cacheLoadedImage(forKey: cacheKey)
+            cacheLoadedImage(forKey: effectiveKey)
         } catch {
             // Keep placeholder on failure
         }
