@@ -29,7 +29,12 @@ export function injectActivityField(
     }
 
     const properties = schema.properties as Record<string, unknown>;
+
     if (schemaDefinesProperty(schema, "activity")) {
+      // Activity is already defined somewhere in the schema (top-level properties
+      // or composite sub-schemas). Don't modify schemas we don't own — MCP tools
+      // may define activity as intentionally optional or with server-specific
+      // semantics.
       return def;
     }
 

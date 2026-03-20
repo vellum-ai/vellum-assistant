@@ -14,7 +14,7 @@ mock.module("../util/platform.js", () => ({
 }));
 
 // Re-import after mocking so modules use our temp dir
-const { createApp, updateApp, getAppsDir } =
+const { createApp, updateApp, getAppDirPath } =
   await import("../memory/app-store.js");
 const {
   getAppHistory,
@@ -147,7 +147,7 @@ describe("App Git History", () => {
 
     // Current file should show new content
     const currentContent = readFileSync(
-      join(getAppsDir(), app.id, "index.html"),
+      join(getAppDirPath(app.id), "index.html"),
       "utf-8",
     );
     expect(currentContent).toContain("version two");
@@ -169,7 +169,7 @@ describe("App Git History", () => {
 
     // Verify current content is "new content"
     let current = readFileSync(
-      join(getAppsDir(), app.id, "index.html"),
+      join(getAppDirPath(app.id), "index.html"),
       "utf-8",
     );
     expect(current).toContain("new content");
@@ -178,7 +178,7 @@ describe("App Git History", () => {
     await restoreAppVersion(app.id, originalHash);
 
     // Verify content is restored
-    current = readFileSync(join(getAppsDir(), app.id, "index.html"), "utf-8");
+    current = readFileSync(join(getAppDirPath(app.id), "index.html"), "utf-8");
     expect(current).toContain("original content");
 
     // Verify a restore commit was created

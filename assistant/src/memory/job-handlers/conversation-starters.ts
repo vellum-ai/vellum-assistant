@@ -169,13 +169,18 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const now = new Date();
   const timeContext = `Current time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`;
 
-  const identityContext = buildCoreIdentityContext();
+  // Truncate identity context to prevent oversized prompts when SOUL.md /
+  // IDENTITY.md / USER.md are large.
+  const rawIdentityContext = buildCoreIdentityContext();
+  const identityContext = rawIdentityContext
+    ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
+    : null;
 
-  const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app.
+  const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app. Clicking a chip sends its prompt as a message from the user.
 
 ${timeContext}
 
-Your goal: look at what's going on in this person's life right now and suggest the 4 most useful things they could ask you to do. Think about what a thoughtful chief of staff would proactively bring up in a 30-second check-in.
+Your goal: suggest the 4 most useful things this person could ask you to do right now.
 
 ${identityContext ? `## Assistant identity & user profile\n\n${identityContext}\n\n` : ""}## What you know
 
@@ -183,7 +188,9 @@ ${rollup}
 ${diff}
 ${skills}
 
-## How to think about this
+## Selection
+
+Generate exactly 4 starters, ranked #1 (best) to #4.
 
 Start from the user's situation, not from the skill list. Ask yourself:
 - What is this person likely dealing with right now (given the day/time and their context)?
@@ -192,11 +199,7 @@ Start from the user's situation, not from the skill list. Ask yourself:
 
 The skills list tells you what the assistant CAN do — use it to filter out suggestions the assistant can't actually help with, not as a menu to generate suggestions from.
 
-## Selection
-
-Generate exactly 4 starters, ranked #1 (best) to #4.
-
-For each, you must be able to clearly answer:
+For each starter, you must clearly answer:
 - Why now? (timing — day of week, recent activity, upcoming deadline)
 - Why this user? (grounded in their specific context, not generic)
 - Why would they be glad I suggested this? (genuine usefulness, not just relevance)
@@ -213,38 +216,34 @@ Favor what is live over what is merely true. Recent changes matter more than old
 
 ## Output format
 
-Return exactly 4 starters in rank order (best first).
-
 Each starter has:
-- label: 3-6 words, max 40 chars, starts with a verb. Should sound like a smart offer of help, not a feature name or task description. Must sound natural when read aloud.
-- prompt: 1-2 natural sentences, written as the user would actually say them — not templated.
+- label: 3-6 words, max 40 chars, starts with a verb. Written in the user's voice — something they'd want to do, not something the assistant is offering.
+- prompt: 1-2 natural sentences, as the user would actually say them.
 - category: one of ${CONVERSATION_STARTER_CATEGORIES.join(", ")}
 
-The 4 starters should feel like one coherent set of recommendations for this moment — similar abstraction level, no jarring mix of mundane chores and life strategy. Don't lift raw memory phrases, project names, or jargon into labels unless they already sound natural in conversation.
+## Constraints
 
-Never include a chip whose primary meaning is configuration, setup, workflow creation, or "set up X for Y" unless it solves an urgent pain the user is actively feeling right now. Prefer the outcome over the mechanism — "Catch the emails that matter" beats "Set up a playbook for inbox."
+**Voice**: The user clicks these chips to send a message. Every label must read as something the user is asking to do, never something the assistant is saying to the user.
 
-## Topic diversity
+**Coherence**: The 4 starters should feel like one set — similar abstraction level, no jarring mix of mundane chores and life strategy.
 
-Each chip should cover a distinct topic or concern. Never have two chips about the same tool, project, or theme — even if there are multiple related issues. Pick the single most impactful angle and give the other slot to something different. Four chips about three topics is too narrow; four chips about four topics is right.
+**Diversity**: Each chip covers a distinct topic. Never two chips about the same tool, project, or theme. Four topics, four chips.
 
-## User-facingness check
+**No setup chips**: Never include a chip whose primary meaning is configuration or "set up X for Y" unless it solves an urgent pain the user is actively feeling. Prefer the outcome over the mechanism.
 
-If a label sounds like an issue title, project ticket, or implementation task, rewrite it. Prefer the user-visible payoff over the internal object name. The chip should feel inviting and useful, not merely accurate.
+**Natural language**: No jargon, project names, or raw memory phrases in labels unless they already sound natural in conversation. If a label sounds like a ticket title or backlog item, rewrite it as something the user would actually say.
 
-Prefer natural, flowing language over mechanical or operational phrasing. "Get Slack messages flowing" is better than "Restore outgoing Slack messages." The label should sound like something a helpful person would say, not a support ticket.
+## Examples
 
-Before finalizing each label, ask yourself: would this feel good to click? Or does it sound like a backlog item? If it sounds like a backlog item, rewrite it.
+Bad → Good (ticket-speak → natural):
+- "Fix Slack Socket Mode blocker" → "Fix Slack so it just works"
+- "Restore outgoing Slack messages" → "Get Slack messages flowing"
+- "Review this week's calendar" → "Protect this week's focus"
+- "Set up a playbook for inbox" → "Triage my inbox"
 
-Examples of bad vs good:
-- BAD: "Fix Slack Socket Mode blocker" → GOOD: "Fix Slack so it just works"
-- BAD: "Rewire messaging for Socket Mode" → GOOD: "Get Socket Mode stable"
-- BAD: "Review this week's calendar" → GOOD: "Protect this week's focus"
-- BAD: "Model the coaching transition" → GOOD: "Plan the coaching transition"
-- BAD: "Restore outgoing Slack messages" → GOOD: "Get Slack messages flowing"
-- BAD: "Set up a playbook for inbox" → GOOD: "Catch the emails that matter"
-
-The good versions emphasize the user's payoff, not the internal mechanism.`;
+Bad → Good (assistant voice → user voice):
+- "You've got a busy week ahead" → "Plan my week ahead"
+- "Let me check your calendar" → "Check my Thursday schedule"`;
 
   const { signal, cleanup } = createTimeout(20000);
   try {
@@ -269,7 +268,7 @@ The good versions emphasize the user's payoff, not the internal mechanism.`;
                     label: {
                       type: "string",
                       description:
-                        "Concierge-quality chip text (2-7 words, max 40 chars, starts with a verb)",
+                        "User-voice chip label (2-7 words, max 40 chars, verb-first)",
                     },
                     prompt: {
                       type: "string",

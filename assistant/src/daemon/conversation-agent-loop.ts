@@ -32,7 +32,8 @@ import {
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles } from "../memory/app-store.js";
+import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
+import { insertCompactionEpisode } from "../memory/archive-store.js";
 import {
   addMessage,
   deleteMessageById,
@@ -43,6 +44,10 @@ import {
   updateConversationContextWindow,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
+import {
+  rebuildConversationDiskViewFromDbState,
+  syncMessageToDisk,
+} from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -77,7 +82,6 @@ import {
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
-  formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
@@ -173,11 +177,9 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   browser_scroll: "Browser",
   browser_wait: "Browser",
   app_create: "Create App",
-  app_update: "Update App",
+  app_refresh: "Refresh App",
   skill_load: "Load Skill",
   skill_execute: "Run Skill Tool",
-  app_file_edit: "Edit App File",
-  app_file_write: "Write App File",
 };
 
 type GitServiceInitializer = {
@@ -207,7 +209,17 @@ export interface AgentLoopConversationContext {
   currentPage?: string;
   readonly surfaceState: Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
@@ -502,6 +514,12 @@ export async function runAgentLoopImpl(
         compacted.summaryText,
         ctx.contextCompactedMessageCount,
       );
+      dualWriteCompactionEpisode(
+        ctx.conversationId,
+        ctx.memoryPolicy.scopeId,
+        compacted.summaryText,
+        compacted.summaryOutputTokens,
+      );
       onEvent({
         type: "context_compacted",
         previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
@@ -604,6 +622,7 @@ export async function runAgentLoopImpl(
           if (app) {
             activeSurface.appId = app.id;
             activeSurface.appName = app.name;
+            activeSurface.appDirName = resolveAppDir(app.id).dirName;
             activeSurface.appSchemaJson = app.schemaJson;
             activeSurface.appFiles = listAppFiles(app.id);
             if (app.pages && Object.keys(app.pages).length > 0) {
@@ -767,6 +786,12 @@ export async function runAgentLoopImpl(
             ctx.conversationId,
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
+          );
+          dualWriteCompactionEpisode(
+            ctx.conversationId,
+            ctx.memoryPolicy.scopeId,
+            step.compactionResult.summaryText,
+            step.compactionResult.summaryOutputTokens,
           );
           onEvent({
             type: "context_compacted",
@@ -951,6 +976,12 @@ export async function runAgentLoopImpl(
           ctx.conversationId,
           midLoopCompact.summaryText,
           ctx.contextCompactedMessageCount,
+        );
+        dualWriteCompactionEpisode(
+          ctx.conversationId,
+          ctx.memoryPolicy.scopeId,
+          midLoopCompact.summaryText,
+          midLoopCompact.summaryOutputTokens,
         );
         onEvent({
           type: "context_compacted",
@@ -1148,6 +1179,12 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
           );
+          dualWriteCompactionEpisode(
+            ctx.conversationId,
+            ctx.memoryPolicy.scopeId,
+            step.compactionResult.summaryText,
+            step.compactionResult.summaryOutputTokens,
+          );
           onEvent({
             type: "context_compacted",
             previousEstimatedInputTokens:
@@ -1182,6 +1219,7 @@ export async function runAgentLoopImpl(
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
+        yieldedForBudget = false;
 
         updatedHistory = await ctx.agentLoop.run(
           runMessages,
@@ -1204,6 +1242,15 @@ export async function runAgentLoopImpl(
             "Post-convergence rerun still yielded at checkpoint — continuing reduction",
           );
           state.contextTooLargeDetected = true;
+
+          // Fold rerun progress into ctx.messages so the next reducer
+          // tier operates on up-to-date history instead of stale
+          // pre-rerun messages.
+          if (updatedHistory.length > preRunHistoryLength) {
+            ctx.messages = stripInjectedContext(updatedHistory);
+            preRepairMessages = updatedHistory;
+            preRunHistoryLength = updatedHistory.length;
+          }
         }
       }
 
@@ -1244,6 +1291,12 @@ export async function runAgentLoopImpl(
                 ctx.conversationId,
                 emergencyCompact.summaryText,
                 ctx.contextCompactedMessageCount,
+              );
+              dualWriteCompactionEpisode(
+                ctx.conversationId,
+                ctx.memoryPolicy.scopeId,
+                emergencyCompact.summaryText,
+                emergencyCompact.summaryOutputTokens,
               );
               onEvent({
                 type: "context_compacted",
@@ -1348,6 +1401,12 @@ export async function runAgentLoopImpl(
               ctx.conversationId,
               emergencyCompact.summaryText,
               ctx.contextCompactedMessageCount,
+            );
+            dualWriteCompactionEpisode(
+              ctx.conversationId,
+              ctx.memoryPolicy.scopeId,
+              emergencyCompact.summaryText,
+              emergencyCompact.summaryOutputTokens,
             );
             onEvent({
               type: "context_compacted",
@@ -1523,16 +1582,29 @@ export async function runAgentLoopImpl(
       state.exchangeCacheCreationInputTokens,
       state.exchangeCacheReadInputTokens,
       collapseRawResponses(state.exchangeRawResponses),
+      state.exchangeProviderName,
     );
 
     void getHookManager().trigger("post-message", {
       conversationId: ctx.conversationId,
     });
 
+    const syncLastAssistantMessageToDisk = (): void => {
+      if (!state.lastAssistantMessageId) return;
+      const convForDisk = getConversation(ctx.conversationId);
+      if (!convForDisk) return;
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        convForDisk.createdAt,
+      );
+    };
+
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
+      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -1568,17 +1640,7 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-
-      const warningText = formatAttachmentWarnings(
-        attachmentResult.directiveWarnings,
-      );
-      if (warningText) {
-        onEvent({
-          type: "assistant_text_delta",
-          text: warningText,
-          conversationId: ctx.conversationId,
-        });
-      }
+      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -1613,6 +1675,9 @@ export async function runAgentLoopImpl(
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
             : {}),
+          ...(ctx.lastAttachmentWarnings.length > 0
+            ? { attachmentWarnings: ctx.lastAttachmentWarnings }
+            : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
@@ -1632,6 +1697,9 @@ export async function runAgentLoopImpl(
           conversationId: ctx.conversationId,
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
+            : {}),
+          ...(ctx.lastAttachmentWarnings.length > 0
+            ? { attachmentWarnings: ctx.lastAttachmentWarnings }
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
@@ -1748,7 +1816,13 @@ export async function runAgentLoopImpl(
     ctx.commandIntent = undefined;
 
     if (userMessageId) {
-      consolidateAssistantMessages(ctx.conversationId, userMessageId);
+      const didMutateHistory = consolidateAssistantMessages(
+        ctx.conversationId,
+        userMessageId,
+      );
+      if (didMutateHistory) {
+        rebuildConversationDiskViewFromDbState(ctx.conversationId);
+      }
     }
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
@@ -1775,11 +1849,12 @@ function emitUsage(
   cacheCreationInputTokens = 0,
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
+  providerName?: string,
 ): void {
   recordUsage(
     {
       conversationId: ctx.conversationId,
-      providerName: ctx.provider.name,
+      providerName: providerName ?? ctx.provider.name,
       usageStats: ctx.usageStats,
     },
     inputTokens,
@@ -1797,4 +1872,27 @@ function emitUsage(
 function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
+}
+
+/**
+ * Dual-write a compaction summary as an archive episode so it becomes
+ * searchable via vector recall. Called after each successful compaction
+ * that produces a new summary.
+ */
+function dualWriteCompactionEpisode(
+  conversationId: string,
+  scopeId: string,
+  summaryText: string,
+  summaryOutputTokens: number,
+): void {
+  const now = Date.now();
+  insertCompactionEpisode({
+    conversationId,
+    scopeId,
+    title: truncate(summaryText, 120, ""),
+    summary: summaryText,
+    tokenEstimate: summaryOutputTokens,
+    startAt: now,
+    endAt: now,
+  });
 }

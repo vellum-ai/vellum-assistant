@@ -4,7 +4,7 @@ import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../memory/media-store.js";
-import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -31,7 +31,7 @@ export async function run(
 
   let openaiApiKey: string | undefined;
   if (includeAudio && (!transcriptionMode || transcriptionMode === "api")) {
-    openaiApiKey = (await getSecureKeyAsync("openai")) ?? undefined;
+    openaiApiKey = await getProviderKeyAsync("openai");
   }
 
   const options: PreprocessOptions = {

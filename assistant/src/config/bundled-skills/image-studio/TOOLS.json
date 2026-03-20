@@ -18,12 +18,12 @@
             "enum": ["generate", "edit"],
             "description": "Whether to generate a new image or edit an existing one (default: generate)"
           },
-          "attachment_ids": {
+          "source_paths": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "IDs of attached source images to edit (required for edit mode)"
+            "description": "File paths to source images in the workspace (for edit mode)"
           },
           "model": {
             "type": "string",

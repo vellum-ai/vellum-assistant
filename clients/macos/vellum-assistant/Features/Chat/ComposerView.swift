@@ -51,8 +51,6 @@ struct ComposerView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    let onDropImageData: ((Data, String?) -> Void)?
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
@@ -63,6 +61,7 @@ struct ComposerView: View {
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
@@ -78,10 +77,8 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
-    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
-    @State private var isComposerDropTargeted = false
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Hidden when the user has pending attachments so the composer looks empty
@@ -126,20 +123,35 @@ struct ComposerView: View {
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
+        .disabled(!hasAPIKey || !isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
-            composerFocus = true
+            composerFocus = isInteractionEnabled
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
         }
         .onChange(of: conversationId) {
-            guard !hasPendingConfirmation else { return }
+            guard isInteractionEnabled, !hasPendingConfirmation else { return }
             composerFocus = true
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
             if currentMode == .dictationInline {
                 preDictationText = inputText
+            }
+        }
+        .onChange(of: isInteractionEnabled) { _, enabled in
+            if enabled, !hasPendingConfirmation {
+                composerFocus = true
+            } else if !enabled {
+                composerFocus = false
+                showSlashMenu = false
+                suppressSlashReopen = false
+            }
+        }
+        .onChange(of: hasPendingConfirmation) { _, pending in
+            if !pending, isInteractionEnabled {
+                composerFocus = true
             }
         }
     }
@@ -193,7 +205,6 @@ struct ComposerView: View {
         .tint(VColor.primaryBase)
         .id(composerResetId)
         .focused($composerFocus)
-        .disabled(!hasAPIKey)
         .onSubmit { handleComposerSubmit() }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
@@ -250,6 +261,7 @@ struct ComposerView: View {
             ComposerFocusBridge(
                 isFocused: composerFocus,
                 cmdEnterToSend: cmdEnterToSend,
+                isInteractionEnabled: isInteractionEnabled,
                 onImagePaste: onPaste,
                 onSend: {
                     performSendAction()
@@ -292,94 +304,6 @@ struct ComposerView: View {
                 updateSlashState()
             }
         }
-        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isComposerDropTargeted) { providers in
-            // Reset overlay immediately — SwiftUI's isTargeted binding may not
-            // reset reliably when AppKit's NSDraggingDestination (e.g. the
-            // NSTextView inside the composer) intercepts the drag session.
-            isComposerDropTargeted = false
-
-            let group = DispatchGroup()
-            // Collect URLs on the main queue to avoid concurrent Array mutation
-            // from loadObject callbacks that may fire on different threads.
-            var urls: [URL] = []
-            var imageDataItems: [NSItemProvider] = []
-            for provider in providers {
-                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                    let hasImageFallback = provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
-                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
-                    group.enter()
-                    _ = provider.loadObject(ofClass: URL.self) { url, error in
-                        DispatchQueue.main.async {
-                            if let url, FileManager.default.fileExists(atPath: url.path) {
-                                urls.append(url)
-                                group.leave()
-                            } else if hasImageFallback, let onDropImageData {
-                                let typeIdentifier: String
-                                if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-                                    typeIdentifier = UTType.png.identifier
-                                } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                                    typeIdentifier = UTType.tiff.identifier
-                                } else {
-                                    typeIdentifier = UTType.image.identifier
-                                }
-                                let suggestedName = provider.suggestedName
-                                provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-                                    DispatchQueue.main.async {
-                                        if let data {
-                                            onDropImageData(data, suggestedName)
-                                        } else if let url, url.isFileURL {
-                                            // Image data load failed — fall back to
-                                            // the file URL (may be a file promise).
-                                            urls.append(url)
-                                        }
-                                        group.leave()
-                                    }
-                                }
-                            } else if let url, url.isFileURL {
-                                // File promise (e.g. Music.app, Voice Memos) with
-                                // no image data fallback. Try the URL anyway — the
-                                // attachment loader will report errors if inaccessible.
-                                urls.append(url)
-                                group.leave()
-                            } else {
-                                group.leave()
-                            }
-                        }
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
-                            || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-                            || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                    imageDataItems.append(provider)
-                }
-            }
-            if let onDropImageData {
-                for provider in imageDataItems {
-                    let typeIdentifier: String
-                    if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-                        typeIdentifier = UTType.png.identifier
-                    } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                        typeIdentifier = UTType.tiff.identifier
-                    } else {
-                        typeIdentifier = UTType.image.identifier
-                    }
-                    let suggestedName = provider.suggestedName
-                    group.enter()
-                    provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-                        DispatchQueue.main.async {
-                            if let data {
-                                onDropImageData(data, suggestedName)
-                            }
-                            group.leave()
-                        }
-                    }
-                }
-            }
-            group.notify(queue: .main) {
-                if !urls.isEmpty { onFileDrop(urls) }
-            }
-            return true
-        }
     }
 
     /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
@@ -387,14 +311,23 @@ struct ComposerView: View {
     /// selection and pending-confirmation approval working regardless of how
     /// "send" is triggered.
     private func performSendAction() {
+        let sendPath: String
         if showSlashMenu {
+            sendPath = "slashSelection"
             handleSlashNavigation(.select)
         } else if canSend {
+            sendPath = "normalSend"
             onSend()
+            SoundManager.shared.play(.messageSent)
         } else if hasPendingConfirmation
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sendPath = "pendingConfirmationApproval"
             onAllowPendingConfirmation?()
+        } else {
+            sendPath = "noAction"
         }
+
+        composerLog.debug("[Send] path=\(sendPath) attachmentCount=\(pendingAttachments.count) isLoadingAttachment=\(isLoadingAttachment)")
     }
 
     private func handleComposerSubmit() {
@@ -411,7 +344,7 @@ struct ComposerView: View {
     @ViewBuilder
     private func standardComposerShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) {
-            if !pendingAttachments.isEmpty {
+            if !pendingAttachments.isEmpty || isLoadingAttachment {
                 attachmentStrip
             }
             content()
@@ -423,22 +356,6 @@ struct ComposerView: View {
                 .fill(VColor.surfaceOverlay)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
-        .overlay {
-            if isComposerDropTargeted {
-                RoundedRectangle(cornerRadius: VRadius.window)
-                    .fill(VColor.surfaceActive)
-                    .overlay {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(.paperclip, size: 16)
-                                .foregroundColor(VColor.contentSecondary)
-                            Text("Drop files to attach")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentSecondary)
-                        }
-                    }
-                    .allowsHitTesting(false)
-            }
-        }
         .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
     }
 
@@ -454,14 +371,10 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between a ghost button and a filled (primary/contrast) button — uses the standard
-    /// small spacing token for consistent spacing across the composer action bar.
-    private let composerFilledGap: CGFloat = VSpacing.sm
-
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
     private var composerActionBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: VSpacing.xs) {
             // Left side
             if isSending && !hasPendingConfirmation {
                 Spacer()
@@ -474,6 +387,7 @@ struct ComposerView: View {
                     action: { onAttach() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip("Attach file")
 
                 Spacer()
             }
@@ -487,17 +401,19 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
-            } else if canSend {
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    onSend()
-                }
             } else if inputText.isEmpty && !hasPendingConfirmation {
+                // Live voice button
+                VButton(
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onVoiceModeToggle?() }
+                )
+                .disabled(!hasAPIKey)
+                .vTooltip("Live voice conversation")
+
+                // Dictate button
                 VButton(
                     label: "Dictate",
                     iconOnly: VIcon.mic.rawValue,
@@ -506,33 +422,74 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+                .vTooltip(micTooltipText)
 
-                Spacer().frame(width: composerFilledGap)
+                // Send button (always visible, disabled when empty)
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    performSendAction()
+                }
+                .vTooltip("Type a message to send")
+            } else if !hasPendingConfirmation {
+                // Mic button (visible with or without text)
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .disabled(!hasAPIKey)
+                .vTooltip(micTooltipText)
+
+                // Send button
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    performSendAction()
+                }
+                .vTooltip(canSend ? "Send" : "Type a message to send")
+            } else {
+                // Pending confirmation — show same buttons as empty-input state
                 VButton(
                     label: "Voice mode",
                     iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .contrast,
+                    style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { onVoiceModeToggle?() }
                 )
                 .disabled(!hasAPIKey)
-                .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                    Text("Live voice conversation (not dictation)")
-                        .font(VFont.caption)
-                        .padding(VSpacing.sm)
-                }
-                .onHover { hovering in
-                    showVoiceModeHover = hovering
-                }
-            } else {
+
                 VButton(
-                    label: isRecording ? "Stop recording" : "Start voice input",
+                    label: isRecording ? "Stop recording" : "Dictate",
                     iconOnly: VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
-                    action: { onMicrophoneToggle() }
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
                 .disabled(!hasAPIKey)
+
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    performSendAction()
+                }
             }
         }
     }
@@ -573,6 +530,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Cancel")
 
                     // Accept: stop dictation and keep transcribed text
                     VButton(
@@ -585,6 +543,7 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
+                    .vTooltip("Done")
                 }
             }
         }
@@ -599,7 +558,7 @@ VStreamingWaveform(
     private var voiceConversationComposer: some View {
         if let manager = voiceModeManager {
             VStack(spacing: 0) {
-                if !pendingAttachments.isEmpty {
+                if !pendingAttachments.isEmpty || isLoadingAttachment {
                     attachmentStrip
                 }
 
@@ -626,6 +585,7 @@ VStreamingWaveform(
                         action: { manager.toggleListening() }
                     )
                     .disabled(manager.state == .processing)
+                    .vTooltip(manager.state == .listening ? "Mute" : "Unmute")
 
                     VButton(
                         label: "End voice mode",
@@ -634,6 +594,7 @@ VStreamingWaveform(
                         iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }
                     )
+                    .vTooltip("Cancel Live Voice")
                 }
             }
             .padding(.vertical, VSpacing.md)
@@ -665,6 +626,15 @@ VStreamingWaveform(
         case .processing: return VColor.contentSecondary
         default: return VColor.primaryBase
         }
+    }
+
+    /// Tooltip text for the mic button. Includes the PTT hold hint only when PTT is enabled.
+    private var micTooltipText: String {
+        let activator = PTTActivator.fromStored()
+        if activator.kind == .none {
+            return "Click to dictate"
+        }
+        return "Click to dictate or hold \(activator.displayName)"
     }
 
     var canSend: Bool {

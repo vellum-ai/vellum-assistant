@@ -281,7 +281,7 @@ describe("classifyConversationError", () => {
   describe("streaming corruption errors", () => {
     const cases = [
       "Unexpected event order, got message_start before receiving message_stop",
-      "Anthropic request failed: Unexpected event order, got message_start before receiving \"message_stop\"",
+      'Anthropic request failed: Unexpected event order, got message_start before receiving "message_stop"',
       "stream ended without producing a Message",
       "request ended without sending any chunks",
       "stream has ended, this shouldn't happen",

@@ -28,6 +28,7 @@ type ServerWithRequestIP = {
   ): { address: string; family: string; port: number } | null;
 };
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { getIsContainerized } from "../../config/env-registry.js";
 
 const log = getLogger("guardian-bootstrap");
 
@@ -86,19 +87,30 @@ export async function handleGuardianBootstrap(
   req: Request,
   server: ServerWithRequestIP,
 ): Promise<Response> {
+  // Reject non-private-network peers (allows loopback, Docker bridge, etc.)
+  const peerIp = server.requestIP(req)?.address;
+  if ((!peerIp || !isPrivateAddress(peerIp)) && !isHttpAuthDisabled()) {
+    return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
+  }
+
   // Reject requests forwarded from public networks. The gateway sets
   // x-forwarded-for to the real client IP; if that IP is on a private
   // network (loopback, Docker bridge, RFC 1918) the request is still
   // considered local. Only reject when the forwarded IP is public.
+  //
+  // Skip this check when running in a container: the peer IP was already
+  // validated above (Docker bridge network = private), so the request
+  // reached us through a co-located gateway. The x-forwarded-for header
+  // reflects the original external client (e.g. platform proxy) and is
+  // not meaningful for local-only enforcement in this topology.
   const forwarded = req.headers.get("x-forwarded-for");
   const forwardedIp = forwarded ? forwarded.split(",")[0].trim() : null;
-  if (forwardedIp && !isPrivateAddress(forwardedIp) && !isHttpAuthDisabled()) {
-    return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
-  }
-
-  // Reject non-private-network peers (allows loopback, Docker bridge, etc.)
-  const peerIp = server.requestIP(req)?.address;
-  if ((!peerIp || !isPrivateAddress(peerIp)) && !isHttpAuthDisabled()) {
+  if (
+    forwardedIp &&
+    !isPrivateAddress(forwardedIp) &&
+    !isHttpAuthDisabled() &&
+    !getIsContainerized()
+  ) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 

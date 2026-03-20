@@ -5,9 +5,10 @@ import {
 } from "../../config/loader.js";
 import { setServiceField } from "../../config/raw-config-utils.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
 import {
   isModelInCatalog,
-  PROVIDER_MODEL_CATALOG,
+  PROVIDER_CATALOG,
 } from "../../providers/model-catalog.js";
 import { getProviderDefaultModel } from "../../providers/model-intents.js";
 import {
@@ -15,7 +16,6 @@ import {
   isProviderAvailable,
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
@@ -26,6 +26,13 @@ import {
   log,
 } from "./shared.js";
 
+/** Reverse lookup: model ID → provider, derived from PROVIDER_CATALOG. */
+export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
+  PROVIDER_CATALOG.flatMap((provider) =>
+    provider.models.map(({ id }) => [id, provider.id]),
+  ),
+);
+
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
@@ -35,17 +42,20 @@ export interface ModelInfo {
   provider: string;
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
+  allProviders?: ProviderCatalogEntry[];
 }
 
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   const provider = config.services.inference.provider;
+
   return {
     model: config.services.inference.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[provider],
+    availableModels: PROVIDER_CATALOG.find((p) => p.id === provider)?.models,
+    allProviders: PROVIDER_CATALOG,
   };
 }
 
@@ -158,13 +168,7 @@ export async function setModel(
 
   ctx.updateConfigFingerprint();
 
-  const newProvider = config.services.inference.provider;
-  return {
-    model: config.services.inference.model,
-    provider: newProvider,
-    configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[newProvider],
-  };
+  return await getModelInfo();
 }
 
 /**

@@ -97,10 +97,11 @@ import os
             if needsStart {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
                 let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+                let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
                 SentrySDK.start { options in
                     options.dsn = targetDSN
                     options.releaseName = "vellum-macos@\(version)"
-                    options.dist = build
+                    options.dist = commitSHA ?? build
                     options.environment = SentryDeviceInfo.sentryEnvironment
                     options.sendDefaultPii = false
                     options.enableCrashHandler = false
@@ -221,15 +222,15 @@ import os
     private nonisolated static func restartSentryInline() {
         guard !SentrySDK.isEnabled else { return }
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
         guard sendDiagnostics else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
         SentrySDK.start { options in
             options.dsn = macosDSN
             options.releaseName = "vellum-macos@\(version)"
-            options.dist = build
+            options.dist = commitSHA ?? build
             options.environment = SentryDeviceInfo.sentryEnvironment
             options.debug = false
             options.tracesSampleRate = 0.1
@@ -256,7 +257,6 @@ extension MetricKitManager: MXMetricManagerSubscriber {
 
             // Only send to Sentry if sendDiagnostics is enabled.
             let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-                ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
                 ?? true
             guard sendDiagnostics else { continue }
 

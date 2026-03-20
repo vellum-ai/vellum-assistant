@@ -78,5 +78,43 @@ public final class ChatMessageManager: ObservableObject {
     @Published public var selectedModel: String = "claude-opus-4-6"
     /// Set of provider keys with configured API keys, updated via `model_info` messages.
     @Published public var configuredProviders: Set<String> = ["anthropic"]
+    /// Full provider catalog from daemon, updated via `model_info` messages.
+    /// Seeded with inline defaults so the UI has data before the first daemon fetch completes.
+    @Published public var providerCatalog: [ProviderCatalogEntry] = ProviderCatalogEntry.defaultCatalog
 
+}
+
+// MARK: - Default Provider Catalog
+
+extension ProviderCatalogEntry {
+    /// Inline seed data shared by ChatMessageManager and SettingsStore so the
+    /// model picker / model list has data before the first daemon fetch completes.
+    public static let defaultCatalog: [ProviderCatalogEntry] = [
+        ProviderCatalogEntry(id: "anthropic", displayName: "Anthropic", models: [
+            CatalogModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
+            CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+            CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
+        ], defaultModel: "claude-opus-4-6", apiKeyUrl: "https://console.anthropic.com/settings/keys", apiKeyPlaceholder: "sk-ant-api03-..."),
+        ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
+            CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+            CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
+            CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
+            CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
+        ], defaultModel: "gpt-5.4", apiKeyUrl: "https://platform.openai.com/api-keys", apiKeyPlaceholder: "sk-proj-..."),
+        ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
+            CatalogModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
+            CatalogModel(id: "gemini-3-pro", displayName: "Gemini 3 Pro"),
+        ], defaultModel: "gemini-3-flash", apiKeyUrl: "https://aistudio.google.com/apikey", apiKeyPlaceholder: "AIza..."),
+        ProviderCatalogEntry(id: "ollama", displayName: "Ollama", models: [
+            CatalogModel(id: "llama3.2", displayName: "Llama 3.2"),
+            CatalogModel(id: "mistral", displayName: "Mistral"),
+        ], defaultModel: "llama3.2"),
+        ProviderCatalogEntry(id: "fireworks", displayName: "Fireworks", models: [
+            CatalogModel(id: "accounts/fireworks/models/kimi-k2p5", displayName: "Kimi K2.5"),
+        ], defaultModel: "accounts/fireworks/models/kimi-k2p5", apiKeyUrl: "https://fireworks.ai/account/api-keys", apiKeyPlaceholder: "fw_..."),
+        ProviderCatalogEntry(id: "openrouter", displayName: "OpenRouter", models: [
+            CatalogModel(id: "x-ai/grok-4", displayName: "Grok 4"),
+            CatalogModel(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
+        ], defaultModel: "x-ai/grok-4", apiKeyUrl: "https://openrouter.ai/keys", apiKeyPlaceholder: "sk-or-v1-..."),
+    ]
 }

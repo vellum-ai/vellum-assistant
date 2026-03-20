@@ -172,7 +172,7 @@ final class SessionOverlayWindow {
             return buildRunningView(step: step, maxSteps: maxSteps, lastAction: lastAction, reasoning: reasoning)
 
         case .paused(let step, let maxSteps):
-            return makeLabel("Paused at step \(step)/\(maxSteps)", font: .systemFont(ofSize: 11), color: NSColor(VColor.systemNegativeHover))
+            return makeLabel("Paused at step \(step)/\(maxSteps)", font: .systemFont(ofSize: 11), color: NSColor(VColor.systemMidStrong))
 
         case .awaitingConfirmation(let reason):
             return buildConfirmationView(reason: reason)
@@ -187,7 +187,7 @@ final class SessionOverlayWindow {
             return buildFailedView(reason: reason)
 
         case .cancelled:
-            return makeLabel("Cancelled", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.systemNegativeHover))
+            return makeLabel("Cancelled", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.systemMidStrong))
         }
     }
 
@@ -288,7 +288,7 @@ final class SessionOverlayWindow {
         let warningIcon = NSImageView()
         if let img = VIcon.triangleAlert.nsImage(size: 14) {
             warningIcon.image = img
-            warningIcon.contentTintColor = NSColor(VColor.systemNegativeHover)
+            warningIcon.contentTintColor = NSColor(VColor.systemMidStrong)
         }
         warningIcon.widthAnchor.constraint(equalToConstant: 14).isActive = true
         warningIcon.heightAnchor.constraint(equalToConstant: 14).isActive = true

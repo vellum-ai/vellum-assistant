@@ -136,6 +136,7 @@ export async function getProviderConnection(
   provider: MessagingProvider,
   account?: string,
 ): Promise<OAuthConnection | string> {
+  if (provider.resolveConnection) return provider.resolveConnection(account);
   if (await provider.isConnected?.()) return "";
   return resolveOAuthConnection(provider.credentialService, { account });
 }

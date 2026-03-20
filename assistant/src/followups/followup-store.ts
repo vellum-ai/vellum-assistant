@@ -1,4 +1,4 @@
-import { and, eq, lte, or } from "drizzle-orm";
+import { and, desc, eq, lte, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -175,4 +175,50 @@ export function markNudged(id: string): FollowUp {
     .run();
 
   return getFollowUp(id)!;
+}
+
+// ── Brief Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Lightweight projection of a follow-up used by the brief compiler.
+ */
+export interface BriefFollowUp {
+  id: string;
+  channel: string;
+  conversationId: string;
+  contactId: string | null;
+  expectedResponseBy: number | null;
+  status: FollowUpStatus;
+  updatedAt: number;
+}
+
+/**
+ * Return pending and overdue follow-ups for the brief compiler.
+ * Ordered by expectedResponseBy ascending (most urgent first).
+ */
+export function getPendingAndOverdueFollowUps(): BriefFollowUp[] {
+  const db = getDb();
+
+  const rows = db
+    .select({
+      id: followups.id,
+      channel: followups.channel,
+      conversationId: followups.conversationId,
+      contactId: followups.contactId,
+      expectedResponseBy: followups.expectedResponseBy,
+      status: followups.status,
+      updatedAt: followups.updatedAt,
+    })
+    .from(followups)
+    .where(
+      or(
+        eq(followups.status, "pending"),
+        eq(followups.status, "overdue"),
+        eq(followups.status, "nudged"),
+      ),
+    )
+    .orderBy(desc(followups.expectedResponseBy))
+    .all();
+
+  return rows as BriefFollowUp[];
 }

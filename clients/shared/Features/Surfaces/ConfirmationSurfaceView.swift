@@ -70,7 +70,7 @@ public struct ConfirmationSurfaceView: View {
             // Header with icon
             HStack(alignment: .top, spacing: VSpacing.md) {
                 VIconView(.triangleAlert, size: 24)
-                    .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemNegativeHover)
+                    .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemMidStrong)
                 Text(inlineMarkdown(data.message))
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)

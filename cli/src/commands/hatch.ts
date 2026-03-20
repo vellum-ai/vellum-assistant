@@ -50,6 +50,7 @@ import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
+import { leaseGuardianToken } from "../lib/guardian-token";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -95,7 +96,7 @@ chown -R "$SSH_USER:$SSH_USER" "$SSH_USER_HOME" 2>/dev/null || true
 export async function buildStartupScript(
   species: Species,
   sshUser: string,
-  anthropicApiKey: string,
+  providerApiKeys: Record<string, string>,
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
@@ -113,12 +114,21 @@ export async function buildStartupScript(
   if (species === "openclaw") {
     return await buildOpenclawStartupScript(
       sshUser,
-      anthropicApiKey,
+      providerApiKeys,
       timestampRedirect,
       userSetup,
       ownershipFixup,
     );
   }
+
+  // Build bash lines that set each provider API key as a shell variable
+  // and corresponding dotenv lines for the env file.
+  const envSetLines = Object.entries(providerApiKeys)
+    .map(([envVar, value]) => `${envVar}=${value}`)
+    .join("\n");
+  const dotenvLines = Object.keys(providerApiKeys)
+    .map((envVar) => `${envVar}=\$${envVar}`)
+    .join("\n");
 
   return `#!/bin/bash
 set -e
@@ -127,11 +137,11 @@ ${timestampRedirect}
 
 trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > ${errorPath}; echo "Last 20 log lines:" >> ${errorPath}; tail -20 ${logPath} >> ${errorPath} 2>/dev/null || true; fi' EXIT
 ${userSetup}
-ANTHROPIC_API_KEY=${anthropicApiKey}
+${envSetLines}
 VELLUM_ASSISTANT_NAME=${instanceName}
 mkdir -p "\$HOME/.config/vellum"
 cat > "\$HOME/.config/vellum/env" << DOTENV_EOF
-ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
+${dotenvLines}
 RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
 
@@ -717,6 +727,14 @@ async function hatchLocal(
       throw error;
     }
 
+    // Lease a guardian token so the desktop app can import it on first launch
+    // instead of hitting /v1/guardian/init itself.
+    try {
+      await leaseGuardianToken(runtimeUrl, instanceName);
+    } catch (err) {
+      console.error(`⚠️  Guardian token lease failed: ${err}`);
+    }
+
     // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
     // Set BASE_DATA_DIR so ngrok reads the correct instance config.
     const prevBaseDataDir = process.env.BASE_DATA_DIR;
@@ -740,6 +758,7 @@ async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
+    serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources,
   };
   if (!daemonOnly && !restart) {

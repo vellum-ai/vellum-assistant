@@ -489,7 +489,7 @@ The route mode and auth mode are carried in `TransportMetadata` (defined in `Dae
 ### Startup Guardrails
 
 When the current assistant is managed (`isCurrentAssistantManaged == true`), the app skips:
-- **Local daemon hatching** -- the platform hosts the daemon, so `assistantCli.hatch()` is not called.
+- **Local daemon hatching** -- the platform hosts the daemon, so `vellumCli.hatch()` is not called.
 - **Actor credential bootstrap** -- identity is derived from the platform session token, not local actor tokens. The `ensureActorCredentials()` flow is skipped entirely.
 - **Server-unavailable re-hatch** -- the reconnection loop does not attempt local re-hatch when the daemon HTTP server is unreachable.
 

@@ -41,6 +41,7 @@ export async function executeScheduleCreate(
   const routingHints = input.routing_hints as
     | Record<string, unknown>
     | undefined;
+  const quiet = (input.quiet as boolean) ?? false;
 
   if (!name || typeof name !== "string") {
     return {
@@ -112,6 +113,7 @@ export async function executeScheduleCreate(
         mode,
         routingIntent: routingIntent as RoutingIntent | undefined,
         routingHints,
+        quiet,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -187,6 +189,7 @@ export async function executeScheduleCreate(
       mode,
       routingIntent: routingIntent as RoutingIntent | undefined,
       routingHints,
+      quiet,
     });
 
     const scheduleDescription =

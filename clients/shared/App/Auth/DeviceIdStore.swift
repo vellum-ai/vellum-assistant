@@ -49,6 +49,10 @@ public enum DeviceIdStore {
            !legacyId.isEmpty {
             deviceId = legacyId
             migratingFromLegacy = true
+        } else if let lockfileId = Self.installationIdFromLockfile() {
+            // 2b. Migrate from lockfile installationId (mirrors daemon 003-seed-device-id).
+            deviceId = lockfileId
+            migratingFromLegacy = false
         } else {
             // 3. No existing ID anywhere — generate a fresh one.
             deviceId = UUID().uuidString.lowercased()
@@ -82,5 +86,54 @@ public enum DeviceIdStore {
 
         cached = deviceId
         return deviceId
+    }
+
+    // MARK: - Lockfile Migration
+
+    /// Reads the most recent `installationId` from the legacy lockfile,
+    /// mirroring the daemon's `003-seed-device-id` migration so the same
+    /// legacy ID is preserved regardless of whether macOS or daemon starts first.
+    private static func installationIdFromLockfile() -> String? {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let candidates = [
+            home.appendingPathComponent(".vellum.lock.json"),
+            home.appendingPathComponent(".vellum.lockfile.json"),
+        ]
+
+        var lockJSON: [String: Any]?
+        for candidate in candidates {
+            guard let data = try? Data(contentsOf: candidate),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            lockJSON = json
+            break
+        }
+        guard let lockJSON else { return nil }
+
+        guard let assistants = lockJSON["assistants"] as? [[String: Any]],
+              !assistants.isEmpty else {
+            return nil
+        }
+
+        // Filter to entries with a non-empty installationId.
+        let withInstallId = assistants.filter { entry in
+            guard let id = entry["installationId"] as? String, !id.isEmpty else { return false }
+            return true
+        }
+        guard !withInstallId.isEmpty else { return nil }
+
+        // Sort by hatchedAt descending to pick the most recent.
+        // Use a formatter with fractional seconds since CLI writes
+        // timestamps via `new Date().toISOString()` (e.g. "...00.000Z").
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let sorted = withInstallId.sorted { a, b in
+            let dateA = (a["hatchedAt"] as? String).flatMap { formatter.date(from: $0) } ?? .distantPast
+            let dateB = (b["hatchedAt"] as? String).flatMap { formatter.date(from: $0) } ?? .distantPast
+            return dateA > dateB
+        }
+
+        return sorted.first?["installationId"] as? String
     }
 }

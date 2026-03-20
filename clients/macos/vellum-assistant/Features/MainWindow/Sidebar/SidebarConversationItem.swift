@@ -75,7 +75,7 @@ struct SidebarConversationItem: View {
                             .accessibilityLabel("Processing")
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.systemNegativeHover)
+                            .foregroundColor(VColor.systemMidStrong)
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Waiting for input")
                             .accessibilityLabel("Waiting for input")
@@ -88,7 +88,7 @@ struct SidebarConversationItem: View {
                             .transition(.opacity)
                     case .idle:
                         if conversation.hasUnseenLatestAssistantMessage {
-                            VBadge(style: .dot, color: VColor.systemNegativeHover)
+                            VBadge(style: .dot, color: VColor.systemMidStrong)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .nativeTooltip("Unread")

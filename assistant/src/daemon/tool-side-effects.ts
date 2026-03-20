@@ -7,11 +7,9 @@
  * registry entry instead of another if/else branch.
  */
 
-import { join } from "node:path";
-
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -51,7 +49,7 @@ function handleAppChange(
   // Multifile apps need a recompile before refreshing surfaces so the
   // WebView picks up the latest compiled output.
   if (app && isMultifileApp(app)) {
-    const appDir = join(getAppsDir(), appId);
+    const appDir = getAppDirPath(appId);
     void compileApp(appDir)
       .then((result) => {
         if (!result.ok) {
@@ -147,17 +145,6 @@ registerHook(
   },
 );
 
-// Auto-refresh workspace surfaces when a persisted app is updated.
-registerHook(
-  "app_update",
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients);
-    }
-  },
-);
-
 // Broadcast app_files_changed when an app is deleted so clients remove it
 // from their cached app lists.
 registerHook(
@@ -170,27 +157,23 @@ registerHook(
   },
 );
 
+// Trigger compilation + surface refresh + broadcast when an app is refreshed.
+registerHook(
+  "app_refresh",
+  (_name, input, _result, { ctx, broadcastToAllClients }) => {
+    const appId = input.app_id as string | undefined;
+    if (appId) {
+      handleAppChange(ctx, appId, broadcastToAllClients, { fileChange: true });
+    }
+  },
+);
+
 // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
 // auto-refresh when the LLM mutates the task queue via tools
 registerHook(
   ["task_list_add", "task_list_update", "task_list_remove", "task_queue_run"],
   (_name, _input, _result, { broadcastToAllClients }) => {
     broadcastToAllClients?.({ type: "tasks_changed" });
-  },
-);
-
-// Auto-refresh workspace surfaces when app files are edited.
-registerHook(
-  ["app_file_edit", "app_file_write"],
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    const status = input.status as string | undefined;
-    if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients, {
-        fileChange: true,
-        status,
-      });
-    }
   },
 );
 

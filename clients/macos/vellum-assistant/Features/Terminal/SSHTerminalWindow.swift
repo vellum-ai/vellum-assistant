@@ -136,7 +136,7 @@ private struct SSHTerminalContentView: View {
         case .idle, .closed:
             return VColor.contentTertiary
         case .connecting, .reconnecting:
-            return VColor.systemNegativeHover
+            return VColor.systemMidStrong
         case .connected:
             return VColor.systemPositiveStrong
         case .error:

@@ -5,6 +5,9 @@ import { z } from "zod";
 // Mirrored in: clients/macos/.../OpenAIVoiceService.swift (defaultVoiceId)
 export const DEFAULT_ELEVENLABS_VOICE_ID = "ZF6FPAbjXT4488VcRRnw";
 
+/** Valid conversation timeout values (seconds). Shared with voice-config-update tool. */
+export const VALID_CONVERSATION_TIMEOUTS = [5, 10, 15, 30, 60] as const;
+
 export const ElevenLabsConfigSchema = z
   .object({
     voiceId: z
@@ -46,10 +49,15 @@ export const ElevenLabsConfigSchema = z
       .number({
         error: "elevenlabs.conversationTimeoutSeconds must be a number",
       })
-      .refine((v) => [5, 10, 15, 30, 60].includes(v), {
-        message:
-          "elevenlabs.conversationTimeoutSeconds must be one of: 5, 10, 15, 30, 60",
-      })
+      .refine(
+        (v) =>
+          VALID_CONVERSATION_TIMEOUTS.includes(
+            v as (typeof VALID_CONVERSATION_TIMEOUTS)[number],
+          ),
+        {
+          message: `elevenlabs.conversationTimeoutSeconds must be one of: ${VALID_CONVERSATION_TIMEOUTS.join(", ")}`,
+        },
+      )
       .default(30)
       .describe("Seconds of silence before voice conversation auto-ends"),
   })

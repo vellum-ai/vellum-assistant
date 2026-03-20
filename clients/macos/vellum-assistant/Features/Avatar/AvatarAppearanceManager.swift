@@ -135,10 +135,10 @@ final class AvatarAppearanceManager {
             IdentityInfo.load()?.name,
             fallback: "V"
         )
-        loadCustomAvatar()
-        loadAvatarComponents()
-        watchAvatarFile()
-        watchTraitsFile()
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
+        }
         updateDockLabel()
 
         // Fire-and-forget: fetch character component definitions from the
@@ -188,6 +188,64 @@ final class AvatarAppearanceManager {
         let port = assistant.resolvedDaemonPort()
         if let response = await AvatarComponentService.fetch(port: port) {
             AvatarComponentStore.shared.load(response)
+        }
+    }
+
+    // MARK: - Remote Avatar Fetch (Docker/remote instances)
+
+    /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
+    private func fetchAvatarViaHTTP() async {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/workspace/file/content",
+                params: ["path": "data/avatar/avatar-image.png"],
+                timeout: 10
+            )
+            guard response.isSuccess, !response.data.isEmpty else {
+                customAvatarImage = nil
+                cachedChatAvatar = nil
+                updateDockIcon()
+                return
+            }
+            cachedChatAvatar = nil
+            customAvatarImage = NSImage(data: response.data)
+            updateDockIcon()
+        } catch {
+            log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
+            customAvatarImage = nil
+            cachedChatAvatar = nil
+            updateDockIcon()
+        }
+    }
+
+    /// Fetches character-traits.json via HTTP through the gateway for Docker/remote instances.
+    private func fetchTraitsViaHTTP() async {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/workspace/file/content",
+                params: ["path": "data/avatar/character-traits.json"],
+                timeout: 10
+            )
+            guard response.isSuccess, !response.data.isEmpty else {
+                characterBodyShape = nil
+                characterEyeStyle = nil
+                characterColor = nil
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
+                return
+            }
+            guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
+                return
+            }
+            characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+            characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+            characterColor = AvatarColor(rawValue: components.color)
+            cachedFallbackAvatar = nil
+            cachedFullFallbackAvatar = nil
+            updateDockIcon()
+        } catch {
+            log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
         }
     }
 
@@ -251,15 +309,28 @@ final class AvatarAppearanceManager {
         updateDockIcon()
     }
 
-    /// Reloads the custom avatar from disk. Called when the daemon notifies
-    /// that the avatar image has been regenerated (via `avatar_updated` event).
-    /// Invalidates all cached images so SwiftUI views pick up the new avatar.
+    /// Reloads the custom avatar and refreshes the assistant name.
+    /// Called when the daemon notifies that the avatar image has been
+    /// regenerated (via `avatar_updated` event), after reconnection
+    /// (`proceedToApp`), and after assistant switches.
+    /// Invalidates all cached images so SwiftUI views pick up the new avatar,
+    /// and re-reads the identity so the dock label reflects the current assistant.
+    /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
+        assistantName = AssistantDisplayName.resolve(
+            IdentityInfo.load()?.name,
+            fallback: "V"
+        )
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
+        cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
-        loadCustomAvatar()
-        loadAvatarComponents()
+        cachedFullFallbackName = nil
+        Task { [weak self] in
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
+        }
+        updateDockLabel()
     }
 
     /// Clears all cached avatar state and resets the dock icon to the default
@@ -324,6 +395,7 @@ final class AvatarAppearanceManager {
             characterColor = nil
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
+            updateDockIcon()
             return
         }
         characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
@@ -331,6 +403,7 @@ final class AvatarAppearanceManager {
         characterColor = AvatarColor(rawValue: components.color)
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        updateDockIcon()
     }
 
     // MARK: - File Watching
@@ -476,11 +549,22 @@ final class AvatarAppearanceManager {
 
     // MARK: - Dock Icon
 
+    /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
+    static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
+
     /// Updates the application dock icon to match the current avatar.
-    /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
-    /// When cleared, reverts to the default bundle icon.
+    /// Uses the custom avatar PNG when available, falls back to a character
+    /// avatar rendered from saved traits, then reverts to the default bundle icon.
     private func updateDockIcon() {
-        guard let avatar = customAvatarImage else {
+        NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
+
+        // Prefer custom avatar PNG, then character avatar from saved traits.
+        let avatar: NSImage
+        if let custom = customAvatarImage {
+            avatar = custom
+        } else if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
+            avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 512)
+        } else {
             NSApplication.shared.applicationIconImage = nil
             NSApp.dockTile.display()
             return

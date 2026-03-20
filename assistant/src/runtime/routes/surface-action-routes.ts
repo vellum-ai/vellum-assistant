@@ -5,8 +5,15 @@
  * Requires the conversation to already exist (does not create new conversations).
  */
 import { getLogger } from "../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import type { AuthContext } from "../auth/types.js";
+import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+import {
+  resolveTrustContext,
+  withSourceChannel,
+} from "../trust-context-resolver.js";
 
 const log = getLogger("surface-action-routes");
 
@@ -18,6 +25,11 @@ interface SurfaceActionTarget {
     data?: Record<string, unknown>,
   ): void;
   handleSurfaceUndo?(surfaceId: string): void;
+  setTrustContext?(ctx: {
+    trustClass: "guardian" | "trusted_contact" | "unknown";
+    sourceChannel: string;
+  }): void;
+  trustContext?: { trustClass: string } | null;
 }
 
 export type ConversationLookup = (
@@ -29,6 +41,53 @@ export type ConversationLookupBySurfaceId = (
 ) => SurfaceActionTarget | undefined;
 
 /**
+ * Resolve trust context from the request's auth context and set it on the
+ * conversation, following the same pattern as POST /v1/messages. This ensures
+ * surface actions inherit the correct trust class (guardian vs trusted_contact)
+ * rather than defaulting to unknown.
+ */
+function applyTrustContext(
+  conversation: SurfaceActionTarget,
+  authContext: AuthContext,
+): void {
+  if (!conversation.setTrustContext) return;
+
+  const sourceChannel = "vellum";
+
+  if (authContext.actorPrincipalId) {
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    let trustCtx = resolveTrustContext({
+      assistantId,
+      sourceChannel,
+      conversationExternalId: "local",
+      actorExternalId: authContext.actorPrincipalId,
+    });
+    if (trustCtx.trustClass === "unknown") {
+      const healed = healGuardianBindingDrift(authContext.actorPrincipalId);
+      if (healed) {
+        trustCtx = resolveTrustContext({
+          assistantId,
+          sourceChannel,
+          conversationExternalId: "local",
+          actorExternalId: authContext.actorPrincipalId,
+        });
+        log.info(
+          {
+            actorPrincipalId: authContext.actorPrincipalId,
+            trustClass: trustCtx.trustClass,
+          },
+          "Trust re-resolved after guardian binding drift heal (surface action)",
+        );
+      }
+    }
+    conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+  } else {
+    // Service principals or tokens without an actor ID get guardian context.
+    conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
+  }
+}
+
+/**
  * POST /v1/surface-actions — handle a UI surface action.
  *
  * Body: { conversationId?, surfaceId, actionId, data? }
@@ -37,6 +96,7 @@ export async function handleSurfaceAction(
   req: Request,
   findConversation: ConversationLookup,
   findConversationBySurfaceId?: ConversationLookupBySurfaceId,
+  authContext?: AuthContext,
 ): Promise<Response> {
   const body = (await req.json()) as {
     conversationId?: string | null;
@@ -63,6 +123,12 @@ export async function handleSurfaceAction(
 
   if (!conversation) {
     return httpError("NOT_FOUND", "No active conversation found", 404);
+  }
+
+  // Resolve trust context from the request's auth headers so the conversation
+  // has the correct trust class for tool approval decisions.
+  if (authContext) {
+    applyTrustContext(conversation, authContext);
   }
 
   try {
@@ -143,7 +209,7 @@ export function surfaceActionRouteDefinitions(deps: {
     {
       endpoint: "surface-actions",
       method: "POST",
-      handler: async ({ req }) => {
+      handler: async ({ req, authContext }) => {
         if (!deps.findConversation) {
           return httpError(
             "NOT_IMPLEMENTED",
@@ -155,6 +221,7 @@ export function surfaceActionRouteDefinitions(deps: {
           req,
           deps.findConversation,
           deps.findConversationBySurfaceId,
+          authContext,
         );
       },
     },

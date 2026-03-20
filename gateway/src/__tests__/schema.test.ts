@@ -64,6 +64,11 @@ describe("/schema route", () => {
     expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}/connections"]).toBeDefined();
+    expect(body.paths["/v1/oauth/connections/{connectionId}"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}/connect"]).toBeDefined();
     expect(body.paths["/v1/contacts"]).toBeDefined();
     expect(body.paths["/v1/contacts/merge"]).toBeDefined();
     expect(body.paths["/v1/contact-channels/{contactChannelId}"]).toBeDefined();
@@ -131,6 +136,17 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramDocument");
     expect(schemaNames).toContain("TelegramDeliverRequest");
     expect(schemaNames).toContain("RuntimeAttachmentMeta");
+
+    const oauthConnection = components.schemas.OAuthConnectionSummary as {
+      properties?: Record<string, unknown>;
+    };
+    expect(oauthConnection.properties?.granted_scopes).toEqual({
+      type: "array",
+      items: { type: "string" },
+    });
+    expect(oauthConnection.properties?.has_refresh_token).toEqual({
+      type: "boolean",
+    });
   });
 
   test("returns a JSON-serializable object", () => {

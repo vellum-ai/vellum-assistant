@@ -11,10 +11,7 @@ struct ReauthView: View {
 
     @State private var showContent = false
     @State private var didComplete = false
-
-    private var hasNonManagedAssistant: Bool {
-        LockfileAssistant.loadAll().contains { !$0.isManaged }
-    }
+    @State private var hasNonManagedAssistant = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -40,7 +37,7 @@ struct ReauthView: View {
                 .padding(.bottom, VSpacing.xs)
 
             Text("Log in to continue.")
-                .font(.system(size: 16))
+                .font(VFont.buttonLarge)
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
 
@@ -51,7 +48,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text("Checking...")
-                            .font(VFont.monoMedium)
+                            .font(VFont.buttonLarge)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
@@ -61,7 +58,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text("Logging in...")
-                            .font(VFont.monoMedium)
+                            .font(VFont.buttonLarge)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
@@ -86,6 +83,7 @@ struct ReauthView: View {
                         if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
                             UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
                         }
+                        didComplete = true
                         onComplete()
                     }
                     .accessibilityLabel("Skip")
@@ -113,6 +111,8 @@ struct ReauthView: View {
             }
         }
         .task {
+            hasNonManagedAssistant = LockfileAssistant.loadAll().contains { !$0.isManaged }
+
             // If already authenticated (e.g. macOS state restoration), skip
             // straight to the app. No redundant checkSession() — callers
             // (startAuthenticatedFlow, performLogout) have already resolved

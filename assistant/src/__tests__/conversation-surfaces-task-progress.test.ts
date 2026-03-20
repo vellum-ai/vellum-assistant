@@ -34,6 +34,7 @@ function makeContext(
       { surfaceType: SurfaceType; data: SurfaceData; title?: string }
     >(),
     surfaceUndoStacks: new Map<string, string[]>(),
+    accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,

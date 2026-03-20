@@ -1,6 +1,6 @@
 # Path B: Manual Channel Setup (HubSpot)
 
-When the user is on a non-interactive channel, walk them through a text-based setup. The channel path requires **public ingress** because the loopback callback (port 17322) is not reachable from a remote channel.
+When the user is on a non-interactive channel, walk them through a text-based setup. The channel path requires **public ingress** because the loopback callback (port 17330) is not reachable from a remote channel.
 
 ## Path B Step 1: Confirm and Explain
 

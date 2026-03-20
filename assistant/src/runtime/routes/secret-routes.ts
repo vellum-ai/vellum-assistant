@@ -10,7 +10,8 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { setSentryOrganizationId } from "../../instrument.js";
+import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
+import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
@@ -181,6 +182,7 @@ export async function handleAddSecret(
           500,
         );
       }
+      clearEmbeddingBackendCache();
       invalidateConfigCache();
       await initializeProviders(getConfig());
       log.info({ provider: name }, "API key updated via HTTP");
@@ -233,6 +235,7 @@ export async function handleAddSecret(
           setSentryOrganizationId(undefined);
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
+          setSentryUserId(undefined);
         }
         deleteCredentialMetadata(service, field);
       } else {
@@ -258,6 +261,7 @@ export async function handleAddSecret(
         }
         if (service === "vellum" && field === "platform_user_id") {
           setPlatformUserId(effectiveValue || undefined);
+          setSentryUserId(effectiveValue || undefined);
         }
       }
       if (isManagedProxyCredential(service, field)) {
@@ -346,6 +350,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
           500,
         );
       }
+      clearEmbeddingBackendCache();
       invalidateConfigCache();
       await initializeProviders(getConfig());
       log.info({ provider: name }, "API key deleted via HTTP");
@@ -392,6 +397,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       if (service === "vellum" && field === "platform_user_id") {
         setPlatformUserId(undefined);
+        setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());

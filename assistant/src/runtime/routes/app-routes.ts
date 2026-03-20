@@ -8,7 +8,11 @@ import { extname, join } from "node:path";
 import JSZip from "jszip";
 
 import type { AppManifest } from "../../bundler/manifest.js";
-import { getApp, getAppsDir, isMultifileApp } from "../../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  isMultifileApp,
+} from "../../memory/app-store.js";
 import * as sharedAppLinksStore from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -109,7 +113,7 @@ ${noncedHtml}
  * Falls back to a "not compiled yet" message if dist/index.html is missing.
  */
 function serveMultifileApp(appId: string, appName: string): Response {
-  const distDir = join(getAppsDir(), appId, "dist");
+  const distDir = join(getAppDirPath(appId), "dist");
   const indexPath = join(distDir, "index.html");
 
   if (!existsSync(indexPath)) {
@@ -203,7 +207,7 @@ export function handleServeDistFile(appId: string, filename: string): Response {
     return httpError("BAD_REQUEST", "Invalid filename", 400);
   }
 
-  const filePath = join(getAppsDir(), appId, "dist", filename);
+  const filePath = join(getAppDirPath(appId), "dist", filename);
   if (!existsSync(filePath)) {
     return httpError("NOT_FOUND", "File not found", 404);
   }

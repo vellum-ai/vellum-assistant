@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let appVersion = "0.5.1"
+let appVersion = "0.5.4"
 
 let package = Package(
     name: "vellum-assistant",
@@ -61,11 +61,9 @@ let package = Package(
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "macos/vellum-assistant",
-            exclude: ["Resources/Info.plist", "Resources/bg.png", "Resources/VellumDocument.icns"],
+            exclude: ["Resources/Info.plist", "Resources/VellumDocument.icns"],
             resources: [
                 .process("Resources/Assets.xcassets"),
-                .process("Resources/meadow.svg"),
-                .process("Resources/background.png"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes"),
                 .process("Resources/Onboarding"),

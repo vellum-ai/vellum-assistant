@@ -60,7 +60,7 @@ extension MainWindowView {
         }
     }
 
-    /// Polls the daemon for Vercel credential availability every 3 seconds.
+    /// Polls for Vercel credential availability every 3 seconds via GatewayHTTPClient.
     /// When the credential appears, auto-retries the pending publish.
     /// Times out after 5 minutes.
     func startCredentialPollForPublish() {
@@ -68,45 +68,22 @@ extension MainWindowView {
         let startTime = Date()
         let timeout: TimeInterval = 300 // 5 minutes
 
-        // Preserve SettingsStore's handler so it continues receiving updates
-        // after polling ends. Without this, the poll closure permanently
-        // overwrites SettingsStore's onVercelApiConfigResponse and hasVercelKey
-        // is never updated again.
-        sharing.previousVercelHandler = daemonClient.onVercelApiConfigResponse
-        let previousHandler = sharing.previousVercelHandler
-
         sharing.credentialPollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [self] timer in
             Task { @MainActor in
-                // Timeout check
                 if Date().timeIntervalSince(startTime) > timeout {
                     timer.invalidate()
                     sharing.credentialPollTimer = nil
                     sharing.pendingPublish = nil
-                    daemonClient.onVercelApiConfigResponse = previousHandler
-                    sharing.previousVercelHandler = nil
                     return
                 }
 
-                // Poll for credential
-                daemonClient.onVercelApiConfigResponse = { [self] response in
-                    // Forward to the previous handler (e.g. SettingsStore) so it
-                    // stays in sync with credential state during polling.
-                    previousHandler?(response)
+                let hasKey = await settingsStore.checkVercelKeyPresent()
 
-                    if response.success && response.hasToken, let pending = sharing.pendingPublish {
-                        timer.invalidate()
-                        sharing.credentialPollTimer = nil
-                        sharing.pendingPublish = nil
-                        daemonClient.onVercelApiConfigResponse = previousHandler
-                        sharing.previousVercelHandler = nil
-                        // Auto-retry publish with saved params
-                        publishPage(html: pending.html, title: pending.title, appId: pending.appId)
-                    }
-                }
-                do {
-                    try daemonClient.sendVercelApiConfig(action: "get")
-                } catch {
-                    // Polling failure is non-fatal; will retry on next tick
+                if hasKey, let pending = sharing.pendingPublish {
+                    timer.invalidate()
+                    sharing.credentialPollTimer = nil
+                    sharing.pendingPublish = nil
+                    publishPage(html: pending.html, title: pending.title, appId: pending.appId)
                 }
             }
         }

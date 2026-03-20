@@ -17,6 +17,7 @@ public struct ToolConfirmationBubble: View {
 
     @State private var showDiff = false
     @State private var showTechnicalDetails = false
+    @State private var useCompactConfirmationLayout = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_10m"
@@ -199,30 +200,18 @@ public struct ToolConfirmationBubble: View {
     private var pendingContent: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Title + action buttons inline
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                Text(confirmation.humanDescription)
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: VSpacing.md)
-
-                HStack(spacing: VSpacing.sm) {
-                    allowSplitButton
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
-                        )
-
-                    VButton(label: "Deny", style: .danger, size: .compact) {
-                        markCommandExplanationSeen()
-                        onDeny()
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
-                    )
+            // Adaptive layout: horizontal when wide, vertical when narrow
+            if useCompactConfirmationLayout {
+                confirmationDescription
+                HStack {
+                    Spacer()
+                    confirmationActions
+                }
+            } else {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    confirmationDescription
+                    Spacer(minLength: VSpacing.md)
+                    confirmationActions
                 }
             }
 
@@ -267,13 +256,20 @@ public struct ToolConfirmationBubble: View {
             .clipped()
         }
         .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceOverlay)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 0.5)
-                )
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceOverlay)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 0.5)
+                    )
+                    .onAppear { useCompactConfirmationLayout = geo.size.width < 450 }
+                    .onChange(of: geo.size.width) { _, width in
+                        useCompactConfirmationLayout = width < 450
+                    }
+            }
         )
         .onAppear {
             if isKeyboardActive {
@@ -365,13 +361,22 @@ public struct ToolConfirmationBubble: View {
 
             if showDiff, let diffInfo = confirmation.diff {
                 let computedDiff = confirmation.unifiedDiffPreview ?? ""
-                let diffBody = computedDiff.isEmpty ? diffInfo.newContent : computedDiff
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentTertiary)
 
-                    codePreviewBlock(diffBody, maxHeight: 260)
+                    if computedDiff.isEmpty {
+                        codePreviewBlock(diffInfo.newContent, maxHeight: 260)
+                    } else {
+                        VDiffView(computedDiff, maxHeight: 260)
+                            .padding(VSpacing.sm)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(VColor.surfaceOverlay)
+                            )
+                    }
                 }
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -445,6 +450,32 @@ public struct ToolConfirmationBubble: View {
                (hasAllow10m && primary != "allow_10m") ||
                (hasAllowConversation && primary != "allow_conversation") ||
                hasAlwaysAllow
+    }
+
+    private var confirmationDescription: some View {
+        Text(confirmation.humanDescription)
+            .font(VFont.bodyBold)
+            .foregroundColor(VColor.contentDefault)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var confirmationActions: some View {
+        HStack(spacing: VSpacing.sm) {
+            allowSplitButton
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                )
+
+            VButton(label: "Deny", style: .danger, size: .compact) {
+                markCommandExplanationSeen()
+                onDeny()
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+            )
+        }
     }
 
     @ViewBuilder

@@ -18,8 +18,6 @@ final class QuickInputTextModel: ObservableObject {
     /// When set, the user has selected an existing conversation to continue.
     @Published var selectedConversationId: UUID?
     @Published var selectedConversationTitle: String?
-    /// Whether to send a notification when the assistant response completes.
-    @Published var notifyOnComplete: Bool = UserDefaults.standard.object(forKey: "quickInputNotifyOnComplete") as? Bool ?? true
 }
 
 /// A borderless, floating NSPanel that hosts the Quick Input text field.
@@ -45,17 +43,12 @@ final class QuickInputWindow {
     var onSubmitToConversation: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?
-    /// Callback invoked when the user toggles the notification bell.
-    var onNotificationToggle: (() -> Void)?
     /// Callback invoked when the user selects an existing conversation (navigates to it).
     var onSelectConversation: ((UUID) -> Void)?
     /// Recent conversations to show in the dropdown.
     var recentConversations: [QuickInputConversation] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
-
-    /// Whether to send a notification when the assistant response completes.
-    var notifyOnComplete: Bool { textModel.notifyOnComplete }
 
     /// Shared text model for voice input injection.
     private let textModel = QuickInputTextModel()
@@ -196,11 +189,6 @@ final class QuickInputWindow {
                 self?.dismiss()
             },
             onMicrophoneToggle: onMicrophoneToggle,
-            onNotificationToggle: { [weak self] in
-                guard let self else { return }
-                self.textModel.notifyOnComplete.toggle()
-                UserDefaults.standard.set(self.textModel.notifyOnComplete, forKey: "quickInputNotifyOnComplete")
-            },
             recentConversations: recentConversations,
             attachedImage: attachedImage,
             showScreenPermissionPrompt: showScreenPermissionPrompt

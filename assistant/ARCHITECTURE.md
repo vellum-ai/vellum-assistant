@@ -783,26 +783,26 @@ All client-server communication uses HTTP for request/response operations and Se
 
 The daemon emits two distinct error message types via SSE:
 
-| Message type         | Scope               | Purpose                                                                                                        | Payload                                                                       |
-| -------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `conversation_error` | Conversation-scoped | Typed, actionable failures during conversation runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
-| `error`              | Global              | Generic, non-session failures (e.g., daemon startup errors, unknown message types)                             | `message` (string)                                                            |
+| Message type         | Scope               | Purpose                                                                                                        | Payload                                                                            |
+| -------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `conversation_error` | Conversation-scoped | Typed, actionable failures during conversation runtime (e.g., provider network error, rate limit, API failure) | `conversationId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `error`              | Global              | Generic, non-conversation failures (e.g., daemon startup errors, unknown message types)                        | `message` (string)                                                                 |
 
-**Design rationale:** `conversation_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
+**Design rationale:** `conversation_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-conversation contexts.
 
-### Session Error Codes
+### Conversation Error Codes
 
-| Code                        | Meaning                                                                 | Retryable |
-| --------------------------- | ----------------------------------------------------------------------- | --------- |
-| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
-| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
-| `PROVIDER_API`              | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
-| `PROVIDER_BILLING`          | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
-| `CONTEXT_TOO_LARGE`         | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
-| `SESSION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
-| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
-| `REGENERATE_FAILED`         | Failed to regenerate a previous response                                | Yes       |
-| `UNKNOWN`                   | Unrecognized error that does not match any specific category            | No        |
+| Code                             | Meaning                                                                 | Retryable |
+| -------------------------------- | ----------------------------------------------------------------------- | --------- |
+| `PROVIDER_NETWORK`               | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
+| `PROVIDER_RATE_LIMIT`            | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
+| `PROVIDER_API`                   | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
+| `PROVIDER_BILLING`               | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
+| `CONTEXT_TOO_LARGE`              | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
+| `CONVERSATION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
+| `CONVERSATION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
+| `REGENERATE_FAILED`              | Failed to regenerate a previous response                                | Yes       |
+| `UNKNOWN`                        | Unrecognized error that does not match any specific category            | No        |
 
 ### Error Classification
 
@@ -826,7 +826,7 @@ sequenceDiagram
 
     Note over Daemon: LLM call fails or<br/>processing error occurs
     Daemon->>Daemon: classifyConversationError(error, ctx)
-    Daemon->>DC: conversation_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
+    Daemon->>DC: conversation_error {conversationId, code,<br/>userMessage, retryable, debugDetails?}
     DC->>DC: broadcast to all subscribers
     DC->>VM: subscribe() stream delivers message
     VM->>VM: set conversationError property<br/>clear isThinking / isCancelling
@@ -837,7 +837,7 @@ sequenceDiagram
     alt User taps Retry (retryable == true)
         UI->>VM: retryAfterConversationError()
         VM->>VM: dismissConversationError()<br/>+ regenerateLastMessage()
-        VM->>DC: regenerate {sessionId}
+        VM->>DC: regenerate {conversationId}
         DC->>Daemon: HTTP POST /v1/messages
     else User taps Dismiss
         UI->>VM: dismissConversationError()
@@ -939,7 +939,7 @@ graph TB
     end
 
     SUBMIT --> SLASH_CHECK
-    SLASH_CHECK -->|"Yes (/model, /status, etc.)"| QA_ROUTE
+    SLASH_CHECK -->|"Yes (/models, /status, etc.)"| QA_ROUTE
     SLASH_CHECK -->|"No"| VOICE_CHECK
     VOICE_CHECK -->|"Yes"| QA_ROUTE
     VOICE_CHECK -->|"No"| CLASSIFIER
@@ -1017,12 +1017,12 @@ graph TB
 
     INPUT --> RESOLVE
     RESOLVE -->|"kind: passthrough"| PASSTHROUGH
-    RESOLVE -->|"kind: unknown<br/>(/model, /status, /commands, /pair,<br/>/models, provider shortcuts)"| HANDLED
+    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands, /pair)"| HANDLED
 ```
 
 Key behaviors:
 
-- **Built-in commands**: `/model`, `/models`, `/status`, `/commands`, `/pair`, and provider shortcuts (`/opus`, `/sonnet`, `/gpt4`, etc.) are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Built-in commands**: `/models`, `/status`, `/commands`, and `/pair` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
 - **Passthrough**: Any input that does not match a built-in command passes through to the normal agent loop, including slash-like tokens that are not recognized.
 - **Queue**: Queued messages receive the same slash resolution.
 
@@ -1183,7 +1183,7 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 | `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                  | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                      |
 | `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
 | `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
-| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                            | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                               |
+| `app-builder`   | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                    | Dynamic app authoring — create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                    |
 | `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
 | `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
 
@@ -1260,6 +1260,115 @@ graph TB
     ORIGIN -->|"skill"| PROMPT["Always prompt user<br/>(default ask for skill tools)"]
     TRUST -->|"Deny rule matches"| DENY["Blocked"]
 ```
+
+### Inline Skill Command Expansion
+
+Skills can embed dynamic shell output in their SKILL.md body using `!`command``tokens. When`skill_load` processes a skill containing these tokens, the commands are executed at load time through a sandboxed runner and their output is substituted inline. This enables externally authored skills to include project-specific context (e.g., directory listings, config values) without requiring manual edits.
+
+**Feature flag:** `feature_flags.inline-skill-commands.enabled` (default: enabled). When disabled, loading a skill that contains `!`command`` tokens fails closed with an error rather than leaving raw tokens in the prompt.
+
+#### Syntax and Parsing
+
+The `!`command``syntax is parsed by`parseInlineCommandExpansions()` from the SKILL.md body after frontmatter extraction. The parser:
+
+- Extracts all `!`command`` tokens outside fenced code blocks (documentation examples in fenced blocks are ignored)
+- Assigns each token a stable `placeholderId` (0-indexed encounter order)
+- Rejects malformed tokens fail-closed: empty commands, nested backticks, and unmatched opening backticks produce `InlineCommandExpansionError` entries rather than best-effort expansions
+
+#### Transitive Version Hash
+
+When a skill contains inline command expansions, the permission system computes a **transitive version hash** (`tv1:<sha256>`) that covers the root skill and all its included children (DFS pre-order). The hash folds:
+
+1. Each visited skill ID (graph structure)
+2. Each visited skill's directory content hash (file changes)
+
+Editing any file in the root skill or any included child invalidates the transitive hash, which forces re-approval. The hash is computed by `computeTransitiveSkillVersionHash()` and fails closed (`TransitiveHashError`) on missing children or cycles in the include graph.
+
+#### Permission Gating (`skill_load_dynamic:*`)
+
+Skills containing inline command expansions use a separate permission candidate namespace (`skill_load_dynamic:*`) instead of the normal `skill_load:*` namespace. This prevents them from falling through to the permissive default `skill_load:*` allow rule. The permission checker emits candidates in specificity order:
+
+1. `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned approval (most specific)
+2. `skill_load_dynamic:<skill-id>` — any-version approval
+
+A default ask rule at priority 200 (`default:ask-skill_load_dynamic-global`) catches these candidates, ensuring the guardian is always prompted before inline commands execute. The user can create a pinned trust rule for a specific transitive hash to auto-approve known-good versions. Non-interactive sessions (no human present) deny dynamic skill loads rather than silently auto-approving.
+
+```mermaid
+graph TB
+    LOAD["skill_load(selector)"] --> PARSE["Parse SKILL.md body"]
+    PARSE --> CHECK{"Has !\x60command\x60<br/>tokens?"}
+    CHECK -->|"No"| NORMAL["Normal skill_load:* candidate<br/>(auto-allowed)"]
+    CHECK -->|"Yes"| FLAG{"inline-skill-commands<br/>flag enabled?"}
+    FLAG -->|"No"| FAIL_FLAG["Fail closed:<br/>error returned"]
+    FLAG -->|"Yes"| SOURCE{"Eligible source?<br/>(bundled/managed/workspace)"}
+    SOURCE -->|"No (extra)"| FAIL_SOURCE["Fail closed:<br/>source not eligible"]
+    SOURCE -->|"Yes"| HASH["Compute transitive hash"]
+    HASH --> DYN["skill_load_dynamic:id@hash<br/>candidate emitted"]
+    DYN --> PERM["PermissionChecker"]
+    PERM --> RULE{"Trust rule?"}
+    RULE -->|"Pinned allow"| RENDER["Execute + render"]
+    RULE -->|"No rule"| PROMPT["Prompt guardian"]
+    RULE -->|"Deny"| DENY["Blocked"]
+```
+
+#### Sandbox-Only Execution
+
+Inline commands are executed through `runInlineCommand()`, a purpose-built sandbox runner with strict security constraints:
+
+- **Sandbox enforced**: The sandbox is always enabled with `networkMode: "off"` — no outbound network connections
+- **Sanitized environment**: Uses `buildSanitizedEnv()` — no API keys, tokens, credentials, gateway URLs, or workspace paths in the environment
+- **No host fallback**: Unlike the general `bash` tool, there is no fallback to host execution when the sandbox is unavailable
+- **No credential proxy**: No CES client, no credential materialization
+- **Timeout**: 10-second wall-clock limit (killed with SIGKILL on timeout)
+- **Output cap**: 20,000 characters maximum (truncated with `[output truncated]` marker)
+- **Binary rejection**: Output with >10% non-printable characters (after ANSI stripping) is rejected
+- **Stdout only**: stderr is discarded; ANSI escape sequences are stripped from stdout
+
+The runner returns a deterministic `InlineCommandResult` with machine-readable failure reasons (`timeout`, `non_zero_exit`, `binary_output`, `spawn_failure`) — raw stderr is never surfaced.
+
+#### Rendering Flow
+
+The `renderInlineCommands()` function processes expansions sequentially (not in parallel) to maintain deterministic order. Each `!`command`` token is replaced with an XML-wrapped result:
+
+- **Success**: `<inline_skill_command index="N">...output...</inline_skill_command>`
+- **Failure**: `<inline_skill_command index="N">[inline command unavailable: <reason>]</inline_skill_command>`
+
+Rendering applies at two levels during `skill_load`:
+
+1. **Root skill**: If the loaded skill has inline expansions, they are rendered before the skill body is emitted. A root skill with inline commands that fail the feature-flag or source-eligibility check returns an error (fail closed, no `<loaded_skill>` marker).
+2. **Included children**: Each included child skill's body is rendered independently. A render failure in one child does not prevent sibling rendering — the failed child's body falls back to raw (unexpanded) text with a warning log.
+
+#### v1 Source Restriction
+
+In the initial release, only skills from **bundled**, **managed**, and **workspace** sources are eligible for inline command expansion. Skills from **extra** (third-party) roots are explicitly rejected with an error message. The `INLINE_COMMAND_ELIGIBLE_SOURCES` set in `load.ts` enforces this restriction. Unknown or future source types also fail closed.
+
+#### Fail-Closed Behavior Summary
+
+Every layer in the pipeline defaults to rejection rather than silent degradation:
+
+| Layer            | Failure mode                                         | Behavior                                               |
+| ---------------- | ---------------------------------------------------- | ------------------------------------------------------ |
+| Parser           | Malformed token (empty, nested backtick, unmatched)  | Logged as error, not expanded                          |
+| Feature flag     | Flag disabled                                        | `skill_load` returns error, no `<loaded_skill>` marker |
+| Source check     | `extra` or unknown source                            | `skill_load` returns error, no `<loaded_skill>` marker |
+| Transitive hash  | Missing child or cycle in include graph              | `TransitiveHashError` thrown, permission check fails   |
+| Permission       | No trust rule and non-interactive                    | Denied (never silently auto-approved)                  |
+| Sandbox runner   | Timeout, non-zero exit, binary output, spawn failure | Deterministic stub rendered, no raw stderr             |
+| Renderer (root)  | Feature flag off or ineligible source                | Error returned from `skill_load`                       |
+| Renderer (child) | Exception during render                              | Raw body used, sibling rendering continues             |
+
+#### Key Source Files
+
+| File                                                | Role                                                                             |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                |
+| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                             |
+| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                    |
+| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children   |
+| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration |
+| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission and allowlist options                  |
+| `assistant/src/permissions/defaults.ts`             | `default:ask-skill_load_dynamic-global` rule (priority 200)                      |
+| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                          |
 
 ### Key Source Files
 
@@ -1525,7 +1634,7 @@ sequenceDiagram
 
 ### Key design decisions
 
-- **Recursion guard**: A module-level `Set<sessionId>` prevents concurrent swarms within the same session while allowing independent sessions to run their own swarms in parallel.
+- **Recursion guard**: A module-level `Set<conversationId>` prevents concurrent swarms within the same conversation while allowing independent conversations to run their own swarms in parallel.
 - **Abort signal**: The tool checks `context.signal?.aborted` before planning and before execution. The signal is also forwarded into `executeSwarm` and the worker backend, enabling cooperative cancellation of in-flight workers.
 - **DAG scheduling**: Tasks with dependencies are topologically ordered. Independent tasks run in parallel up to `maxWorkers`.
 - **Per-task retries**: Failed tasks retry up to `maxRetriesPerTask` before being marked failed. Dependents are transitively blocked.
@@ -1568,7 +1677,7 @@ sequenceDiagram
 
     Note over Daemon: Processing previous request...<br/>Reaches safe tool-loop checkpoint
 
-    Daemon-->>DC: generation_handoff (sessionId, queuedCount)
+    Daemon-->>DC: generation_handoff (conversationId, queuedCount)
     Note over Daemon: Daemon yields current generation
 
     Daemon-->>DC: message_dequeued
@@ -1585,7 +1694,7 @@ sequenceDiagram
 
 ## Trace System — Debug Panel Data Flow
 
-The trace system provides real-time observability of daemon session internals. Each session creates a `TraceEmitter` that emits structured `trace_event` SSE events as the session processes requests, makes LLM calls, and executes tools.
+The trace system provides real-time observability of daemon conversation internals. Each conversation creates a `TraceEmitter` that emits structured `trace_event` SSE events as the conversation processes requests, makes LLM calls, and executes tools.
 
 ```mermaid
 sequenceDiagram
@@ -1636,41 +1745,41 @@ sequenceDiagram
     TE-->>DC: trace_event (message_complete)
     DC-->>TS: ingest()
 
-    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by session and requestId,<br/>capped at 5000 per session
+    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by conversation and requestId,<br/>capped at 5000 per conversation
 
-    TS-->>DP: @Published eventsBySession
+    TS-->>DP: @Published eventsByConversation
     Note over DP: Metrics strip: requests, LLM calls,<br/>tokens (in/out), avg latency, failures<br/>Timeline: events grouped by requestId
 ```
 
 ### Trace Event Kinds
 
-Events emitted during a session lifecycle:
+Events emitted during a conversation lifecycle:
 
-| Kind                        | Emitted by         | When                                                                                            |
-| --------------------------- | ------------------ | ----------------------------------------------------------------------------------------------- |
-| `request_received`          | Handlers / Session | User message or surface action arrives                                                          |
-| `request_queued`            | Handlers / Session | Message queued while session is busy                                                            |
-| `request_dequeued`          | Session            | Queued message begins processing                                                                |
-| `llm_call_started`          | Session            | LLM API call initiated                                                                          |
-| `llm_call_finished`         | Session            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
-| `assistant_message`         | Session            | Assistant response assembled (carries `toolUseCount`)                                           |
-| `tool_started`              | ToolTraceListener  | Tool execution begins                                                                           |
-| `tool_permission_requested` | ToolTraceListener  | Permission check needed (carries `riskLevel`)                                                   |
-| `tool_permission_decided`   | ToolTraceListener  | Permission granted or denied (carries `decision`)                                               |
-| `tool_finished`             | ToolTraceListener  | Tool execution completed (carries `durationMs`)                                                 |
-| `tool_failed`               | ToolTraceListener  | Tool execution failed (carries `durationMs`)                                                    |
-| `secret_detected`           | ToolTraceListener  | Secret found in tool output                                                                     |
-| `generation_handoff`        | Session            | Yielding to next queued message                                                                 |
-| `message_complete`          | Session            | Full request processing finished                                                                |
-| `generation_cancelled`      | Session            | User cancelled the generation                                                                   |
-| `request_error`             | Handlers / Session | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
+| Kind                        | Emitted by              | When                                                                                            |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `request_received`          | Handlers / Conversation | User message or surface action arrives                                                          |
+| `request_queued`            | Handlers / Conversation | Message queued while conversation is busy                                                       |
+| `request_dequeued`          | Conversation            | Queued message begins processing                                                                |
+| `llm_call_started`          | Conversation            | LLM API call initiated                                                                          |
+| `llm_call_finished`         | Conversation            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
+| `assistant_message`         | Conversation            | Assistant response assembled (carries `toolUseCount`)                                           |
+| `tool_started`              | ToolTraceListener       | Tool execution begins                                                                           |
+| `tool_permission_requested` | ToolTraceListener       | Permission check needed (carries `riskLevel`)                                                   |
+| `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
+| `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
+| `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
+| `secret_detected`           | ToolTraceListener       | Secret found in tool output                                                                     |
+| `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
+| `message_complete`          | Conversation            | Full request processing finished                                                                |
+| `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
+| `request_error`             | Handlers / Conversation | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
 
 ### Architecture
 
-- **TraceEmitter** (daemon, per-session): Constructed with a `sessionId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the session's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
+- **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
+- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
 - **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
-- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by session and requestId, and enforces a retention cap of 5,000 events per session. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
+- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
 
 ---

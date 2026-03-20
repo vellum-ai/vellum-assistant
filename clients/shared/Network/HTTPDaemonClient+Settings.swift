@@ -67,23 +67,6 @@ extension HTTPTransport {
             }
             // platform_config does not have HTTP routes yet;
             // it continues to use SSE message handlers and is not dispatched here.
-            if let msg = message as? VercelApiConfigRequestMessage {
-                Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
-                return true
-            }
-            if let msg = message as? ChannelVerificationSessionRequestMessage {
-                switch msg.action {
-                case "cancel_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel", channel: msg.channel) }
-                case "revoke":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke", channel: msg.channel) }
-                case "resend_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend", channel: msg.channel) }
-                default:
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session", channel: msg.channel) }
-                }
-                return true
-            }
             // --- Workspace Files (legacy HTTP) ---
             if message is WorkspaceFilesListRequestMessage {
                 Task { await self.sendGenericPost(.workspaceFiles, method: "GET", label: "workspace_files_list") }
@@ -184,7 +167,7 @@ extension HTTPTransport {
     /// HTTP route handlers return plain JSON without the `type` discriminant
     /// that `ServerMessage` decoding requires. This method injects the
     /// `messageType` string before decoding so the existing callback handlers
-    /// (e.g. `onChannelVerificationSessionResponse`, `onTelegramConfigResponse`)
+    /// (e.g. `onTelegramConfigResponse`)
     /// fire as expected.
     func sendEncodablePostAndDispatch<T: Encodable>(
         _ endpoint: Endpoint,
@@ -308,11 +291,30 @@ extension HTTPTransport {
         return components.url ?? url
     }
 
+    /// Dispatch a synthetic null `suggestion_response` so the view model clears
+    /// `pendingSuggestionRequestId` even when the HTTP request fails.
+    private func dispatchNullSuggestion(requestId: String) {
+        let syntheticJSON: [String: Any] = [
+            "type": "suggestion_response",
+            "requestId": requestId,
+            "suggestion": NSNull(),
+            "source": "error",
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: syntheticJSON)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: data)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("dispatchNullSuggestion: failed to decode synthetic message: \(error.localizedDescription)")
+        }
+    }
+
     /// Fetch a follow-up suggestion via GET and dispatch the response through
     /// the message handler chain so `suggestionResponse` fires in the view model.
     private func sendSuggestionGetAndDispatch(conversationId: String, requestId: String) async {
         guard var url = buildURL(for: .suggestion) else {
             log.error("Failed to build URL for suggestion_request")
+            dispatchNullSuggestion(requestId: requestId)
             return
         }
         if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
@@ -331,15 +333,20 @@ extension HTTPTransport {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return }
+            guard let http = response as? HTTPURLResponse else {
+                dispatchNullSuggestion(requestId: requestId)
+                return
+            }
 
             if !(200...299).contains(http.statusCode) {
                 log.error("suggestion_request failed: \(http.statusCode)")
+                dispatchNullSuggestion(requestId: requestId)
                 return
             }
 
             guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 log.error("suggestion_request: failed to parse response JSON")
+                dispatchNullSuggestion(requestId: requestId)
                 return
             }
             json["type"] = "suggestion_response"
@@ -349,6 +356,7 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("suggestion_request error: \(error.localizedDescription)")
+            dispatchNullSuggestion(requestId: requestId)
         }
     }
 }

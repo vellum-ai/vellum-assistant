@@ -70,7 +70,7 @@ struct PrivacySection: View {
             switch status {
             case .granted: return (VColor.systemPositiveStrong, "Granted")
             case .denied: return (VColor.systemNegativeStrong, "Denied")
-            case .notDetermined: return (VColor.systemNegativeHover, "Not Set")
+            case .notDetermined: return (VColor.systemMidStrong, "Not Set")
             }
         }()
         Text(label)

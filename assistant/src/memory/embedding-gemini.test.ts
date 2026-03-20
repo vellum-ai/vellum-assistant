@@ -14,7 +14,9 @@ describe("GeminiEmbeddingBackend", () => {
   let mockFetch: ReturnType<typeof mock>;
 
   beforeEach(() => {
-    mockFetch = mock(() => Promise.resolve(makeSuccessResponse([0.1, 0.2, 0.3])));
+    mockFetch = mock(() =>
+      Promise.resolve(makeSuccessResponse([0.1, 0.2, 0.3])),
+    );
     globalThis.fetch = mockFetch as unknown as typeof fetch;
   });
 
@@ -186,9 +188,7 @@ describe("GeminiEmbeddingBackend", () => {
   describe("error handling", () => {
     test("throws on non-OK response", async () => {
       mockFetch = mock(() =>
-        Promise.resolve(
-          new Response("Internal Server Error", { status: 500 }),
-        ),
+        Promise.resolve(new Response("Internal Server Error", { status: 500 })),
       );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 

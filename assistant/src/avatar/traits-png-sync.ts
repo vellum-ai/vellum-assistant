@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
+import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
 
 const log = getLogger("traits-png-sync");
@@ -24,37 +25,56 @@ export type TraitsSyncResult =
     };
 
 /**
- * Renders avatar-image.png and character-ascii.txt from the given traits,
- * writing each file atomically.  Does NOT touch character-traits.json.
- *
- * Returns `true` if the ASCII sidecar was also written successfully.
+ * Renders avatar PNG and ASCII art into memory without touching the filesystem.
+ * Call this before any disk writes so a render failure leaves all files untouched.
  */
-function renderAndWriteAvatarFiles(
-  traits: CharacterTraits,
-  avatarDir: string,
-): boolean {
-  const pngPath = join(avatarDir, "avatar-image.png");
-
-  // Render PNG first — this validates trait IDs (composeSvg throws on
-  // unknown components), so we fail before writing anything to disk.
+function renderAvatarBuffers(traits: CharacterTraits): {
+  pngBuffer: Buffer;
+  asciiArt: string | null;
+} {
   const pngBuffer = renderCharacterPng(
     traits.bodyShape,
     traits.eyeStyle,
     traits.color,
   );
-  const pngTmp = `${pngPath}.${randomUUID()}.tmp`;
-  writeFileSync(pngTmp, pngBuffer);
-  renameSync(pngTmp, pngPath);
 
-  // Render and write ASCII art — isolated so a failure here doesn't cause
-  // the primary operation to report failure.
+  let asciiArt: string | null = null;
   try {
-    const asciiPath = join(avatarDir, "character-ascii.txt");
-    const asciiArt = renderCharacterAscii(
+    asciiArt = renderCharacterAscii(
       traits.bodyShape,
       traits.eyeStyle,
       traits.color,
     );
+  } catch (asciiErr) {
+    log.warn(
+      { err: asciiErr },
+      "Failed to render ASCII art — will still write PNG and traits",
+    );
+  }
+
+  return { pngBuffer, asciiArt };
+}
+
+/**
+ * Writes pre-rendered avatar files (PNG + optional ASCII) to disk atomically.
+ * Returns `true` if the ASCII sidecar was also written successfully.
+ */
+function writeAvatarFiles(
+  avatarDir: string,
+  pngBuffer: Buffer,
+  asciiArt: string | null,
+): boolean {
+  const pngPath = join(avatarDir, "avatar-image.png");
+  const pngTmp = `${pngPath}.${randomUUID()}.tmp`;
+  writeFileSync(pngTmp, pngBuffer);
+  renameSync(pngTmp, pngPath);
+
+  if (asciiArt == null) {
+    return false;
+  }
+
+  try {
+    const asciiPath = join(avatarDir, "character-ascii.txt");
     const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
     writeFileSync(asciiTmp, asciiArt);
     renameSync(asciiTmp, asciiPath);
@@ -73,8 +93,10 @@ function renderAndWriteAvatarFiles(
  * character-ascii.txt in one atomic operation.  Accepts the trait values
  * directly so callers don't need to touch the filesystem first.
  *
- * Renders the PNG before writing the traits file so that if rendering fails
- * (e.g. unknown component IDs), neither file is modified.
+ * Validates trait IDs against the component set, then renders into memory
+ * before any disk writes.  Writes the traits file first, then the rendered
+ * avatar files, so a render failure leaves all files untouched and a disk
+ * failure after traits are written never leaves the PNG ahead of the traits.
  */
 export function writeTraitsAndRenderAvatar(
   traits: CharacterTraits,
@@ -94,21 +116,54 @@ export function writeTraitsAndRenderAvatar(
     };
   }
 
+  // Validate trait IDs against the known component set so that unknown values
+  // are surfaced as input-validation errors (400) rather than server errors (500).
+  const components = getCharacterComponents();
+  const validBodyShapes = components.bodyShapes.map((b) => b.id);
+  if (!validBodyShapes.includes(traits.bodyShape)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown body shape: "${traits.bodyShape}". Valid IDs: ${validBodyShapes.join(", ")}`,
+    };
+  }
+  const validEyeStyles = components.eyeStyles.map((e) => e.id);
+  if (!validEyeStyles.includes(traits.eyeStyle)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown eye style: "${traits.eyeStyle}". Valid IDs: ${validEyeStyles.join(", ")}`,
+    };
+  }
+  const validColors = components.colors.map((c) => c.id);
+  if (!validColors.includes(traits.color)) {
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: `Unknown color: "${traits.color}". Valid IDs: ${validColors.join(", ")}`,
+    };
+  }
+
   const avatarDir = join(getWorkspaceDir(), "data", "avatar");
   const traitsPath = join(avatarDir, "character-traits.json");
 
   try {
     mkdirSync(avatarDir, { recursive: true });
 
-    // Render avatar files first — validates trait IDs before committing
-    // the traits file, so we never leave traits and PNG out of sync.
-    const asciiWritten = renderAndWriteAvatarFiles(traits, avatarDir);
+    // Phase 1: Render everything into memory — no disk writes yet.
+    // If rendering fails, all files remain untouched.
+    const { pngBuffer, asciiArt } = renderAvatarBuffers(traits);
 
-    // Write traits file atomically (after successful render)
+    // Phase 2: Write traits file atomically first.
     const traitsJson = JSON.stringify(traits, null, 2);
     const traitsTmp = `${traitsPath}.${randomUUID()}.tmp`;
     writeFileSync(traitsTmp, traitsJson);
     renameSync(traitsTmp, traitsPath);
+
+    // Phase 3: Write rendered avatar files to disk.
+    // Traits are already committed, so a failure here leaves traits ahead of
+    // the PNG — acceptable because the next render call will reconcile them.
+    const asciiWritten = writeAvatarFiles(avatarDir, pngBuffer, asciiArt);
 
     log.info(
       {

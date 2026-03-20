@@ -15,7 +15,7 @@ public struct InlineWidgetCardModifier: ViewModifier {
             .padding(VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surfaceBase)
+                    .fill(VColor.surfaceOverlay)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)

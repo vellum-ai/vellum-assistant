@@ -8,12 +8,7 @@ let mockProvider: Record<string, unknown> | undefined;
 let mockConnection: Record<string, unknown> | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
-let mockManagedProxyCtx = {
-  enabled: false,
-  platformBaseUrl: "",
-  assistantApiKey: "",
-};
-let mockAssistantId = "";
+let mockPlatformClient: Record<string, unknown> | null = null;
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede imports of the module under test)
@@ -48,12 +43,10 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
 }));
 
-mock.module("../config/env.js", () => ({
-  getPlatformAssistantId: () => mockAssistantId,
-}));
-
-mock.module("../providers/managed-proxy/context.js", () => ({
-  resolveManagedProxyContext: async () => mockManagedProxyCtx,
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: async () => mockPlatformClient,
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -67,6 +60,22 @@ import { PlatformOAuthConnection } from "./platform-connection.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function makeMockClient() {
+  return {
+    baseUrl: "https://platform.example.com",
+    assistantApiKey: "sk-test-key",
+    platformAssistantId: "asst-123",
+    fetch: mock(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [{ id: "platform-conn-1", account_label: null }],
+        }),
+        { status: 200 },
+      );
+    }),
+  };
+}
 
 function setupDefaults(): void {
   mockProvider = {
@@ -100,12 +109,7 @@ function setupDefaults(): void {
       "google-oauth": { mode: "managed" },
     },
   };
-  mockManagedProxyCtx = {
-    enabled: true,
-    platformBaseUrl: "https://platform.example.com",
-    assistantApiKey: "sk-test-key",
-  };
-  mockAssistantId = "asst-123";
+  mockPlatformClient = makeMockClient();
 }
 
 // ---------------------------------------------------------------------------

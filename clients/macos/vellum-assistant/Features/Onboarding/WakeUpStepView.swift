@@ -43,11 +43,11 @@ struct WakeUpStepView: View {
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
-            .padding(.bottom, VSpacing.xs)
+            .padding(.bottom, VSpacing.md)
 
         // Subtitle
         Text("Your personal AI assistant,\nrunning on your terms.")
-            .font(.system(size: 16))
+            .font(VFont.buttonLarge)
             .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
@@ -64,7 +64,7 @@ struct WakeUpStepView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Checking...")
-                        .font(VFont.monoMedium)
+                        .font(VFont.buttonLarge)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
@@ -74,7 +74,7 @@ struct WakeUpStepView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Logging in...")
-                        .font(VFont.monoMedium)
+                        .font(VFont.buttonLarge)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)

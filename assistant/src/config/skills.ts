@@ -25,10 +25,15 @@ import {
   userMessage,
 } from "../providers/provider-send-message.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
+import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
+import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceSkillsDir } from "../util/platform.js";
+import {
+  getWorkspaceDirDisplay,
+  getWorkspaceSkillsDir,
+} from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 
@@ -80,6 +85,8 @@ export interface SkillSummary {
   activationHints?: string[];
   /** Conditions under which this skill should NOT be loaded. */
   avoidWhen?: string[];
+  /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
+  inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -198,6 +205,7 @@ interface ParsedFrontmatter {
   featureFlag?: string;
   activationHints?: string[];
   avoidWhen?: string[];
+  inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
 function normalizeStringArray(raw: unknown): string[] | undefined {
@@ -302,16 +310,29 @@ function parseFrontmatter(
   const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
   const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
 
+  const strippedBody = stripCommentLines(body);
+
+  // Parse inline command expansions from the body (after frontmatter/comment stripping)
+  const expansionResult = parseInlineCommandExpansions(strippedBody);
+  const inlineCommandExpansions =
+    expansionResult.expansions.length > 0
+      ? expansionResult.expansions
+      : undefined;
+
+  // Fail closed: if there are malformed tokens, log and exclude from parsed expansions
+  // (errors are already logged inside parseInlineCommandExpansions)
+
   return {
     name,
     displayName,
     description,
-    body: stripCommentLines(body),
+    body: strippedBody,
     emoji,
     includes,
     featureFlag,
     activationHints,
     avoidWhen,
+    inlineCommandExpansions,
   };
 }
 
@@ -466,6 +487,7 @@ function readSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -516,6 +538,7 @@ function readBundledSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -574,6 +597,7 @@ function loadBundledSkills(): SkillSummary[] {
       featureFlag: skill.featureFlag,
       activationHints: skill.activationHints,
       avoidWhen: skill.avoidWhen,
+      inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
 
@@ -710,6 +734,7 @@ function skillSummaryFromDefinition(
     featureFlag: skill.featureFlag,
     activationHints: skill.activationHints,
     avoidWhen: skill.avoidWhen,
+    inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
 
@@ -760,6 +785,7 @@ export function loadSkillCatalog(
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
             featureFlag: parsed.featureFlag,
+            inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
           log.warn({ err, directory }, "Failed to read skill from extraDirs");
@@ -854,6 +880,7 @@ export function loadSkillCatalog(
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
           featureFlag: parsed.featureFlag,
+          inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 
         if (seenIds.has(id)) {
@@ -1001,8 +1028,28 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   }
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
+  // Replace {workspaceDir} placeholders with the runtime workspace display path
+  loaded.body = loaded.body.replaceAll(
+    "{workspaceDir}",
+    getWorkspaceDirDisplay(),
+  );
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
+
+  // Re-parse inline command expansions after placeholder substitution.
+  // The initial parse (during SKILL.md parsing) produces byte offsets against
+  // the pre-substitution body. Since {baseDir} and {workspaceDir} replacements
+  // change the body length, those offsets become stale. Re-parsing ensures the
+  // offsets match the final body that renderInlineCommands will operate on.
+  if (
+    loaded.inlineCommandExpansions &&
+    loaded.inlineCommandExpansions.length > 0
+  ) {
+    const reparse = parseInlineCommandExpansions(loaded.body);
+    loaded.inlineCommandExpansions =
+      reparse.expansions.length > 0 ? reparse.expansions : undefined;
+  }
+
   return { skill: loaded };
 }
 
@@ -1021,8 +1068,7 @@ export function resolveSkillSelector(
   const catalog = loadSkillCatalog(workspaceSkillsDir);
   if (catalog.length === 0) {
     return {
-      error:
-        "No skills are available. Configure ~/.vellum/workspace/skills/SKILLS.md or add skill directories.",
+      error: `No skills are available. Configure ${getWorkspaceDirDisplay()}/skills/SKILLS.md or add skill directories.`,
       errorCode: "empty_catalog",
     };
   }
