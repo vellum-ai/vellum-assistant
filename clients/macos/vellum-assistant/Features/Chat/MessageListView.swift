@@ -154,7 +154,6 @@ struct MessageListView: View {
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
-    @State private var scrollDebounceTask: Task<Void, Never>?
     /// Only the active surface ID is needed here (to suppress inline rendering).
     /// Observing the full TaskProgressOverlayManager would cause the entire
     /// message list to re-render on every frequent `data` progress tick.
@@ -256,20 +255,6 @@ struct MessageListView: View {
     /// messages. Used by onChange to detect new confirmation appearances.
     private var currentPendingRequestId: String? {
         PendingConfirmationFocusSelector.activeRequestId(from: visibleMessages)
-    }
-
-    /// Triggers auto-scroll when the last message's content changes (text streaming,
-    /// tool call output, inline surface updates). Combines text byte count, tool call
-    /// count, inline surface count, and tool call partial-output revisions so that any
-    /// content growth — including tool output streaming between text segments — produces
-    /// a new value and fires onChange.
-    private var streamingScrollTrigger: Int {
-        let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
-        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
-        let toolCallFingerprint = last?.toolCalls.reduce(0) {
-            $0 + ($1.isComplete ? 1 : 0) + $1.partialOutputRevision + $1.claudeCodeSteps.count
-        } ?? 0
-        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0) + toolCallFingerprint
     }
 
     /// Computes all expensive derived values once per body evaluation.
@@ -1087,8 +1072,6 @@ struct MessageListView: View {
                 }
                 ScrollWheelDetector(
                     onScrollUp: {
-                        scrollDebounceTask?.cancel()
-                        scrollDebounceTask = nil
                         scrollRestoreTask?.cancel()
                         scrollRestoreTask = nil
                         expandSuppressionTask?.cancel()
@@ -1366,43 +1349,6 @@ struct MessageListView: View {
                     updateAvatarFollower(anchorY: scrollTracking.pendingAvatarY ?? scrollTracking.avatarTargetY)
                 }
             }
-            .onChange(of: streamingScrollTrigger) {
-                if isNearBottom && !isSuppressingBottomScroll {
-                    // Throttle pattern: fire immediately then suppress for 200ms.
-                    // Unlike debounce (cancel+recreate), this guarantees scrolls
-                    // execute during active streaming, not only after the last token.
-                    if scrollDebounceTask == nil {
-                        scrollDebounceTask = Task {
-                            defer { if !Task.isCancelled { scrollDebounceTask = nil } }
-                            guard isNearBottom && !isSuppressingBottomScroll else { return }
-                            requestBottomPin(
-                                reason: .streaming,
-                                proxy: proxy,
-                                animated: !isLastMessageStreaming
-                            )
-                            try? await Task.sleep(nanoseconds: 200_000_000)
-                            // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
-                            guard !Task.isCancelled else { return }
-                            if isNearBottom && !isSuppressingBottomScroll {
-                                // Only fire trailing-edge repin for genuinely off-screen
-                                // anchors. Transient missing geometry (geometryUnavailable)
-                                // waits for the next finite preference update.
-                                let trailingOutcome = MessageListBottomAnchorPolicy.verify(
-                                    anchorMinY: anchorTracker.lastMinY,
-                                    viewportHeight: scrollViewportHeight
-                                )
-                                if trailingOutcome == .needsRepin {
-                                    requestBottomPin(
-                                        reason: .streaming,
-                                        proxy: proxy,
-                                        animated: !isLastMessageStreaming
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             .onChange(of: messages.count) {
                 // Anchor scroll takes priority: when a notification deep-link
                 // set anchorMessageId, retry scrolling to it as messages load
@@ -1462,8 +1408,6 @@ struct MessageListView: View {
                 lastHandledContainerWidth = containerWidth
 
                 // Cancel competing scroll tasks to prevent jitter during resize
-                scrollDebounceTask?.cancel()
-                scrollDebounceTask = nil
                 resizeScrollTask?.cancel()
 
                 resizeScrollTask = Task { @MainActor in
@@ -1503,8 +1447,6 @@ struct MessageListView: View {
                 // Keep the underlying NSScrollView instance stable across conversation
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
-                scrollDebounceTask?.cancel()
-                scrollDebounceTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 expandSuppressionTask?.cancel()

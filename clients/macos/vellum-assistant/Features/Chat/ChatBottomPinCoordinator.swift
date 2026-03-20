@@ -9,8 +9,6 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Ch
 enum BottomPinRequestReason: String, Sendable {
     /// Initial conversation load / restore from disk.
     case initialRestore
-    /// Streaming tokens are arriving on the last message.
-    case streaming
     /// A new message was appended to the conversation.
     case messageCount
     /// An inline element (progress card, tool output) expanded its height.
@@ -76,7 +74,6 @@ struct BottomPinSession: Sendable {
         switch (self.reason, reason) {
         case (.initialRestore, .initialRestore),
              (.expansion, .expansion),
-             (.streaming, .streaming),
              (.messageCount, .messageCount),
              (.resize, .resize):
             return true
