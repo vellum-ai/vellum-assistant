@@ -46,12 +46,13 @@ mock.module("../config/env.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (key: string) => {
-    if (key === credentialKey("vellum", "assistant_api_key")) {
-      return mockAssistantApiKey;
-    }
-    return mockProviderKeys[key] ?? null;
-  },
+  getSecureKeyAsync: async (key: string) => ({
+    value:
+      key === credentialKey("vellum", "assistant_api_key")
+        ? mockAssistantApiKey
+        : (mockProviderKeys[key] ?? undefined),
+    unreachable: false,
+  }),
 }));
 
 import type { ProvidersConfig } from "../providers/registry.js";

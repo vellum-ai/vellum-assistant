@@ -36,7 +36,10 @@ mock.module("./oauth-store.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => mockAccessToken,
+  getSecureKeyAsync: async () => ({
+    value: mockAccessToken,
+    unreachable: false,
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({

@@ -10,7 +10,10 @@ import type { CommitContext } from "../workspace/commit-message-provider.js";
 // ---------------------------------------------------------------------------
 let mockSecureKeys: Record<string, string> = {};
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (name: string) => mockSecureKeys[name] ?? undefined,
+  getSecureKeyAsync: async (name: string) => ({
+    value: mockSecureKeys[name],
+    unreachable: false,
+  }),
   setSecureKeyAsync: async () => true,
   deleteSecureKeyAsync: async () => "deleted" as const,
 }));

@@ -32,7 +32,10 @@ let secureKeyValues = new Map<string, string | undefined>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: (account: string) =>
-    Promise.resolve(secureKeyValues.get(account)),
+    Promise.resolve({
+      value: secureKeyValues.get(account),
+      unreachable: false,
+    }),
   setSecureKeyAsync: () => Promise.resolve(true),
   deleteSecureKeyAsync: () => Promise.resolve("deleted"),
   listSecureKeysAsync: async () => [],

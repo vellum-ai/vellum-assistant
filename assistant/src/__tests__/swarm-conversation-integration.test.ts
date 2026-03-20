@@ -69,7 +69,10 @@ const mockTestProvider = {
 };
 let mockAnthropicKey: string | undefined = "test-api-key";
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => mockAnthropicKey,
+  getSecureKeyAsync: async () => ({
+    value: mockAnthropicKey,
+    unreachable: false,
+  }),
   getProviderKeyAsync: async () => mockAnthropicKey,
 }));
 

@@ -9,7 +9,10 @@ let mockTwilioAccountSid: string | undefined;
 const connectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  getSecureKeyAsync: async (account: string) => ({
+    value: secureKeyValues.get(account),
+    unreachable: false,
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({

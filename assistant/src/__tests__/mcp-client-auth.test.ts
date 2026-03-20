@@ -2,7 +2,9 @@ import { describe, expect, jest, mock, test } from "bun:test";
 
 // Mock secure-keys so McpOAuthProvider doesn't try to access the keychain
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: jest.fn().mockResolvedValue(null),
+  getSecureKeyAsync: jest
+    .fn()
+    .mockResolvedValue({ value: undefined, unreachable: false }),
   setSecureKeyAsync: jest.fn().mockResolvedValue(true),
   deleteSecureKeyAsync: jest.fn().mockResolvedValue("deleted"),
 }));

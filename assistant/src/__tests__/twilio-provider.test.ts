@@ -42,9 +42,11 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => {
-    if (key === credentialKey("twilio", "auth_token")) return mockAuthToken;
-    if (key === credentialKey("twilio", "account_sid")) return mockAccountSid;
-    return undefined;
+    if (key === credentialKey("twilio", "auth_token"))
+      return { value: mockAuthToken, unreachable: false };
+    if (key === credentialKey("twilio", "account_sid"))
+      return { value: mockAccountSid, unreachable: false };
+    return { value: undefined, unreachable: false };
   },
 }));
 

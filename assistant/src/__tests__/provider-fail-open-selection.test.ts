@@ -21,12 +21,13 @@ mock.module("../config/env.js", () => ({
 const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
-  getSecureKeyAsync: async (key: string) => {
-    if (key === credentialKey("vellum", "assistant_api_key")) {
-      return mockAssistantApiKey || null;
-    }
-    return mockProviderKeys[key] ?? null;
-  },
+  getSecureKeyAsync: async (key: string) => ({
+    value:
+      key === credentialKey("vellum", "assistant_api_key")
+        ? mockAssistantApiKey || undefined
+        : (mockProviderKeys[key] ?? undefined),
+    unreachable: false,
+  }),
 }));
 
 import type { ProvidersConfig } from "../providers/registry.js";

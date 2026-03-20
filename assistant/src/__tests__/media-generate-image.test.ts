@@ -40,10 +40,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (account: string) => {
-    if (account === "gemini") return mockApiKey;
-    return undefined;
-  },
+  getSecureKeyAsync: async (account: string) => ({
+    value: account === "gemini" ? mockApiKey : undefined,
+    unreachable: false,
+  }),
   getProviderKeyAsync: async (provider: string) => {
     if (provider === "gemini") return mockApiKey;
     return undefined;

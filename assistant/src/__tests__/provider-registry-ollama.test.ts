@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
-  getSecureKeyAsync: async () => undefined,
+  getSecureKeyAsync: async () => ({ value: undefined, unreachable: false }),
 }));
 
 import {

@@ -80,7 +80,10 @@ const mockProvider = {
   },
 };
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => "test-api-key",
+  getSecureKeyAsync: async () => ({
+    value: "test-api-key",
+    unreachable: false,
+  }),
   getProviderKeyAsync: async () => "test-api-key",
 }));
 

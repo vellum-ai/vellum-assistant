@@ -38,8 +38,10 @@ mock.module("../config/loader.js", () => ({
 
 // Mock secure-keys — provide a fake Anthropic API key
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (name: string) =>
-    name === "anthropic" ? "fake-anthropic-key" : null,
+  getSecureKeyAsync: async (name: string) => ({
+    value: name === "anthropic" ? "fake-anthropic-key" : undefined,
+    unreachable: false,
+  }),
   getProviderKeyAsync: async (provider: string) =>
     provider === "anthropic" ? "fake-anthropic-key" : undefined,
 }));

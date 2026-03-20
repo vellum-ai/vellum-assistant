@@ -5,7 +5,12 @@ import type { OAuthConnection } from "../oauth/connection.js";
 // ── Mocks ───────────────────────────────────────────────────────────────────
 
 const getSecureKeyAsyncMock = mock(
-  async (_key: string): Promise<string | null> => null,
+  async (
+    _key: string,
+  ): Promise<{ value: string | undefined; unreachable: boolean }> => ({
+    value: undefined,
+    unreachable: false,
+  }),
 );
 const isProviderConnectedMock = mock(
   async (_service: string): Promise<boolean> => false,
@@ -80,7 +85,10 @@ registerMessagingProvider(telegramBotMessagingProvider);
 
 function resetAllMocks() {
   getSecureKeyAsyncMock.mockReset();
-  getSecureKeyAsyncMock.mockImplementation(async () => null);
+  getSecureKeyAsyncMock.mockImplementation(async () => ({
+    value: undefined,
+    unreachable: false,
+  }));
   isProviderConnectedMock.mockReset();
   isProviderConnectedMock.mockImplementation(async () => false);
   resolveOAuthConnectionMock.mockReset();
@@ -100,18 +108,26 @@ describe("Slack messaging token resolution", () => {
 
   describe("slackProvider.isConnected()", () => {
     test("returns true when slack_channel bot token exists in credential store", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-bot-token" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-bot-token"
+            : undefined,
+        unreachable: false,
+      }));
 
       expect(await slackProvider.isConnected!()).toBe(true);
     });
 
     test("returns true even if slack_channel connection row is missing (backfill failure resilience)", async () => {
       // Bot token exists but no connection row — isConnected should still return true
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-bot-token" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-bot-token"
+            : undefined,
+        unreachable: false,
+      }));
       // No getConnectionByProvider call expected — Slack adapter checks token first
 
       expect(await slackProvider.isConnected!()).toBe(true);
@@ -119,7 +135,10 @@ describe("Slack messaging token resolution", () => {
 
     test("returns true when only integration:slack has active OAuth connection (backwards compat)", async () => {
       // No bot token
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       // But OAuth provider is connected
       isProviderConnectedMock.mockImplementation(async (service: string) =>
         service === "integration:slack" ? true : false,
@@ -129,7 +148,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("returns false when neither credential path exists", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       isProviderConnectedMock.mockImplementation(async () => false);
 
       expect(await slackProvider.isConnected!()).toBe(false);
@@ -140,20 +162,26 @@ describe("Slack messaging token resolution", () => {
 
   describe("slackProvider.resolveConnection()", () => {
     test("returns bot token string when Socket Mode credentials exist", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token"
-          ? "xoxb-socket-token"
-          : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-socket-token"
+            : undefined,
+        unreachable: false,
+      }));
 
       const result = await slackProvider.resolveConnection!();
       expect(result).toBe("xoxb-socket-token");
     });
 
     test("returns bot token string even without a slack_channel connection row (token-only resilience)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-token-only" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-token-only"
+            : undefined,
+        unreachable: false,
+      }));
       // No connection row — resolveConnection should still return the token
 
       const result = await slackProvider.resolveConnection!();
@@ -161,7 +189,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("returns OAuthConnection when only OAuth integration:slack credentials exist (backwards compat)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       const oauthConn = {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
@@ -176,7 +207,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("throws when no credentials exist at all (no Socket Mode, no OAuth)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       resolveOAuthConnectionMock.mockImplementation(async () => {
         throw new Error("No OAuth connection found for integration:slack");
       });
@@ -191,16 +225,23 @@ describe("Slack messaging token resolution", () => {
 
   describe("getProviderConnection()", () => {
     test("returns bot token string for Slack when Socket Mode credentials exist", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-conn-token" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-conn-token"
+            : undefined,
+        unreachable: false,
+      }));
 
       const result = await getProviderConnection(slackProvider);
       expect(result).toBe("xoxb-conn-token");
     });
 
     test("returns OAuthConnection for Slack when only OAuth credentials exist (backwards compat)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       const oauthConn = {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
@@ -211,7 +252,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("throws when no Slack credentials exist", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       resolveOAuthConnectionMock.mockImplementation(async () => {
         throw new Error("No OAuth connection found");
       });
@@ -225,9 +269,11 @@ describe("Slack messaging token resolution", () => {
       // Telegram has isConnected but no resolveConnection.
       // When isConnected returns true, getProviderConnection returns ""
       getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-        if (key === "credential/telegram/bot_token") return "bot-token";
-        if (key === "credential/telegram/webhook_secret") return "secret";
-        return null;
+        if (key === "credential/telegram/bot_token")
+          return { value: "bot-token", unreachable: false };
+        if (key === "credential/telegram/webhook_secret")
+          return { value: "secret", unreachable: false };
+        return { value: undefined, unreachable: false };
       });
       getConnectionByProviderMock.mockImplementation((provider: string) =>
         provider === "telegram" ? { status: "active" } : undefined,
@@ -259,9 +305,13 @@ describe("Slack messaging token resolution", () => {
   describe("resolveProvider() multi-platform behavior", () => {
     test('throws "Multiple platforms connected" when both Gmail and Slack (Socket Mode) are connected and no platform is specified', async () => {
       // Slack connected via Socket Mode
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-token" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-token"
+            : undefined,
+        unreachable: false,
+      }));
       // Gmail connected via OAuth
       isProviderConnectedMock.mockImplementation(async (service: string) =>
         service === "integration:google" ? true : false,
@@ -273,9 +323,13 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("auto-selects Slack when it is the only connected provider", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-only" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-only"
+            : undefined,
+        unreachable: false,
+      }));
       isProviderConnectedMock.mockImplementation(async () => false);
 
       const provider = await resolveProvider();
@@ -283,7 +337,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("auto-selects Gmail when it is the only connected provider (no Slack credentials)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       isProviderConnectedMock.mockImplementation(async (service: string) =>
         service === "integration:google" ? true : false,
       );
@@ -297,9 +354,13 @@ describe("Slack messaging token resolution", () => {
 
   describe("getConnectedProviders()", () => {
     test("includes Slack when connected via Socket Mode (slack_channel)", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
-        key === "credential/slack_channel/bot_token" ? "xoxb-token" : null,
-      );
+      getSecureKeyAsyncMock.mockImplementation(async (key: string) => ({
+        value:
+          key === "credential/slack_channel/bot_token"
+            ? "xoxb-token"
+            : undefined,
+        unreachable: false,
+      }));
       isProviderConnectedMock.mockImplementation(async () => false);
 
       const connected = await getConnectedProviders();
@@ -308,7 +369,10 @@ describe("Slack messaging token resolution", () => {
     });
 
     test("excludes Slack when no bot token exists", async () => {
-      getSecureKeyAsyncMock.mockImplementation(async () => null);
+      getSecureKeyAsyncMock.mockImplementation(async () => ({
+        value: undefined,
+        unreachable: false,
+      }));
       isProviderConnectedMock.mockImplementation(async () => false);
 
       const connected = await getConnectedProviders();

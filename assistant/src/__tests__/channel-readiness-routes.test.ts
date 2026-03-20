@@ -47,7 +47,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
+  getSecureKeyAsync: async (key: string) => ({
+    value: mockSecureKeys[key],
+    unreachable: false,
+  }),
 }));
 
 mock.module("../email/service.js", () => ({

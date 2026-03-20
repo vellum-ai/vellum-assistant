@@ -58,7 +58,7 @@ mock.module("../util/logger.js", () => ({
 
 // Mock getSecureKeyAsync to avoid keychain access during tests
 mock.module("../util/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => undefined,
+  getSecureKeyAsync: async () => ({ value: undefined, unreachable: false }),
 }));
 
 import { initializeDb, resetDb } from "../memory/db.js";

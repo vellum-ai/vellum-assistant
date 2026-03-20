@@ -80,7 +80,10 @@ mock.module("../logfire.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (key: string) => secureKeyStore[key],
+  getSecureKeyAsync: async (key: string) => ({
+    value: secureKeyStore[key],
+    unreachable: false,
+  }),
   setSecureKeyAsync: async (key: string, value: string) => {
     secureKeyStore[key] = value;
     return true;
