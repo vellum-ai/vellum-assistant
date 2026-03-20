@@ -9,8 +9,10 @@
  */
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { loadConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
@@ -41,11 +43,14 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import { storeAudio } from "./audio-store.js";
 import { finalizeCall } from "./finalize-call.js";
+import { FishAudioSession } from "./fish-audio-client.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
+import { isFishAudioTts } from "./voice-quality.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
   CALL_OPENING_ACK_MARKER,
@@ -62,6 +67,19 @@ import {
 } from "./voice-session-bridge.js";
 
 const log = getLogger("call-controller");
+
+const SENTENCE_END_RE = /[.!?]\s+/;
+function splitAtSentenceBoundary(
+  text: string,
+): { complete: string; remainder: string } | null {
+  const match = SENTENCE_END_RE.exec(text);
+  if (!match) return null;
+  const splitIdx = match.index + match[0].length;
+  return {
+    complete: text.slice(0, splitIdx).trim(),
+    remainder: text.slice(splitIdx),
+  };
+}
 
 type ControllerState = "idle" | "processing" | "speaking";
 
@@ -131,6 +149,8 @@ export class CallController {
    * without blocking the caller.
    */
   private guardianUnavailableForCall = false;
+  /** Active Fish Audio session — tracked so interrupt handling can close it. */
+  private activeFishSession: FishAudioSession | null = null;
 
   constructor(
     callSessionId: string,
@@ -340,6 +360,11 @@ export class CallController {
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
+    // Cancel in-flight Fish Audio synthesis on barge-in
+    if (this.activeFishSession) {
+      this.activeFishSession.close();
+      this.activeFishSession = null;
+    }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
@@ -370,6 +395,10 @@ export class CallController {
     this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
+    if (this.activeFishSession) {
+      this.activeFishSession.close();
+      this.activeFishSession = null;
+    }
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
 
@@ -516,11 +545,48 @@ export class CallController {
     runVersion: number,
     runSignal: AbortSignal,
   ): Promise<string> {
+    // Fish Audio TTS routing: when configured, buffer text by sentence
+    // boundaries and synthesize via Fish Audio instead of streaming text
+    // tokens for ElevenLabs TTS.
+    const config = loadConfig();
+    const useFishAudio = isFishAudioTts(config);
+    let fishSession: FishAudioSession | null = null;
+    let sentenceBuffer = "";
+    const fishPendingQueue: Promise<void>[] = [];
+
+    const synthesizeAndPlay = async (text: string): Promise<void> => {
+      if (!this.isCurrentRun(runVersion)) return;
+      if (!fishSession) {
+        fishSession = await FishAudioSession.create(config.fishAudio);
+        this.activeFishSession = fishSession;
+      }
+      const audioBuffer = await fishSession.synthesize(text);
+      const format = config.fishAudio.format ?? "mp3";
+      const audioId = storeAudio(audioBuffer, format as "mp3" | "wav" | "opus");
+      const baseUrl = getPublicBaseUrl(config);
+      const url = `${baseUrl}/v1/audio/${audioId}`;
+      this.relay.sendPlayUrl(url);
+    };
+
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
     // could be the start of a control marker.
     let ttsBuffer = "";
     let fullResponseText = "";
+
+    /** Emit a chunk of safe text to the appropriate TTS backend. */
+    const emitSafeChunk = (safeText: string): void => {
+      if (useFishAudio) {
+        sentenceBuffer += safeText;
+        let split: ReturnType<typeof splitAtSentenceBoundary>;
+        while ((split = splitAtSentenceBoundary(sentenceBuffer)) !== null) {
+          fishPendingQueue.push(synthesizeAndPlay(split.complete));
+          sentenceBuffer = split.remainder;
+        }
+      } else {
+        this.relay.sendTextToken(safeText, false);
+      }
+    };
 
     const flushSafeText = (): void => {
       if (!this.isCurrentRun(runVersion)) return;
@@ -528,12 +594,12 @@ export class CallController {
       const bracketIdx = ttsBuffer.indexOf("[");
       if (bracketIdx === -1) {
         // No bracket at all — safe to flush everything
-        this.relay.sendTextToken(ttsBuffer, false);
+        emitSafeChunk(ttsBuffer);
         ttsBuffer = "";
       } else {
         // Flush everything before the bracket
         if (bracketIdx > 0) {
-          this.relay.sendTextToken(ttsBuffer.slice(0, bracketIdx), false);
+          emitSafeChunk(ttsBuffer.slice(0, bracketIdx));
           ttsBuffer = ttsBuffer.slice(bracketIdx);
         }
 
@@ -547,10 +613,10 @@ export class CallController {
           // Not a control marker prefix — flush up to the next '[' (if any)
           const nextBracket = ttsBuffer.indexOf("[", 1);
           if (nextBracket === -1) {
-            this.relay.sendTextToken(ttsBuffer, false);
+            emitSafeChunk(ttsBuffer);
             ttsBuffer = "";
           } else {
-            this.relay.sendTextToken(ttsBuffer.slice(0, nextBracket), false);
+            emitSafeChunk(ttsBuffer.slice(0, nextBracket));
             ttsBuffer = ttsBuffer.slice(nextBracket);
           }
         }
@@ -625,7 +691,22 @@ export class CallController {
     // Final sweep: strip any remaining control markers from the buffer
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
     if (ttsBuffer.length > 0) {
-      this.relay.sendTextToken(ttsBuffer, false);
+      emitSafeChunk(ttsBuffer);
+    }
+
+    // When using Fish Audio, flush any remaining sentence buffer (even
+    // if it doesn't end with sentence-ending punctuation) and wait for
+    // all in-flight synthesis to finish before signaling end-of-turn.
+    if (useFishAudio) {
+      if (sentenceBuffer.trim().length > 0) {
+        fishPendingQueue.push(synthesizeAndPlay(sentenceBuffer.trim()));
+        sentenceBuffer = "";
+      }
+      await Promise.all(fishPendingQueue);
+      if (this.activeFishSession) {
+        this.activeFishSession.close();
+        this.activeFishSession = null;
+      }
     }
 
     // Signal end of this turn's speech
