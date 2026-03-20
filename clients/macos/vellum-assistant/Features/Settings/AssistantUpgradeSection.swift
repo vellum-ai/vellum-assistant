@@ -90,14 +90,31 @@ struct AssistantUpgradeSection: View {
                 }
             }
 
-            HStack(spacing: VSpacing.md) {
-                VButton(
-                    label: isUpgrading ? "Upgrading..." : "Upgrade Now",
-                    style: .primary
-                ) {
-                    showingUpgradeConfirmation = true
+            if topology == .remote {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 12)
+                        .foregroundColor(VColor.systemMidStrong)
+                    Text("Automatic upgrades are not available for this deployment. Upgrade your infrastructure manually.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
                 }
-                .disabled(!upgradeAvailable || isUpgrading)
+            }
+
+            HStack(spacing: VSpacing.md) {
+                if topology == .local {
+                    VButton(label: "Check for App Updates", style: .outlined) {
+                        AppDelegate.shared?.updateManager.checkForUpdates()
+                    }
+                } else if topology != .remote {
+                    // Docker and managed get the upgrade button
+                    VButton(
+                        label: isUpgrading ? "Upgrading..." : "Upgrade Now",
+                        style: .primary
+                    ) {
+                        showingUpgradeConfirmation = true
+                    }
+                    .disabled(!upgradeAvailable || isUpgrading)
+                }
 
                 VButton(
                     label: isLoadingReleases ? "Checking..." : "Check for Updates",
