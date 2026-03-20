@@ -186,24 +186,11 @@ async function searchItemsSemantic(
 
     const ids = results.map((r) => r.payload.target_id);
 
-    // Use SQL COUNT(*) for accurate pagination total — Qdrant results are
-    // capped by fetchLimit and would undercount when more matches exist.
-    const db = getDb();
-    const countConditions = [ne(memoryItems.kind, "capability")];
-    if (statusFilter && statusFilter !== "all") {
-      countConditions.push(eq(memoryItems.status, statusFilter));
-    }
-    if (kindFilter) {
-      countConditions.push(eq(memoryItems.kind, kindFilter));
-    }
-    const countResult = db
-      .select({ count: count() })
-      .from(memoryItems)
-      .where(and(...countConditions))
-      .get();
-    const total = countResult?.count ?? 0;
-
-    return { ids, total };
+    // Use the vector search result count as the pagination total.
+    // A DB-wide COUNT would include items with no embedding yet (lagging) and
+    // items irrelevant to the search query, inflating the total and causing
+    // clients to paginate into empty pages.
+    return { ids, total: ids.length };
   } catch (err) {
     log.warn({ err }, "Semantic memory search failed, falling back to SQL");
     return null;
