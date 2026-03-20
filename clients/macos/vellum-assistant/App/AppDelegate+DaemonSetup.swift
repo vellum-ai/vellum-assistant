@@ -354,22 +354,6 @@ extension AppDelegate {
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
                     self.mainWindow?.handleDocumentLoadResponse(msg)
-                case .diagnosticsExportResponse(let response):
-                    if response.success, let filePath = response.filePath {
-                        self.mainWindow?.windowState.showToast(
-                            message: "Report exported successfully.",
-                            style: .success,
-                            primaryAction: VToastAction(label: "Reveal in Finder") {
-                                NSWorkspace.shared.selectFile(filePath, inFileViewerRootedAtPath: "")
-                            }
-                        )
-                    } else {
-                        let errorDetail = response.error ?? "Unknown error"
-                        self.mainWindow?.windowState.showToast(
-                            message: "Failed to export report: \(errorDetail)",
-                            style: .error
-                        )
-                    }
                 case .recordingStart(let msg):
                     self.handleRecordingStart(msg)
                 case .recordingStop(let msg):

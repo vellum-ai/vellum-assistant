@@ -6,7 +6,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Focused client for diagnostics operations routed through the gateway.
 @MainActor
 public protocol DiagnosticsClientProtocol {
-    func exportDiagnostics(conversationId: String, anchorMessageId: String?) async -> DiagnosticsExportResponseMessage?
     func fetchEnvVars() async -> EnvVarsResponseMessage?
 }
 
@@ -14,33 +13,6 @@ public protocol DiagnosticsClientProtocol {
 @MainActor
 public struct DiagnosticsClient: DiagnosticsClientProtocol {
     nonisolated public init() {}
-
-    public func exportDiagnostics(conversationId: String, anchorMessageId: String? = nil) async -> DiagnosticsExportResponseMessage? {
-        do {
-            var body: [String: Any] = ["conversationId": conversationId]
-            if let anchorMessageId { body["anchorMessageId"] = anchorMessageId }
-
-            let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/diagnostics/export", json: body, timeout: 30
-            )
-            guard response.isSuccess else {
-                log.error("exportDiagnostics failed (HTTP \(response.statusCode))")
-                return DiagnosticsExportResponseMessage(
-                    success: false,
-                    filePath: nil,
-                    error: "HTTP \(response.statusCode)"
-                )
-            }
-            return try JSONDecoder().decode(DiagnosticsExportResponseMessage.self, from: response.data)
-        } catch {
-            log.error("exportDiagnostics error: \(error.localizedDescription)")
-            return DiagnosticsExportResponseMessage(
-                success: false,
-                filePath: nil,
-                error: error.localizedDescription
-            )
-        }
-    }
 
     public func fetchEnvVars() async -> EnvVarsResponseMessage? {
         do {

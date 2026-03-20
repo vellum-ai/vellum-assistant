@@ -686,21 +686,6 @@ struct ActiveChatViewWrapper: View {
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
-            onReportMessage: { daemonMessageId in
-                guard let conversationId = viewModel.conversationId else { return }
-                Task {
-                    let response = await DiagnosticsClient().exportDiagnostics(
-                        conversationId: conversationId,
-                        anchorMessageId: daemonMessageId
-                    )
-                    if response?.success != true {
-                        windowState.showToast(
-                            message: "Failed to request report export.",
-                            style: .error
-                        )
-                    }
-                }
-            },
             onForkFromMessage: { [conversationManager] daemonMessageId in
                 Task { @MainActor in
                     await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)

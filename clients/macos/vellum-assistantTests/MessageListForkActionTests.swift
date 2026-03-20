@@ -56,7 +56,6 @@ final class MessageListForkActionTests: XCTestCase {
             onSurfaceAction: { _, _, _ in },
             onGuardianAction: nil,
             onDismissDocumentWidget: nil,
-            onReportMessage: nil,
             onForkFromMessage: onForkFromMessage,
             showInspectButton: false,
             onInspectMessage: nil,

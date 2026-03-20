@@ -43,7 +43,6 @@ struct ChatView: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
-    var onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
@@ -239,7 +238,6 @@ struct ChatView: View {
                             onSurfaceAction: onSurfaceAction,
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
-                            onReportMessage: onReportMessage,
                             onForkFromMessage: onForkFromMessage,
                             showInspectButton: showInspectButton,
                             isTTSEnabled: isTTSEnabled,

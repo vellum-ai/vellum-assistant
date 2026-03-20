@@ -11,7 +11,6 @@ struct ChatBubble: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
-    var onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
@@ -67,7 +66,6 @@ struct ChatBubble: View {
         onSurfaceAction: @escaping (String, String, [String: AnyCodable]?) -> Void,
         onDismissDocumentWidget: @escaping (String) -> Void,
         dismissedDocumentSurfaceIds: Set<String>,
-        onReportMessage: ((String?) -> Void)? = nil,
         onForkFromMessage: ((String) -> Void)? = nil,
         showInspectButton: Bool = false,
         isTTSEnabled: Bool = false,
@@ -93,7 +91,6 @@ struct ChatBubble: View {
         self.onSurfaceAction = onSurfaceAction
         self.onDismissDocumentWidget = onDismissDocumentWidget
         self.dismissedDocumentSurfaceIds = dismissedDocumentSurfaceIds
-        self.onReportMessage = onReportMessage
         self.onForkFromMessage = onForkFromMessage
         self.showInspectButton = showInspectButton
         self.isTTSEnabled = isTTSEnabled
@@ -150,9 +147,6 @@ struct ChatBubble: View {
     var activeSurfaceId: String?
 
     var isUser: Bool { message.role == .user }
-    private var canReportMessage: Bool {
-        !isUser && onReportMessage != nil
-    }
     private var hasCopyableText: Bool {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -163,7 +157,7 @@ struct ChatBubble: View {
         onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
     }
     private var hasOverflowActions: Bool {
-        hasCopyableText || canReportMessage || canInspectMessage || canForkFromMessage
+        hasCopyableText || canInspectMessage || canForkFromMessage
     }
     private var showOverflowMenu: Bool {
         hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation || audioPlayer.isPlaying || audioPlayer.isLoading)
@@ -432,18 +426,6 @@ struct ChatBubble: View {
             }
             if !isUser && hasCopyableText && isTTSEnabled && message.daemonMessageId != nil {
                 ttsButton
-            }
-            if let onReportMessage, !isUser {
-                VButton(
-                    label: "Report message",
-                    iconOnly: VIcon.bug.rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: VColor.contentTertiary
-                ) {
-                    onReportMessage(message.daemonMessageId)
-                }
-                .vTooltip("Report", edge: .bottom)
             }
             if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
                 VButton(

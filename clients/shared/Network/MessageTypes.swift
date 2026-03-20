@@ -1904,33 +1904,6 @@ public typealias ChannelVerificationSessionResponseMessage = ChannelVerification
 /// Backed by generated `AuthResult`.
 public typealias AuthResultMessage = AuthResult
 
-/// Sent to request a diagnostics export (zip) for a conversation.
-/// Wire type: `"diagnostics_export_request"`
-public struct DiagnosticsExportRequestMessage: Encodable, Sendable {
-    public let type: String = "diagnostics_export_request"
-    public let conversationId: String
-    public let anchorMessageId: String?
-
-    public init(conversationId: String, anchorMessageId: String? = nil) {
-        self.conversationId = conversationId
-        self.anchorMessageId = anchorMessageId
-    }
-}
-
-/// Response from a diagnostics export request.
-/// Wire type: `"diagnostics_export_response"`
-public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
-    public let success: Bool
-    public let filePath: String?
-    public let error: String?
-
-    public init(success: Bool, filePath: String?, error: String?) {
-        self.success = success
-        self.filePath = filePath
-        self.error = error
-    }
-}
-
 /// Request daemon environment variables (debug only).
 /// Backed by generated `EnvVarsRequest`.
 public typealias EnvVarsRequestMessage = EnvVarsRequest
@@ -2126,7 +2099,6 @@ public enum ServerMessage: Decodable, Sendable {
     case oauthConnectResult(OAuthConnectResultResponse)
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(GetSigningIdentityRequest)
-    case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case workItemsListResponse(WorkItemsListResponse)
     case workItemStatusChanged(WorkItemStatusChanged)
@@ -2459,9 +2431,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
             self = .appFilesChanged(message)
-        case "diagnostics_export_response":
-            let message = try DiagnosticsExportResponseMessage(from: decoder)
-            self = .diagnosticsExportResponse(message)
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)

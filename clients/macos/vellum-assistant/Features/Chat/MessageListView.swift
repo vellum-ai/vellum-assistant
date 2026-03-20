@@ -97,7 +97,6 @@ struct MessageListView: View {
     /// Called when a guardian decision action button is clicked: (requestId, action).
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
-    let onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)? = nil
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
@@ -983,7 +982,6 @@ struct MessageListView: View {
                             onGuardianAction: onGuardianAction,
                             onSurfaceAction: onSurfaceAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
-                            onReportMessage: onReportMessage,
                             onForkFromMessage: forkFromMessageAction,
                             showInspectButton: showInspectButton,
                             isTTSEnabled: isTTSEnabled,
@@ -1729,7 +1727,6 @@ private struct MessageCellView: View, Equatable {
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: ((String) -> Void)?
-    let onReportMessage: ((String?) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
@@ -1770,7 +1767,6 @@ private struct MessageCellView: View, Equatable {
                     onDismissDocumentWidget?(surfaceId)
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                onReportMessage: onReportMessage,
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
@@ -1859,7 +1855,6 @@ private struct MessageCellView: View, Equatable {
                     onDismissDocumentWidget?(surfaceId)
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                onReportMessage: onReportMessage,
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,

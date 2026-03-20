@@ -444,7 +444,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Diagnostics
   { endpoint: "export", scopes: ["settings.read"] },
-  { endpoint: "diagnostics/export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },
 
   // Dictation
