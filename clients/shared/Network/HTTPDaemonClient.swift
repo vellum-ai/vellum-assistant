@@ -964,7 +964,7 @@ public final class HTTPTransport {
     private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
         guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
-        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .public), mimeType=\(attachment.mimeType, privacy: .public)")
+        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .private), mimeType=\(attachment.mimeType, privacy: .public)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
