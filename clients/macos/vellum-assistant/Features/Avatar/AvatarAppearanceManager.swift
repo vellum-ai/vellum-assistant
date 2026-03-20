@@ -277,6 +277,16 @@ final class AvatarAppearanceManager {
     /// and re-reads the identity so the dock label reflects the current assistant.
     /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
+        reloadAvatar(avatarPath: nil)
+    }
+
+    /// Reloads the avatar, optionally using a local file path for an immediate
+    /// dock-icon update before the HTTP round-trip completes.
+    /// - Parameter avatarPath: Absolute path to the updated avatar image
+    ///   (from the daemon's `avatar_updated` event). When non-nil and the file
+    ///   is readable, the dock icon updates immediately; the subsequent HTTP
+    ///   fetch still runs to keep all cached state consistent.
+    func reloadAvatar(avatarPath: String?) {
         assistantName = AssistantDisplayName.resolve(
             IdentityInfo.load()?.name,
             fallback: "V"
@@ -286,6 +296,15 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
+
+        // Fast path: load the image directly from disk so the dock icon
+        // reflects the new avatar immediately, without waiting for the
+        // HTTP round-trip through the gateway.
+        if let avatarPath, let image = NSImage(contentsOfFile: avatarPath) {
+            customAvatarImage = image
+            updateDockIcon()
+        }
+
         Task { [weak self] in
             await self?.fetchAvatarViaHTTP()
             await self?.fetchTraitsViaHTTP()
