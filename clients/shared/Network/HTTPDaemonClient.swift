@@ -677,6 +677,11 @@ public final class HTTPTransport {
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
                         LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
+                    // Reset SSE reconnect backoff BEFORE the version-change
+                    // callback, which clears isUpdateInProgress synchronously.
+                    if isUpdateInProgress {
+                        sseReconnectDelay = 1.0
+                    }
                     onDaemonVersionChanged?(newVersion)
                 } else if let newVersion = decoded.version {
                     daemonVersion = newVersion
