@@ -33,17 +33,6 @@ export interface AcceptStarterBundleResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the gateway base URL for trust rule requests.
- *
- * Prefers the `GATEWAY_INTERNAL_URL` env var (set in Docker environments
- * where the gateway runs in a separate container), falling back to the
- * existing `getGatewayInternalBaseUrl()` helper for local deployments.
- */
-function getBaseUrl(): string {
-  return process.env.GATEWAY_INTERNAL_URL ?? getGatewayInternalBaseUrl();
-}
-
 function authHeaders(): Record<string, string> {
   return {
     Authorization: `Bearer ${mintDaemonDeliveryToken()}`,
@@ -60,7 +49,7 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const url = `${getBaseUrl()}${path}`;
+  const url = `${getGatewayInternalBaseUrl()}${path}`;
   const options: RequestInit = {
     method,
     headers: authHeaders(),
@@ -102,7 +91,7 @@ async function request<T>(
  * Write operations are user-initiated and infrequent, so blocking is acceptable.
  */
 function requestSync<T>(method: string, path: string, body?: unknown): T {
-  const url = `${getBaseUrl()}${path}`;
+  const url = `${getGatewayInternalBaseUrl()}${path}`;
   const headers = authHeaders();
   const args: string[] = [
     "curl",

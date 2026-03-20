@@ -51,9 +51,15 @@ export function getGatewayPort(): number {
   return int("GATEWAY_PORT", DEFAULT_GATEWAY_PORT);
 }
 
-/** Resolve the gateway base URL for internal service-to-service calls. */
+/**
+ * Resolve the gateway base URL for internal service-to-service calls.
+ *
+ * In containerized deployments the gateway runs in a separate container,
+ * reachable via `GATEWAY_INTERNAL_URL` (e.g. `http://gateway:7822`).
+ * Falls back to `http://127.0.0.1:<GATEWAY_PORT>` for local deployments.
+ */
 export function getGatewayInternalBaseUrl(): string {
-  return `http://127.0.0.1:${getGatewayPort()}`;
+  return str("GATEWAY_INTERNAL_URL") ?? `http://127.0.0.1:${getGatewayPort()}`;
 }
 
 // ── Ingress ──────────────────────────────────────────────────────────────────
