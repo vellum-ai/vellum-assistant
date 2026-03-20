@@ -595,15 +595,14 @@ struct AssistantChannelsDetailView: View {
 
     private var telegramCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Bot Token")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-
-            SecureField("Telegram bot token", text: $telegramBotTokenText)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .focused($isTelegramTokenFocused)
+            VTextField(
+                "Bot Token",
+                placeholder: "Telegram bot token",
+                text: $telegramBotTokenText,
+                isSecure: true,
+                maxWidth: 400
+            )
+            .focused($isTelegramTokenFocused)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -699,20 +698,22 @@ struct AssistantChannelsDetailView: View {
 
     private var slackChannelCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Slack Credentials")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
+            VTextField(
+                "Bot Token",
+                placeholder: "Bot Token (xoxb-...)",
+                text: $slackChannelBotTokenInput,
+                isSecure: true,
+                maxWidth: 400
+            )
+            .focused($isSlackBotTokenFocused)
 
-            SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .focused($isSlackBotTokenFocused)
-
-            SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
+            VTextField(
+                "App Token",
+                placeholder: "App Token (xapp-...)",
+                text: $slackChannelAppTokenInput,
+                isSecure: true,
+                maxWidth: 400
+            )
 
             Text("Create a Slack app with Socket Mode enabled to get these tokens")
                 .font(VFont.caption)
@@ -810,20 +811,21 @@ struct AssistantChannelsDetailView: View {
 
     private var voiceCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Account SID and Auth Token")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
+            VTextField(
+                "Account SID",
+                placeholder: "Account SID",
+                text: $voiceAccountSidText,
+                maxWidth: 400
+            )
+            .focused($isVoiceAccountSidFocused)
 
-            TextField("Account SID", text: $voiceAccountSidText)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .focused($isVoiceAccountSidFocused)
-
-            SecureField("Auth Token", text: $voiceAuthTokenText)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
+            VTextField(
+                "Auth Token",
+                placeholder: "Auth Token",
+                text: $voiceAuthTokenText,
+                isSecure: true,
+                maxWidth: 400
+            )
 
             if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {

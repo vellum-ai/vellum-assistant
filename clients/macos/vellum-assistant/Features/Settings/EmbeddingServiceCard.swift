@@ -181,36 +181,26 @@ struct EmbeddingServiceCard: View {
             }
             return "Enter your API key"
         }()
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("API Key")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            SecureField(placeholder, text: $apiKeyText)
-                .id("embedding-api-key-\(draftProvider)-\(placeholder)")
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-
-            if let error = store.embeddingKeySaveError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
-        }
+        return VTextField(
+            "API Key",
+            placeholder: placeholder,
+            text: $apiKeyText,
+            isSecure: true,
+            errorMessage: store.embeddingKeySaveError,
+            maxWidth: 400
+        )
+        .id("embedding-api-key-\(draftProvider)-\(placeholder)")
     }
 
     // MARK: - Model Field
 
     private var modelField: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Model")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            TextField(defaultModelForProvider.isEmpty ? "Enter model name" : defaultModelForProvider, text: $draftModel)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-        }
+        VTextField(
+            "Model",
+            placeholder: defaultModelForProvider.isEmpty ? "Enter model name" : defaultModelForProvider,
+            text: $draftModel,
+            maxWidth: 400
+        )
     }
 
     // MARK: - Auto Status Label

@@ -327,22 +327,15 @@ struct InferenceServiceCard: View {
             }
             return "Enter your API key"
         }()
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            SecureField(placeholder, text: $apiKeyText)
-                .vInputStyle(maxWidth: 400)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .disabled(store.apiKeySaving)
-
-            if let error = store.apiKeySaveError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
-        }
+        return VTextField(
+            isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key",
+            placeholder: placeholder,
+            text: $apiKeyText,
+            isSecure: true,
+            errorMessage: store.apiKeySaveError,
+            maxWidth: 400
+        )
+        .disabled(store.apiKeySaving)
     }
 
     // MARK: - Model Picker

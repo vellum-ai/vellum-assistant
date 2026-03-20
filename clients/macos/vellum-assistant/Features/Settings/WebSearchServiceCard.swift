@@ -204,24 +204,14 @@ struct WebSearchServiceCard: View {
     // MARK: - API Key Section
 
     private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("API Key")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-            SecureField(
-                "Enter your API key",
-                text: isPerplexity ? $perplexityKeyText : $braveKeyText
-            )
-            .vInputStyle(maxWidth: 400)
-            .font(VFont.body)
-            .foregroundColor(VColor.contentDefault)
-
-            if let error = isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
-        }
+        VTextField(
+            "API Key",
+            placeholder: "Enter your API key",
+            text: isPerplexity ? $perplexityKeyText : $braveKeyText,
+            isSecure: true,
+            errorMessage: isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError,
+            maxWidth: 400
+        )
     }
 
     // MARK: - Save
