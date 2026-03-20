@@ -234,13 +234,8 @@ struct APIKeyStepView: View {
             state.cloudProvider = state.selectedHostingMode.rawValue
         }
 
-        if isAuthenticated && state.selectedHostingMode == .vellumCloud {
-            // Platform-hosted: trigger managed bootstrap directly
-            onHatchManaged?()
-            return
-        }
-
         if isAuthenticated {
+            // Authenticated user: skip API key entry, advance to consent step
             state.selectedProvider = "anthropic"
             state.selectedModel = "claude-opus-4-6"
             state.skippedAPIKeyEntry = true
