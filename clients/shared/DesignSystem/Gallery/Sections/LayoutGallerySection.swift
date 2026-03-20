@@ -9,6 +9,8 @@ struct LayoutGallerySection: View {
     @State private var pinnedTabSelection: Int = 0
     @State private var adaptiveDropdownValue: String = "a"
     @State private var adaptiveContainerWidth: Double = 500
+    @State private var dockWidth: Double = 300
+    @State private var showDock: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -228,6 +230,61 @@ struct LayoutGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vAppWorkspaceDockLayout" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VAppWorkspaceDockLayout
+                GallerySectionHeader(
+                    title: "VAppWorkspaceDockLayout",
+                    description: "Workspace layout with a togglable, resizable dock panel and a draggable divider."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        HStack(spacing: VSpacing.xl) {
+                            Toggle("Show Dock", isOn: $showDock)
+                            Text("Dock Width: \(Int(dockWidth))")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VAppWorkspaceDockLayout(
+                            dockWidth: $dockWidth,
+                            showDock: showDock
+                        ) {
+                            VStack {
+                                VIconView(.panelLeft, size: 20)
+                                    .foregroundColor(VColor.contentTertiary)
+                                Text("Dock")
+                                    .font(VFont.captionMedium)
+                                    .foregroundColor(VColor.contentSecondary)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(VColor.surfaceOverlay)
+                        } workspace: {
+                            VStack {
+                                VIconView(.layoutGrid, size: 20)
+                                    .foregroundColor(VColor.contentTertiary)
+                                Text("Workspace")
+                                    .font(VFont.captionMedium)
+                                    .foregroundColor(VColor.contentSecondary)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(VColor.surfaceBase)
+                        }
+                        .frame(height: 250)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.borderBase, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+
         }
     }
 }
@@ -242,6 +299,7 @@ extension LayoutGallerySection {
         case "vAdaptiveStack": LayoutGallerySection(filter: "vAdaptiveStack")
         case "vSidePanel": LayoutGallerySection(filter: "vSidePanel")
         case "vSplitView": LayoutGallerySection(filter: "vSplitView")
+        case "vAppWorkspaceDockLayout": LayoutGallerySection(filter: "vAppWorkspaceDockLayout")
         default: EmptyView()
         }
     }

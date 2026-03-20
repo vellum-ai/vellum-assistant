@@ -231,7 +231,7 @@ extension MainWindowView {
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                AppWorkspaceDockLayout(
+                VAppWorkspaceDockLayout(
                     dockWidth: clampedChatDockWidth(geometry: geometry),
                     showDock: windowState.isChatDockOpen,
                     dockBackground: VColor.surfaceOverlay,

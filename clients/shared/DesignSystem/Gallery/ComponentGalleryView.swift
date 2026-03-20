@@ -93,6 +93,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 ("vAdaptiveStack", "VAdaptiveStack", ["adaptive stack", "responsive"]),
                 ("vSidePanel", "VSidePanel", ["side panel", "drawer"]),
                 ("vSplitView", "VSplitView", ["split view", "resizable"]),
+                ("vAppWorkspaceDockLayout", "VAppWorkspaceDockLayout", ["dock", "workspace", "layout"]),
             ]
         case .modifiers:
             return [
