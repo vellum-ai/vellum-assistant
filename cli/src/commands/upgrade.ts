@@ -12,7 +12,6 @@ import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
   clearSigningKeyBootstrapLock,
-  DOCKERHUB_IMAGES,
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
@@ -21,7 +20,7 @@ import {
   startContainers,
   stopContainers,
 } from "../lib/docker";
-import type { ServiceName } from "../lib/docker";
+import { resolveImageRefs } from "../lib/platform-releases";
 import {
   fetchOrganizationId,
   getPlatformUrl,
@@ -239,11 +238,8 @@ async function upgradeDocker(
 
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
-  const imageTags: Record<ServiceName, string> = {
-    assistant: `${DOCKERHUB_IMAGES.assistant}:${versionTag}`,
-    "credential-executor": `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`,
-    gateway: `${DOCKERHUB_IMAGES.gateway}:${versionTag}`,
-  };
+  console.log("🔍 Resolving image references...");
+  const { imageTags } = await resolveImageRefs(versionTag);
 
   console.log(
     `🔄 Upgrading Docker assistant '${instanceName}' to ${versionTag}...\n`,
