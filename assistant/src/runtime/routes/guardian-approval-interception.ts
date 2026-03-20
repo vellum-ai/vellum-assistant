@@ -42,6 +42,18 @@ import { deliverStaleApprovalReply } from "./guardian-approval-reply-helpers.js"
 
 const log = getLogger("runtime-http");
 
+/**
+ * Resolve the Slack ephemeral user ID when the source channel is Slack.
+ * Returns `undefined` for non-Slack channels so callers can pass the
+ * result directly to `ephemeralUserId` without branching.
+ */
+function slackEphemeralUserId(
+  sourceChannel: ChannelId,
+  userId: string | undefined,
+): string | undefined {
+  return sourceChannel === "slack" && userId ? userId : undefined;
+}
+
 export interface ApprovalInterceptionParams {
   conversationId: string;
   callbackData?: string;
@@ -266,13 +278,23 @@ export async function handleApprovalInterception(
                   approvalCopyGenerator,
                 ));
               try {
-                await deliverChannelReply(
-                  replyCallbackUrl,
+                const cancelPayload: Parameters<typeof deliverChannelReply>[1] =
                   {
                     chatId: conversationExternalId,
                     text: replyText,
                     assistantId,
-                  },
+                  };
+                const requesterEphemeral = slackEphemeralUserId(
+                  sourceChannel,
+                  actorExternalId,
+                );
+                if (requesterEphemeral) {
+                  cancelPayload.ephemeral = true;
+                  cancelPayload.user = requesterEphemeral;
+                }
+                await deliverChannelReply(
+                  replyCallbackUrl,
+                  cancelPayload,
                   bearerToken,
                 );
               } catch (err) {
@@ -294,13 +316,24 @@ export async function handleApprovalInterception(
                   {},
                   approvalCopyGenerator,
                 );
+                const guardianCancelPayload: Parameters<
+                  typeof deliverChannelReply
+                >[1] = {
+                  chatId: guardianApprovalForRequest.guardianChatId,
+                  text: guardianNotice,
+                  assistantId,
+                };
+                const guardianEphemeral = slackEphemeralUserId(
+                  sourceChannel,
+                  guardianApprovalForRequest.guardianExternalUserId,
+                );
+                if (guardianEphemeral) {
+                  guardianCancelPayload.ephemeral = true;
+                  guardianCancelPayload.user = guardianEphemeral;
+                }
                 await deliverChannelReply(
                   replyCallbackUrl,
-                  {
-                    chatId: guardianApprovalForRequest.guardianChatId,
-                    text: guardianNotice,
-                    assistantId,
-                  },
+                  guardianCancelPayload,
                   bearerToken,
                 );
               } catch (err) {
@@ -326,19 +359,33 @@ export async function handleApprovalInterception(
               errorLogMessage:
                 "Failed to deliver stale requester-cancel notice",
               errorLogContext: { conversationId },
+              ephemeralUserId: slackEphemeralUserId(
+                sourceChannel,
+                actorExternalId,
+              ),
             });
             return { handled: true, type: "stale_ignored" };
           }
 
           if (requesterFollowupReplyText) {
             try {
-              await deliverChannelReply(
-                replyCallbackUrl,
+              const followupPayload: Parameters<typeof deliverChannelReply>[1] =
                 {
                   chatId: conversationExternalId,
                   text: requesterFollowupReplyText,
                   assistantId,
-                },
+                };
+              const followupEphemeral = slackEphemeralUserId(
+                sourceChannel,
+                actorExternalId,
+              );
+              if (followupEphemeral) {
+                followupPayload.ephemeral = true;
+                followupPayload.user = followupEphemeral;
+              }
+              await deliverChannelReply(
+                replyCallbackUrl,
+                followupPayload,
                 bearerToken,
               );
             } catch (err) {
@@ -364,6 +411,7 @@ export async function handleApprovalInterception(
           errorLogMessage:
             "Failed to deliver guardian-pending notice to requester",
           errorLogContext: { conversationId },
+          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
         });
         return { handled: true, type: "assistant_turn" };
       }
@@ -398,6 +446,7 @@ export async function handleApprovalInterception(
             "Failed to deliver guardian-expiry notice to requester",
           extraContext: { toolName: pending[0].toolName },
           errorLogContext: { conversationId },
+          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
         });
         return { handled: true, type: "decision_applied" };
       }
@@ -434,6 +483,7 @@ export async function handleApprovalInterception(
           errorLogMessage:
             "Failed to deliver guardian-pending notice to non-guardian actor (pre-row guard)",
           errorLogContext: { conversationId },
+          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
         });
         return { handled: true, type: "assistant_turn" };
       }
@@ -569,6 +619,7 @@ export async function handleApprovalInterception(
       approvalConversationGenerator,
       pending,
       allowedActions,
+      actorExternalId,
     });
   }
 
@@ -611,6 +662,7 @@ export async function handleApprovalInterception(
       toolName: pending.length > 0 ? pending[0].toolName : undefined,
     },
     errorLogContext: { conversationId },
+    ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
   });
 
   return { handled: true, type: "assistant_turn" };

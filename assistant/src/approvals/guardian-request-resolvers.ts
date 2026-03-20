@@ -372,13 +372,19 @@ const accessRequestResolver: GuardianRequestResolver = {
       // Deliver denial notification and lifecycle signals when channel context is available
       if (channelDeliveryContext) {
         try {
+          const denialPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterChatId,
+            text: "Your access request has been denied by the guardian.",
+            assistantId,
+          };
+          // On Slack, deliver as ephemeral so only the requester sees the denial
+          if (channel === "slack" && requesterExternalUserId) {
+            denialPayload.ephemeral = true;
+            denialPayload.user = requesterExternalUserId;
+          }
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
-            {
-              chatId: requesterChatId,
-              text: "Your access request has been denied by the guardian.",
-              assistantId,
-            },
+            denialPayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -601,15 +607,21 @@ const accessRequestResolver: GuardianRequestResolver = {
 
       if (codeDelivered) {
         try {
+          const approvalPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterTargetChatId,
+            text:
+              "Your access request has been approved! " +
+              "Please enter the 6-digit verification code you receive from the guardian.",
+            assistantId,
+          };
+          // On Slack, deliver as ephemeral so only the requester sees
+          if (channel === "slack" && requesterExternalUserId) {
+            approvalPayload.ephemeral = true;
+            approvalPayload.user = requesterExternalUserId;
+          }
           await deliverChannelReply(
             requesterCallbackUrl,
-            {
-              chatId: requesterTargetChatId,
-              text:
-                "Your access request has been approved! " +
-                "Please enter the 6-digit verification code you receive from the guardian.",
-              assistantId,
-            },
+            approvalPayload,
             channelDeliveryContext.bearerToken,
           );
           requesterNotified = true;
@@ -621,15 +633,20 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       } else {
         try {
+          const failurePayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterTargetChatId,
+            text:
+              "Your access request was approved, but we were unable to " +
+              "deliver the verification code. Please try again later.",
+            assistantId,
+          };
+          if (channel === "slack" && requesterExternalUserId) {
+            failurePayload.ephemeral = true;
+            failurePayload.user = requesterExternalUserId;
+          }
           await deliverChannelReply(
             requesterCallbackUrl,
-            {
-              chatId: requesterTargetChatId,
-              text:
-                "Your access request was approved, but we were unable to " +
-                "deliver the verification code. Please try again later.",
-              assistantId,
-            },
+            failurePayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -742,13 +759,22 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
 
       if (channelDeliveryContext && requesterChatId) {
         try {
-          await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+          const grantDenialPayload: Parameters<typeof deliverChannelReply>[1] =
             {
               chatId: requesterChatId,
               text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
               assistantId,
-            },
+            };
+          if (
+            request.sourceChannel === "slack" &&
+            request.requesterExternalUserId
+          ) {
+            grantDenialPayload.ephemeral = true;
+            grantDenialPayload.user = request.requesterExternalUserId;
+          }
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            grantDenialPayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -831,13 +857,22 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       );
     } else if (channelDeliveryContext && requesterChatId) {
       try {
-        await deliverChannelReply(
-          channelDeliveryContext.replyCallbackUrl,
+        const grantApprovalPayload: Parameters<typeof deliverChannelReply>[1] =
           {
             chatId: requesterChatId,
             text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
             assistantId,
-          },
+          };
+        if (
+          request.sourceChannel === "slack" &&
+          request.requesterExternalUserId
+        ) {
+          grantApprovalPayload.ephemeral = true;
+          grantApprovalPayload.user = request.requesterExternalUserId;
+        }
+        await deliverChannelReply(
+          channelDeliveryContext.replyCallbackUrl,
+          grantApprovalPayload,
           channelDeliveryContext.bearerToken,
         );
       } catch (err) {

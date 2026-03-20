@@ -41,6 +41,12 @@ interface DeliverApprovalReplyParams {
   errorLogMessage: string;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message. Used to keep approval-related noise out of shared
+   * channels.
+   */
+  ephemeralUserId?: string;
 }
 
 /**
@@ -57,6 +63,7 @@ async function composeAndDeliver(
     assistantId,
     bearerToken,
     approvalCopyGenerator,
+    ephemeralUserId,
   } = params;
 
   const text = await composeApprovalMessageGenerative(
@@ -64,11 +71,16 @@ async function composeAndDeliver(
     {},
     approvalCopyGenerator,
   );
-  await deliverChannelReply(
-    replyCallbackUrl,
-    { chatId, text, assistantId },
-    bearerToken,
-  );
+  const payload: Parameters<typeof deliverChannelReply>[1] = {
+    chatId,
+    text,
+    assistantId,
+  };
+  if (ephemeralUserId) {
+    payload.ephemeral = true;
+    payload.user = ephemeralUserId;
+  }
+  await deliverChannelReply(replyCallbackUrl, payload, bearerToken);
 }
 
 /**
@@ -107,6 +119,11 @@ export interface DeliverStaleApprovalReplyParams {
   extraContext?: Partial<ApprovalMessageContext>;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message. Keeps approval noise out of shared channels.
+   */
+  ephemeralUserId?: string;
 }
 
 /**
@@ -120,10 +137,12 @@ export interface DeliverStaleApprovalReplyParams {
 export async function deliverStaleApprovalReply(
   params: DeliverStaleApprovalReplyParams,
 ): Promise<void> {
-  const { scenario, sourceChannel, extraContext, ...rest } = params;
+  const { scenario, sourceChannel, extraContext, ephemeralUserId, ...rest } =
+    params;
 
   const replyParams: DeliverApprovalReplyParams = {
     ...rest,
+    ephemeralUserId,
     context: {
       scenario,
       channel: sourceChannel,
@@ -171,6 +190,11 @@ export interface DeliverIdentityMismatchReplyParams {
   errorLogMessage: string;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message.
+   */
+  ephemeralUserId?: string;
 }
 
 /**
@@ -180,10 +204,11 @@ export interface DeliverIdentityMismatchReplyParams {
 export async function deliverIdentityMismatchReply(
   params: DeliverIdentityMismatchReplyParams,
 ): Promise<void> {
-  const { sourceChannel, ...rest } = params;
+  const { sourceChannel, ephemeralUserId, ...rest } = params;
 
   await deliverApprovalReply({
     ...rest,
+    ephemeralUserId,
     context: {
       scenario: "guardian_identity_mismatch",
       channel: sourceChannel,
