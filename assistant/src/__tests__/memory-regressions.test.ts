@@ -62,6 +62,91 @@ mock.module("../memory/qdrant-client.js", () => ({
   initQdrantClient: () => {},
 }));
 
+// The legacy retriever module has been deleted. Provide stubs so that the
+// import at line 123 resolves. Tests that call `buildMemoryRecall` will
+// return empty results; `injectMemoryRecallAsUserBlock` delegates to the
+// real implementation in `inject.ts`. Full test cleanup lands in a
+// follow-up PR.
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async () => ({
+    enabled: true,
+    degraded: false,
+    injectedText: "",
+    semanticHits: 0,
+    recencyHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  }),
+  queryMemoryForCli: async () => ({
+    enabled: true,
+    degraded: false,
+    injectedText: "",
+    semanticHits: 0,
+    recencyHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  }),
+  injectMemoryRecallAsUserBlock: (
+    msgs: import("../providers/types.js").Message[],
+    memoryRecallText: string,
+  ): import("../providers/types.js").Message[] => {
+    if (memoryRecallText.trim().length === 0) return msgs;
+    if (msgs.length === 0) return msgs;
+    const userTail = msgs[msgs.length - 1];
+    if (!userTail || userTail.role !== "user") return msgs;
+    return [
+      ...msgs.slice(0, -1),
+      {
+        ...userTail,
+        content: [
+          { type: "text" as const, text: memoryRecallText },
+          ...userTail.content,
+        ],
+      },
+    ];
+  },
+  escapeXmlTags: (text: string) =>
+    text.replace(
+      /<\/?[a-zA-Z][a-zA-Z0-9_-]*[\s>\/]/g,
+      (match: string) => "\uFF1C" + match.slice(1),
+    ),
+  formatAbsoluteTime: (epochMs: number) => {
+    const d = new Date(epochMs);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} UTC`;
+  },
+  formatRelativeTime: (epochMs: number) => {
+    const elapsed = Math.max(0, Date.now() - epochMs);
+    const hours = elapsed / (1000 * 60 * 60);
+    if (hours < 1) return "just now";
+    if (hours < 24) {
+      const h = Math.floor(hours);
+      return `${h} hour${h === 1 ? "" : "s"} ago`;
+    }
+    const days = hours / 24;
+    if (days < 7) {
+      const d = Math.floor(days);
+      return `${d} day${d === 1 ? "" : "s"} ago`;
+    }
+    if (days < 30) {
+      const w = Math.floor(days / 7);
+      return `${w} week${w === 1 ? "" : "s"} ago`;
+    }
+    if (days < 365) {
+      const m = Math.floor(days / 30);
+      return `${m} month${m === 1 ? "" : "s"} ago`;
+    }
+    const y = Math.floor(days / 365);
+    return `${y} year${y === 1 ? "" : "s"} ago`;
+  },
+  embedWithRetry: async () => ({ vectors: [[]], provider: "mock", model: "mock" }),
+}));
+
 import { and, eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";

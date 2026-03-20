@@ -48,6 +48,22 @@ mock.module("../memory/qdrant-client.js", () => ({
   initQdrantClient: () => {},
 }));
 
+// Stub deleted legacy retriever (full cleanup in follow-up PR)
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async () => ({
+    enabled: true,
+    degraded: false,
+    injectedText: "",
+    semanticHits: 0,
+    recencyHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  }),
+}));
+
 import { eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";

@@ -21,15 +21,6 @@ import {
   test,
 } from "bun:test";
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
-import { ContextWindowManager } from "../context/window-manager.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { computeRecallBudget } from "../memory/retrieval-budget.js";
-import { buildMemoryRecall } from "../memory/retriever.js";
-import { conversations, memorySegments, messages } from "../memory/schema.js";
-import type { Message, Provider } from "../providers/types.js";
-
 const testDir = mkdtempSync(join(tmpdir(), "memory-context-benchmark-"));
 
 mock.module("../util/platform.js", () => ({
@@ -80,6 +71,34 @@ mock.module("../memory/qdrant-client.js", () => ({
   }),
   initQdrantClient: () => {},
 }));
+
+// Stub deleted legacy modules (full cleanup in follow-up PR)
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async () => ({
+    enabled: true,
+    degraded: false,
+    injectedText: "",
+    semanticHits: 0,
+    recencyHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  }),
+}));
+mock.module("../memory/retrieval-budget.js", () => ({
+  computeRecallBudget: () => 4000,
+}));
+
+import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
+import { ContextWindowManager } from "../context/window-manager.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { computeRecallBudget } from "../memory/retrieval-budget.js";
+import { buildMemoryRecall } from "../memory/retriever.js";
+import { conversations, memorySegments, messages } from "../memory/schema.js";
+import type { Message, Provider } from "../providers/types.js";
 
 function makeLongMessages(turns: number): Message[] {
   const rows: Message[] = [];

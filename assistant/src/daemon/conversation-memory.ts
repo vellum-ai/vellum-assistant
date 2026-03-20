@@ -1,7 +1,7 @@
 import { buildArchiveRecall } from "../memory/archive-recall.js";
 import { compileMemoryBrief } from "../memory/brief.js";
 import { getDb } from "../memory/db.js";
-import { injectMemoryRecallAsUserBlock } from "../memory/retriever.js";
+import { injectMemoryRecallAsUserBlock } from "../memory/inject.js";
 import type { MemoryRecallResult as SearchRecallResult } from "../memory/search/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";

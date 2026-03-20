@@ -73,6 +73,22 @@ mock.module("../memory/embedding-backend.js", () => ({
   logMemoryEmbeddingWarning: () => {},
 }));
 
+// Stub deleted legacy retriever (full cleanup in follow-up PR)
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async () => ({
+    enabled: true,
+    degraded: false,
+    injectedText: "",
+    semanticHits: 0,
+    recencyHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  }),
+}));
+
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
