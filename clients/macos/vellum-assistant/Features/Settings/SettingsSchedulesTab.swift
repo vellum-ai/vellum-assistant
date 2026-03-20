@@ -7,6 +7,14 @@ struct SettingsSchedulesTab: View {
     @State private var isLoading = true
     @State private var loadError: String?
     @State private var deleteConfirmId: String?
+    @State private var expandedScheduleId: String?
+    @State private var runningScheduleIds: Set<String> = []
+    @State private var isSaving = false
+    @State private var editName: String = ""
+    @State private var editExpression: String = ""
+    @State private var editMessage: String = ""
+    @State private var editMode: String = ""
+    @State private var editTimezone: String = ""
 
     private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
 
@@ -91,17 +99,24 @@ struct SettingsSchedulesTab: View {
 
     @ViewBuilder
     private func scheduleRow(_ schedule: ScheduleItem) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                scheduleRowHeader(schedule)
-                scheduleRowBadges(schedule)
-                scheduleRowDescription(schedule)
-                scheduleRowTimes(schedule)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    scheduleRowHeader(schedule)
+                    scheduleRowBadges(schedule)
+                    scheduleRowDescription(schedule)
+                    scheduleRowTimes(schedule)
+                }
+                Spacer()
+                scheduleRowActions(schedule)
             }
-            Spacer()
-            scheduleRowActions(schedule)
+
+            if expandedScheduleId == schedule.id {
+                scheduleEditSection(schedule)
+            }
         }
         .padding(.vertical, VSpacing.sm)
+        .animation(.easeInOut(duration: 0.2), value: expandedScheduleId)
     }
 
     @ViewBuilder
@@ -163,6 +178,28 @@ struct SettingsSchedulesTab: View {
                 isOn: toggleBinding(for: schedule),
                 interactive: true
             )
+            if runningScheduleIds.contains(schedule.id) {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20, height: 20)
+            } else {
+                VButton(
+                    label: "Run Now",
+                    iconOnly: VIcon.play.rawValue,
+                    style: .ghost,
+                    tooltip: "Run now"
+                ) {
+                    runNow(schedule)
+                }
+            }
+            VButton(
+                label: "Edit",
+                iconOnly: VIcon.pencil.rawValue,
+                style: .ghost,
+                tooltip: "Edit schedule"
+            ) {
+                beginEditing(schedule)
+            }
             if schedule.isOneShot && schedule.status == "active" {
                 VButton(
                     label: "Cancel",
@@ -182,6 +219,39 @@ struct SettingsSchedulesTab: View {
                 deleteConfirmId = schedule.id
             }
         }
+    }
+
+    // MARK: - Edit Section
+
+    @ViewBuilder
+    private func scheduleEditSection(_ schedule: ScheduleItem) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VTextField(placeholder: "Name", text: $editName)
+            VTextField(placeholder: "Expression", text: $editExpression)
+            VTextField(placeholder: "Message", text: $editMessage)
+            HStack(spacing: VSpacing.sm) {
+                VDropdown(
+                    placeholder: "Mode",
+                    selection: $editMode,
+                    options: [
+                        (label: "Execute", value: "execute"),
+                        (label: "Notify", value: "notify")
+                    ],
+                    maxWidth: 150
+                )
+                VTextField(placeholder: "Timezone", text: $editTimezone)
+            }
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Save", style: .primary, isDisabled: isSaving) {
+                    saveEdits(schedule)
+                }
+                VButton(label: "Cancel", style: .ghost) {
+                    expandedScheduleId = nil
+                }
+            }
+        }
+        .padding(.top, VSpacing.sm)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - Status Indicator
@@ -308,6 +378,67 @@ struct SettingsSchedulesTab: View {
                 // Reload on error
                 await loadSchedules()
             }
+        }
+    }
+
+    private func beginEditing(_ schedule: ScheduleItem) {
+        expandedScheduleId = schedule.id
+        editName = schedule.name
+        editExpression = schedule.expression ?? schedule.cronExpression ?? ""
+        editMessage = schedule.message
+        editMode = schedule.mode
+        editTimezone = schedule.timezone ?? ""
+    }
+
+    private func saveEdits(_ schedule: ScheduleItem) {
+        var updates: [String: Any] = [:]
+        if editName != schedule.name {
+            updates["name"] = editName
+        }
+        let originalExpression = schedule.expression ?? schedule.cronExpression ?? ""
+        if editExpression != originalExpression {
+            updates["expression"] = editExpression
+        }
+        if editMessage != schedule.message {
+            updates["message"] = editMessage
+        }
+        if editMode != schedule.mode {
+            updates["mode"] = editMode
+        }
+        let originalTimezone = schedule.timezone ?? ""
+        if editTimezone != originalTimezone {
+            updates["timezone"] = editTimezone
+        }
+
+        guard !updates.isEmpty else {
+            expandedScheduleId = nil
+            return
+        }
+
+        isSaving = true
+        Task {
+            do {
+                let items = try await scheduleClient.updateSchedule(id: schedule.id, updates: updates)
+                schedules = items
+                expandedScheduleId = nil
+            } catch {
+                // Keep expanded on error so user can retry
+            }
+            isSaving = false
+        }
+    }
+
+    private func runNow(_ schedule: ScheduleItem) {
+        runningScheduleIds.insert(schedule.id)
+        Task {
+            do {
+                let items = try await scheduleClient.runNow(id: schedule.id)
+                schedules = items
+            } catch {
+                // Reload on error
+                await loadSchedules()
+            }
+            runningScheduleIds.remove(schedule.id)
         }
     }
 
