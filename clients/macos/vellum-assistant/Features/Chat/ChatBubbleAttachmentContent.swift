@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 // MARK: - Image Context Menu Actions
@@ -155,6 +156,19 @@ private struct InlineToolCallImageView: View {
             .contextMenu {
                 ImageActions.contextMenuItems(image: image, filename: "image.png")
             }
+            .onDrag {
+                let provider = NSItemProvider()
+                if let tiff = image.tiffRepresentation,
+                   let rep = NSBitmapImageRep(data: tiff),
+                   let pngData = rep.representation(using: .png, properties: [:]) {
+                    provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                        completion(pngData, nil)
+                        return nil
+                    }
+                }
+                provider.suggestedName = "image.png"
+                return provider
+            }
             .pointerCursor()
     }
 
@@ -228,6 +242,39 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                     filename: attachment.filename,
                                     base64Data: attachment.data.isEmpty ? nil : attachment.data
                                 )
+                            }
+                            .onDrag {
+                                let provider = NSItemProvider()
+                                // Prefer full-res base64 data
+                                let hasFullData = !attachment.data.isEmpty
+                                if hasFullData,
+                                   let decoded = Data(base64Encoded: attachment.data), !decoded.isEmpty {
+                                    let mimeType = attachment.mimeType
+                                    let utType = UTType(mimeType: mimeType) ?? .png
+                                    provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
+                                        completion(decoded, nil)
+                                        return nil
+                                    }
+                                } else if let nsImage = loadedImages[attachment.id] {
+                                    // Fallback to thumbnail — re-encoded as PNG
+                                    if let tiff = nsImage.tiffRepresentation,
+                                       let rep = NSBitmapImageRep(data: tiff),
+                                       let pngData = rep.representation(using: .png, properties: [:]) {
+                                        provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                                            completion(pngData, nil)
+                                            return nil
+                                        }
+                                    }
+                                }
+                                // Force .png extension when falling back to PNG encoding
+                                // so the filename matches the actual content type.
+                                let filename = attachment.filename
+                                if hasFullData {
+                                    provider.suggestedName = filename
+                                } else {
+                                    provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
+                                }
+                                return provider
                             }
                             .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
