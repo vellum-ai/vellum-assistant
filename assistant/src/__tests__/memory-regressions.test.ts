@@ -206,7 +206,7 @@ import {
   sweepStaleItems,
 } from "../memory/jobs-worker.js";
 // @ts-expect-error — deleted module, stubbed via mock.module above
-import { buildMemoryRecall, escapeXmlTags, formatAbsoluteTime, formatRelativeTime, injectMemoryRecallAsUserBlock } from "../memory/retriever.js"; // eslint-disable-line @stylistic/max-len
+import { buildMemoryRecall, escapeXmlTags, formatAbsoluteTime, formatRelativeTime, injectMemoryRecallAsUserBlock } from "../memory/retriever.js";
 import {
   conversations,
   memoryEmbeddings,
