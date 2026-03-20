@@ -132,6 +132,10 @@ export function getQdrantHttpPortEnv(): number | undefined {
   return int("QDRANT_HTTP_PORT");
 }
 
+export function getQdrantReadyzTimeoutMs(): number | undefined {
+  return int("QDRANT_READYZ_TIMEOUT_MS");
+}
+
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
 export function getOllamaBaseUrlEnv(): string | undefined {

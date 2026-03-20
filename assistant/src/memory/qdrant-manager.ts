@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 
 import type { Subprocess } from "bun";
 
-import { getQdrantUrlEnv } from "../config/env.js";
+import { getQdrantReadyzTimeoutMs, getQdrantUrlEnv } from "../config/env.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 
@@ -20,7 +20,7 @@ const log = getLogger("qdrant-manager");
 
 const QDRANT_VERSION = "1.13.2";
 const READYZ_POLL_INTERVAL_MS = 200;
-const READYZ_TIMEOUT_MS = 30_000;
+const READYZ_TIMEOUT_MS = 60_000;
 const SHUTDOWN_GRACE_MS = 5_000;
 
 export interface QdrantManagerConfig {
@@ -68,7 +68,8 @@ export class QdrantManager {
 
     this.readyzPollIntervalMs =
       config.readyzPollIntervalMs ?? READYZ_POLL_INTERVAL_MS;
-    this.readyzTimeoutMs = config.readyzTimeoutMs ?? READYZ_TIMEOUT_MS;
+    this.readyzTimeoutMs =
+      config.readyzTimeoutMs ?? getQdrantReadyzTimeoutMs() ?? READYZ_TIMEOUT_MS;
     this.shutdownGraceMs = config.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
 
     // External mode only if QDRANT_URL is explicitly set
