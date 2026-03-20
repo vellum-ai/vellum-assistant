@@ -413,7 +413,7 @@ Logging/
 
 ## Remote Assistant
 
-The app supports connecting to a remote assistant process over HTTP. Configure a remote assistant entry in the lockfile with its `runtimeUrl` and optional `bearerToken`, or use managed mode to connect through the Vellum platform. See the [Remote Access](../../README.md#remote-access) section in the root README.
+The app supports connecting to a remote assistant process over HTTP. Configure a remote assistant entry in the lockfile with its `runtimeUrl` and optional `bearerToken`, or use managed mode to connect through the Vellum platform. See the [Remote Access](../../docs/internal-reference.md#remote-access) section in the internal reference documentation.
 
 ---
 
