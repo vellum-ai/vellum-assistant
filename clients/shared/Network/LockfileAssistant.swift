@@ -90,6 +90,11 @@ public struct LockfileAssistant {
         cloud.lowercased() == "vellum"
     }
 
+    /// Whether this assistant is running in Docker.
+    public var isDocker: Bool {
+        cloud.lowercased() == "docker"
+    }
+
     /// The resolved workspace directory for this assistant, accounting for both
     /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
     public var workspaceDir: String? {
@@ -123,6 +128,16 @@ public struct LockfileAssistant {
 
     public var localRuntimeBaseURL: String {
         "http://localhost:\(resolvedDaemonPort())"
+    }
+
+    /// Base URL for HTTP calls to the assistant's runtime.
+    /// Docker assistants route through the gateway; local assistants
+    /// hit the daemon port directly.
+    public var resolvedRuntimeBaseURL: String {
+        if isDocker, let runtimeUrl {
+            return runtimeUrl
+        }
+        return localRuntimeBaseURL
     }
 
     public static func loadLatest() -> LockfileAssistant? {
