@@ -119,7 +119,13 @@ export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let resp: Response | undefined;
     try {
+      const headers: Record<string, string> = {};
+      const bootstrapSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
+      if (bootstrapSecret) {
+        headers["x-bootstrap-secret"] = bootstrapSecret;
+      }
       resp = await fetch(`${gatewayUrl}/internal/signing-key-bootstrap`, {
+        headers,
         signal: AbortSignal.timeout(5000),
       });
     } catch (err) {
