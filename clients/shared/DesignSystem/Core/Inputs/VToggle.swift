@@ -38,7 +38,7 @@ public struct VToggle: View {
                             isOn.toggle()
                         }
                     }
-                    .pointerCursor()
+                    .vPointerCursor()
             } else {
                 rowContent
             }

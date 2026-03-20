@@ -146,7 +146,7 @@ struct VoiceSettingsView: View {
             .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .buttonStyle(.plain)
-        .pointerCursor()
+        .vPointerCursor()
     }
 
     // MARK: - Custom Key Recording

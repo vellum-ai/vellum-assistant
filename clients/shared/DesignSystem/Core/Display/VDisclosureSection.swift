@@ -71,7 +71,7 @@ public struct VDisclosureSection<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")
             .accessibilityHint("Double-tap to \(isExpanded ? "collapse" : "expand")")

@@ -200,7 +200,7 @@ struct APIKeyStepView: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .pointerCursor()
+        .vPointerCursor()
     }
 
     // MARK: - Helpers

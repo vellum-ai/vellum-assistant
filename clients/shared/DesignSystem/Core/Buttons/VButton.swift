@@ -77,7 +77,7 @@ public struct VButton: View {
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
         .disabled(isDisabled)
         .accessibilityLabel(iconOnly != nil ? label : "")
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")

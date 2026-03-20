@@ -63,7 +63,7 @@ struct MemoryItemRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor()
+        .vPointerCursor()
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)

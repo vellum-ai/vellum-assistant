@@ -299,7 +299,7 @@ struct AppsGridView: View {
         .onHover { hovering in
             hoveredAppId = hovering ? app.id : nil
         }
-        .pointerCursor()
+        .vPointerCursor()
         .contextMenu {
             Button("Open") {
                 appListManager.recordAppOpen(
@@ -389,7 +389,7 @@ struct AppsGridView: View {
         .onHover { hovering in
             hoveredAppId = hovering ? "shared-\(app.uuid)" : nil
         }
-        .pointerCursor()
+        .vPointerCursor()
     }
 
     private func openSharedApp(_ app: SharedAppItem) {

@@ -98,7 +98,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .modifiers:
             return [
                 ("vCardMod", ".vCard()", ["card modifier"]),
-                ("pointerCursor", ".pointerCursor()", ["pointer", "cursor", "hand"]),
+                ("vPointerCursor", ".vPointerCursor()", ["pointer", "cursor", "hand"]),
                 ("nativeTooltip", ".nativeTooltip()", ["native tooltip", "help"]),
                 ("vTooltip", ".vTooltip()", ["tooltip", "popover"]),
                 ("vPanelBackground", ".vPanelBackground()", ["panel background"]),

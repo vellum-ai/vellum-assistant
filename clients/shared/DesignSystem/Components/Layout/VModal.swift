@@ -69,7 +69,7 @@ public struct VModal<Content: View, Footer: View>: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .vPointerCursor()
                     .accessibilityLabel("Back")
                 } else {
                     titleArea
@@ -85,7 +85,7 @@ public struct VModal<Content: View, Footer: View>: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .vPointerCursor()
                     .accessibilityLabel("Close")
                     .padding(.top, -VSpacing.sm)
                     .padding(.trailing, -VSpacing.sm)

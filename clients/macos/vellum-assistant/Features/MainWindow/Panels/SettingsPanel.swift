@@ -704,7 +704,7 @@ private struct SettingsNavRow: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
     }
 }
 

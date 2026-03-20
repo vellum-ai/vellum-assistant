@@ -1088,7 +1088,7 @@ private struct PublishedButton: View {
                 .onHover { hovering in
                     isCopyHovered = hovering
                 }
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
         .foregroundColor(VColor.primaryBase)
@@ -1163,7 +1163,7 @@ private struct ShareDrawerRow: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
     }
 }
 

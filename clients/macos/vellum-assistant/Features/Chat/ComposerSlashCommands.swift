@@ -201,6 +201,6 @@ struct SlashCommandRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
-        .pointerCursor()
+        .vPointerCursor()
     }
 }

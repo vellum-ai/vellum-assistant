@@ -246,7 +246,7 @@ struct AvatarManagementSheet: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel("Previous \(label.lowercased())")
 
             Spacer()
@@ -263,7 +263,7 @@ struct AvatarManagementSheet: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel("Next \(label.lowercased())")
         }
         .padding(.horizontal, VSpacing.sm)

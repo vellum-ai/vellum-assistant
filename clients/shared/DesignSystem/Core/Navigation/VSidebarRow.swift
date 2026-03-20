@@ -97,6 +97,6 @@ public struct VSidebarRow: View {
         .onHover { isHovered = $0 }
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
-        .pointerCursor()
+        .vPointerCursor()
     }
 }

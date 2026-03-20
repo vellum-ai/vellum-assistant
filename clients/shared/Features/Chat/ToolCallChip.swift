@@ -119,7 +119,7 @@ public struct ToolCallChip: View {
                 .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
 
             // Expanded details
             if isExpanded, hasExpandableContent {
@@ -164,7 +164,7 @@ public struct ToolCallChip: View {
                                 .onTapGesture(count: 2) {
                                     NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputRawValue))
                                 }
-                                .pointerCursor()
+                                .vPointerCursor()
                         } else {
                             Image(nsImage: cachedImage)
                                 .resizable()

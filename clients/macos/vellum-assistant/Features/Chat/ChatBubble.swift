@@ -395,7 +395,7 @@ struct ChatBubble: View {
                     .foregroundColor(VColor.primaryBase)
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
         }
     }
 
@@ -427,7 +427,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
@@ -444,7 +444,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel("Report message")
             }
             if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
@@ -457,7 +457,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel("Fork from here")
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
@@ -470,7 +470,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel("Inspect LLM context")
             }
         }
@@ -495,7 +495,7 @@ struct ChatBubble: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel("Stop audio")
         } else if let daemonMessageId = message.daemonMessageId {
             Button {
@@ -512,7 +512,7 @@ struct ChatBubble: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel("Play as audio")
             .help(audioPlayer.error ?? "Play as audio")
         }

@@ -49,7 +49,7 @@ struct OnboardingButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .pointerCursor()
+        .vPointerCursor()
         .disabled(disabled)
         .opacity(opacity)
         .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)

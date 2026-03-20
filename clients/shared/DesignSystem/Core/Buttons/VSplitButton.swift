@@ -61,7 +61,7 @@ public struct VSplitButton<MenuContent: View>: View {
             .onHover { hovering in
                 isPrimaryHovered = isDisabled ? false : hovering
             }
-            .pointerCursor()
+            .vPointerCursor()
 
             // Divider
             divider
@@ -94,7 +94,7 @@ public struct VSplitButton<MenuContent: View>: View {
             .onHover { hovering in
                 isDropdownHovered = isDisabled ? false : hovering
             }
-            .pointerCursor()
+            .vPointerCursor()
         }
         .fixedSize()
         .clipShape(shape)

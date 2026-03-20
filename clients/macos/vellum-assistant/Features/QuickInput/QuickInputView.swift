@@ -225,7 +225,7 @@ struct QuickInputView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .vPointerCursor()
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.md)

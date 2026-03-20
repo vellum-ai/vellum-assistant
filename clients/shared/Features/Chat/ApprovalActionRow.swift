@@ -64,7 +64,7 @@ public struct ApprovalActionButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .pointerCursor()
+        .vPointerCursor()
         .accessibilityLabel(label)
     }
 }

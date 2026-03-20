@@ -317,7 +317,7 @@ struct GuardianChannelsDetailView: View {
                         Link(identity, destination: url)
                             .font(VFont.caption)
                             .lineLimit(1)
-                            .pointerCursor()
+                            .vPointerCursor()
                     } else {
                         Text(identity)
                             .font(VFont.caption)
@@ -364,7 +364,7 @@ struct GuardianChannelsDetailView: View {
                         Link(identity, destination: url)
                             .font(VFont.caption)
                             .lineLimit(1)
-                            .pointerCursor()
+                            .vPointerCursor()
                     } else {
                         Text(identity)
                             .font(VFont.caption)

@@ -547,7 +547,7 @@ struct AssistantChannelsDetailView: View {
                             Link("@\(username)", destination: url)
                                 .font(VFont.body)
                                 .lineLimit(1)
-                                .pointerCursor()
+                                .vPointerCursor()
                         } else {
                             Text("@\(username)")
                                 .font(VFont.body)
@@ -659,7 +659,7 @@ struct AssistantChannelsDetailView: View {
                                 Link(botUserId, destination: url)
                                     .font(VFont.caption)
                                     .lineLimit(1)
-                                    .pointerCursor()
+                                    .vPointerCursor()
                             } else {
                                 Text(botUserId)
                                     .font(VFont.caption)

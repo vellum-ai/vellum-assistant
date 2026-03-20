@@ -167,7 +167,7 @@ private struct InlineToolCallImageView: View {
                 provider.suggestedName = "image.png"
                 return provider
             }
-            .pointerCursor()
+            .vPointerCursor()
     }
 
     @ViewBuilder
@@ -286,7 +286,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                 }
                                 return provider
                             }
-                            .pointerCursor()
+                            .vPointerCursor()
                     } else if failedIds.contains(attachment.id) {
                         // All decode paths failed — show a file chip so the user still has the
                         // filename and a download affordance for corrupt/unsupported payloads.
@@ -414,7 +414,7 @@ extension ChatBubble {
         .onTapGesture {
             saveFileAttachment(attachment)
         }
-        .pointerCursor()
+        .vPointerCursor()
     }
 
     func saveFileAttachment(_ attachment: ChatAttachment) {

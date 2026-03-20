@@ -43,7 +43,7 @@ public struct VShortcutTag: View {
             .onHover { hovering in
                 isHovered = hovering
             }
-            .pointerCursor()
+            .vPointerCursor()
             .accessibilityLabel(text)
         } else {
             tagContent

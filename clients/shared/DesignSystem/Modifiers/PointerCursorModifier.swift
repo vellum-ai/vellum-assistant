@@ -66,12 +66,12 @@ struct PointerCursorModifier: ViewModifier {
 
 public extension View {
     /// Applies a pointing-hand cursor when the user hovers over this view.
-    func pointerCursor() -> some View {
+    func vPointerCursor() -> some View {
         modifier(PointerCursorModifier())
     }
 
     /// Applies a pointing-hand cursor and calls `onHover` in a single hover handler.
-    func pointerCursor(onHover: @escaping (Bool) -> Void) -> some View {
+    func vPointerCursor(onHover: @escaping (Bool) -> Void) -> some View {
         modifier(PointerCursorModifier(onHover: onHover))
     }
 }

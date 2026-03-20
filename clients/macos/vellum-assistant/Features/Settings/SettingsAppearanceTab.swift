@@ -58,7 +58,7 @@ struct SettingsAppearanceTab: View {
                                         .foregroundColor(VColor.contentTertiary)
                                 }
                                 .buttonStyle(.plain)
-                                .pointerCursor()
+                                .vPointerCursor()
                             }
                         }
                         .padding(.horizontal, VSpacing.md)
@@ -124,7 +124,7 @@ struct SettingsAppearanceTab: View {
                                             .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
-                                        .pointerCursor()
+                                        .vPointerCursor()
                                     }
                                 }
                                 .background { OverlayScrollerStyle() }

@@ -66,7 +66,7 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         .onHover { hovering in
             isDividerHovered = hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
                 .onChanged { value in

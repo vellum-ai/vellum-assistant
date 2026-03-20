@@ -77,7 +77,7 @@ extension ComposerView {
             .if(isImage) { view in
                 view
                     .onTapGesture { openAttachmentPreview(attachment) }
-                    .pointerCursor()
+                    .vPointerCursor()
             }
 
             Button {

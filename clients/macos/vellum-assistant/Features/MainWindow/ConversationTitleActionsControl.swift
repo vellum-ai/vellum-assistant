@@ -40,7 +40,7 @@ struct ConversationTitleActionsControl: View {
                     .foregroundStyle(VColor.contentSecondary)
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
                 .accessibilityLabel("Open parent conversation")
             }
         }

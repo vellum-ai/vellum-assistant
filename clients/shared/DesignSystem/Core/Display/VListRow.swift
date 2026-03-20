@@ -18,7 +18,7 @@ public struct VListRow<Content: View>: View {
                     rowContent
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .vPointerCursor()
             } else {
                 rowContent
             }

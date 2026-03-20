@@ -69,7 +69,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
         .onHover { hovering in
             isDividerHovered = hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
                 .onChanged { value in

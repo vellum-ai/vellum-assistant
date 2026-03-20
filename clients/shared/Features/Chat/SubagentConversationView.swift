@@ -151,7 +151,7 @@ public struct SubagentConversationView: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .pointerCursor()
+        .vPointerCursor()
         .accessibilityLabel("Conversation: \(subagent.label)")
         .accessibilityHint("Opens conversation detail panel")
         .accessibilityAddTraits(.isButton)

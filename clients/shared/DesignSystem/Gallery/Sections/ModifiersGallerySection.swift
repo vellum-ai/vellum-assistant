@@ -67,13 +67,13 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "pointerCursor" {
+            if filter == nil || filter == "vPointerCursor" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - .pointerCursor()
+                // MARK: - .vPointerCursor()
                 GallerySectionHeader(
-                    title: ".pointerCursor()",
+                    title: ".vPointerCursor()",
                     description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."
                 )
 
@@ -95,14 +95,14 @@ struct ModifiersGallerySection: View {
                                     RoundedRectangle(cornerRadius: VRadius.sm)
                                         .stroke(VColor.borderBase, lineWidth: 1)
                                 )
-                                .pointerCursor()
+                                .vPointerCursor()
 
                             Text("Tappable label")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.primaryBase)
                                 .padding(VSpacing.md)
                                 .contentShape(Rectangle())
-                                .pointerCursor()
+                                .vPointerCursor()
                         }
                     }
                 }
@@ -347,7 +347,7 @@ extension ModifiersGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vCardMod": ModifiersGallerySection(filter: "vCardMod")
-        case "pointerCursor": ModifiersGallerySection(filter: "pointerCursor")
+        case "vPointerCursor": ModifiersGallerySection(filter: "vPointerCursor")
         case "nativeTooltip": ModifiersGallerySection(filter: "nativeTooltip")
         case "vTooltip": ModifiersGallerySection(filter: "vTooltip")
         case "vPanelBackground": ModifiersGallerySection(filter: "vPanelBackground")

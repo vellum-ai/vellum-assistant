@@ -371,7 +371,7 @@ extension MainWindowView {
                                 }
                                 .buttonStyle(.plain)
                                 .padding(.horizontal, VSpacing.sm)
-                                .pointerCursor()
+                                .vPointerCursor()
 
                                 // Expanded child rows
                                 if isGroupExpanded {
@@ -516,7 +516,7 @@ extension MainWindowView {
                 .onDisappear {
                     showConversationSwitcher = false
                 }
-                .pointerCursor()
+                .vPointerCursor()
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear {
                         conversationSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))

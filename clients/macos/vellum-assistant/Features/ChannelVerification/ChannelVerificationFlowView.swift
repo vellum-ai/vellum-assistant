@@ -145,7 +145,7 @@ struct ChannelVerificationFlowView: View {
                         Link(identity, destination: url)
                             .font(VFont.caption)
                             .lineLimit(1)
-                            .pointerCursor()
+                            .vPointerCursor()
                     } else {
                         Text(identity)
                             .font(VFont.caption)
@@ -306,7 +306,7 @@ struct ChannelVerificationFlowView: View {
                             .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
-                        .pointerCursor()
+                        .vPointerCursor()
                     }
                 }
             }
@@ -449,7 +449,7 @@ struct ChannelVerificationFlowView: View {
                             .foregroundColor(VColor.primaryBase)
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .vPointerCursor()
                 }
             } else if state.channel == "phone" {
                 Text("This is your personal phone number")

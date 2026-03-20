@@ -39,7 +39,7 @@ struct RunningIndicator: View {
                 indicatorContent
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .onHover { hovering in
                 isHovered = hovering
             }

@@ -80,7 +80,7 @@ public struct VTab: View {
         )
         .animation(VAnimation.fast, value: isHovered)
         .onHover { hovering in isHovered = hovering }
-        .pointerCursor()
+        .vPointerCursor()
     }
 }
 

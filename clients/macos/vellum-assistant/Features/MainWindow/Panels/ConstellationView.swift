@@ -344,7 +344,7 @@ private struct SkillNodeView: View {
             }
         }
         .if(isTappable) { view in
-            view.pointerCursor()
+            view.vPointerCursor()
         }
         .onTapGesture(count: 2) {
             onDoubleTap?()

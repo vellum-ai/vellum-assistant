@@ -167,7 +167,7 @@ struct AppSharePanelView: View {
         .onHover { hovering in
             hoveredServiceIndex = hovering ? index : nil
         }
-        .pointerCursor()
+        .vPointerCursor()
     }
 
     // MARK: - Helpers

@@ -386,7 +386,7 @@ struct AgentPanelContent: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .vPointerCursor()
             .onHover { isHovered = $0 }
             .contextMenu {
                 Button("Remove", role: .destructive, action: onDelete)
