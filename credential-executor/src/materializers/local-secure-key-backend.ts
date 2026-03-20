@@ -124,6 +124,61 @@ function readStoreKey(vellumRoot: string): Buffer | null {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-initialization helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read or generate the v2 store key. If the key file does not exist,
+ * creates a new 32-byte random key and writes it atomically.
+ */
+function getOrReadStoreKey(vellumRoot: string): Buffer {
+  const existing = readStoreKey(vellumRoot);
+  if (existing) return existing;
+
+  const securityDir = resolveSecurityDir(vellumRoot);
+  mkdirSync(securityDir, { recursive: true });
+
+  const key = randomBytes(KEY_LENGTH);
+  const keyPath = join(securityDir, STORE_KEY_FILENAME);
+  const tmpPath = keyPath + `.tmp.${process.pid}`;
+  writeFileSync(tmpPath, key, { mode: 0o600 });
+  chmodSync(tmpPath, 0o600);
+  renameSync(tmpPath, keyPath);
+
+  return key;
+}
+
+/**
+ * Read an existing store or create a new empty v2 store. Returns the store
+ * and the AES key needed to encrypt/decrypt entries.
+ *
+ * For existing v1 stores, throws so the caller can fall back to the legacy
+ * PBKDF2 path (v1 stores cannot be auto-initialized with a store key).
+ */
+function getOrCreateStore(
+  storePath: string,
+  vellumRoot: string,
+): { store: StoreFile; aesKey: Buffer } {
+  const existing = readStore(storePath);
+  if (existing) {
+    if (existing.version === 1) {
+      throw new Error("v1 store cannot be auto-initialized");
+    }
+    const storeKey = readStoreKey(vellumRoot);
+    if (!storeKey) {
+      throw new Error("v2 store exists but store.key is missing or corrupt");
+    }
+    return { store: existing, aesKey: storeKey };
+  }
+
+  // No store exists — create a new empty v2 store
+  const aesKey = getOrReadStoreKey(vellumRoot);
+  const store: StoreFileV2 = { version: 2, entries: {} };
+  writeStore(store, storePath);
+  return { store, aesKey };
+}
+
+// ---------------------------------------------------------------------------
 // Machine entropy (must match assistant/src/security/encrypted-store.ts)
 // ---------------------------------------------------------------------------
 
@@ -287,19 +342,25 @@ export function createLocalSecureKeyBackend(
     // future improvement.
     async set(key: string, value: string): Promise<boolean> {
       try {
-        const store = readStore(storePath);
-        if (!store) return false;
-
+        let store: StoreFile;
         let aesKey: Buffer;
-        if (store.version === 2) {
-          const storeKey = readStoreKey(vellumRoot);
-          if (!storeKey) return false;
-          aesKey = storeKey;
-        } else {
-          // v1: derive key from machine entropy via PBKDF2
-          const entropy = entropyGetter?.() ?? staticEntropy;
-          const salt = Buffer.from(store.salt, "hex");
-          aesKey = deriveKey(salt, entropy);
+
+        try {
+          const result = getOrCreateStore(storePath, vellumRoot);
+          store = result.store;
+          aesKey = result.aesKey;
+        } catch {
+          // Fallback: v1 store or other error — try legacy PBKDF2 path
+          const existing = readStore(storePath);
+          if (!existing) return false;
+          store = existing;
+          if (store.version === 1) {
+            const entropy = entropyGetter?.() ?? staticEntropy;
+            const salt = Buffer.from(store.salt, "hex");
+            aesKey = deriveKey(salt, entropy);
+          } else {
+            return false;
+          }
         }
 
         store.entries[key] = encrypt(value, aesKey);
