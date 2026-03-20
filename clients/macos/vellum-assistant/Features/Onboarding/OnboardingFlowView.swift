@@ -120,7 +120,15 @@ struct OnboardingFlowView: View {
                             case 2:
                                 APIKeyEntryStepView(state: state)
                             case 3:
-                                ImproveExperienceStepView(state: state, skippedAPIKeyEntry: state.skippedAPIKeyEntry)
+                                ImproveExperienceStepView(
+                                    state: state,
+                                    skippedAPIKeyEntry: state.skippedAPIKeyEntry,
+                                    onAccepted: state.selectedHostingMode == .vellumCloud ? {
+                                        Task {
+                                            await performManagedBootstrap()
+                                        }
+                                    } : nil
+                                )
                             default:
                                 EmptyView()
                             }

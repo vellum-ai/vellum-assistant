@@ -7,6 +7,9 @@ struct ImproveExperienceStepView: View {
     /// Whether the user arrived here by skipping step 2 (API key entry).
     /// Captured at init so it reflects the navigation path, not live auth state.
     var skippedAPIKeyEntry: Bool = false
+    /// Optional override for what happens after the user accepts ToS.
+    /// When provided, called instead of the default `state.isHatching = true`.
+    var onAccepted: (() -> Void)?
 
     @State private var showTitle = false
     @State private var showContent = false
@@ -125,7 +128,11 @@ struct ImproveExperienceStepView: View {
             MetricKitManager.closeSentry()
         }
 
-        state.isHatching = true
+        if let onAccepted {
+            onAccepted()
+        } else {
+            state.isHatching = true
+        }
     }
 
     private func goBack() {
