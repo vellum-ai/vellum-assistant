@@ -518,10 +518,32 @@ final class ChatScrollLoopGuardTests: XCTestCase {
             timestamp += 0.01
         }
 
-        let counts = guard_.currentCounts(conversationId: conversationId)
+        let counts = guard_.currentCounts(conversationId: conversationId, timestamp: timestamp)
         XCTAssertEqual(counts[.avatarFollowerUpdate], 10)
         XCTAssertEqual(counts[.bodyEvaluation], 5)
         XCTAssertNil(counts[.anchorPreferenceChange], "Unrecorded kinds should not appear")
+    }
+
+    func testCurrentCountsPrunesStaleEntries() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Record events that will become stale.
+        for _ in 0..<10 {
+            guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.01
+        }
+
+        // Advance past the 2-second window so all prior events are stale.
+        timestamp += ChatScrollLoopGuard.windowDuration + 0.1
+
+        // Record a few fresh events.
+        for _ in 0..<3 {
+            guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.01
+        }
+
+        let counts = guard_.currentCounts(conversationId: conversationId, timestamp: timestamp)
+        XCTAssertEqual(counts[.avatarFollowerUpdate], 3, "Stale entries outside the window should be excluded")
     }
 
     func testCurrentCountsReturnsEmptyForUnknownConversation() {
