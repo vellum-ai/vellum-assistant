@@ -11,6 +11,7 @@ import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { restore } from "./commands/restore";
 import { retire } from "./commands/retire";
+import { rollback } from "./commands/rollback";
 import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
@@ -39,6 +40,7 @@ const commands = {
   recover,
   restore,
   retire,
+  rollback,
   setup,
   sleep,
   ssh,
@@ -68,6 +70,9 @@ function printHelp(): void {
   console.log("  recover  Restore a previously retired local assistant");
   console.log("  restore  Restore a .vbundle backup into a running assistant");
   console.log("  retire   Delete an assistant instance");
+  console.log(
+    "  rollback  Roll back a Docker assistant to the previous version",
+  );
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");

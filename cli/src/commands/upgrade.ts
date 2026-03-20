@@ -139,7 +139,7 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
  * Capture environment variables from a running Docker container so they
  * can be replayed onto the replacement container after upgrade.
  */
-async function captureContainerEnv(
+export async function captureContainerEnv(
   containerName: string,
 ): Promise<Record<string, string>> {
   const captured: Record<string, string> = {};
@@ -167,7 +167,7 @@ async function captureContainerEnv(
  * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
  * elapses. Returns whether the assistant became ready.
  */
-async function waitForReady(runtimeUrl: string): Promise<boolean> {
+export async function waitForReady(runtimeUrl: string): Promise<boolean> {
   const readyUrl = `${runtimeUrl}/readyz`;
   const start = Date.now();
 
@@ -206,7 +206,7 @@ async function waitForReady(runtimeUrl: string): Promise<boolean> {
  * via the gateway's upgrade-broadcast proxy. Uses guardian token auth.
  * Failures are logged but never block the upgrade flow.
  */
-async function broadcastUpgradeEvent(
+export async function broadcastUpgradeEvent(
   gatewayUrl: string,
   assistantId: string,
   event: Record<string, unknown>,
