@@ -813,7 +813,7 @@ describe("fetchSigningKeyFromGateway", () => {
       })) as unknown as typeof fetch;
 
     await expect(fetchSigningKeyFromGateway()).rejects.toThrow(
-      "Invalid signing key length",
+      "Invalid signing key: expected 64 hex characters",
     );
   });
 

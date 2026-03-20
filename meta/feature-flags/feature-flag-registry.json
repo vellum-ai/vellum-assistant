@@ -304,6 +304,14 @@
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
+    },
+    {
+      "id": "logfire",
+      "scope": "assistant",
+      "key": "feature_flags.logfire.enabled",
+      "label": "Logfire Observability",
+      "description": "Enable Logfire distributed tracing for LLM provider calls and daemon lifecycle events",
+      "defaultEnabled": false
     }
   ]
 }
