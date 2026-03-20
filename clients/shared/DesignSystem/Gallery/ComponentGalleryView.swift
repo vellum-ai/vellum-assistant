@@ -3,6 +3,22 @@ import SwiftUI
 
 // MARK: - Data Model
 
+struct GalleryComponent: Identifiable {
+    let id: String
+    let title: String
+    let keywords: [String]
+    let description: String
+    let useInsteadOf: String?
+
+    init(_ id: String, _ title: String, keywords: [String], description: String, useInsteadOf: String? = nil) {
+        self.id = id
+        self.title = title
+        self.keywords = keywords
+        self.description = description
+        self.useInsteadOf = useInsteadOf
+    }
+}
+
 enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
     case buttons = "Buttons"
     case chat = "Chat"
@@ -32,95 +48,95 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    var components: [(id: String, title: String, keywords: [String])] {
+    var components: [GalleryComponent] {
         switch self {
         case .buttons:
             return [
-                ("vButton", "VButton", ["button"]),
-                ("vSplitButton", "VSplitButton", ["split button", "dropdown button"]),
+                GalleryComponent("vButton", "VButton", keywords: ["button"], description: "Primary action button with multiple styles (primary, outlined, danger, ghost, contrast), icon support, full-width option, and inline size.", useInsteadOf: "Custom Button with manual styling"),
+                GalleryComponent("vSplitButton", "VSplitButton", keywords: ["split button", "dropdown button"], description: "Split button with a primary action and dropdown menu for secondary actions."),
             ]
         case .chat:
             return [
-                ("voiceComposer", "VStreamingWaveform", ["voice composer", "waveform", "dictation"]),
-                ("skillInvocation", "SkillInvocationChip", ["skill invocation", "skill chip"]),
-                ("subagentStatus", "SubagentStatusChip", ["subagent status", "subagent conversation"]),
-                ("toolChips", "ToolCallChip", ["tool chips", "tool call"]),
-                ("stepIndicators", "CurrentStepIndicator", ["step indicators", "progress bar", "tool call progress"]),
-                ("progressIndicators", "TypingIndicatorView", ["progress indicators", "typing", "running"]),
-                ("toolConfirmations", "ToolConfirmationBubble", ["tool confirmations", "permission", "approval"]),
+                GalleryComponent("voiceComposer", "VStreamingWaveform", keywords: ["voice composer", "waveform", "dictation"], description: "Animated waveform for voice dictation and conversation audio feedback."),
+                GalleryComponent("skillInvocation", "SkillInvocationChip", keywords: ["skill invocation", "skill chip"], description: "Compact pill showing a skill being invoked with its name and status."),
+                GalleryComponent("subagentStatus", "SubagentStatusChip", keywords: ["subagent status", "subagent conversation"], description: "Status chip for subagent conversations showing name and activity state."),
+                GalleryComponent("toolChips", "ToolCallChip", keywords: ["tool chips", "tool call"], description: "Compact chip showing a tool call with name, status icon, and optional duration."),
+                GalleryComponent("stepIndicators", "CurrentStepIndicator", keywords: ["step indicators", "progress bar", "tool call progress"], description: "Progress bar showing the current step in a multi-step tool call."),
+                GalleryComponent("progressIndicators", "TypingIndicatorView", keywords: ["progress indicators", "typing", "running"], description: "Animated dots indicating the assistant is typing or processing."),
+                GalleryComponent("toolConfirmations", "ToolConfirmationBubble", keywords: ["tool confirmations", "permission", "approval"], description: "Approval bubble for tool calls that require user permission before execution."),
             ]
         case .display:
             return [
-                ("vCard", "VCard", ["card"]),
-                ("vEmptyState", "VEmptyState", ["empty state"]),
-                ("vDisclosureSection", "VDisclosureSection", ["disclosure", "collapsible"]),
-                ("vListRow", "VListRow", ["list row"]),
-                ("vAvatarImage", "VAvatarImage", ["avatar", "image"]),
-                ("vCodeView", "VCodeView", ["code view", "syntax"]),
-                ("vDiffView", "VDiffView", ["diff view"]),
-                ("vStreamingWaveform", "VStreamingWaveform", ["waveform", "streaming"]),
+                GalleryComponent("vCard", "VCard", keywords: ["card"], description: "Container with surface background, border, and configurable padding. Use .vCard() modifier for simple wrapping.", useInsteadOf: "Manual padding + background + cornerRadius"),
+                GalleryComponent("vEmptyState", "VEmptyState", keywords: ["empty state"], description: "Centered placeholder with icon, title, subtitle, and optional action button for empty content areas."),
+                GalleryComponent("vDisclosureSection", "VDisclosureSection", keywords: ["disclosure", "collapsible"], description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.", useInsteadOf: "Raw DisclosureGroup"),
+                GalleryComponent("vListRow", "VListRow", keywords: ["list row"], description: "List item with hover highlight and optional tap action."),
+                GalleryComponent("vAvatarImage", "VAvatarImage", keywords: ["avatar", "image"], description: "Avatar with transparency-aware clip shape. Transparent images show full artwork; opaque images clip to a circle."),
+                GalleryComponent("vCodeView", "VCodeView", keywords: ["code view", "syntax"], description: "Read-only code viewer with line numbers, search, and pluggable syntax highlighting. Wraps NSTextView for native text selection."),
+                GalleryComponent("vDiffView", "VDiffView", keywords: ["diff view"], description: "Renders unified diff text with per-line colored backgrounds. Green for additions, red for removals."),
+                GalleryComponent("vStreamingWaveform", "VStreamingWaveform", keywords: ["waveform", "streaming"], description: "Animated audio waveform driven by amplitude. Two styles: conversation (centered) and dictation (bottom-aligned)."),
             ]
         case .feedback:
             return [
-                ("vBadge", "VBadge", ["badge"]),
-                ("vLoadingIndicator", "VLoadingIndicator", ["loading", "spinner"]),
-                ("vToast", "VToast", ["toast", "notification"]),
-                ("vInlineMessage", "VInlineMessage", ["inline message", "alert"]),
-                ("vShortcutTag", "VShortcutTag", ["shortcut", "keyboard"]),
-                ("vCopyButton", "VCopyButton", ["copy", "clipboard"]),
-                ("vBusyIndicator", "VBusyIndicator", ["busy", "activity"]),
-                ("vSkeletonBone", "VSkeletonBone", ["skeleton", "placeholder"]),
-                ("vSkillTypePill", "VSkillTypePill", ["skill type", "pill"]),
-                ("vInfoTooltip", "VInfoTooltip", ["info", "tooltip"]),
+                GalleryComponent("vBadge", "VBadge", keywords: ["badge"], description: "Notification count badge with semantic color variants."),
+                GalleryComponent("vLoadingIndicator", "VLoadingIndicator", keywords: ["loading", "spinner"], description: "Spinning indicator for inline loading states. Use VSkeletonBone for structured loading layouts."),
+                GalleryComponent("vToast", "VToast", keywords: ["toast", "notification"], description: "Temporary notification banner with auto-dismiss and action support."),
+                GalleryComponent("vInlineMessage", "VInlineMessage", keywords: ["inline message", "alert"], description: "Persistent inline alert with icon and semantic color (info, warning, error, success)."),
+                GalleryComponent("vShortcutTag", "VShortcutTag", keywords: ["shortcut", "keyboard"], description: "Keyboard shortcut display tag showing key combinations."),
+                GalleryComponent("vCopyButton", "VCopyButton", keywords: ["copy", "clipboard"], description: "One-click copy button with animated checkmark success feedback."),
+                GalleryComponent("vBusyIndicator", "VBusyIndicator", keywords: ["busy", "activity"], description: "Activity indicator for small, contained loading states."),
+                GalleryComponent("vSkeletonBone", "VSkeletonBone", keywords: ["skeleton", "placeholder"], description: "Placeholder bone with shimmer animation for loading skeletons. Compose multiple bones to match the target layout."),
+                GalleryComponent("vSkillTypePill", "VSkillTypePill", keywords: ["skill type", "pill"], description: "Colored pill showing a skill type category."),
+                GalleryComponent("vInfoTooltip", "VInfoTooltip", keywords: ["info", "tooltip"], description: "Info icon with hover tooltip for contextual help text."),
             ]
         case .icons:
             return [
-                ("vAppIconGenerator", "VAppIconGenerator", ["app icon", "generator"]),
-                ("iconTokens", "VIcon", ["icon tokens", "icon catalog"]),
+                GalleryComponent("vAppIconGenerator", "VAppIconGenerator", keywords: ["app icon", "generator"], description: "Generates deterministic app icons from SF Symbols with gradient backgrounds."),
+                GalleryComponent("iconTokens", "VIcon", keywords: ["icon tokens", "icon catalog"], description: "Complete catalog of vendored Lucide icons. Use VIconView to render. See AGENTS.md for adding new icons."),
             ]
         case .inputs:
             return [
-                ("vTextField", "VTextField", ["text field", "input"]),
-                ("vSlider", "VSlider", ["slider", "range"]),
-                ("vTextEditor", "VTextEditor", ["text editor", "multiline"]),
-                ("vToggle", "VToggle", ["toggle", "switch"]),
-                ("vDropdown", "VDropdown", ["dropdown", "select", "picker"]),
-                ("combinedForm", "Combined Form", ["form", "combined"]),
+                GalleryComponent("vTextField", "VTextField", keywords: ["text field", "input"], description: "Single-line text input with label, error, secure mode, leading/trailing icons, size variants, custom font, and external focus control.", useInsteadOf: "Raw TextField or SecureField with manual styling"),
+                GalleryComponent("vSlider", "VSlider", keywords: ["slider", "range"], description: "Custom slider with capsule track, grip-line thumb, and optional tick marks."),
+                GalleryComponent("vTextEditor", "VTextEditor", keywords: ["text editor", "multiline"], description: "Multi-line text editor with placeholder and configurable min/max height."),
+                GalleryComponent("vToggle", "VToggle", keywords: ["toggle", "switch"], description: "Custom toggle switch with optional label and animated knob transition."),
+                GalleryComponent("vDropdown", "VDropdown", keywords: ["dropdown", "select", "picker"], description: "Generic dropdown picker with label, error, icon, and size variants (.regular, .small).", useInsteadOf: "Raw Menu + Picker with manual styling"),
+                GalleryComponent("combinedForm", "Combined Form", keywords: ["form", "combined"], description: "Example of VTextField and VDropdown composed together in a form layout."),
             ]
         case .layout:
             return [
-                ("vModal", "VModal", ["modal", "dialog"]),
-                ("vAdaptiveStack", "VAdaptiveStack", ["adaptive stack", "responsive"]),
-                ("vSidePanel", "VSidePanel", ["side panel", "drawer"]),
-                ("vSplitView", "VSplitView", ["split view", "resizable"]),
-                ("vAppWorkspaceDockLayout", "VAppWorkspaceDockLayout", ["dock", "workspace", "layout"]),
+                GalleryComponent("vModal", "VModal", keywords: ["modal", "dialog"], description: "Standardized modal container with title, optional subtitle, scrollable content, and optional footer with navigation actions."),
+                GalleryComponent("vAdaptiveStack", "VAdaptiveStack", keywords: ["adaptive stack", "responsive"], description: "Arranges content horizontally when space allows, falling back to vertical stacking via ViewThatFits.", useInsteadOf: "Raw ViewThatFits { HStack { } VStack { } } in feature code"),
+                GalleryComponent("vSidePanel", "VSidePanel", keywords: ["side panel", "drawer"], description: "Side panel with title header, close button, optional pinned content, and scrollable body."),
+                GalleryComponent("vSplitView", "VSplitView", keywords: ["split view", "resizable"], description: "Split layout with main content and a togglable, resizable side panel."),
+                GalleryComponent("vAppWorkspaceDockLayout", "VAppWorkspaceDockLayout", keywords: ["dock", "workspace", "layout"], description: "Workspace layout with a togglable, resizable dock panel and draggable divider."),
             ]
         case .modifiers:
             return [
-                ("vCardMod", ".vCard()", ["card modifier"]),
-                ("pointerCursor", ".pointerCursor()", ["pointer", "cursor", "hand"]),
-                ("nativeTooltip", ".nativeTooltip()", ["native tooltip", "help"]),
-                ("vTooltip", ".vTooltip()", ["tooltip", "popover"]),
-                ("vPanelBackground", ".vPanelBackground()", ["panel background"]),
-                ("ifMod", ".if()", ["conditional modifier"]),
-                ("vShimmer", ".vShimmer()", ["shimmer", "loading animation"]),
-                ("inlineWidgetCard", ".inlineWidgetCard()", ["inline widget", "card"]),
+                GalleryComponent("vCardMod", ".vCard()", keywords: ["card modifier"], description: "Apply card styling (background, corner radius, border) to any view with configurable radius and background color."),
+                GalleryComponent("pointerCursor", ".pointerCursor()", keywords: ["pointer", "cursor", "hand"], description: "Show pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."),
+                GalleryComponent("nativeTooltip", ".nativeTooltip()", keywords: ["native tooltip", "help"], description: "Attaches a native macOS tooltip via AppKit. Use instead of .help() where gesture recognizers block tooltip display."),
+                GalleryComponent("vTooltip", ".vTooltip()", keywords: ["tooltip", "popover"], description: "Fast 200ms floating tooltip using NSPanel. Escapes clipping bounds, never steals clicks. Use for quick hints on any view."),
+                GalleryComponent("vPanelBackground", ".vPanelBackground()", keywords: ["panel background"], description: "Fills the view with the subtle background color used for side panels and drawers."),
+                GalleryComponent("ifMod", ".if()", keywords: ["conditional modifier"], description: "Conditionally applies a view transformation. Use sparingly — prefer named modifiers for common patterns."),
+                GalleryComponent("vShimmer", ".vShimmer()", keywords: ["shimmer", "loading animation"], description: "Sweeps a translucent highlight across the view for skeleton loading animations. Respects reduced motion."),
+                GalleryComponent("inlineWidgetCard", ".inlineWidgetCard()", keywords: ["inline widget", "card"], description: "Standard card chrome for inline chat widgets with padding, background, border, and optional hover highlight."),
             ]
         case .navigation:
             return [
-                ("vSegmentedControl", "VSegmentedControl", ["segmented control", "tabs"]),
-                ("vSidebarRow", "VSidebarRow", ["sidebar row", "navigation row"]),
-                ("vTabBar", "VTabBar + VTab", ["tab bar", "tabs"]),
-                ("vThemeToggle", "VThemeToggle", ["theme toggle", "dark mode", "light mode"]),
+                GalleryComponent("vSegmentedControl", "VSegmentedControl", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
+                GalleryComponent("vSidebarRow", "VSidebarRow", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
+                GalleryComponent("vTabBar", "VTabBar + VTab", keywords: ["tab bar", "tabs"], description: "Horizontal scrollable tab bar with pill, flat, and rectangular styles. Tabs support selection, close, and icons."),
+                GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
             ]
         case .tokens:
             return [
-                ("colors", "VColor", ["colors", "semantic colors", "theme"]),
-                ("typography", "VFont", ["typography", "fonts", "text styles"]),
-                ("spacing", "VSpacing", ["spacing", "padding", "margins"]),
-                ("radius", "VRadius", ["radius", "corner radius", "rounded"]),
-                ("shadows", "VShadow", ["shadows", "elevation"]),
-                ("animations", "VAnimation", ["animations", "transitions", "motion"]),
+                GalleryComponent("colors", "VColor", keywords: ["colors", "semantic colors", "theme"], description: "Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair. Always use instead of raw Color values."),
+                GalleryComponent("typography", "VFont", keywords: ["typography", "fonts", "text styles"], description: "Typography scale with Inter and DM Mono fonts. Includes body, headline, caption, mono, section, and display styles."),
+                GalleryComponent("spacing", "VSpacing", keywords: ["spacing", "padding", "margins"], description: "4pt grid spacing tokens from xxs(2) to xxxl(48) with semantic aliases (inline, content, section, page)."),
+                GalleryComponent("radius", "VRadius", keywords: ["radius", "corner radius", "rounded"], description: "Corner radius tokens from xs(2) to pill(999). Always use instead of raw cornerRadius values."),
+                GalleryComponent("shadows", "VShadow", keywords: ["shadows", "elevation"], description: "Shadow tokens (sm, md, lg, glow, accentGlow) applied via .vShadow() modifier."),
+                GalleryComponent("animations", "VAnimation", keywords: ["animations", "transitions", "motion"], description: "Animation timing presets: snappy (0.12s), fast (0.15s), standard (0.25s), slow (0.4s), spring, panel, bouncy."),
             ]
         }
     }
@@ -147,7 +163,7 @@ struct ComponentGalleryView: View {
         return expandable.allSatisfy { expandedCategories.contains($0) }
     }
 
-    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])])] {
+    private var filteredCategories: [(category: ComponentGalleryCategory, components: [GalleryComponent])] {
         let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
         if query.isEmpty {
             return ComponentGalleryCategory.allCases.map { ($0, $0.components) }
@@ -156,6 +172,7 @@ struct ComponentGalleryView: View {
             let matchingComponents = category.components.filter { component in
                 component.title.lowercased().contains(query)
                     || component.id.lowercased().contains(query)
+                    || component.description.lowercased().contains(query)
                     || component.keywords.contains { $0.lowercased().contains(query) }
             }
             let categoryMatches = category.rawValue.lowercased().contains(query)
@@ -173,7 +190,7 @@ struct ComponentGalleryView: View {
             VStack(spacing: 0) {
                 Text("Component Gallery")
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.md)
                     .padding(.bottom, VSpacing.xs)
@@ -192,7 +209,7 @@ struct ComponentGalleryView: View {
                         }
                     }) {
                         VIconView(allExpanded ? .chevronsDownUp : .chevronsUpDown, size: 14)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(allExpanded ? "Collapse all" : "Expand all")
@@ -242,7 +259,7 @@ struct ComponentGalleryView: View {
     // MARK: - Sidebar Components
 
     @ViewBuilder
-    private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])]) -> some View {
+    private func sidebarCategory(_ category: ComponentGalleryCategory, components: [GalleryComponent]) -> some View {
         let isCategoryExpanded = isSearching || expandedCategories.contains(category)
 
         VStack(spacing: 0) {
@@ -303,6 +320,10 @@ struct ComponentGalleryView: View {
 
     @ViewBuilder
     private func overviewContent(for category: ComponentGalleryCategory) -> some View {
+        GalleryOverview(category: category) { page in
+            selectedPage = page
+        }
+
         switch category {
         case .buttons: ButtonsGallerySection()
         case .chat: ChatGallerySection()
@@ -339,16 +360,102 @@ struct ComponentGalleryView: View {
 struct GallerySectionHeader: View {
     let title: String
     let description: String
+    var useInsteadOf: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(title)
                 .font(VFont.largeTitle)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text(description)
                 .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
+            if let useInsteadOf {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Replaces")
+                        .font(VFont.small)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(useInsteadOf)
+                        .font(VFont.small)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(VColor.surfaceActive)
+                        .clipShape(Capsule())
+                }
+            }
         }
+    }
+}
+
+// MARK: - Component Card
+
+struct GalleryComponentCard: View {
+    let component: GalleryComponent
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text(component.title)
+                    .font(VFont.headline)
+                    .foregroundStyle(VColor.contentDefault)
+
+                Text(component.description)
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 0)
+
+                if let useInsteadOf = component.useInsteadOf {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Replaces")
+                            .font(VFont.small)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text(useInsteadOf)
+                            .font(VFont.small)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xxs)
+                            .background(VColor.surfaceActive)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
+            .padding(VSpacing.lg)
+        }
+        .buttonStyle(.plain)
+        .vCard()
+        .pointerCursor()
+    }
+}
+
+// MARK: - Overview Grid
+
+struct GalleryOverview: View {
+    let category: ComponentGalleryCategory
+    let onNavigate: (GalleryPage) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("\(category.rawValue) — \(category.components.count) components")
+                .font(VFont.headline)
+                .foregroundStyle(VColor.contentSecondary)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 400), spacing: VSpacing.md)], spacing: VSpacing.md) {
+                ForEach(category.components) { component in
+                    GalleryComponentCard(component: component) {
+                        onNavigate(.component(category, component.id))
+                    }
+                }
+            }
+        }
+
+        Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
     }
 }
 
