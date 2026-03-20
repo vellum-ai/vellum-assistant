@@ -309,6 +309,11 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        let feedbackItem = NSMenuItem(title: "Send Feedback...", action: #selector(sendLogsToSentry), keyEquivalent: "")
+        feedbackItem.target = self
+        feedbackItem.image = VIcon.messageCircle.nsImage(size: 16)
+        menu.addItem(feedbackItem)
+
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.image = VIcon.settings.nsImage(size: 16)
