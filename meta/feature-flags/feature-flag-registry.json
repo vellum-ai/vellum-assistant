@@ -311,7 +311,7 @@
       "key": "feature_flags.logfire.enabled",
       "label": "Logfire Observability",
       "description": "Enable Logfire distributed tracing for LLM provider calls and daemon lifecycle events",
-      "defaultEnabled": false
+      "defaultEnabled": true
     }
   ]
 }
