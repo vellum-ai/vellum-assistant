@@ -37,11 +37,53 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Stub config loader
+// Stub config loader — returns a config with memory enabled by default
 mock.module("../../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
+  loadConfig: () => mockConfig,
+  getConfig: () => mockConfig,
   invalidateConfigCache: () => {},
+}));
+
+// ── Controllable mocks for semantic search ─────────────────────────────
+const mockConfig: unknown = {};
+
+let mockBackendStatus: {
+  enabled: boolean;
+  provider: string | null;
+  model: string | null;
+} = { enabled: false, provider: null, model: null };
+
+const mockEmbedResult: {
+  provider: string;
+  model: string;
+  vectors: number[][];
+} = { provider: "local", model: "test", vectors: [[0.1, 0.2, 0.3]] };
+
+let mockHybridSearchResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
+mock.module("../../memory/embedding-backend.js", () => ({
+  getMemoryBackendStatus: async () => mockBackendStatus,
+  embedWithBackend: async () => mockEmbedResult,
+  generateSparseEmbedding: () => ({
+    indices: [0, 1, 2],
+    values: [0.5, 0.3, 0.2],
+  }),
+}));
+
+mock.module("../../memory/qdrant-client.js", () => ({
+  getQdrantClient: () => ({
+    hybridSearch: async () => [...mockHybridSearchResults],
+    searchWithFilter: async () => [...mockHybridSearchResults],
+  }),
+  initQdrantClient: () => {},
+}));
+
+mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
+  withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));
 
 import { and, eq } from "drizzle-orm";
@@ -391,6 +433,182 @@ describe("Memory Item Routes", () => {
       const ctx = makeCtx({ sort: "bogus" });
       const res = await handler(ctx);
       expect(res.status).toBe(400);
+    });
+
+    // ── Semantic / hybrid search ──────────────────────────────────────
+
+    test("uses semantic search when embedding backend is available", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "dark mode",
+        statement: "User prefers dark mode",
+      });
+      insertItem({
+        id: "i2",
+        kind: "identity",
+        subject: "name",
+        statement: "User name is Alice",
+      });
+
+      // Enable semantic search
+      mockBackendStatus = {
+        enabled: true,
+        provider: "local",
+        model: "test",
+      };
+      // Qdrant returns i2 first (higher relevance), then i1
+      mockHybridSearchResults = [
+        {
+          id: "pt-2",
+          score: 0.95,
+          payload: { target_type: "item", target_id: "i2" },
+        },
+        {
+          id: "pt-1",
+          score: 0.7,
+          payload: { target_type: "item", target_id: "i1" },
+        },
+      ];
+
+      const ctx = makeCtx({ search: "alice" });
+      const res = await handler(ctx);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        total: number;
+      };
+
+      // Results in Qdrant relevance order (i2 first)
+      expect(body.items.length).toBe(2);
+      expect(body.items[0].id).toBe("i2");
+      expect(body.items[1].id).toBe("i1");
+      expect(body.total).toBe(2);
+
+      // Reset
+      mockBackendStatus = { enabled: false, provider: null, model: null };
+      mockHybridSearchResults = [];
+    });
+
+    test("falls back to SQL LIKE when backend is unavailable", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "dark mode",
+        statement: "User prefers dark mode",
+      });
+      insertItem({
+        id: "i2",
+        kind: "identity",
+        subject: "name",
+        statement: "User name is Alice",
+      });
+
+      // Backend unavailable
+      mockBackendStatus = { enabled: false, provider: null, model: null };
+      mockHybridSearchResults = [];
+
+      const ctx = makeCtx({ search: "dark" });
+      const res = await handler(ctx);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        total: number;
+      };
+
+      // SQL LIKE fallback finds "dark" in subject/statement
+      expect(body.total).toBe(1);
+      expect(body.items[0].id).toBe("i1");
+    });
+
+    test("semantic search respects pagination", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "s1",
+        statement: "first item",
+      });
+      insertItem({
+        id: "i2",
+        kind: "preference",
+        subject: "s2",
+        statement: "second item",
+      });
+      insertItem({
+        id: "i3",
+        kind: "preference",
+        subject: "s3",
+        statement: "third item",
+      });
+
+      mockBackendStatus = {
+        enabled: true,
+        provider: "local",
+        model: "test",
+      };
+      mockHybridSearchResults = [
+        {
+          id: "pt-1",
+          score: 0.9,
+          payload: { target_type: "item", target_id: "i1" },
+        },
+        {
+          id: "pt-2",
+          score: 0.8,
+          payload: { target_type: "item", target_id: "i2" },
+        },
+        {
+          id: "pt-3",
+          score: 0.7,
+          payload: { target_type: "item", target_id: "i3" },
+        },
+      ];
+
+      // Request page 2 (offset=1, limit=1)
+      const ctx = makeCtx({ search: "item", limit: "1", offset: "1" });
+      const res = await handler(ctx);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        total: number;
+      };
+
+      expect(body.items.length).toBe(1);
+      expect(body.items[0].id).toBe("i2"); // second by relevance
+      expect(body.total).toBe(3);
+
+      // Reset
+      mockBackendStatus = { enabled: false, provider: null, model: null };
+      mockHybridSearchResults = [];
+    });
+
+    test("falls back to SQL when semantic returns empty results", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "dark mode",
+        statement: "User prefers dark mode",
+      });
+
+      mockBackendStatus = {
+        enabled: true,
+        provider: "local",
+        model: "test",
+      };
+      // Qdrant returns nothing
+      mockHybridSearchResults = [];
+
+      const ctx = makeCtx({ search: "dark" });
+      const res = await handler(ctx);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        total: number;
+      };
+
+      // Falls through to SQL LIKE
+      expect(body.total).toBe(1);
+      expect(body.items[0].id).toBe("i1");
+
+      // Reset
+      mockBackendStatus = { enabled: false, provider: null, model: null };
+      mockHybridSearchResults = [];
     });
   });
 
