@@ -611,7 +611,7 @@ struct MainWindowView: View {
                 refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
             }
             .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
-                windowState.refreshInferenceApiKeyStatus()
+                windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
             }
             .onReceive(daemonClient.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
@@ -722,7 +722,7 @@ struct MainWindowView: View {
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
         windowState.refreshAPIKeyStatus(isConnected: isConnected, isAuthenticated: isAuthenticated)
-        windowState.refreshInferenceApiKeyStatus()
+        windowState.refreshInferenceApiKeyStatus(isAuthenticated: isAuthenticated)
     }
 
     private func handleDaemonConnectionChange(_ connected: Bool) {

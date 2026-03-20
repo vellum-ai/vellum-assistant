@@ -239,16 +239,21 @@ public final class MainWindowState: ObservableObject {
     }
 
     /// Re-evaluates whether the "API key not set" toast should appear based on
-    /// the workspace config's inference service mode and the selected provider's
-    /// API key presence.
+    /// authentication state, the workspace config's inference service mode, and
+    /// the selected provider's API key presence.
     ///
     /// `needsInferenceApiKey` is `true` only when:
+    /// - The user is **not** authenticated, AND
     /// - `services.inference.mode` is `"your-own"`, AND
     /// - the configured provider (defaulting to `"anthropic"`) has no API key set.
     ///
-    /// In all other cases (mode is `"managed"`, config is missing/unreadable,
-    /// or the provider has a key), it is `false`.
-    func refreshInferenceApiKeyStatus() {
+    /// Authenticated users always have access to managed inference through the
+    /// platform, so the banner is never shown for them.
+    func refreshInferenceApiKeyStatus(isAuthenticated: Bool = false) {
+        if isAuthenticated {
+            needsInferenceApiKey = false
+            return
+        }
         let config = WorkspaceConfigIO.read()
         guard let services = config["services"] as? [String: Any],
               let inference = services["inference"] as? [String: Any],
