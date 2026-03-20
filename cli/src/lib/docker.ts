@@ -774,10 +774,7 @@ export async function sleepContainers(
     } catch (err) {
       const msg =
         err instanceof Error ? err.message.toLowerCase() : String(err);
-      if (
-        msg.includes("no such container") ||
-        msg.includes("is not running")
-      ) {
+      if (msg.includes("no such container") || msg.includes("is not running")) {
         // container doesn't exist or already stopped — expected, skip
         continue;
       }
@@ -1080,6 +1077,18 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
 
+    // Set workspace volume ownership so non-root containers (UID 1001) can write.
+    await exec("docker", [
+      "run",
+      "--rm",
+      "-v",
+      `${res.workspaceVolume}:/workspace`,
+      "busybox",
+      "chown",
+      "1001:1001",
+      "/workspace",
+    ]);
+
     const cesServiceToken = randomBytes(32).toString("hex");
     await startContainers(
       { cesServiceToken, gatewayPort, imageTags, instanceName, res },
@@ -1261,7 +1270,9 @@ async function waitForGatewayAndLease(opts: {
       // Log periodically so the user knows we're still trying
       const elapsed = ((Date.now() - leaseStart) / 1000).toFixed(0);
       log(
-        `Guardian token lease: attempt failed after ${elapsed}s (${lastLeaseError.split("\n")[0]}), retrying...`,
+        `Guardian token lease: attempt failed after ${elapsed}s (${
+          lastLeaseError.split("\n")[0]
+        }), retrying...`,
       );
     }
     await new Promise((r) => setTimeout(r, 2000));
@@ -1269,7 +1280,10 @@ async function waitForGatewayAndLease(opts: {
 
   if (!leaseSuccess) {
     log(
-      `\u26a0\ufe0f  Guardian token lease: FAILED after ${((Date.now() - leaseStart) / 1000).toFixed(1)}s — ${lastLeaseError ?? "unknown error"}`,
+      `\u26a0\ufe0f  Guardian token lease: FAILED after ${(
+        (Date.now() - leaseStart) /
+        1000
+      ).toFixed(1)}s — ${lastLeaseError ?? "unknown error"}`,
     );
   }
 
