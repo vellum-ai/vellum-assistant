@@ -637,6 +637,7 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    bypassSecretCheck?: boolean;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -708,7 +709,7 @@ export async function handleSendMessage(
   // This mirrors the legacy handleUserMessage behavior: secrets are
   // detected and the message is rejected with a safe notice. The client
   // should prompt the user to use the secure credential flow instead.
-  if (trimmedContent.length > 0) {
+  if (trimmedContent.length > 0 && !body.bypassSecretCheck) {
     const ingressCheck = checkIngressForSecrets(trimmedContent);
     if (ingressCheck.blocked) {
       log.warn(
