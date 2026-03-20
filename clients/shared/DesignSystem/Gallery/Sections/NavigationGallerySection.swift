@@ -122,7 +122,7 @@ struct NavigationGallerySection: View {
                         VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
                             sidebarRowActive = "Intelligence"
                         }
-                        VSidebarRow(icon: VIcon.book.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
+                        VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
                             sidebarRowActive = "Library"
                         }
                         VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
@@ -171,7 +171,7 @@ struct NavigationGallerySection: View {
 
                         HStack(spacing: VSpacing.md) {
                             VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
-                            VSidebarRow(icon: VIcon.book.rawValue, label: "Library", isActive: true, isExpanded: false) {}
+                            VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
                             VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
                         }
                         .frame(maxWidth: 200)
