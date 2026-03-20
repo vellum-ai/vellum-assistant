@@ -11,17 +11,28 @@
 import { and, asc, count, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db.js";
+import {
+  embedWithBackend,
+  generateSparseEmbedding,
+  getMemoryBackendStatus,
+} from "../../memory/embedding-backend.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../../memory/qdrant-client.js";
 import {
   conversations,
   memoryEmbeddings,
   memoryItems,
 } from "../../memory/schema.js";
+import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
+
+const log = getLogger("memory-item-routes");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,10 +128,75 @@ function buildConversationTitleMap(
 }
 
 // ---------------------------------------------------------------------------
+// Semantic search helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Attempt hybrid semantic search for memory items via Qdrant.
+ * Returns ordered item IDs + total count on success, or `null` when
+ * the embedding backend / Qdrant is unavailable (caller falls back to SQL).
+ */
+async function searchItemsSemantic(
+  query: string,
+  fetchLimit: number,
+  kindFilter: string | null,
+  statusFilter: string,
+): Promise<{ ids: string[]; total: number } | null> {
+  try {
+    const config = getConfig();
+    const backendStatus = await getMemoryBackendStatus(config);
+    if (!backendStatus.provider) return null;
+
+    const embedded = await embedWithBackend(config, [query]);
+    const queryVector = embedded.vectors[0];
+    if (!queryVector) return null;
+
+    const sparse = generateSparseEmbedding(query);
+    const sparseVector = { indices: sparse.indices, values: sparse.values };
+
+    // Build Qdrant filter — items only, exclude capability kind and sentinel
+    const mustConditions: Array<Record<string, unknown>> = [
+      { key: "target_type", match: { value: "item" } },
+    ];
+    if (statusFilter && statusFilter !== "all") {
+      mustConditions.push({ key: "status", match: { value: statusFilter } });
+    }
+    if (kindFilter) {
+      mustConditions.push({ key: "kind", match: { value: kindFilter } });
+    }
+
+    const filter = {
+      must: mustConditions,
+      must_not: [
+        { key: "kind", match: { value: "capability" } },
+        { key: "_meta", match: { value: true } },
+      ],
+    };
+
+    const qdrant = getQdrantClient();
+    const results = await withQdrantBreaker(() =>
+      qdrant.hybridSearch({
+        denseVector: queryVector,
+        sparseVector,
+        filter,
+        limit: fetchLimit,
+        prefetchLimit: fetchLimit,
+      }),
+    );
+
+    const ids = results.map((r) => r.payload.target_id);
+    return { ids, total: ids.length };
+  } catch (err) {
+    log.warn({ err }, "Semantic memory search failed, falling back to SQL");
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/memory-items
 // ---------------------------------------------------------------------------
 
-export function handleListMemoryItems(url: URL): Response {
+export async function handleListMemoryItems(url: URL): Promise<Response> {
   const kindParam = url.searchParams.get("kind");
   const statusParam = url.searchParams.get("status") ?? "active";
   const searchParam = url.searchParams.get("search");
@@ -155,7 +231,53 @@ export function handleListMemoryItems(url: URL): Response {
 
   const db = getDb();
 
-  // Build WHERE conditions
+  // ── Semantic search path ────────────────────────────────────────────
+  // When a search query is present, try Qdrant hybrid search first.
+  // Falls back to SQL LIKE when embeddings / Qdrant are unavailable.
+  if (searchParam) {
+    const semanticResult = await searchItemsSemantic(
+      searchParam,
+      limitParam + offsetParam,
+      kindParam,
+      statusParam,
+    );
+
+    if (semanticResult && semanticResult.ids.length > 0) {
+      // Slice for pagination
+      const pageIds = semanticResult.ids.slice(
+        offsetParam,
+        offsetParam + limitParam,
+      );
+
+      // Batch-fetch full rows from SQLite
+      const rows = db
+        .select()
+        .from(memoryItems)
+        .where(inArray(memoryItems.id, pageIds))
+        .all();
+
+      // Preserve Qdrant relevance ordering
+      const idOrder = new Map(pageIds.map((id, i) => [id, i]));
+      rows.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+
+      const titleMap = buildConversationTitleMap(
+        db,
+        rows.map((i) => i.scopeId),
+      );
+      const enrichedItems = rows.map((item) => ({
+        ...item,
+        scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
+      }));
+
+      return Response.json({
+        items: enrichedItems,
+        total: semanticResult.total,
+      });
+    }
+    // semanticResult was null (Qdrant unavailable) or empty — fall through to SQL
+  }
+
+  // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
   // Hide system-managed capability memories (skill announcements) from the UI
   conditions.push(ne(memoryItems.kind, "capability"));
