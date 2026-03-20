@@ -719,67 +719,6 @@ public func confirmationHumanDescription(
     }
 }
 
-/// A single sub-tool invocation within a claude_code tool call.
-public struct ClaudeCodeSubStep: Identifiable, Equatable {
-    public let id: UUID
-    public let toolName: String
-    public let inputSummary: String
-    public var isComplete: Bool
-    public var isError: Bool
-    public let startedAt: Date
-    /// Stable identifier from the Claude Code SDK (tool_use_id), used for precise matching on tool_complete events.
-    public let subToolId: String?
-
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, isComplete: Bool = false, isError: Bool = false, startedAt: Date = Date(), subToolId: String? = nil) {
-        self.id = id
-        self.toolName = toolName
-        self.inputSummary = inputSummary
-        self.isComplete = isComplete
-        self.isError = isError
-        self.startedAt = startedAt
-        self.subToolId = subToolId
-    }
-
-    /// Human-readable label for the sub-tool.
-    public var friendlyName: String {
-        switch toolName.lowercased() {
-        case "read", "file_read":       return "Read File"
-        case "edit", "file_edit":       return "Edit File"
-        case "write", "file_write":     return "Write File"
-        case "bash":                    return "Run Command"
-        case "glob":                    return "Find Files"
-        case "grep":                    return "Search Files"
-        case "websearch", "web_search": return "Web Search"
-        case "webfetch", "web_fetch":   return "Fetch URL"
-        case "task":                    return "Run Agent"
-        case "notebookedit":            return "Edit Notebook"
-        case "notebookread":            return "Read Notebook"
-        default:
-            return toolName
-                .replacingOccurrences(of: "_", with: " ")
-                .split(separator: " ")
-                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-                .joined(separator: " ")
-        }
-    }
-
-    /// Icon for the sub-tool type.
-    public var toolIcon: VIcon {
-        switch toolName.lowercased() {
-        case "read", "file_read":       return .fileText
-        case "edit", "file_edit":       return .pencil
-        case "write", "file_write":     return .filePlus
-        case "bash":                    return .terminal
-        case "glob":                    return .folderSearch
-        case "grep":                    return .search
-        case "websearch", "web_search": return .search
-        case "webfetch", "web_fetch":   return .circleArrowDown
-        case "task":                    return .users
-        default:                        return .puzzle
-        }
-    }
-}
-
 /// Data for a tool call displayed inline in an assistant message.
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
@@ -834,8 +773,6 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Live pending confirmation attached to this tool call for inline rendering.
     /// Set when a `confirmation_request` arrives, cleared when approved/denied.
     public var pendingConfirmation: ToolConfirmationData?
-    /// Sub-tool steps for claude_code tool calls (live progress tracking).
-    public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
     public var cachedImage: NSImage?
@@ -862,7 +799,6 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.partialOutputRevision == rhs.partialOutputRevision
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
-            && lhs.claudeCodeSteps == rhs.claudeCodeSteps
             && lhs.startedAt == rhs.startedAt
             && lhs.completedAt == rhs.completedAt
             && lhs.confirmationDecision == rhs.confirmationDecision
@@ -1029,8 +965,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Queued work"
         case "swarm_delegate":
             return inputSummary.isEmpty ? "Delegated to an agent" : "Delegated: \(truncated(inputSummary, to: 50))"
-        case "claude_code":
-            return inputSummary.isEmpty ? "Ran Claude Code" : truncated(inputSummary, to: 60)
         case "evaluate_typescript_code":
             return "Evaluated a code snippet"
         case "followup_create":

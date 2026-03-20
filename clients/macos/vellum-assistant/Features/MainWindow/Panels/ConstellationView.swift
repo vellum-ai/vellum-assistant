@@ -161,7 +161,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "Work", emoji: "\u{1F4CB}", skillIds: ["document", "tasks", "playbooks"]),
     ],
     .development: [
-        SubCategoryDef(label: "Coding", emoji: "\u{1F4BB}", skillIds: ["claude-code", "typescript-eval", "frontend-design"]),
+        SubCategoryDef(label: "Coding", emoji: "\u{1F4BB}", skillIds: ["typescript-eval", "frontend-design"]),
         SubCategoryDef(label: "Dev Tools", emoji: "\u{1F527}", skillIds: ["api-mapping", "cli-discover", "subagent", "app-builder"]),
     ],
     .automation: [

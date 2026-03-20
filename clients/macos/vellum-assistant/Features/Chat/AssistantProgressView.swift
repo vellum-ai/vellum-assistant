@@ -654,18 +654,12 @@ struct AssistantProgressView: View {
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
-                if !toolCall.isComplete && toolCall.toolName == "claude_code"
-                    && !toolCall.claudeCodeSteps.isEmpty {
-                    ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
-                        .padding(.horizontal, VSpacing.lg)
-                } else {
-                    StepDetailRow(
-                        toolCall: toolCall,
-                        phase: phase,
-                        skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
-                        onRehydrate: onRehydrate
-                    )
-                }
+                StepDetailRow(
+                    toolCall: toolCall,
+                    phase: phase,
+                    skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
+                    onRehydrate: onRehydrate
+                )
 
                 // Inline confirmation bubble for tool calls awaiting approval
                 if let confirmation = toolCall.pendingConfirmation {
@@ -766,7 +760,6 @@ private struct StepDetailRow: View {
         return !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil
             || !toolCall.partialOutput.isEmpty
             || (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true))
-            || !toolCall.claudeCodeSteps.isEmpty
     }
 
     /// Resolves the display title for this step row based on its current state.
@@ -939,22 +932,6 @@ private struct StepDetailRow: View {
                 }
             }
             .padding(.horizontal, VSpacing.lg)
-
-            // Claude Code sub-steps
-            if !toolCall.claudeCodeSteps.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Sub-steps")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
-                        .textCase(.uppercase)
-
-                    ClaudeCodeProgressView(
-                        steps: toolCall.claudeCodeSteps,
-                        isRunning: false
-                    )
-                }
-                .padding(.horizontal, VSpacing.lg)
-            }
 
             // Live output: shown while tool is running, and also as fallback
             // when the tool completed without a final result (cancel/error).

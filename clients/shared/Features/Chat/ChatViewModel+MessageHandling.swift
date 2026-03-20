@@ -1379,64 +1379,8 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard belongsToConversation(msg.conversationId) else { return }
             guard !isLoadingHistory else { return }
-            // Handle structured progress events from claude_code sub-tools
-            // Resolve the target tool call: prefer matching by toolUseId, fall back to positional heuristic.
-            let resolvedStructuredTarget: (msgIndex: Int, tcIndex: Int)? = {
-                if let toolUseId = msg.toolUseId {
-                    for i in stride(from: messages.count - 1, through: 0, by: -1) {
-                        if let tcIdx = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
-                            return (i, tcIdx)
-                        }
-                    }
-                }
-                if let existingId = currentAssistantMessageId,
-                   let mIdx = messages.firstIndex(where: { $0.id == existingId }),
-                   let tcIdx = messages[mIdx].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
-                    return (mIdx, tcIdx)
-                }
-                return nil
-            }()
-            if let subType = msg.subType, !subType.isEmpty,
-               let target = resolvedStructuredTarget {
-                let msgIndex = target.msgIndex
-                let tcIndex = target.tcIndex
-                switch subType {
-                case "tool_start":
-                    if let toolName = msg.subToolName {
-                        let step = ClaudeCodeSubStep(
-                            toolName: toolName,
-                            inputSummary: msg.subToolInput ?? "",
-                            subToolId: msg.subToolId
-                        )
-                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.append(step)
-                        // Cap sub-steps to prevent unbounded memory growth
-                        if messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.count > 200 {
-                            messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.removeFirst(
-                                messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.count - 200
-                            )
-                        }
-                    }
-                case "tool_complete":
-                    // Prefer matching by subToolId (stable SDK identifier) over tool name.
-                    let stepIndex: Int?
-                    if let subToolId = msg.subToolId {
-                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.subToolId == subToolId && !$0.isComplete })
-                    } else if let toolName = msg.subToolName {
-                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.toolName == toolName && !$0.isComplete })
-                    } else {
-                        stepIndex = nil
-                    }
-                    if let stepIndex {
-                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isComplete = true
-                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isError = msg.subToolIsError ?? false
-                    }
-                case "status":
-                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = msg.subToolInput ?? ""
-                default:
-                    break
-                }
-            } else if msg.subType == nil || msg.subType?.isEmpty == true,
-                      !msg.chunk.isEmpty {
+            if (msg.subType == nil || msg.subType?.isEmpty == true),
+               !msg.chunk.isEmpty {
                 // Resolve target tool call: prefer toolUseId, fall back to positional heuristic.
                 let resolvedPlainTarget: (msgIndex: Int, tcIndex: Int)? = {
                     if let toolUseId = msg.toolUseId {
@@ -1536,8 +1480,6 @@ extension ChatViewModel {
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
-                // When a claude_code tool completes, mark any remaining in-progress sub-steps
-                // as done. This handles timeouts, crashes, and lost tool_complete events.
                 let toolErrored = msg.isError ?? false
                 downgradeAdjacentApprovedConfirmationForPermissionDeniedError(
                     assistantMessageIndex: msgIndex,
@@ -1547,12 +1489,6 @@ extension ChatViewModel {
                 if toolErrored, Self.isOSPermissionDeniedError(msg.result),
                    messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                     messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
-                }
-                for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
-                    if !messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete {
-                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete = true
-                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isError = toolErrored
-                    }
                 }
             }
             // Auto-open clip files in the default video player.
@@ -1991,11 +1927,10 @@ extension ChatViewModel {
     }
 
     /// Auto-open generated video clips in the user's default video player.
-    /// Scans the result for a `clipPath` field rather than checking toolName,
-    /// because generate_clip runs inside claude_code (toolName is "claude_code").
+    /// Scans the result for a `clipPath` field rather than checking toolName.
     /// Restricts to known tool names and validated video extensions to prevent
     /// arbitrary file opens from untrusted tool results.
-    private static let clipEligibleTools: Set<String> = ["claude_code", "generate_clip"]
+    private static let clipEligibleTools: Set<String> = ["generate_clip"]
     private static let clipVideoExtensions: Set<String> = ["mp4", "mov", "m4v", "avi", "mkv", "webm"]
 
     private func autoOpenClipIfNeeded(toolName: String, result: String, isError: Bool) {
