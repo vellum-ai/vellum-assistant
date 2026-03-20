@@ -19,6 +19,7 @@ struct SettingsAppearanceTab: View {
     @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
     @State private var timezoneSearchDebounceTask: Task<Void, Never>?
+    @AppStorage("activationKey") private var activationKey: String = "fn"
     @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
@@ -246,7 +247,23 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
-                ShortcutRow(label: "Start voice input", shortcut: PTTActivator.fromStored().kind != .none ? "Hold \(PTTActivator.fromStored().displayName)" : "Disabled")
+                HStack {
+                    Text("Start voice input")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    Spacer()
+                    // Read activationKey to establish SwiftUI dependency tracking
+                    let activator = { _ = activationKey; return PTTActivator.fromStored() }()
+                    VShortcutTag(activator.kind != .none ? "Hold \(activator.displayName)" : "Disabled")
+                    if activator.kind != .none {
+                        VButton(label: "Unbind", style: .outlined) {
+                            PTTActivator.off.store()
+                            activationKey = "none"
+                            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
 
                 SettingsDivider()
 
