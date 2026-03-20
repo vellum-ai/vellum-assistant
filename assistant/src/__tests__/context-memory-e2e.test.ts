@@ -57,6 +57,15 @@ const emptyRecall = {
 mock.module("../memory/inject.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: unknown[]) => msgs,
 }));
+mock.module("../memory/query-builder.js", () => ({
+  buildMemoryQuery: (text: string) => text,
+}));
+mock.module("../memory/retrieval-budget.js", () => ({
+  computeRecallBudget: () => 4000,
+}));
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async () => emptyRecall,
+}));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
