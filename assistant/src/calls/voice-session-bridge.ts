@@ -95,6 +95,8 @@ export interface VoiceTurnOptions {
   isInbound: boolean;
   /** The outbound call task, if any. */
   task?: string | null;
+  /** When true, skip the disclosure announcement for this call. */
+  skipDisclosure?: boolean;
   /** Called for each streaming text token from the agent loop. */
   onTextDelta: (text: string) => void;
   /** Called when the agent loop completes a full response. */
@@ -128,9 +130,11 @@ function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
   task?: string | null;
   isCallerGuardian?: boolean;
+  skipDisclosure?: boolean;
 }): string {
   const config = getConfig();
-  const disclosureEnabled = config.calls?.disclosure?.enabled === true;
+  const disclosureEnabled =
+    config.calls?.disclosure?.enabled === true && !opts.skipDisclosure;
   const disclosureText = config.calls?.disclosure?.text?.trim();
   const disclosureRule =
     disclosureEnabled && disclosureText
@@ -286,6 +290,7 @@ export async function startVoiceTurn(
     isInbound: opts.isInbound,
     task: opts.task,
     isCallerGuardian,
+    skipDisclosure: opts.skipDisclosure,
   });
 
   // Get or create the conversation

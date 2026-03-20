@@ -46,6 +46,7 @@ export async function executeCallStart(
       | "assistant_number"
       | "user_number"
       | undefined,
+    skipDisclosure: input.skip_disclosure === true,
   });
 
   if (!result.ok) {

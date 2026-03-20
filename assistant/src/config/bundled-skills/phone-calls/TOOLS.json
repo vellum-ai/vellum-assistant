@@ -26,6 +26,10 @@
             "enum": ["assistant_number", "user_number"],
             "description": "Which phone number to use as the caller ID. assistant_number uses the AI assistant's Twilio number; user_number uses the user's verified personal number."
           },
+          "skip_disclosure": {
+            "type": "boolean",
+            "description": "Skip the disclosure announcement at the start of the call. Set to true when calling someone who already knows who you are (e.g. your guardian, a family member, or a close contact)."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"

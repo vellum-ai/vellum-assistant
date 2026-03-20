@@ -75,6 +75,7 @@ export interface CallSession {
   inviteGuardianName: string | null;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
+  skipDisclosure: boolean;
   initiatedFromConversationId?: string | null;
   startedAt: number | null;
   endedAt: number | null;

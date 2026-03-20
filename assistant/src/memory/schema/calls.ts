@@ -27,6 +27,7 @@ export const callSessions = sqliteTable(
     inviteGuardianName: text("invite_guardian_name"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
+    skipDisclosure: integer("skip_disclosure").notNull().default(0),
     initiatedFromConversationId: text("initiated_from_conversation_id"),
     startedAt: integer("started_at"),
     endedAt: integer("ended_at"),
