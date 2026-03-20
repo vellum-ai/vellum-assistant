@@ -442,12 +442,10 @@ export class SkillLoadTool implements Tool {
             } catch (err) {
               log.error(
                 { err, skillId: childId, parentSkillId: skill.id },
-                "Failed to render inline commands for included skill",
+                "Failed to render inline commands for included skill; falling back to raw body",
               );
-              return {
-                content: `Error: failed to render inline commands for included skill "${childId}": ${err instanceof Error ? err.message : String(err)}`,
-                isError: true,
-              };
+              // Leave childBody unchanged — the raw body is used as a fallback
+              // so that a crash in one child does not prevent sibling rendering.
             }
           }
 
