@@ -119,6 +119,8 @@ const TEXT_FILE_EXTENSIONS = new Set([
   "v",
   "sol",
   "r",
+  "java",
+  "lua",
   // Shell / scripting
   "bash",
   "zsh",

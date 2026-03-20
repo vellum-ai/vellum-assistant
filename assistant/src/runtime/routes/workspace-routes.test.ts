@@ -190,8 +190,29 @@ describe("isTextMimeType", () => {
     expect(isTextMimeType("video/mp4")).toBe(false);
   });
 
-  test("application/octet-stream is not text", () => {
+  test("application/octet-stream is not text without filename", () => {
     expect(isTextMimeType("application/octet-stream")).toBe(false);
+  });
+
+  test("application/octet-stream with .py filename is text", () => {
+    expect(isTextMimeType("application/octet-stream", "script.py")).toBe(true);
+  });
+
+  test("application/octet-stream with .go filename is text", () => {
+    expect(isTextMimeType("application/octet-stream", "main.go")).toBe(true);
+  });
+
+  test("application/octet-stream with .rs filename is text", () => {
+    expect(isTextMimeType("application/octet-stream", "lib.rs")).toBe(true);
+  });
+
+  test("application/octet-stream with unknown extension is not text", () => {
+    expect(isTextMimeType("application/octet-stream", "data.bin")).toBe(false);
+  });
+
+  test("extension fallback only applies to application/octet-stream", () => {
+    // A binary plist has a specific MIME type — extension should not override it
+    expect(isTextMimeType("application/x-plist", "Info.plist")).toBe(false);
   });
 });
 
