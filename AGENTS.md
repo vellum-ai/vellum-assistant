@@ -125,13 +125,37 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures PID files, tokens, and config are correctly scoped per instance.
 
+In Docker mode, `WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `getRootDir()`. The workspace volume is shared between the assistant and gateway containers.
+
 ## Qdrant Port Override
 
 Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
 
+## Docker Volume Architecture
+
+Docker instances use four dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+
+| Volume | Mount path | Access | Contents |
+|---|---|---|---|
+| **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs |
+| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | `trust.json`, `actor-token-signing-key`, `guardian-init.lock` |
+| **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
+| **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
+
+The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
+
+**Key invariants:**
+
+- **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads and writes trust rules via the gateway's HTTP trust API — it has no direct filesystem access to `trust.json`. The gateway reads `trust.json` from `/gateway-security/trust.json`.
+- **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
+- The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
+
 ## Workspace Export & Secrets
 
-The entire ~/.vellum/workspace directory (minus embedding models, Qdrant vector indices, attachments, and conversation disk-view files) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.** Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
+The entire ~/.vellum/workspace directory (minus embedding models, Qdrant vector indices, attachments, and conversation disk-view files) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
+
+- **Local mode**: Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
+- **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 
 ## Release Update Hygiene
 
