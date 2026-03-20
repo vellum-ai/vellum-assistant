@@ -19,7 +19,6 @@ import {
   type MessageRow,
   updateConversationTitle,
 } from "./conversation-crud.js";
-import { extractTextFromStoredMessageContent } from "./message-content.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -359,14 +358,61 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
   return null;
 }
 
+/**
+ * Extract only human-authored text from stored message content for title
+ * generation. Unlike extractTextFromStoredMessageContent (which includes
+ * tool metadata like "Tool use (...): {...}"), this only extracts:
+ * - `text` blocks (the actual conversation content)
+ * - `tool_result` string content (topical signal from tool responses)
+ *   — web_search_tool_result is skipped (structured search data, not topical)
+ *
+ * Returns empty string for content-block arrays with no extractable text,
+ * preventing raw JSON from polluting the title prompt.
+ */
+function extractTextForTitle(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+    if (!Array.isArray(parsed)) return raw;
+    const texts: string[] = [];
+    for (const block of parsed) {
+      if (!block || typeof block !== "object") continue;
+      if (block.type === "text" && typeof block.text === "string") {
+        texts.push(block.text);
+        // guard:allow-tool-result-only — web_search_tool_result has structured
+        // search result arrays, not useful for title generation; only plain
+        // tool_result string content carries topical signal.
+      } else if (block.type === "tool_result") {
+        if (typeof block.content === "string") {
+          texts.push(block.content);
+        } else if (Array.isArray(block.content)) {
+          for (const nested of block.content) {
+            if (
+              nested &&
+              typeof nested === "object" &&
+              nested.type === "text" &&
+              typeof nested.text === "string"
+            ) {
+              texts.push(nested.text);
+            }
+          }
+        }
+      }
+    }
+    return texts.join("\n");
+  } catch {
+    return raw;
+  }
+}
+
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = ["Recent messages:"];
 
   for (const msg of recentMessages) {
+    const text = extractTextForTitle(msg.content);
+    if (!text) continue;
     const role = msg.role === "user" ? "User" : "Assistant";
-    parts.push(
-      `${role}: ${truncate(extractTextFromStoredMessageContent(msg.content), 200, "")}`,
-    );
+    parts.push(`${role}: ${truncate(text, 200, "")}`);
   }
 
   return parts.join("\n");

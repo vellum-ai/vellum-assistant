@@ -143,6 +143,9 @@ describe("conversation-title-service", () => {
       ?.content as string;
     expect(prompt).not.toContain('"type":"text"');
     expect(prompt).not.toContain('"type":"tool_use"');
+    // Tool metadata should NOT appear in the title prompt
+    expect(prompt).not.toContain("Tool use");
+    expect(prompt).not.toContain("web_search");
     expect(prompt).toContain("Help me plan the kickoff");
     expect(prompt).toContain("Sure, here's a plan");
     expect(prompt).toContain("Looks good");
@@ -187,6 +190,8 @@ describe("conversation-title-service", () => {
     const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
       ?.content as string;
     expect(prompt).not.toContain('"type":"tool_result"');
+    // Tool-only assistant message should be skipped entirely
+    expect(prompt).not.toContain("Tool use");
     expect(prompt).toContain("Search for restaurants");
     expect(prompt).toContain("Found 3 restaurants nearby");
   });
