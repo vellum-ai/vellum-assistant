@@ -779,7 +779,7 @@ extension ChatViewModel {
             // Reset processing messages to sent and drop attachment base64 data
             // for lazy-loadable attachments (sizeBytes != nil means the daemon can
             // re-serve them). Locally-added attachments (sizeBytes == nil) keep their
-            // data because openImageInPreview / saveFileAttachment rely on it.
+            // data because ImageActions.openInPreview / saveFileAttachment rely on it.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent

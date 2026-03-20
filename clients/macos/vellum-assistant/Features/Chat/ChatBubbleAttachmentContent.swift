@@ -23,12 +23,17 @@ private enum ImageActions {
         let sanitized = (filename as NSString).lastPathComponent
         let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
-        // When base64Data is unavailable we re-encode the NSImage as PNG.
-        // Force the suggested filename to .png so the extension matches the
-        // actual content encoding — mirrors the same pattern in openInPreview.
-        let hasFullData = base64Data.map { !$0.isEmpty } ?? false
+        // Attempt base64 decode upfront to determine if full-res data is actually
+        // available. This prevents extension/content mismatch when base64Data is
+        // non-empty but corrupt (not valid base64).
+        let fullResData: Data? = base64Data.flatMap { str in
+            guard !str.isEmpty else { return nil }
+            guard let decoded = Data(base64Encoded: str), !decoded.isEmpty else { return nil }
+            return decoded
+        }
+
         let suggestedName: String
-        if hasFullData {
+        if fullResData != nil {
             suggestedName = fallbackName
         } else {
             suggestedName = (fallbackName as NSString).deletingPathExtension + ".png"
@@ -40,10 +45,8 @@ private enum ImageActions {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                if hasFullData,
-                   let base64Data,
-                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
-                    try? decoded.write(to: url)
+                if let fullResData {
+                    try? fullResData.write(to: url)
                 } else if let tiff = image.tiffRepresentation,
                           let rep = NSBitmapImageRep(data: tiff),
                           let png = rep.representation(using: .png, properties: [:]) {
@@ -245,14 +248,20 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             }
                             .onDrag {
                                 let provider = NSItemProvider()
-                                // Prefer full-res base64 data
-                                let hasFullData = !attachment.data.isEmpty
-                                if hasFullData,
-                                   let decoded = Data(base64Encoded: attachment.data), !decoded.isEmpty {
+                                // Attempt base64 decode to determine if full-res
+                                // data is actually available. This prevents
+                                // extension/content mismatch when attachment.data
+                                // is non-empty but corrupt.
+                                let fullResData: Data? = {
+                                    guard !attachment.data.isEmpty else { return nil }
+                                    guard let decoded = Data(base64Encoded: attachment.data), !decoded.isEmpty else { return nil }
+                                    return decoded
+                                }()
+                                if let fullResData {
                                     let mimeType = attachment.mimeType
                                     let utType = UTType(mimeType: mimeType) ?? .png
                                     provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
-                                        completion(decoded, nil)
+                                        completion(fullResData, nil)
                                         return nil
                                     }
                                 } else if let nsImage = loadedImages[attachment.id] {
@@ -266,10 +275,11 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                         }
                                     }
                                 }
-                                // Force .png extension when falling back to PNG encoding
-                                // so the filename matches the actual content type.
+                                // Use original filename only when full-res data
+                                // decoded successfully; otherwise force .png to
+                                // match the actual PNG re-encoding.
                                 let filename = attachment.filename
-                                if hasFullData {
+                                if fullResData != nil {
                                     provider.suggestedName = filename
                                 } else {
                                     provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
@@ -368,7 +378,11 @@ extension ChatBubble {
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
         AttachmentImageGrid(imageAttachments: images, onTap: { attachment, image in
-            openImageInPreview(attachment, image: image)
+            ImageActions.openInPreview(
+                image,
+                filename: attachment.filename,
+                base64Data: attachment.data.isEmpty ? nil : attachment.data
+            )
         }) { attachment in
             fileAttachmentChip(attachment)
         }
@@ -401,47 +415,6 @@ extension ChatBubble {
             saveFileAttachment(attachment)
         }
         .pointerCursor()
-    }
-
-    func openImageInPreview(_ attachment: ChatAttachment, image: NSImage? = nil) {
-        let tempDir = FileManager.default.temporaryDirectory
-        let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
-
-        // Prefer the original base64 data when available (full resolution).
-        // Fall back to the in-memory NSImage (thumbnail) when data has been cleared.
-        var usedNSImageFallback = false
-        let fileData: Data? = {
-            if !attachment.data.isEmpty,
-               let decoded = Data(base64Encoded: attachment.data),
-               !decoded.isEmpty {
-                return decoded
-            }
-            if let image, let tiff = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: tiff) {
-                usedNSImageFallback = true
-                return rep.representation(using: .png, properties: [:])
-            }
-            return nil
-        }()
-
-        // When the NSImage fallback encodes as PNG, force the extension to .png
-        // so the file extension matches the actual content encoding.
-        let fileName: String
-        if usedNSImageFallback {
-            fileName = (fallbackName as NSString).deletingPathExtension + ".png"
-        } else {
-            fileName = fallbackName
-        }
-        let fileURL = tempDir.appendingPathComponent(fileName)
-
-        guard let fileData else { return }
-        do {
-            try fileData.write(to: fileURL)
-            NSWorkspace.shared.open(fileURL)
-        } catch {
-            // Silently fail — not critical
-        }
     }
 
     func saveFileAttachment(_ attachment: ChatAttachment) {
