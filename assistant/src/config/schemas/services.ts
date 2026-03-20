@@ -52,7 +52,7 @@ export const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
 export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
 export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
-  mode: ServiceModeSchema.default("managed"),
+  mode: ServiceModeSchema.default("your-own"),
 });
 export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
 
