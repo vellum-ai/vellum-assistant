@@ -533,6 +533,7 @@ public final class ChatViewModel: ObservableObject {
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     private(set) var lastFailedMessageAutomated: Bool = false
+    private(set) var lastFailedMessageBypassSecretCheck: Bool = false
     /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
@@ -1342,6 +1343,7 @@ public final class ChatViewModel: ObservableObject {
                 lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
                 lastFailedMessageAutomated = false
+                lastFailedMessageBypassSecretCheck = false
                 lastFailedSendError = nil
                 connectionDiagnosticHint = nil
                 secretBlockedMessageText = nil
@@ -1400,6 +1402,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedMessageAutomated = false
+        lastFailedMessageBypassSecretCheck = false
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
@@ -1587,6 +1590,7 @@ public final class ChatViewModel: ObservableObject {
                     self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
                     self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
+                    self.lastFailedMessageBypassSecretCheck = false
                     self.lastFailedSendError = "Failed to connect to the assistant."
                     self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
@@ -1632,7 +1636,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
         guard let conversationId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -1664,6 +1668,7 @@ public final class ChatViewModel: ObservableObject {
             lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
             lastFailedMessageAutomated = automated
+            lastFailedMessageBypassSecretCheck = bypassSecretCheck
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
             // isSending/isThinking flags or show an error banner over it.
@@ -1700,7 +1705,7 @@ public final class ChatViewModel: ObservableObject {
             attachments: attachments,
             conversationType: nil,
             automated: automated ? true : nil,
-            bypassSecretCheck: nil
+            bypassSecretCheck: bypassSecretCheck ? true : nil
         )
     }
 
@@ -2294,6 +2299,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedMessageAutomated = false
+        lastFailedMessageBypassSecretCheck = false
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
@@ -2389,6 +2395,7 @@ public final class ChatViewModel: ObservableObject {
             lastFailedMessageText = lastMsg.text
             lastFailedMessageDisplayText = nil
             lastFailedMessageAutomated = lastMsg.isHidden
+            lastFailedMessageBypassSecretCheck = false
             // Preserve attachments so they are resent with the retry.
             // ChatAttachment.data may already be cleared for older messages,
             // but for a just-sent 429'd message it is still populated.
@@ -2447,7 +2454,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
     public func sendAnyway() {
-        guard let text = secretBlockedMessageText, let conversationId else { return }
+        guard let text = secretBlockedMessageText, let _ = conversationId else { return }
 
         guard daemonClient.isConnected else {
             errorText = "Cannot connect to assistant. Please ensure it's running."
@@ -2456,8 +2463,6 @@ public final class ChatViewModel: ObservableObject {
 
         // Snapshot and clear stashed context
         let attachments = secretBlockedAttachments
-        let surfaceId = secretBlockedActiveSurfaceId
-        let page = secretBlockedCurrentPage
 
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
@@ -2465,21 +2470,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
         errorText = nil
 
-        isSending = true
-        isThinking = true
-
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
-
-        daemonClient.sendUserMessage(
-            content: text,
-            conversationId: conversationId,
-            attachments: attachments,
-            conversationType: nil,
-            automated: nil,
-            bypassSecretCheck: true
-        )
+        sendUserMessage(text, attachments: attachments, bypassSecretCheck: true)
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
@@ -2488,12 +2479,14 @@ public final class ChatViewModel: ObservableObject {
         let displayText = lastFailedMessageDisplayText
         let attachments = lastFailedMessageAttachments
         let automated = lastFailedMessageAutomated
+        let bypassSecretCheck = lastFailedMessageBypassSecretCheck
 
         // Clear failed message state and error
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedMessageAutomated = false
+        lastFailedMessageBypassSecretCheck = false
         lastFailedSendError = nil
         errorText = nil
         connectionDiagnosticHint = nil
@@ -2521,7 +2514,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[idx].status = .queued(position: 0)
                 }
             }
-            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated)
+            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
         }
     }
 
