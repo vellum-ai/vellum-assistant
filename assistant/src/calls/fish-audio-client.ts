@@ -75,7 +75,7 @@ export class FishAudioSession {
    * StartEvent with the provided configuration.
    */
   static async create(config: FishAudioConfig): Promise<FishAudioSession> {
-    const apiKey = await getSecureKeyAsync(
+    const { value: apiKey } = await getSecureKeyAsync(
       credentialKey("fish-audio", "api_key"),
     );
     if (!apiKey) {

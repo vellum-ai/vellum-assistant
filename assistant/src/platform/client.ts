@@ -49,13 +49,13 @@ export class VellumPlatformClient {
       baseUrl =
         (await getSecureKeyAsync(
           credentialKey("vellum", "platform_base_url"),
-        )) ?? "";
+        )).value ?? "";
     }
     if (!apiKey) {
       apiKey =
         (await getSecureKeyAsync(
           credentialKey("vellum", "assistant_api_key"),
-        )) ?? "";
+        )).value ?? "";
     }
     if (!assistantId) {
       assistantId =
@@ -63,7 +63,7 @@ export class VellumPlatformClient {
           await getSecureKeyAsync(
             credentialKey("vellum", "platform_assistant_id"),
           )
-        )?.trim() ?? "";
+        ).value?.trim() ?? "";
     }
 
     if (!baseUrl || !apiKey) return null;

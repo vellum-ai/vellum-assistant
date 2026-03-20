@@ -22,7 +22,7 @@ export function err(message: string): ToolExecutionResult {
  * raw token string.
  */
 export async function getSlackConnection(): Promise<string> {
-  const token = await getSecureKeyAsync(
+  const { value: token } = await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
   );
   if (!token) {

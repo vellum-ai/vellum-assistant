@@ -285,7 +285,8 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
    */
   static async getAuthToken(): Promise<string | null> {
     return (
-      (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || null
+      (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))).value ||
+      null
     );
   }
 

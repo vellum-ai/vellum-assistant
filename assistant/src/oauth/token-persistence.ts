@@ -40,7 +40,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const secureKeyBackend: SecureKeyBackend = {
-  get: (key: string) => getSecureKeyAsync(key),
+  get: async (key: string) => (await getSecureKeyAsync(key)).value,
   set: (key: string, value: string) => setSecureKeyAsync(key, value),
   delete: async (key: string) => deleteSecureKeyAsync(key),
   list: async () => [],

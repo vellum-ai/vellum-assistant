@@ -47,7 +47,8 @@ export async function createProvider(
       const candidates = PROVIDER_KEY_MAP.agentmail;
       let apiKey: string | undefined;
       for (const account of candidates) {
-        apiKey = await getSecureKeyAsync(account);
+        const result = await getSecureKeyAsync(account);
+        apiKey = result.value;
         if (apiKey) break;
       }
       if (!apiKey) {

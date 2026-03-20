@@ -49,10 +49,10 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
 
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  ));
+  )).value;
   const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  ));
+  )).value;
   const conn = getConnectionByProvider("slack_channel");
   const connected =
     !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
@@ -99,10 +99,10 @@ export async function setSlackChannelConfig(
       if (!data.ok) {
         const errHasBotToken = !!(await getSecureKeyAsync(
           credentialKey("slack_channel", "bot_token"),
-        ));
+        )).value;
         const errHasAppToken = !!(await getSecureKeyAsync(
           credentialKey("slack_channel", "app_token"),
-        ));
+        )).value;
         const errConn = getConnectionByProvider("slack_channel");
         return {
           success: false,
@@ -239,10 +239,10 @@ export async function setSlackChannelConfig(
 
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  ));
+  )).value;
   const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  ));
+  )).value;
 
   if (hasBotToken && !hasAppToken) {
     warning =

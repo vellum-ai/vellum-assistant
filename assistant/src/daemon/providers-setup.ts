@@ -36,7 +36,7 @@ export async function initializeProvidersAndTools(
   // normally only set by handleAddSecret/handleDeleteSecret at runtime.
   try {
     const key = credentialKey("vellum", "platform_base_url");
-    const persisted = await getSecureKeyAsync(key);
+    const { value: persisted } = await getSecureKeyAsync(key);
     if (persisted) {
       setPlatformBaseUrl(persisted);
       log.info("Rehydrated platform base URL from credential store");
@@ -52,7 +52,7 @@ export async function initializeProvidersAndTools(
   // shouldUsePlatformCallbacks() works after assistant restarts.
   try {
     const key = credentialKey("vellum", "platform_assistant_id");
-    const persisted = await getSecureKeyAsync(key);
+    const { value: persisted } = await getSecureKeyAsync(key);
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformAssistantId(trimmed);
@@ -69,7 +69,7 @@ export async function initializeProvidersAndTools(
   // Sentry events include organization context after restarts.
   try {
     const key = credentialKey("vellum", "platform_organization_id");
-    const persisted = await getSecureKeyAsync(key);
+    const { value: persisted } = await getSecureKeyAsync(key);
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformOrganizationId(trimmed);
@@ -87,7 +87,7 @@ export async function initializeProvidersAndTools(
   // telemetry events include user context after restarts.
   try {
     const key = credentialKey("vellum", "platform_user_id");
-    const persisted = await getSecureKeyAsync(key);
+    const { value: persisted } = await getSecureKeyAsync(key);
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformUserId(trimmed);

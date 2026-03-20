@@ -59,7 +59,7 @@ export class McpClient {
     // during daemon startup. If no tokens, try without auth — if the server
     // requires it, skip silently.
     if (isHttpTransport) {
-      const cachedTokens = await getSecureKeyAsync(
+      const { value: cachedTokens } = await getSecureKeyAsync(
         `mcp:${this.serverId}:tokens`,
       );
       if (cachedTokens) {

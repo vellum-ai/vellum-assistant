@@ -193,7 +193,7 @@ export async function resolveCallerIdentity(
     userNumber = identityConfig.userNumber;
     numberSource = "user_config";
   } else {
-    const secureKeyValue = await getSecureKeyAsync(
+    const { value: secureKeyValue } = await getSecureKeyAsync(
       credentialKey("twilio", "user_phone_number"),
     );
     if (secureKeyValue) {

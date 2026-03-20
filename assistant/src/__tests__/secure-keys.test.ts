@@ -130,17 +130,17 @@ describe("secure-keys", () => {
   describe("CRUD with encrypted backend (broker unavailable)", () => {
     test("set and get a key", async () => {
       await setSecureKeyAsync("openai", "sk-openai-789");
-      expect(await getSecureKeyAsync("openai")).toBe("sk-openai-789");
+      expect(await getSecureKeyAsync("openai")).toEqual({ value: "sk-openai-789", unreachable: false });
     });
 
     test("get returns undefined for nonexistent key", async () => {
-      expect(await getSecureKeyAsync("nonexistent")).toBeUndefined();
+      expect(await getSecureKeyAsync("nonexistent")).toEqual({ value: undefined, unreachable: false });
     });
 
     test("delete removes a key", async () => {
       await setSecureKeyAsync("gemini", "gem-key");
       expect(await deleteSecureKeyAsync("gemini")).toBe("deleted");
-      expect(await getSecureKeyAsync("gemini")).toBeUndefined();
+      expect(await getSecureKeyAsync("gemini")).toEqual({ value: undefined, unreachable: false });
     });
 
     test("delete returns not-found for nonexistent key", async () => {
@@ -185,7 +185,7 @@ describe("secure-keys", () => {
 
       mockBrokerStore.set("api-key", "broker-value");
       const result = await getSecureKeyAsync("api-key");
-      expect(result).toBe("broker-value");
+      expect(result).toEqual({ value: "broker-value", unreachable: false });
       expect(mockBrokerGetCalled).toBe(true);
     });
 
@@ -197,7 +197,7 @@ describe("secure-keys", () => {
       encryptedStore.setKey("legacy-key", "legacy-value");
 
       const result = await getSecureKeyAsync("legacy-key");
-      expect(result).toBe("legacy-value");
+      expect(result).toEqual({ value: "legacy-value", unreachable: false });
       // Broker was checked first (returned nothing), then encrypted store
       expect(mockBrokerGetCalled).toBe(true);
     });
@@ -206,7 +206,7 @@ describe("secure-keys", () => {
       mockBrokerAvailable = true;
       _resetBackend();
 
-      expect(await getSecureKeyAsync("missing-key")).toBeUndefined();
+      expect(await getSecureKeyAsync("missing-key")).toEqual({ value: undefined, unreachable: false });
     });
 
     test("getSecureKeyAsync returns broker value even when encrypted store also has a value", async () => {
@@ -218,7 +218,7 @@ describe("secure-keys", () => {
       encryptedStore.setKey("api-key", "encrypted-value");
 
       const result = await getSecureKeyAsync("api-key");
-      expect(result).toBe("broker-value");
+      expect(result).toEqual({ value: "broker-value", unreachable: false });
     });
   });
 
@@ -249,7 +249,7 @@ describe("secure-keys", () => {
       encryptedStore.setKey("api-key", "encrypted-value");
 
       const result = await getSecureKeyAsync("api-key");
-      expect(result).toBe("encrypted-value");
+      expect(result).toEqual({ value: "encrypted-value", unreachable: false });
       // Broker should not have been contacted
       expect(mockBrokerGetCalled).toBe(false);
     });
@@ -262,7 +262,7 @@ describe("secure-keys", () => {
       mockBrokerStore.set("api-key", "broker-value");
 
       const result = await getSecureKeyAsync("api-key");
-      expect(result).toBeUndefined();
+      expect(result).toEqual({ value: undefined, unreachable: false });
       expect(mockBrokerGetCalled).toBe(false);
     });
   });
@@ -339,7 +339,7 @@ describe("secure-keys", () => {
       encryptedStore.setKey("legacy-account", "legacy-secret");
 
       const result = await getSecureKeyAsync("legacy-account");
-      expect(result).toBe("legacy-secret");
+      expect(result).toEqual({ value: "legacy-secret", unreachable: false });
     });
 
     test("does not fall back to encrypted store when already using encrypted store backend", async () => {
@@ -350,8 +350,46 @@ describe("secure-keys", () => {
 
       // Should read directly from encrypted store (primary)
       const result = await getSecureKeyAsync("account");
-      expect(result).toBe("value");
+      expect(result).toEqual({ value: "value", unreachable: false });
       // Broker should not have been contacted
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Unreachable propagation
+  // -----------------------------------------------------------------------
+  describe("unreachable propagation", () => {
+    test("getSecureKeyAsync returns unreachable true when broker errors", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toEqual({ value: undefined, unreachable: true });
+    });
+
+    test("getSecureKeyAsync falls back to encrypted store when broker unreachable", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      // Pre-populate encrypted store with a legacy key
+      encryptedStore.setKey("legacy-key", "legacy-value");
+
+      const result = await getSecureKeyAsync("legacy-key");
+      expect(result).toEqual({ value: "legacy-value", unreachable: false });
+    });
+
+    test("getSecureKeyAsync returns unreachable false in dev mode", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      _resetBackend();
+
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toEqual({ value: undefined, unreachable: false });
+      // Broker should not have been contacted in dev mode
       expect(mockBrokerGetCalled).toBe(false);
     });
   });

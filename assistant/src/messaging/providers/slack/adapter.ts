@@ -120,7 +120,7 @@ export const slackProvider: MessagingProvider = {
     // Socket Mode: check for bot token directly in credential store.
     // The token is the source of truth; the slack_channel connection row
     // is advisory (backfill can fail non-fatally on startup).
-    const botToken = await getSecureKeyAsync(
+    const { value: botToken } = await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     );
     if (botToken) return true;
@@ -131,7 +131,7 @@ export const slackProvider: MessagingProvider = {
   async resolveConnection(account?: string): Promise<OAuthConnection | string> {
     // Socket Mode: return raw bot token if available.
     // Token presence is sufficient — no connection row required.
-    const botToken = await getSecureKeyAsync(
+    const { value: botToken } = await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     );
     if (botToken) return botToken;

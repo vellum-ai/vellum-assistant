@@ -65,10 +65,10 @@ export const servicesConfigMigration: WorkspaceMigration = {
         }
       }
       if (!hasAnyUserKey) {
-        const apiKey = await getSecureKeyAsync(
+        const { value: apiKey } = await getSecureKeyAsync(
           credentialKey("vellum", "assistant_api_key"),
         );
-        const baseUrl = await getSecureKeyAsync(
+        const { value: baseUrl } = await getSecureKeyAsync(
           credentialKey("vellum", "platform_base_url"),
         );
         if (apiKey && baseUrl) {

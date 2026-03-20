@@ -84,10 +84,10 @@ mock.module("../oauth/manual-token-connection.js", () => ({
     if (providerKey === "slack_channel") {
       const hasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      ));
+      )).value;
       const hasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      ));
+      )).value;
       if (hasBotToken && hasAppToken) {
         manualConnectionStore[providerKey] = "active";
       } else {
@@ -109,10 +109,10 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
 
     const hasExistingBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    ));
+    )).value;
     const hasExistingAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    ));
+    )).value;
 
     if (appToken && !appToken.startsWith("xapp-")) {
       return {
@@ -151,10 +151,10 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
 
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    ));
+    )).value;
     const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    ));
+    )).value;
 
     if (hasBotToken && hasAppToken) {
       manualConnectionStore["slack_channel"] = "active";
@@ -588,7 +588,7 @@ describe("credential_store tool — prompt action", () => {
     // Verify stored
     expect(
       await getSecureKeyAsync(credentialKey("test-prompt", "api_key")),
-    ).toBe("prompt-secret-val");
+    ).toEqual({ value: "prompt-secret-val", unreachable: false });
   });
 
   test("prompt with policy fields persists metadata", async () => {
@@ -725,7 +725,7 @@ describe("credential_store tool — prompt action", () => {
     expect(botResult.content).toContain("invalid_auth");
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
-    ).toBeUndefined();
+    ).toEqual({ value: undefined, unreachable: false });
   });
 
   test("prompt rejects invalid policy input", async () => {
@@ -1257,8 +1257,8 @@ describe("credential_store tool — store validation edge cases", () => {
     );
 
     // Verify stored
-    expect(await getSecureKeyAsync(credentialKey("del-test", "key"))).toBe(
-      "secret",
+    expect(await getSecureKeyAsync(credentialKey("del-test", "key"))).toEqual(
+      { value: "secret", unreachable: false },
     );
     const { getCredentialMetadata } =
       await import("../tools/credentials/metadata-store.js");
@@ -1278,7 +1278,7 @@ describe("credential_store tool — store validation edge cases", () => {
     // Both should be gone
     expect(
       await getSecureKeyAsync(credentialKey("del-test", "key")),
-    ).toBeUndefined();
+    ).toEqual({ value: undefined, unreachable: false });
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
   });
 });

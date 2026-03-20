@@ -36,6 +36,21 @@ export type { DeleteResult } from "./credential-backend.js";
  */
 export type { SecureKeyBackend, SecureKeyDeleteResult };
 
+/**
+ * Result from a secure key lookup. Carries the secret value plus
+ * a flag indicating whether the primary backend was unreachable.
+ */
+export interface SecureKeyResult {
+  /** The secret value, or undefined if not found or backend unreachable. */
+  value: string | undefined;
+  /**
+   * True when the primary credential backend could not be reached.
+   * When true, `value` may be undefined even though the credential exists —
+   * it's just inaccessible right now.
+   */
+  unreachable: boolean;
+}
+
 const log = getLogger("secure-keys");
 
 let _keychain: CredentialBackend | undefined;
@@ -133,22 +148,32 @@ export async function listSecureKeysAsync(): Promise<string[]> {
  */
 export async function getSecureKeyAsync(
   account: string,
-): Promise<string | undefined> {
+): Promise<SecureKeyResult> {
   const backend = resolveBackend();
   const result = await backend.get(account);
-  if (result.value != null) return result.value;
 
-  // CES mode — no local fallback.
-  if (backend.name === "ces-http") return undefined;
-
-  // Legacy fallback: if primary backend is NOT the encrypted store,
-  // check the encrypted store for keys that haven't been migrated.
-  if (backend !== getEncryptedStoreBackend()) {
-    const fallback = await getEncryptedStoreBackend().get(account);
-    return fallback.value;
+  // Got a value from primary backend.
+  if (result.value != null) {
+    return { value: result.value, unreachable: false };
   }
 
-  return undefined;
+  // CES mode — no local fallback.
+  if (backend.name === "ces-http") {
+    return { value: undefined, unreachable: result.unreachable };
+  }
+
+  // Primary returned nothing — try the encrypted store fallback for
+  // legacy keys that haven't been migrated.
+  if (backend !== getEncryptedStoreBackend()) {
+    const fallback = await getEncryptedStoreBackend().get(account);
+    if (fallback.value != null) {
+      return { value: fallback.value, unreachable: false };
+    }
+    // Fallback also empty. Report unreachable only if primary was.
+    return { value: undefined, unreachable: result.unreachable };
+  }
+
+  return { value: undefined, unreachable: false };
 }
 
 /**
@@ -231,7 +256,7 @@ const PROVIDER_ENV_VARS: Record<string, string> =
 export async function getProviderKeyAsync(
   provider: string,
 ): Promise<string | undefined> {
-  const stored = await getSecureKeyAsync(provider);
+  const { value: stored } = await getSecureKeyAsync(provider);
   if (stored) return stored;
   const envVar = PROVIDER_ENV_VARS[provider];
   return envVar ? process.env[envVar] : undefined;

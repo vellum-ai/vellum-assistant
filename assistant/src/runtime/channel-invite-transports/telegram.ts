@@ -44,7 +44,7 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     return; // Username and bot ID already cached in config
   }
 
-  const token = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
+  const { value: token } = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
   if (!token) return;
 
   try {

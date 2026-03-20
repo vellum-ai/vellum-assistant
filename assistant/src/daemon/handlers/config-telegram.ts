@@ -77,10 +77,10 @@ export async function getTelegramConfig(): Promise<TelegramConfigResult> {
   );
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("telegram", "bot_token"),
-  ));
+  )).value;
   const hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  ));
+  )).value;
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
   const botId = getTelegramBotId();
@@ -102,7 +102,7 @@ export async function setTelegramConfig(
   const isNewToken = !!botToken;
   const resolvedToken =
     botToken ||
-    (await getSecureKeyAsync(credentialKey("telegram", "bot_token")));
+    (await getSecureKeyAsync(credentialKey("telegram", "bot_token"))).value;
   if (!resolvedToken) {
     return {
       success: false,
@@ -184,7 +184,7 @@ export async function setTelegramConfig(
   // Ensure webhook secret exists (generate if missing)
   let hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  ));
+  )).value;
   if (!hasWebhookSecret) {
     const { randomUUID } = await import("node:crypto");
     const webhookSecret = randomUUID();
@@ -259,7 +259,7 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   // The gateway reconcile short-circuits when credentials are absent,
   // so we must call the Telegram API directly while the token is still
   // available.
-  const botToken = await getSecureKeyAsync(
+  const { value: botToken } = await getSecureKeyAsync(
     credentialKey("telegram", "bot_token"),
   );
   if (botToken) {
@@ -320,7 +320,7 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 export async function setTelegramCommands(
   commands?: Array<{ command: string; description: string }>,
 ): Promise<TelegramConfigResult> {
-  const storedToken = await getSecureKeyAsync(
+  const { value: storedToken } = await getSecureKeyAsync(
     credentialKey("telegram", "bot_token"),
   );
   if (!storedToken) {

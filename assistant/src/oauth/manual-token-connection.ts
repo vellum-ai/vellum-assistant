@@ -80,10 +80,10 @@ export async function syncManualTokenConnection(
     case "telegram": {
       const hasBotToken = !!(await getSecureKeyAsync(
         credentialKey("telegram", "bot_token"),
-      ));
+      )).value;
       const hasWebhookSecret = !!(await getSecureKeyAsync(
         credentialKey("telegram", "webhook_secret"),
-      ));
+      )).value;
       if (hasBotToken && hasWebhookSecret) {
         await ensureManualTokenConnection(providerKey, accountInfo);
       } else {
@@ -95,10 +95,10 @@ export async function syncManualTokenConnection(
     case "slack_channel": {
       const hasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      ));
+      )).value;
       const hasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      ));
+      )).value;
       if (hasBotToken && hasAppToken) {
         await ensureManualTokenConnection(providerKey, accountInfo);
       } else {

@@ -30,7 +30,7 @@ function resolveAccountSid(): string | undefined {
 /** Resolve the Twilio Auth Token from the credential store. */
 async function resolveAuthToken(): Promise<string | undefined> {
   return (
-    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) ||
+    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))).value ||
     undefined
   );
 }

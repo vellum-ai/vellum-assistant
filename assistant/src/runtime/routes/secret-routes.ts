@@ -338,7 +338,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       // Check existence first — the broker always returns "deleted" even
       // for keys that don't exist, so we need a pre-check for 404 semantics.
-      const existing = await getSecureKeyAsync(name);
+      const { value: existing } = await getSecureKeyAsync(name);
       if (existing === undefined) {
         return httpError("NOT_FOUND", `API key not found: ${name}`, 404);
       }
@@ -372,7 +372,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       const key = credentialKey(service, field);
       // Check existence first — the broker always returns "deleted" even
       // for keys that don't exist, so we need a pre-check for 404 semantics.
-      const existing = await getSecureKeyAsync(key);
+      const { value: existing } = await getSecureKeyAsync(key);
       if (existing === undefined) {
         return httpError("NOT_FOUND", `Credential not found: ${name}`, 404);
       }
