@@ -1,30 +1,6 @@
 import SwiftUI
 
-/// A ViewModifier that applies the shared input chrome across text inputs.
-/// Use on raw TextField / SecureField instances: `.vInputStyle()`
-public struct VInputStyleModifier: ViewModifier {
-    public var maxWidth: CGFloat = .infinity
-
-    public init(maxWidth: CGFloat = .infinity) {
-        self.maxWidth = maxWidth
-    }
-
-    public func body(content: Content) -> some View {
-        content
-            .textFieldStyle(.plain)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-            .frame(maxWidth: maxWidth)
-    }
-}
-
 extension View {
-    public func vInputStyle(maxWidth: CGFloat = .infinity) -> some View {
-        modifier(VInputStyleModifier(maxWidth: maxWidth))
-    }
-
     public func vInputChrome(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
         modifier(VInputChromeModifier(isFocused: isFocused, isError: isError, isDisabled: isDisabled, cornerRadius: cornerRadius))
     }
@@ -74,6 +50,14 @@ public struct VInputChromeModifier: ViewModifier {
 }
 
 /// Single-line text input with optional label, icons, secure mode, and error display.
+///
+/// ## Focus handling
+/// VTextField owns an internal `@FocusState` that drives its chrome styling
+/// (border highlight, shadow). Callers that need programmatic focus control
+/// should pass a `FocusState<Bool>.Binding` via the `isFocused` parameter —
+/// this binding is applied **directly** to the inner `TextField`/`SecureField`
+/// so there is exactly one focus binding per focusable view, matching Apple's
+/// recommended pattern.
 public struct VTextField: View {
     public let placeholder: String
     @Binding public var text: String
@@ -86,9 +70,25 @@ public struct VTextField: View {
     public var maxWidth: CGFloat = .infinity
     public var font: Font = VFont.body
 
-    @FocusState private var isFocused: Bool
+    /// Internal focus state — used only when the caller does NOT provide
+    /// an external `FocusState<Bool>.Binding`.
+    @FocusState private var internalFocus: Bool
+
+    /// External focus binding provided by the caller. When non-nil this is
+    /// applied to the inner field instead of `internalFocus`.
+    private var externalFocus: FocusState<Bool>.Binding?
+
     @Environment(\.isEnabled) private var isEnabled
 
+    /// Whether the inner field is currently focused. Reads from whichever
+    /// focus source is active (external binding or internal state).
+    private var isFocused: Bool {
+        externalFocus?.wrappedValue ?? internalFocus
+    }
+
+    // MARK: - Initializers
+
+    /// Standard initializer — VTextField manages its own focus internally.
     public init(
         _ label: String? = nil,
         placeholder: String,
@@ -111,6 +111,36 @@ public struct VTextField: View {
         self.onSubmit = onSubmit
         self.maxWidth = maxWidth
         self.font = font
+        self.externalFocus = nil
+    }
+
+    /// Initializer with external focus control. The caller's
+    /// `FocusState<Bool>.Binding` is wired directly to the inner field —
+    /// no competing bindings, no onChange sync.
+    public init(
+        _ label: String? = nil,
+        placeholder: String,
+        text: Binding<String>,
+        leadingIcon: String? = nil,
+        trailingIcon: String? = nil,
+        isSecure: Bool = false,
+        errorMessage: String? = nil,
+        onSubmit: (() -> Void)? = nil,
+        maxWidth: CGFloat = .infinity,
+        font: Font = VFont.body,
+        isFocused: FocusState<Bool>.Binding
+    ) {
+        self.label = label
+        self.placeholder = placeholder
+        self._text = text
+        self.leadingIcon = leadingIcon
+        self.trailingIcon = trailingIcon
+        self.isSecure = isSecure
+        self.errorMessage = errorMessage
+        self.onSubmit = onSubmit
+        self.maxWidth = maxWidth
+        self.font = font
+        self.externalFocus = isFocused
     }
 
     public var body: some View {
@@ -160,20 +190,29 @@ public struct VTextField: View {
                     .textFieldStyle(.plain)
                     .font(font)
                     .foregroundColor(VColor.contentDefault)
-                    .focused($isFocused)
                     .onSubmit { onSubmit?() }
             } else {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
                     .font(font)
                     .foregroundColor(VColor.contentDefault)
-                    .focused($isFocused)
                     .onSubmit { onSubmit?() }
             }
         }
 
-        field
-            .accessibilityLabel(label ?? placeholder)
-            .accessibilityHint(errorMessage ?? "")
+        // Apply exactly one .focused() binding to the inner field.
+        // When the caller provides an external FocusState binding, use it
+        // directly so focus reads/writes go through a single source of truth.
+        if let externalFocus {
+            field
+                .focused(externalFocus)
+                .accessibilityLabel(label ?? placeholder)
+                .accessibilityHint(errorMessage ?? "")
+        } else {
+            field
+                .focused($internalFocus)
+                .accessibilityLabel(label ?? placeholder)
+                .accessibilityHint(errorMessage ?? "")
+        }
     }
 }

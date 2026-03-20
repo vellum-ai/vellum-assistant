@@ -267,9 +267,9 @@ struct SettingsDeveloperTab: View {
             HStack(spacing: VSpacing.sm) {
                 VTextField(
                     placeholder: "https://platform.vellum.ai",
-                    text: $platformUrlText
+                    text: $platformUrlText,
+                    isFocused: $isPlatformUrlFocused
                 )
-                .focused($isPlatformUrlFocused)
 
                 VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     store.savePlatformBaseUrl(platformUrlText)

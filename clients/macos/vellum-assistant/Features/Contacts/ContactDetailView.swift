@@ -148,8 +148,7 @@ struct ContactDetailView: View {
                 Text("Name")
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
-                VTextField(placeholder: "Give this human a name", text: $editedName)
-                    .focused($isNameFocused)
+                VTextField(placeholder: "Give this human a name", text: $editedName, isFocused: $isNameFocused)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {

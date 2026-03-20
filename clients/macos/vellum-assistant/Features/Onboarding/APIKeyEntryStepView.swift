@@ -225,9 +225,9 @@ struct APIKeyEntryStepView: View {
                         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         saveAndHatch()
                     },
-                    maxWidth: 400
+                    maxWidth: 400,
+                    isFocused: $keyFieldFocused
                 )
-                .focused($keyFieldFocused)
             }
         }
         .frame(maxWidth: 400)

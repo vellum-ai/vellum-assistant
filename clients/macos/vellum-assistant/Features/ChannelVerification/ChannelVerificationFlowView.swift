@@ -422,9 +422,9 @@ struct ChannelVerificationFlowView: View {
             VTextField(
                 placeholder: placeholder,
                 text: $destinationText,
-                maxWidth: 360
+                maxWidth: 360,
+                isFocused: $isDestinationFocused
             )
-            .focused($isDestinationFocused)
             .onAppear {
                 if autoFocus {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

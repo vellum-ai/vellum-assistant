@@ -600,9 +600,9 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Telegram bot token",
                 text: $telegramBotTokenText,
                 isSecure: true,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isTelegramTokenFocused
             )
-            .focused($isTelegramTokenFocused)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -703,9 +703,9 @@ struct AssistantChannelsDetailView: View {
                 placeholder: "Bot Token (xoxb-...)",
                 text: $slackChannelBotTokenInput,
                 isSecure: true,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isSlackBotTokenFocused
             )
-            .focused($isSlackBotTokenFocused)
 
             VTextField(
                 "App Token",
@@ -815,9 +815,9 @@ struct AssistantChannelsDetailView: View {
                 "Account SID",
                 placeholder: "Account SID",
                 text: $voiceAccountSidText,
-                maxWidth: 400
+                maxWidth: 400,
+                isFocused: $isVoiceAccountSidFocused
             )
-            .focused($isVoiceAccountSidFocused)
 
             VTextField(
                 "Auth Token",
