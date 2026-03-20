@@ -390,7 +390,7 @@ extension ChatBubble {
 
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
         HStack(spacing: VSpacing.xs) {
-            VIconView(fileIcon(for: attachment.mimeType), size: 14)
+            VIconView(fileIcon(for: attachment.mimeType, fileName: attachment.filename), size: 14)
                 .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
 
             Text(attachment.filename)
@@ -432,13 +432,14 @@ extension ChatBubble {
         }
     }
 
-    func fileIcon(for mimeType: String) -> VIcon {
+    func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
         if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("audio/") { return .audioWaveform }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/pdf" { return .file }
         if mimeType.contains("zip") || mimeType.contains("archive") { return .fileArchive }
         if mimeType.contains("json") || mimeType.contains("xml") { return .fileText }
+        if let name = fileName, FileExtensions.isCode(name) { return .fileCode }
         return .file
     }
 

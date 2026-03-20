@@ -541,7 +541,7 @@ private struct WorkspaceTreeRow: View {
                             isDirectory: entry.isDirectory,
                             isExpanded: isExpanded,
                             depth: depth,
-                            fileIcon: .fileText,
+                            fileIcon: fileIcon(for: entry.mimeType ?? "application/octet-stream", fileName: entry.name),
                             minRowWidth: minRowWidth,
                             isDimmed: isHiddenPath(entry.path)
                         )
@@ -772,7 +772,7 @@ private struct WorkspaceFileViewer: View {
                 )
             } else {
                 FileContentHeaderBar(
-                    icon: fileIcon(for: mime),
+                    icon: fileIcon(for: mime, fileName: detail.name),
                     fileName: detail.name
                 )
                 Divider().background(VColor.borderBase)

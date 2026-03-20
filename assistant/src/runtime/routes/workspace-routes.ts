@@ -119,7 +119,7 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
   }
 
   const mimeType = Bun.file(resolved).type;
-  const isText = isTextMimeType(mimeType);
+  const isText = isTextMimeType(mimeType, basename(resolved));
   const isBinary = !isText;
 
   let content: string | undefined = undefined;

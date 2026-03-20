@@ -243,7 +243,7 @@ struct SkillDetailView: View {
                 }
             } label: {
                 HStack(spacing: VSpacing.sm) {
-                    VIconView(fileIcon(for: file.mimeType), size: 16)
+                    VIconView(fileIcon(for: file.mimeType, fileName: file.name), size: 16)
                         .foregroundColor(VColor.primaryBase)
                         .frame(width: 24)
 
@@ -287,11 +287,12 @@ struct SkillDetailView: View {
 
     // MARK: - File Helpers
 
-    private func fileIcon(for mimeType: String) -> VIcon {
+    private func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
         if mimeType.hasPrefix("image/") { return .image }
         if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+        if let name = fileName, FileExtensions.isCode(name) { return .fileCode }
         return .file
     }
 }

@@ -34,13 +34,15 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
 
 // MARK: - File Icon
 
-func fileIcon(for mimeType: String) -> VIcon {
+func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
     if mimeType.hasPrefix("image/") { return .image }
     if mimeType.hasPrefix("video/") { return .video }
     if mimeType.hasPrefix("text/") { return .fileText }
     if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+    if let name = fileName, FileExtensions.isCode(name) { return .fileCode }
     return .file
 }
+
 
 // MARK: - File Content View
 
@@ -83,7 +85,7 @@ struct FileContentView: View {
 
         VStack(alignment: .leading, spacing: 0) {
             FileContentHeaderBar(
-                icon: fileIcon(for: mimeType),
+                icon: fileIcon(for: mimeType, fileName: fileName),
                 fileName: fileName
             ) {
                 if modes.count > 1 {

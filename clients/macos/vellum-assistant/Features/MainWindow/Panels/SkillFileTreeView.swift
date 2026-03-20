@@ -58,7 +58,7 @@ struct SkillFileTreeView: View {
                             isDirectory: item.node.isDirectory,
                             isExpanded: item.node.isDirectory && !collapsedPaths.contains(item.node.path),
                             depth: item.depth,
-                            fileIcon: fileIcon(for: item.node.mimeType ?? "application/octet-stream")
+                            fileIcon: fileIcon(for: item.node.mimeType ?? "application/octet-stream", fileName: item.node.name)
                         )
 
                         Spacer()

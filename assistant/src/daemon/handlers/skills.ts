@@ -24,6 +24,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
@@ -49,20 +50,6 @@ import {
 
 // ─── MIME detection helpers ───────────────────────────────────────────────────
 
-const TEXT_MIME_PREFIXES = [
-  "text/",
-  "application/json",
-  "application/javascript",
-  "application/typescript",
-  "application/xml",
-  "application/yaml",
-  "application/x-yaml",
-  "application/toml",
-  "application/x-sh",
-];
-function isTextMime(mimeType: string): boolean {
-  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
-}
 const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 // ─── Shared context for standalone functions ─────────────────────────────────
@@ -380,7 +367,7 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
     try {
       const stat = statSync(fullPath);
       const mimeType = Bun.file(fullPath).type;
-      const isText = isTextMime(mimeType);
+      const isText = isTextMime(mimeType, dirent.name);
       let content: string | null = null;
       if (isText && stat.size <= MAX_INLINE_SIZE) {
         content = readFileSync(fullPath, "utf-8");

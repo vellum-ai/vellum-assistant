@@ -85,10 +85,90 @@ const TEXT_MIME_PREFIXES = [
   "application/x-yaml",
   "application/toml",
   "application/x-sh",
+  "application/x-httpd-php",
+  "application/x-perl",
+  "application/x-sql",
+  "application/x-tex",
+  "application/vnd.dart",
 ];
 
-export function isTextMimeType(mimeType: string): boolean {
-  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+/**
+ * File extensions that are known text/code files but that Bun's MIME
+ * detection reports as `application/octet-stream`.
+ */
+const TEXT_FILE_EXTENSIONS = new Set([
+  // Programming languages
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "swift",
+  "kt",
+  "kts",
+  "cs",
+  "scala",
+  "ex",
+  "exs",
+  "erl",
+  "hs",
+  "clj",
+  "cljs",
+  "jl",
+  "zig",
+  "nim",
+  "v",
+  "sol",
+  "r",
+  // Shell / scripting
+  "bash",
+  "zsh",
+  "fish",
+  "ps1",
+  "bat",
+  "cmd",
+  "awk",
+  // Web frameworks
+  "vue",
+  "svelte",
+  "scss",
+  "sass",
+  "less",
+  // Config / data
+  "cfg",
+  "conf",
+  "ini",
+  "properties",
+  "env",
+  "plist",
+  "gradle",
+  "cmake",
+  // Markup / docs
+  "rst",
+  "adoc",
+  "org",
+  "tex",
+  "latex",
+  // Other text formats
+  "graphql",
+  "gql",
+  "proto",
+  "tf",
+  "hcl",
+  "diff",
+  "patch",
+  "log",
+  "lock",
+]);
+
+export function isTextMimeType(mimeType: string, fileName?: string): boolean {
+  if (TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))) {
+    return true;
+  }
+  if (fileName) {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    if (ext && TEXT_FILE_EXTENSIONS.has(ext)) return true;
+  }
+  return false;
 }
 
 export const MAX_INLINE_TEXT_SIZE = 2 * 1024 * 1024; // 2 MB
