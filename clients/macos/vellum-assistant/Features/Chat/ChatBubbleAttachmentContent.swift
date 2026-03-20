@@ -10,10 +10,21 @@ import VellumAssistantShared
 /// so it is accessible from private structs without coupling to `ChatBubble`.
 private enum ImageActions {
 
-    /// Copies the image to the system clipboard as TIFF data.
-    static func copyToClipboard(_ image: NSImage) {
+    /// Copies the image to the system clipboard.
+    /// Prefers full-resolution data decoded from `base64Data` when available,
+    /// falling back to the provided (possibly thumbnail) NSImage.
+    static func copyToClipboard(_ image: NSImage, base64Data: String? = nil) {
+        // Prefer full-res from base64 data when available
+        let imageToWrite: NSImage
+        if let base64Data, !base64Data.isEmpty,
+           let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
+           let fullRes = NSImage(data: decoded) {
+            imageToWrite = fullRes
+        } else {
+            imageToWrite = image
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
+        NSPasteboard.general.writeObjects([imageToWrite])
     }
 
     /// Opens an NSSavePanel and writes the image to the chosen path.
@@ -40,15 +51,23 @@ private enum ImageActions {
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
+            // Determine data to write on the main thread.
+            // tiffRepresentation is not thread-safe (see ChatAttachmentManager.swift)
+            // so PNG encoding must happen here, not in a background queue.
+            let dataToWrite: Data?
+            if let base64Data, !base64Data.isEmpty,
+               let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
+                dataToWrite = decoded
+            } else if let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]) {
+                dataToWrite = png
+            } else {
+                dataToWrite = nil
+            }
+            guard let dataToWrite else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                if let base64Data, !base64Data.isEmpty,
-                   let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
-                    try? decoded.write(to: url)
-                } else if let tiff = image.tiffRepresentation,
-                          let rep = NSBitmapImageRep(data: tiff),
-                          let png = rep.representation(using: .png, properties: [:]) {
-                    try? png.write(to: url)
-                }
+                try? dataToWrite.write(to: url)
             }
         }
     }
@@ -113,7 +132,7 @@ private enum ImageActions {
         base64Data: String? = nil
     ) -> some View {
         Button {
-            copyToClipboard(image)
+            copyToClipboard(image, base64Data: base64Data)
         } label: {
             Label { Text("Copy Image") } icon: { VIconView(.copy, size: 12) }
         }
@@ -245,24 +264,23 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             }
                             .onDrag {
                                 let provider = NSItemProvider()
-                                // Attempt base64 decode to determine if full-res
-                                // data is actually available. This prevents
-                                // extension/content mismatch when attachment.data
-                                // is non-empty but corrupt.
-                                let fullResData: Data? = {
-                                    guard !attachment.data.isEmpty else { return nil }
-                                    guard let decoded = Data(base64Encoded: attachment.data), !decoded.isEmpty else { return nil }
-                                    return decoded
-                                }()
-                                if let fullResData {
+                                let hasFullData = !attachment.data.isEmpty
+                                if hasFullData {
                                     let mimeType = attachment.mimeType
                                     let utType = UTType(mimeType: mimeType) ?? .png
+                                    // Capture attachment data string by value for lazy decode in callback
+                                    let base64String = attachment.data
                                     provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
-                                        completion(fullResData, nil)
+                                        // Decode lazily when drop target requests data (off main thread)
+                                        if let decoded = Data(base64Encoded: base64String), !decoded.isEmpty {
+                                            completion(decoded, nil)
+                                        } else {
+                                            completion(nil, nil)
+                                        }
                                         return nil
                                     }
                                 } else if let nsImage = loadedImages[attachment.id] {
-                                    // Fallback to thumbnail — re-encoded as PNG
+                                    // tiffRepresentation is called here on the main thread (thread-safe)
                                     if let tiff = nsImage.tiffRepresentation,
                                        let rep = NSBitmapImageRep(data: tiff),
                                        let pngData = rep.representation(using: .png, properties: [:]) {
@@ -272,11 +290,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                         }
                                     }
                                 }
-                                // Use original filename only when full-res data
-                                // decoded successfully; otherwise force .png to
-                                // match the actual PNG re-encoding.
+                                // Force .png extension when falling back to PNG encoding
                                 let filename = attachment.filename
-                                if fullResData != nil {
+                                if hasFullData {
                                     provider.suggestedName = filename
                                 } else {
                                     provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
