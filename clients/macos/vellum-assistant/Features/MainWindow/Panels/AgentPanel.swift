@@ -329,21 +329,17 @@ struct AgentPanelContent: View {
         let skill: SkillInfo
         let onSelect: () -> Void
         let onDelete: () -> Void
-        @State private var isHovered = false
 
         private var isRemovable: Bool {
             skill.source == "managed" || skill.source == "clawhub"
         }
 
         var body: some View {
-            Button(action: onSelect) {
+            VInteractiveCard(action: onSelect) {
                 HStack(alignment: .center, spacing: VSpacing.lg) {
-                    // Icon — centered vertically, large
                     skillIcon(skill.emoji)
 
-                    // Text content
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        // Header: name + tag + trash on same line
                         HStack(spacing: VSpacing.sm) {
                             Text(skill.name)
                                 .font(VFont.bodyBold)
@@ -367,7 +363,6 @@ struct AgentPanelContent: View {
                             }
                         }
 
-                        // Description — fixed 2-line height for uniform cards
                         Text(skill.description)
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentSecondary)
@@ -375,19 +370,7 @@ struct AgentPanelContent: View {
                             .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
                     }
                 }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(isHovered ? VColor.surfaceActive : Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
-                        .stroke(VColor.borderDisabled, lineWidth: 2)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .onHover { isHovered = $0 }
             .contextMenu {
                 Button("Remove", role: .destructive, action: onDelete)
             }

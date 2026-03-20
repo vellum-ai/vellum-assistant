@@ -5,22 +5,18 @@ struct MemoryItemRow: View {
     let item: MemoryItemPayload
     let onSelect: () -> Void
     let onDelete: () -> Void
-    @State private var isHovered = false
 
     private var memoryKind: MemoryKind? {
         MemoryKind(rawValue: item.kind)
     }
 
     var body: some View {
-        Button(action: onSelect) {
+        VInteractiveCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                // Kind icon
                 kindIcon
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Header row: badges + delete aligned to top
                     HStack(alignment: .center, spacing: VSpacing.sm) {
-                        // Title + timestamp tightly grouped on the left
                         VStack(alignment: .leading, spacing: 0) {
                             Text(item.subject)
                                 .font(VFont.bodyBold)
@@ -53,18 +49,7 @@ struct MemoryItemRow: View {
                         .multilineTextAlignment(.leading)
                 }
             }
-            .padding(VSpacing.lg)
-            .background(isHovered ? VColor.surfaceActive : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.borderDisabled, lineWidth: 2)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
         }

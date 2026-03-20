@@ -66,6 +66,71 @@ struct DisplayGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vInteractiveCard" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VInteractiveCard
+                GallerySectionHeader(
+                    title: "VInteractiveCard",
+                    description: "Tappable card with hover highlight, border, and pointer cursor. Use for list/grid items that navigate on tap.",
+                    useInsteadOf: "Button + .buttonStyle(.plain) + .pointerCursor() with manual card chrome"
+                )
+
+                VInteractiveCard(action: {}) {
+                    HStack(spacing: VSpacing.lg) {
+                        VIconView(.zap, size: 20)
+                            .foregroundColor(VColor.primaryBase)
+                            .frame(width: 40, height: 40)
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            Text("Skill Name")
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                            Text("Description of the skill that spans up to two lines of text.")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentSecondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+
+                HStack(spacing: VSpacing.lg) {
+                    VInteractiveCard(action: {}) {
+                        HStack(spacing: VSpacing.md) {
+                            VIconView(.brain, size: 20)
+                                .foregroundColor(VColor.systemNegativeStrong)
+                                .frame(width: 40, height: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Memory Item")
+                                    .font(VFont.bodyBold)
+                                    .foregroundColor(VColor.contentDefault)
+                                Text("A remembered fact about the user.")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
+                    VInteractiveCard(action: {}) {
+                        HStack(spacing: VSpacing.md) {
+                            VIconView(.fileText, size: 20)
+                                .foregroundColor(VColor.primaryBase)
+                                .frame(width: 40, height: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Document")
+                                    .font(VFont.bodyBold)
+                                    .foregroundColor(VColor.contentDefault)
+                                Text("An uploaded reference document.")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+            }
+
             if filter == nil || filter == "vEmptyState" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -385,6 +450,7 @@ extension DisplayGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vCard": DisplayGallerySection(filter: "vCard")
+        case "vInteractiveCard": DisplayGallerySection(filter: "vInteractiveCard")
         case "vEmptyState": DisplayGallerySection(filter: "vEmptyState")
         case "vDisclosureSection": DisplayGallerySection(filter: "vDisclosureSection")
         case "vListRow": DisplayGallerySection(filter: "vListRow")
