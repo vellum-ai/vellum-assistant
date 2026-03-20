@@ -13,10 +13,8 @@ import {
   mediaAssets,
   memoryChunks,
   memoryEpisodes,
-  memoryItems,
   memoryObservations,
   memorySegments,
-  memorySummaries,
   messages,
 } from "../schema.js";
 
@@ -39,58 +37,6 @@ export async function embedSegmentJob(
     created_at: segment.createdAt,
     memory_scope_id: segment.scopeId,
   });
-}
-
-export async function embedItemJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const itemId = asString(job.payload.itemId);
-  if (!itemId) return;
-  const db = getDb();
-  const item = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, itemId))
-    .get();
-  if (!item || item.status !== "active") return;
-  const text = `<kind>${item.kind}</kind> ${item.subject}: ${item.statement}`;
-  await embedAndUpsert(config, "item", item.id, text, {
-    kind: item.kind,
-    subject: item.subject,
-    status: item.status,
-    confidence: item.confidence,
-    created_at: item.firstSeenAt,
-    last_seen_at: item.lastSeenAt,
-    memory_scope_id: item.scopeId,
-  });
-}
-
-export async function embedSummaryJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const summaryId = asString(job.payload.summaryId);
-  if (!summaryId) return;
-  const db = getDb();
-  const summary = db
-    .select()
-    .from(memorySummaries)
-    .where(eq(memorySummaries.id, summaryId))
-    .get();
-  if (!summary) return;
-  await embedAndUpsert(
-    config,
-    "summary",
-    summary.id,
-    `[${summary.scope}] ${summary.summary}`,
-    {
-      kind: summary.scope,
-      created_at: summary.startAt,
-      last_seen_at: summary.endAt,
-      memory_scope_id: summary.scopeId,
-    },
-  );
 }
 
 export async function embedChunkJob(

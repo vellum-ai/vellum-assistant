@@ -4,7 +4,6 @@ import {
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
-  requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from "../../memory/admin.js";
 import { listConversations } from "../../memory/conversation-queries.js";
@@ -51,8 +50,6 @@ Fields shown:
   items              Total distilled fact items stored
   summaries          Total compressed conversation summaries
   embeddings         Total vector embeddings computed
-  cleanup backlogs   Number of superseded items pending cleanup
-  cleanup throughput Number of cleanup operations completed in the last 24 hours
   jobs               Status of background jobs (backfill, cleanup, rebuild-index)
 
 Examples:
@@ -73,12 +70,6 @@ Examples:
       log.info(`Items: ${status.counts.items.toLocaleString()}`);
       log.info(`Summaries: ${status.counts.summaries.toLocaleString()}`);
       log.info(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
-      log.info(
-        `Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`,
-      );
-      log.info(
-        `Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`,
-      );
       log.info("Jobs:");
       for (const [key, value] of Object.entries(status.jobs)) {
         log.info(`  ${key}: ${value}`);
@@ -108,40 +99,6 @@ Examples:
       initializeDb();
       const jobId = requestMemoryBackfill(Boolean(opts?.force));
       log.info(`Queued backfill job: ${jobId}`);
-    });
-
-  memory
-    .command("cleanup")
-    .description("Queue cleanup jobs for stale superseded items")
-    .option(
-      "--retention-ms <ms>",
-      "Optional retention threshold in milliseconds",
-    )
-    .addHelpText(
-      "after",
-      `
-Queues a background cleanup job to remove memory items that have been
-superseded by newer, corrected facts past the retention threshold.
-
-The optional --retention-ms flag sets the minimum age (in milliseconds) a
-record must have before it is eligible for cleanup. If omitted, the system
-default retention period is used.
-
-Examples:
-  $ assistant memory cleanup
-  $ assistant memory cleanup --retention-ms 86400000`,
-    )
-    .action((opts: { retentionMs?: string }) => {
-      initializeDb();
-      const retentionMs = opts.retentionMs
-        ? Number.parseInt(opts.retentionMs, 10)
-        : undefined;
-      const jobs = requestMemoryCleanup(
-        Number.isFinite(retentionMs) ? retentionMs : undefined,
-      );
-      log.info(
-        `Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`,
-      );
     });
 
   memory

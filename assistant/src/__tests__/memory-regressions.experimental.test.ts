@@ -91,7 +91,6 @@ import { indexMessageNow } from "../memory/indexer.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   resetCleanupScheduleThrottle,
-  resetStaleSweepThrottle,
   runMemoryJobsOnce,
 } from "../memory/jobs-worker.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
@@ -122,7 +121,6 @@ describe("Memory regressions (experimental)", () => {
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
     resetCleanupScheduleThrottle();
-    resetStaleSweepThrottle();
     mockQdrantResults = [];
   });
 
