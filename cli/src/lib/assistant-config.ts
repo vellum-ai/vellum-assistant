@@ -426,6 +426,7 @@ export async function allocateLocalResources(
         entry.resources.daemonPort,
         entry.resources.gatewayPort,
         entry.resources.qdrantPort,
+        entry.resources.cesPort,
       );
     }
   }
@@ -445,13 +446,19 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
   ]);
+  const cesPort = await findAvailablePort(DEFAULT_CES_PORT, [
+    ...reservedPorts,
+    daemonPort,
+    gatewayPort,
+    qdrantPort,
+  ]);
 
   return {
     instanceDir,
     daemonPort,
     gatewayPort,
     qdrantPort,
-    cesPort: DEFAULT_CES_PORT,
+    cesPort,
     pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
