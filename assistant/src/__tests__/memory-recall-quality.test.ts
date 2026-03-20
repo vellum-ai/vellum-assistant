@@ -150,7 +150,11 @@ function insertEpisode(
       conversationId: opts.conversationId,
       title: opts.title,
       summary: opts.summary,
+      tokenEstimate: Math.ceil(opts.summary.length / 4),
+      startAt: opts.createdAt,
+      endAt: opts.createdAt,
       createdAt: opts.createdAt,
+      updatedAt: opts.createdAt,
     })
     .run();
 }

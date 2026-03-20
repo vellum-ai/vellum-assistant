@@ -95,7 +95,9 @@ import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 import type { Message, Provider } from "../providers/types.js";

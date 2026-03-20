@@ -92,6 +92,7 @@ mock.module("../memory/retriever.js", () => ({
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+// @ts-expect-error — deleted module, stubbed via mock.module above
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 
