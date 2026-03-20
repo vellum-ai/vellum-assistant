@@ -38,7 +38,7 @@ Consult these reference files for detailed knowledge on specific topics. Read th
 
 ## Current Assistant Info
 
-!`bun run {baseDir}/scripts/self-info.ts`
+!`bun run "{baseDir}/scripts/self-info.ts"`
 
 ## Critical Rule
 

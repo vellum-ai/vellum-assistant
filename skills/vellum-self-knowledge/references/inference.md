@@ -2,21 +2,9 @@
 
 ## Current Model Identity
 
-To determine what model and provider you are currently running as, run the self-info script command shown in SKILL.md above.
+Your current model identity (model ID, provider, and mode) is automatically injected into the SKILL.md body at skill-load time via inline command expansion. There is no need to run a script manually — the information is pre-populated when the skill loads and reflects the live configuration.
 
-The script returns JSON with the current model ID, display name, provider, and provider display name. **Always run this script when asked about your model identity** rather than guessing — the config can change mid-session via the model switcher in the UI.
-
-Example output:
-
-```json
-{
-  "ok": true,
-  "model": { "id": "gpt-5.2", "displayName": "GPT-5.2" },
-  "provider": { "id": "openai", "displayName": "OpenAI" },
-  "mode": "your-own",
-  "summary": "You are running as GPT-5.2 via OpenAI (your-own API key)."
-}
-```
+If the user switches models mid-session via the UI, the skill will reflect the updated config the next time it is loaded.
 
 ## Model Catalog
 
