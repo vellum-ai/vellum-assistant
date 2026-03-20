@@ -175,8 +175,6 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
-export type { SwarmConfig } from "./schemas/swarm.js";
-export { SwarmConfigSchema } from "./schemas/swarm.js";
 export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
 export {
   RateLimitConfigSchema,
@@ -226,7 +224,6 @@ import {
   VALID_INFERENCE_PROVIDERS,
 } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
-import { SwarmConfigSchema } from "./schemas/swarm.js";
 import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
@@ -284,7 +281,6 @@ export const AssistantConfigSchema = z
         "Custom pricing overrides for specific provider/model combinations",
       ),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
-    swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),

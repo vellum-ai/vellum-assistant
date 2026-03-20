@@ -963,8 +963,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Deleted a task"
         case "work_item_enqueue", "task_list_add":
             return "Queued work"
-        case "swarm_delegate":
-            return inputSummary.isEmpty ? "Delegated to an agent" : "Delegated: \(truncated(inputSummary, to: 50))"
         case "evaluate_typescript_code":
             return "Evaluated a code snippet"
         case "followup_create":

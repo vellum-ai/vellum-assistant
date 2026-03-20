@@ -18,7 +18,6 @@ CLI / macOS app / iOS app
         │
         ├── Memory System (Qdrant Hybrid Search)
         ├── Skill Tool System (bundled + managed + workspace)
-        ├── Swarm Orchestration (DAG scheduler + worker pool)
         ├── Script Proxy (credential injection + MITM)
         └── Tracing (per-session event emitter)
 ```
@@ -102,7 +101,6 @@ assistant/
 │   ├── memory/               # Conversation store, memory indexer, recall (Qdrant hybrid search)
 │   ├── skills/               # Skill catalog, loading, and tool factory
 │   ├── tools/                # Built-in tool definitions
-│   ├── swarm/                # Swarm orchestration (DAG scheduler, worker pool)
 │   ├── permissions/          # Trust rules and permission system
 │   ├── security/             # Secure key storage, credential broker
 │   ├── config/               # Configuration loader and schema
