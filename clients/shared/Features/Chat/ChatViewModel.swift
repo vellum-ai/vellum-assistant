@@ -205,6 +205,14 @@ public final class ChatViewModel: ObservableObject {
                     log.error("isSending watchdog: still true after 60s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
                     self.isThinking = false
                     self.isCancelling = false
+                    self.isWorkspaceRefinementInFlight = false
+                    self.refinementFlushTask?.cancel()
+                    self.refinementFlushTask = nil
+                    self.refinementMessagePreview = nil
+                    self.refinementStreamingText = nil
+                    self.cancelledDuringRefinement = false
+                    self.refinementTextBuffer = ""
+                    self.refinementReceivedSurfaceUpdate = false
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
                         self.messages[index].isStreaming = false
