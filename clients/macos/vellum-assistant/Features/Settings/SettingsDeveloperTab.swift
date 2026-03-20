@@ -129,7 +129,9 @@ struct SettingsDeveloperTab: View {
                     : .remote
                 AssistantUpgradeSection(
                     currentVersion: healthz?.version,
-                    topology: topo
+                    topology: topo,
+                    isDockerOperationInProgress: $isDockerOperationInProgress,
+                    dockerOperationLabel: $dockerOperationLabel
                 )
             }
             // Hatch New Assistant
