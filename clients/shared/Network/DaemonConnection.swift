@@ -89,6 +89,27 @@ extension DaemonClient {
             #endif
         }
 
+        // Sync daemon version and confirm update completion on health-check version changes.
+        // This provides a faster update-complete signal than waiting for an SSE daemon_status event,
+        // which may be delayed or missed entirely if the SSE stream hasn't reconnected yet.
+        transport.onDaemonVersionChanged = { [weak self] newVersion in
+            guard let self else { return }
+            self.daemonVersion = newVersion
+            self.checkVersionCompatibility(daemonVersion: newVersion)
+            // Confirm update completion when health check detects the daemon is back
+            if self.isUpdateInProgress {
+                if newVersion == self.updateTargetVersion {
+                    log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
+                } else {
+                    log.warning("Health check detected version \(newVersion, privacy: .public) after update — expected \(self.updateTargetVersion ?? "?", privacy: .public), may have rolled back")
+                }
+                self.isUpdateInProgress = false
+                self.updateTargetVersion = nil
+                self.updateExpiresAt = nil
+                self.httpTransport?.setUpdateInProgress(false)
+            }
+        }
+
         self.httpTransport = transport
 
         // Propagate update-in-progress state to the new transport so

@@ -206,6 +206,10 @@ public final class HTTPTransport {
     /// Callback for connection state changes (health check driven).
     var onConnectionStateChanged: ((Bool) -> Void)?
 
+    /// Called when the daemon version changes during a health check.
+    /// Allows DaemonClient to confirm update completion without waiting for SSE.
+    var onDaemonVersionChanged: ((String) -> Void)?
+
     /// Callback when the bearer token is refreshed via a `token_rotated` SSE event.
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
@@ -664,6 +668,7 @@ public final class HTTPTransport {
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
                         LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
+                    onDaemonVersionChanged?(newVersion)
                 } else if let newVersion = decoded.version {
                     daemonVersion = newVersion
                 }
