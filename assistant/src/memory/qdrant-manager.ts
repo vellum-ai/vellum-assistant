@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 
 import type { Subprocess } from "bun";
 
-import { getQdrantUrlEnv } from "../config/env.js";
+import { getQdrantReadyzTimeoutMs, getQdrantUrlEnv } from "../config/env.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 
@@ -47,6 +47,8 @@ export interface QdrantManagerConfig {
  */
 export class QdrantManager {
   private process: Subprocess | null = null;
+  private stderrBuffer = "";
+  private stderrDrained: Promise<void> = Promise.resolve();
   private readonly url: string;
   private readonly host: string;
   private readonly port: number;
@@ -67,7 +69,8 @@ export class QdrantManager {
 
     this.readyzPollIntervalMs =
       config.readyzPollIntervalMs ?? READYZ_POLL_INTERVAL_MS;
-    this.readyzTimeoutMs = config.readyzTimeoutMs ?? READYZ_TIMEOUT_MS;
+    this.readyzTimeoutMs =
+      config.readyzTimeoutMs ?? getQdrantReadyzTimeoutMs() ?? READYZ_TIMEOUT_MS;
     this.shutdownGraceMs = config.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
 
     // External mode only if QDRANT_URL is explicitly set
@@ -97,7 +100,7 @@ export class QdrantManager {
       "Starting Qdrant",
     );
 
-    this.process = Bun.spawn({
+    const proc = Bun.spawn({
       cmd: [binaryPath],
       env: {
         ...process.env,
@@ -109,8 +112,10 @@ export class QdrantManager {
         QDRANT__LOG_LEVEL: "WARN",
       },
       stdout: "ignore",
-      stderr: "ignore",
+      stderr: "pipe",
     });
+    this.process = proc;
+    this.drainStderrFrom(proc.stderr);
 
     if (this.process.pid) {
       this.writePid(this.process.pid);
@@ -150,6 +155,7 @@ export class QdrantManager {
     }
 
     this.process = null;
+    this.stderrBuffer = "";
     this.cleanupPid();
     log.info("Qdrant stopped");
   }
@@ -259,6 +265,15 @@ export class QdrantManager {
   private async waitForReady(): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < this.readyzTimeoutMs) {
+      // Fail fast if the managed process exited before becoming ready
+      if (this.process != null && this.process.exitCode != null) {
+        await this.stderrDrained;
+        const stderr = this.stderrBuffer.trim();
+        throw new Error(
+          `Qdrant process exited with code ${this.process.exitCode} before becoming ready` +
+            (stderr ? `\nstderr:\n${stderr}` : ""),
+        );
+      }
       try {
         const res = await fetch(`${this.url}/readyz`);
         if (res.ok) return;
@@ -267,9 +282,30 @@ export class QdrantManager {
       }
       await Bun.sleep(this.readyzPollIntervalMs);
     }
+    const stderr = this.stderrBuffer.trim();
     throw new Error(
-      `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}`,
+      `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}` +
+        (stderr ? `\nstderr:\n${stderr}` : ""),
     );
+  }
+
+  private drainStderrFrom(stream: ReadableStream<Uint8Array>): void {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    this.stderrDrained = (async () => {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          this.stderrBuffer += decoder.decode(value, { stream: true });
+          if (this.stderrBuffer.length > 4096) {
+            this.stderrBuffer = this.stderrBuffer.slice(-4096);
+          }
+        }
+      } catch {
+        // Stream closed or error — expected during shutdown
+      }
+    })();
   }
 
   private getBinaryPath(): string {
