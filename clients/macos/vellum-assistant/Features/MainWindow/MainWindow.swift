@@ -429,10 +429,11 @@ public final class MainWindow {
         window.setFrameAutosaveName("MainWindow")
         window.delegate = closeDelegate
 
-        configureTrafficLightPadding(window)
         window.observeAppActivation()
 
         window.makeKeyAndOrderFront(nil)
+
+        configureTrafficLightPadding(window)
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
@@ -455,18 +456,18 @@ public final class MainWindow {
 
     private func repositionTrafficLights(_ window: NSWindow) {
         guard let closeButton = window.standardWindowButton(.closeButton),
-              let containerView = closeButton.superview,
-              let contentView = window.contentView else { return }
+              let containerView = closeButton.superview else { return }
         if defaultTrafficLightOrigin == nil {
             defaultTrafficLightOrigin = containerView.frame.origin
         }
         guard let origin = defaultTrafficLightOrigin else { return }
 
         // Vertically center the traffic light buttons in the 48pt custom toolbar.
-        // Derive the system titlebar height from contentLayoutRect — a documented
-        // API that reports the area not obscured by the titlebar, staying correct
-        // across macOS versions without relying on the private view hierarchy.
-        let titlebarHeight = contentView.frame.height - window.contentLayoutRect.maxY
+        // Derive the system titlebar height from contentLayoutRect (a documented
+        // API) using the window frame — not contentView.frame, which may be
+        // zero-sized before makeKeyAndOrderFront on NSHostingController windows.
+        let contentRect = window.contentRect(forFrameRect: window.frame)
+        let titlebarHeight = contentRect.height - window.contentLayoutRect.maxY
         let toolbarHeight: CGFloat = 48
         guard titlebarHeight > 0, titlebarHeight < toolbarHeight else { return }
         let verticalShift = (toolbarHeight - titlebarHeight) / 2
