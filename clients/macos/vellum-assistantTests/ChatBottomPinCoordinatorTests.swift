@@ -54,7 +54,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
     func testScrollUpCancelsActiveSession() {
         let convId = UUID()
         pinShouldSucceed = false
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
         coordinator.handleUserAction(.scrollUp)
@@ -105,7 +105,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         coordinator.handleUserAction(.scrollUp)
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         XCTAssertEqual(pinRequestCount, 0)
         XCTAssertNil(coordinator.activeSession)
@@ -132,11 +132,11 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
     func testPinRequestAllowedAfterReattach() {
         let convId = UUID()
         coordinator.handleUserAction(.scrollUp)
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertEqual(pinRequestCount, 0)
 
         coordinator.handleUserAction(.scrollToBottom)
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         XCTAssertEqual(pinRequestCount, 1)
     }
@@ -159,14 +159,14 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         XCTAssertEqual(pinRequestCount, 1)
     }
 
-    func testDuplicateStreamingRequestsCoalesce() {
+    func testDuplicateMessageCountRequestsCoalesce() {
         let convId = UUID()
         pinShouldSucceed = false
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         let firstStartTime = coordinator.activeSession?.startTime
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         XCTAssertEqual(coordinator.activeSession?.startTime, firstStartTime)
         XCTAssertEqual(pinRequestCount, 1)
@@ -254,7 +254,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         pinShouldSucceed = false
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
         coordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
@@ -278,7 +278,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         pinShouldSucceed = false
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
         coordinator.cancelActiveSession(reason: .conversationSwitch)
@@ -324,14 +324,13 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let session = BottomPinSession(
             sessionId: UUID(),
             conversationId: convId,
-            reason: .streaming,
+            reason: .messageCount,
             startTime: CFAbsoluteTimeGetCurrent()
         )
 
-        XCTAssertTrue(session.canCoalesce(reason: .streaming, conversationId: convId))
+        XCTAssertTrue(session.canCoalesce(reason: .messageCount, conversationId: convId))
         XCTAssertFalse(session.canCoalesce(reason: .expansion, conversationId: convId))
         XCTAssertFalse(session.canCoalesce(reason: .resize, conversationId: convId))
-        XCTAssertFalse(session.canCoalesce(reason: .messageCount, conversationId: convId))
         XCTAssertFalse(session.canCoalesce(reason: .initialRestore, conversationId: convId))
     }
 
@@ -398,7 +397,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         pinShouldSucceed = false
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         let sessionId = coordinator.activeSession?.sessionId
         XCTAssertNotNil(sessionId, "Active session should have a stable sessionId")
@@ -458,7 +457,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let convId = UUID()
         pinShouldSucceed = false
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
         coordinator.detach(trigger: .userScrollUp)
@@ -484,7 +483,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
             return false
         }
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
         // Let a retry or two fire.
@@ -511,7 +510,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         pinShouldSucceed = false
 
         // Start a session that will enter the retry loop.
-        coordinator.requestPin(reason: .streaming, conversationId: conv1)
+        coordinator.requestPin(reason: .messageCount, conversationId: conv1)
         let firstSessionId = coordinator.activeSession?.sessionId
         XCTAssertNotNil(firstSessionId)
 
@@ -541,10 +540,10 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         // Fire multiple requests with different reasons in rapid succession.
         coordinator.requestPin(reason: .expansion, conversationId: convId)
         coordinator.requestPin(reason: .resize, conversationId: convId)
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         // Only the last session should be active.
-        XCTAssertEqual(coordinator.activeSession?.reason, .streaming,
+        XCTAssertEqual(coordinator.activeSession?.reason, .messageCount,
                        "Only the most recent session should remain active")
     }
 
@@ -576,7 +575,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         let session = BottomPinSession(
             sessionId: UUID(),
             conversationId: UUID(),
-            reason: .streaming,
+            reason: .messageCount,
             startTime: CFAbsoluteTimeGetCurrent()
         )
 
@@ -650,7 +649,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
             return callCount >= 3 // anchored after attempt 3
         }
 
-        coordinator.requestPin(reason: .streaming, conversationId: convId)
+        coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
         // Wait for retries to process.
         try await Task.sleep(nanoseconds: 300_000_000)
