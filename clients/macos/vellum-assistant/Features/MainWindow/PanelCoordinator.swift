@@ -97,9 +97,10 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : nil),
                 pendingMemoryId: $windowState.pendingMemoryId
             )
+            .onAppear { windowState.pendingIntelligenceTab = nil }
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -478,9 +479,10 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : nil),
                 pendingMemoryId: $windowState.pendingMemoryId
             )
+            .onAppear { windowState.pendingIntelligenceTab = nil }
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)
         case .usageDashboard:

@@ -61,6 +61,11 @@ public final class MainWindowState: ObservableObject {
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
     @Published var pendingMemoryId: String?
+
+    /// Transient tab name to deep-link into when the Intelligence panel opens.
+    /// Takes priority over the memory-based tab selection. Consumed once by
+    /// PanelCoordinator, then set back to nil.
+    @Published var pendingIntelligenceTab: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var activeDynamicUserAppsDirectory: URL?
@@ -231,6 +236,12 @@ public final class MainWindowState: ObservableObject {
     /// Navigate to the Intelligence panel and deep-link to a specific memory.
     func showMemory(id: String) {
         pendingMemoryId = id
+        showPanel(.intelligence)
+    }
+
+    /// Navigate to the Intelligence panel and deep-link to a specific tab.
+    func showIntelligenceTab(_ tab: String) {
+        pendingIntelligenceTab = tab
         showPanel(.intelligence)
     }
 
