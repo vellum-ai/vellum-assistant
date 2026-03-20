@@ -95,6 +95,7 @@ export function loadOrCreateSigningKey(): Buffer {
   }
 
   // Generate and persist a new key
+  const keyPath = getSigningKeyPath();
   const newKey = randomBytes(32);
   const dir = dirname(keyPath);
   if (!existsSync(dir)) {
