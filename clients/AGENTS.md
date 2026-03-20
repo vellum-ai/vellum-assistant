@@ -61,8 +61,9 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 
 ### View Bodies and Rendering
 
-- **View bodies must be lightweight.** Never perform I/O, network calls, or heavy computation inside a SwiftUI view body. Defer work to `task {}`, `onAppear`, or background actors.
-- **Lazy containers for large collections.** Use `LazyVStack`, `LazyHStack`, `LazyVGrid` instead of eager equivalents when the item count is unbounded or large.
+- **View bodies must be lightweight.** Never perform I/O, network calls, or heavy computation inside a SwiftUI view body. This includes filtering, sorting, and data transformation — do that work in the ViewModel (asynchronously), not inline during render. Cheap display-time formatting (e.g., `Date.formatted(...)`, locale-aware unit strings) is fine in the view since it must react to locale/calendar changes. Defer expensive work to `task {}`, `onAppear`, or background actors.
+- **Lazy containers for large collections.** Use `LazyVStack`, `LazyHStack`, `LazyVGrid` instead of eager equivalents when the item count is unbounded or large. In particular, avoid `VStack`/`HStack` inside a `ScrollView` for large or unbounded data-driven lists — eager loading kills scroll performance. Small, fixed-size lists where visibility-sensitive logic (e.g., `onAppear` pagination triggers) matters may use eager containers intentionally.
+- **Keep modifier chains lean.** Every SwiftUI modifier wraps its content in a new view value. Long chains of redundant or duplicated modifiers deepen the view tree and increase diffing cost. Group related modifiers, remove redundant ones (e.g., don't set `.font` on every row when the parent already sets it), and extract heavily-modified subtrees into standalone `@ViewBuilder` methods.
 - **Scope observation narrowly.** Only observe the specific properties a view needs. Prefer granular `@Observable` properties or `withObservationTracking` over observing an entire store that publishes on unrelated changes.
 <details>
 <summary><strong>Per-entity observation and dictionary patterns</strong></summary>
@@ -111,7 +112,8 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 ### Platform-Specific
 
 - **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
-- **Profile before optimizing, but follow known patterns.** Use Instruments (Time Profiler, Allocations, SwiftUI view body counters) to validate. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
+- **Image loading must be async.** Use `AsyncImage` (built-in) or a library like Kingfisher for image loading. Never decode or resize images synchronously on the main thread — this is a common source of scroll jank in image-heavy views.
+- **Profile before optimizing, but follow known patterns.** Use Instruments to validate — specifically Time Profiler for main-thread spikes, Core Animation instrument for frame drops, and Allocations for memory. Launch Instruments directly from `/Applications/Instruments.app` or via `xcrun instruments`. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
 - **(macOS only) Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
 - **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
 
