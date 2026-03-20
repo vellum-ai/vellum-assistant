@@ -80,15 +80,15 @@ struct DisplayGallerySection: View {
                 VInteractiveCard(action: {}) {
                     HStack(spacing: VSpacing.lg) {
                         VIconView(.zap, size: 20)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Skill Name")
                                 .font(VFont.bodyBold)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("Description of the skill that spans up to two lines of text.")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                                 .lineLimit(2)
                         }
                     }
@@ -98,15 +98,15 @@ struct DisplayGallerySection: View {
                     VInteractiveCard(action: {}) {
                         HStack(spacing: VSpacing.md) {
                             VIconView(.brain, size: 20)
-                                .foregroundColor(VColor.systemNegativeStrong)
+                                .foregroundStyle(VColor.systemNegativeStrong)
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Memory Item")
                                     .font(VFont.bodyBold)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Text("A remembered fact about the user.")
                                     .font(VFont.body)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
                         }
@@ -115,15 +115,15 @@ struct DisplayGallerySection: View {
                     VInteractiveCard(action: {}) {
                         HStack(spacing: VSpacing.md) {
                             VIconView(.fileText, size: 20)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Document")
                                     .font(VFont.bodyBold)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Text("An uploaded reference document.")
                                     .font(VFont.body)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
                         }
