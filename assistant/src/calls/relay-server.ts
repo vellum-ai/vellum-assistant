@@ -139,6 +139,12 @@ export interface RelayEndMessage {
   handoffData?: string;
 }
 
+export interface RelayPlayMessage {
+  type: "play";
+  source: string;
+  interruptible: boolean;
+}
+
 // ── WebSocket data type ──────────────────────────────────────────────
 
 export interface RelayWebSocketData {
@@ -319,6 +325,27 @@ export class RelayConnection {
       log.error(
         { err, callSessionId: this.callSessionId },
         "Failed to send text token",
+      );
+    }
+  }
+
+  /**
+   * Send a play-audio URL to the caller. Used when the assistant handles
+   * TTS synthesis itself (e.g. Fish Audio) instead of relying on
+   * ConversationRelay's built-in TTS.
+   */
+  sendPlayUrl(url: string): void {
+    const message: RelayPlayMessage = {
+      type: "play",
+      source: url,
+      interruptible: true,
+    };
+    try {
+      this.ws.send(JSON.stringify(message));
+    } catch (err) {
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Failed to send play URL",
       );
     }
   }
