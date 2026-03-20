@@ -656,9 +656,17 @@ public final class HTTPTransport {
                 }
                 throw HTTPTransportError.healthCheckFailed
             }
-            // Extract daemon version from response body (best-effort, never fails the health check)
+            // Extract daemon version from response body (best-effort, never fails the health check).
+            // Persist to lockfile only when the version actually changes to avoid constant disk I/O.
             if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: data) {
-                daemonVersion = decoded.version
+                if let newVersion = decoded.version, newVersion != daemonVersion {
+                    daemonVersion = newVersion
+                    if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
+                        LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
+                    }
+                } else if let newVersion = decoded.version {
+                    daemonVersion = newVersion
+                }
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
             // When the daemon comes back during a planned update, reset the

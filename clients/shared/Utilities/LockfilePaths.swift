@@ -87,4 +87,29 @@ public enum LockfilePaths {
 
         return "http://127.0.0.1:\(resolveGatewayPort(connectedAssistantId: connectedAssistantId))"
     }
+
+    /// Update `serviceGroupVersion` on a lockfile entry.
+    /// No-op if the entry doesn't exist or the version hasn't changed.
+    public static func updateServiceGroupVersion(
+        assistantId: String,
+        version: String
+    ) {
+        guard var lockfile = read() else { return }
+        guard var assistants = lockfile["assistants"] as? [[String: Any]] else { return }
+        guard let index = assistants.firstIndex(where: {
+            ($0["assistantId"] as? String) == assistantId
+        }) else { return }
+
+        let current = assistants[index]["serviceGroupVersion"] as? String
+        if current == version { return }
+
+        assistants[index]["serviceGroupVersion"] = version
+        lockfile["assistants"] = assistants
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: lockfile,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: primary, options: .atomic)
+    }
 }
