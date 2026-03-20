@@ -24,10 +24,6 @@ public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
         sentMessages.append(message)
     }
 
-    public func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, conversationType: String? = nil, automated: Bool? = nil) throws {
-        sentMessages.append(UserMessageMessage(conversationId: conversationId, content: content ?? "", attachments: attachments))
-    }
-
     public func connect() async throws {
         isConnected = true
     }

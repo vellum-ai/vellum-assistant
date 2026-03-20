@@ -1621,13 +1621,17 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.sendMessage(
-                content: text,
+            let pttMeta = Self.currentPttMetadata()
+            try daemonClient.send(UserMessageMessage(
                 conversationId: conversationId,
+                content: text,
                 attachments: attachments,
-                conversationType: conversationType,
+                activeSurfaceId: activeSurfaceId,
+                currentPage: activeSurfaceId != nil ? currentPage : nil,
+                pttActivationKey: pttMeta.activationKey,
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted,
                 automated: automated ? true : nil
-            )
+            ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
             // Always track the failed message for retry support.
@@ -2407,6 +2411,8 @@ public final class ChatViewModel: ObservableObject {
 
         // Snapshot and clear stashed context
         let attachments = secretBlockedAttachments
+        let surfaceId = secretBlockedActiveSurfaceId
+        let page = secretBlockedCurrentPage
 
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
@@ -2422,13 +2428,17 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.sendMessage(
-                content: text,
+            let pttMeta = Self.currentPttMetadata()
+            try daemonClient.send(UserMessageMessage(
                 conversationId: conversationId,
+                content: text,
                 attachments: attachments,
-                conversationType: conversationType,
-                automated: nil
-            )
+                activeSurfaceId: surfaceId,
+                currentPage: surfaceId != nil ? page : nil,
+                bypassSecretCheck: true,
+                pttActivationKey: pttMeta.activationKey,
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted
+            ))
         } catch {
             log.error("Failed to send bypassed message: \(error.localizedDescription)")
             isSending = false

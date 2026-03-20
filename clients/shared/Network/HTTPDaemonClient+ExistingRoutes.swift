@@ -13,8 +13,13 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension HTTPTransport {
 
     func registerExistingRoutes() {
-        registerDomainDispatcher { message in
-            if message is ConfirmationResponseMessage {
+        registerDomainDispatcher { [weak self] message in
+            guard let self else { return false }
+
+            if let msg = message as? UserMessageMessage {
+                Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
+                return true
+            } else if message is ConfirmationResponseMessage {
                 // Handled by InteractionClient via GatewayHTTPClient.
                 return true
             } else if message is SecretResponseMessage {
