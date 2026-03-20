@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "custom-inference-provider",
-      "scope": "macos",
-      "key": "custom_inference_provider_enabled",
-      "label": "Custom Inference Provider",
-      "description": "Allow selecting a specific LLM provider and model for inference in Your Own mode",
-      "defaultEnabled": false
-    },
-    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "feature_flags.email-channel.enabled",

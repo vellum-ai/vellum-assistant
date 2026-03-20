@@ -12,12 +12,6 @@ struct APIKeyEntryStepView: View {
     @State private var showContent = false
     @FocusState private var keyFieldFocused: Bool
 
-    // MARK: - Feature Flag
-
-    private var isCustomProviderEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
-    }
-
     // MARK: - Provider Catalog
 
     private var providerCatalog: [ProviderCatalogEntry] {
@@ -68,16 +62,14 @@ struct APIKeyEntryStepView: View {
     // MARK: - Body
 
     var body: some View {
-        Text(isCustomProviderEnabled ? "Connect a Model Provider" : "Anthropic API Key")
+        Text("Connect a Model Provider")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text(isCustomProviderEnabled
-            ? "Enter an API key to connect your model provider."
-            : "Enter your Anthropic API key to get started.")
+        Text("Enter an API key to connect your model provider.")
             .font(VFont.buttonLarge)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
@@ -87,49 +79,29 @@ struct APIKeyEntryStepView: View {
 
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
-                if isCustomProviderEnabled {
-                    providerPicker
+                providerPicker
 
-                    if providerRequiresKey {
-                        apiKeyField
-                    }
-
-                    OnboardingButton(
-                        title: "Continue",
-                        style: .primary,
-                        disabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) {
-                        saveAndHatch()
-                    }
-
-                    if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
-                       let url = URL(string: apiKeyUrl) {
-                        OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-
-                    OnboardingButton(title: "Back", style: .ghost) {
-                        goBack()
-                    }
-                } else {
+                if providerRequiresKey {
                     apiKeyField
+                }
 
-                    OnboardingButton(
-                        title: "Continue",
-                        style: .primary,
-                        disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) {
-                        saveAndHatch()
-                    }
+                OnboardingButton(
+                    title: "Continue",
+                    style: .primary,
+                    disabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
+                    saveAndHatch()
+                }
 
+                if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
+                   let url = URL(string: apiKeyUrl) {
                     OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
-                        NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
+                        NSWorkspace.shared.open(url)
                     }
+                }
 
-                    OnboardingButton(title: "Back", style: .ghost) {
-                        goBack()
-                    }
+                OnboardingButton(title: "Back", style: .ghost) {
+                    goBack()
                 }
             }
         }
@@ -137,16 +109,9 @@ struct APIKeyEntryStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if isCustomProviderEnabled {
-                if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
-                    apiKey = existingKey
-                    hasExistingKey = true
-                }
-            } else {
-                if let existingKey = APIKeyManager.getKey(for: "anthropic") {
-                    apiKey = existingKey
-                    hasExistingKey = true
-                }
+            if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
+                apiKey = existingKey
+                hasExistingKey = true
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -197,7 +162,7 @@ struct APIKeyEntryStepView: View {
         Group {
             if hasExistingKey && !isEditing {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
+                    Text("\(providerDisplayName) API Key")
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.contentSecondary)
                     Text(maskedKey)
@@ -217,7 +182,7 @@ struct APIKeyEntryStepView: View {
                 }
             } else {
                 VTextField(
-                    isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key",
+                    "\(providerDisplayName) API Key",
                     placeholder: currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
                     text: $apiKey,
                     isSecure: true,
@@ -250,45 +215,20 @@ struct APIKeyEntryStepView: View {
     }
 
     private func saveAndHatch() {
-        if isCustomProviderEnabled {
-            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !providerRequiresKey || !trimmed.isEmpty else { return }
-            if providerRequiresKey {
-                APIKeyManager.setKey(trimmed, for: state.selectedProvider)
-            }
-            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
-            // Persist provider + model
-            let existingConfig = WorkspaceConfigIO.read()
-            var services = existingConfig["services"] as? [String: Any] ?? [:]
-            var inference = services["inference"] as? [String: Any] ?? [:]
-            inference["provider"] = state.selectedProvider
-            inference["model"] = state.selectedModel
-            services["inference"] = inference
-            try? WorkspaceConfigIO.merge(["services": services])
-            state.advance()
-        } else {
-            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            state.selectedProvider = "anthropic"
-            state.selectedModel = "claude-opus-4-6"
-            APIKeyManager.setKey(trimmed, for: "anthropic")
-
-            // Force service modes to "your-own" — the user explicitly chose to
-            // provide their own API key, which should override any mode that the
-            // managed bootstrap may have set asynchronously before this point.
-            WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
-
-            saveModelToConfig("claude-opus-4-6")
-            state.advance()
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !providerRequiresKey || !trimmed.isEmpty else { return }
+        if providerRequiresKey {
+            APIKeyManager.setKey(trimmed, for: state.selectedProvider)
         }
-    }
-
-    private func saveModelToConfig(_ model: String) {
+        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
+        // Persist provider + model
         let existingConfig = WorkspaceConfigIO.read()
         var services = existingConfig["services"] as? [String: Any] ?? [:]
         var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["model"] = model
+        inference["provider"] = state.selectedProvider
+        inference["model"] = state.selectedModel
         services["inference"] = inference
         try? WorkspaceConfigIO.merge(["services": services])
+        state.advance()
     }
 }

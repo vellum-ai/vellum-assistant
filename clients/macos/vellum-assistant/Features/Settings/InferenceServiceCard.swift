@@ -6,11 +6,7 @@ import VellumAssistantShared
 /// Shows different content based on mode and auth state:
 /// - **Managed + logged in**: Model picker, Save button
 /// - **Managed + not logged in**: Empty state prompting login
-/// - **Your Own**: API key field, model picker, Save + Reset buttons
-///
-/// When the `custom-inference-provider` feature flag is enabled,
-/// shows an additional provider picker in Your Own mode, adapts the
-/// API key label, and switches model catalogs per-provider.
+/// - **Your Own**: Provider picker, API key field, model picker, Save + Reset buttons
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -37,17 +33,10 @@ struct InferenceServiceCard: View {
     /// from user-initiated picks and skip the model/key reset.
     @State private var isSyncingProviderFromStore = false
 
-    // MARK: - Feature Flag
-
-    private var isCustomProviderEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("custom_inference_provider_enabled")
-    }
-
     // MARK: - Provider Helpers
 
-    /// When the flag is off, always Anthropic; when on, use the draft provider.
     private var effectiveProvider: String {
-        isCustomProviderEnabled ? draftProvider : "anthropic"
+        draftProvider
     }
 
     private var providerDisplayName: String {
@@ -57,7 +46,7 @@ struct InferenceServiceCard: View {
     // MARK: - Computed State
 
     private var isConnected: Bool {
-        isCustomProviderEnabled ? store.hasKeyForProvider(effectiveProvider) : store.hasKey
+        store.hasKeyForProvider(effectiveProvider)
     }
 
     private var isLoggedIn: Bool {
@@ -96,7 +85,7 @@ struct InferenceServiceCard: View {
         let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = draftModel != initialModel
         let effectiveDraftProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        let providerChanged = isCustomProviderEnabled && effectiveDraftProvider != initialProvider
+        let providerChanged = effectiveDraftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
     }
 
@@ -120,9 +109,7 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    if isCustomProviderEnabled {
-                        providerPicker
-                    }
+                    providerPicker
 
                     // Model picker
                     modelPicker
@@ -137,11 +124,7 @@ struct InferenceServiceCard: View {
                         onSave: { save() },
                         savingLabel: "Validating...",
                         onReset: {
-                            if isCustomProviderEnabled {
-                                store.clearAPIKeyForProvider(effectiveProvider)
-                            } else {
-                                store.clearAPIKey()
-                            }
+                            store.clearAPIKeyForProvider(effectiveProvider)
                             apiKeyText = ""
                         },
                         showReset: isConnected
@@ -241,22 +224,20 @@ struct InferenceServiceCard: View {
                 return
             }
             guard didInitialSync else { return }
-            if isCustomProviderEnabled {
-                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
-                let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
-                draftModel = defaultModel.isEmpty ? fallback : defaultModel
-            }
+            let defaultModel = store.dynamicProviderDefaultModel(newProvider)
+            let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
+            draftModel = defaultModel.isEmpty ? fallback : defaultModel
             apiKeyText = ""
         }
         .onChange(of: draftMode) { _, newMode in
-            if newMode == "managed" && isCustomProviderEnabled {
+            if newMode == "managed" {
                 let anthropicModels = store.dynamicProviderModels("anthropic")
                 let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
                 if !isCurrentModelAnthropic {
                     let defaultModel = store.dynamicProviderDefaultModel("anthropic")
                     draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
                 }
-            } else if newMode == "your-own" && isCustomProviderEnabled {
+            } else if newMode == "your-own" {
                 let providerModels = store.dynamicProviderModels(draftProvider)
                 let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
                 if !isCurrentModelValid {
@@ -328,7 +309,7 @@ struct InferenceServiceCard: View {
             return "Enter your API key"
         }()
         return VTextField(
-            isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key",
+            "\(providerDisplayName) API Key",
             placeholder: placeholder,
             text: $apiKeyText,
             isSecure: true,
@@ -345,27 +326,11 @@ struct InferenceServiceCard: View {
             Text("Active Model")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            if isCustomProviderEnabled {
-                providerModelPicker
-            } else {
-                defaultModelPicker
-            }
+            providerModelPicker
         }
     }
 
-    /// Anthropic-only model dropdown (flag off, backward compat).
-    private var defaultModelPicker: some View {
-        VDropdown(
-            placeholder: "Select a model\u{2026}",
-            selection: $draftModel,
-            options: store.dynamicProviderModels("anthropic").map { model in
-                (label: model.displayName, value: model.id)
-            },
-            maxWidth: 400
-        )
-    }
-
-    /// Per-provider catalog model dropdown (flag on).
+    /// Per-provider catalog model dropdown.
     private var providerModelPicker: some View {
         let provider = draftMode == "managed" ? "anthropic" : draftProvider
         return VDropdown(
@@ -400,18 +365,18 @@ struct InferenceServiceCard: View {
             store.setInferenceMode(draftMode)
         }
 
-        // Persist provider if changed and flag is on. Also re-persist when
-        // the mode changed — switching between managed and your-own implies
-        // a provider change even if the resolved provider ID happens to
+        // Persist provider if changed. Also re-persist when the mode
+        // changed — switching between managed and your-own implies a
+        // provider change even if the resolved provider ID happens to
         // match initialProvider (ensures config stays consistent).
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        if isCustomProviderEnabled && (persistProvider != initialProvider || modeChanged) {
+        if persistProvider != initialProvider || modeChanged {
             store.setInferenceProvider(persistProvider)
             initialProvider = persistProvider
         }
         // Normalize draftProvider to match what was persisted so hasChanges
         // (which compares draftProvider against initialProvider) stays in sync.
-        if isCustomProviderEnabled && draftProvider != persistProvider {
+        if draftProvider != persistProvider {
             draftProvider = persistProvider
         }
 
@@ -422,29 +387,18 @@ struct InferenceServiceCard: View {
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
             let displayName = providerDisplayName
-            if isCustomProviderEnabled {
-                store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
-                    keyTextBinding.wrappedValue = ""
-                    showToast("\(displayName) API key saved", .success)
-                })
-            } else {
-                store.saveAPIKey(trimmedKey, onSuccess: {
-                    keyTextBinding.wrappedValue = ""
-                    showToast("API key saved", .success)
-                })
-            }
+            store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
+                keyTextBinding.wrappedValue = ""
+                showToast("\(displayName) API key saved", .success)
+            })
         }
 
         // Persist model selection. Force-send to daemon when the mode
         // changed so the model+provider pair is always re-persisted,
         // even if IDs happen to match the daemon's cached state.
         store.selectedModel = draftModel
-        if isCustomProviderEnabled {
-            let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
-            store.setModel(draftModel, provider: saveProvider, force: modeChanged)
-        } else {
-            store.setModel(draftModel, force: modeChanged)
-        }
+        let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        store.setModel(draftModel, provider: saveProvider, force: modeChanged)
         initialModel = draftModel
     }
 }
