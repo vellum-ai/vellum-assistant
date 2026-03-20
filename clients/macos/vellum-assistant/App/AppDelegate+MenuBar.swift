@@ -285,14 +285,6 @@ extension AppDelegate {
         newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)
 
-        menu.addItem(NSMenuItem.separator())
-
-        let updateItem = NSMenuItem(title: updateManager.updateMenuItemTitle, action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        updateItem.isEnabled = updateManager.updateMenuItemIsEnabled
-        updateItem.image = VIcon.circleArrowDown.nsImage(size: 16)
-        menu.addItem(updateItem)
-
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer_menu_items_enabled") {
             menu.addItem(NSMenuItem.separator())
 

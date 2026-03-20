@@ -26,10 +26,6 @@ struct VellumAssistantApp: App {
                 Button("About \(appName)") {
                     appDelegate.showAboutPanel()
                 }
-                Button(appDelegate.updateManager.updateMenuItemTitle) {
-                    appDelegate.checkForUpdates()
-                }
-                .disabled(!appDelegate.updateManager.updateMenuItemIsEnabled)
                 Divider()
                 Button("Share Feedback") {
                     appDelegate.sendLogsToSentry()

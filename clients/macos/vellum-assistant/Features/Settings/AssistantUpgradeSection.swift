@@ -37,6 +37,8 @@ struct AssistantUpgradeSection: View {
     @State private var showingUpgradeConfirmation = false
     @State private var isCheckingLocal = false
     @State private var hasCheckedForUpdates = false
+    @State private var checkedSparkleAvailable: Bool?
+    @State private var checkedSparkleVersion: String?
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -135,7 +137,9 @@ struct AssistantUpgradeSection: View {
             // Update status
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if topology == .local {
-                    if sparkleUpdateAvailable, let updateVersion = sparkleUpdateVersion {
+                    let effectiveAvailable = checkedSparkleAvailable ?? sparkleUpdateAvailable
+                    let effectiveVersion = checkedSparkleVersion ?? sparkleUpdateVersion
+                    if effectiveAvailable, let updateVersion = effectiveVersion {
                         HStack(spacing: VSpacing.sm) {
                             Text("Update available:")
                                 .font(VFont.caption)
@@ -144,7 +148,7 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.primaryBase)
                         }
-                    } else if hasCheckedForUpdates && !sparkleUpdateAvailable {
+                    } else if hasCheckedForUpdates && !effectiveAvailable {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleCheck, size: 12)
                                 .foregroundColor(VColor.systemPositiveStrong)
@@ -224,8 +228,8 @@ struct AssistantUpgradeSection: View {
                             isCheckingLocal = true
                             AppDelegate.shared?.updateManager.checkForUpdates()
                             try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-                            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+                            checkedSparkleAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
+                            checkedSparkleVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
                             hasCheckedForUpdates = true
                             isCheckingLocal = false
                         }
