@@ -342,6 +342,20 @@ struct SettingsDeveloperTab: View {
         return nil
     }
 
+    /// Whether the assistant and client versions are incompatible (different major.minor).
+    private var isVersionIncompatible: Bool {
+        guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
+              let appVersion = desktopAppVersion, !appVersion.isEmpty else {
+            return false
+        }
+        return !VersionCompat.isCompatible(
+            clientVersion: appVersion,
+            serviceGroupVersion: assistantVersion
+        )
+    }
+
+    /// Whether the assistant version is strictly behind the client version.
+    /// Used to determine if an upgrade action should be offered.
     private var assistantVersionBehind: Bool {
         guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
               let appVersion = desktopAppVersion, !appVersion.isEmpty else {
@@ -362,7 +376,7 @@ struct SettingsDeveloperTab: View {
             if let version = effectiveVersion {
                 Text(version)
                     .font(VFont.mono)
-                    .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
+                    .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                     .textSelection(.enabled)
 
                 if assistantVersionBehind {
@@ -385,9 +399,9 @@ struct SettingsDeveloperTab: View {
             Spacer()
         }
 
-        if assistantVersionBehind, let appVersion = desktopAppVersion {
+        if isVersionIncompatible, let appVersion = desktopAppVersion {
             HStack(spacing: VSpacing.xs) {
-                Text("Desktop is on")
+                Text(assistantVersionBehind ? "Desktop is on" : "Incompatible with desktop")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
                 Text(appVersion)
