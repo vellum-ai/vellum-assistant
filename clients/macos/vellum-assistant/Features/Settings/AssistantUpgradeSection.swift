@@ -109,6 +109,12 @@ struct AssistantUpgradeSection: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
+
+                if availableReleases.isEmpty && !isLoadingReleases && errorMessage == nil {
+                    Text("No releases available.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
             }
 
             if topology == .remote {
@@ -154,7 +160,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(isUpgrading ? "Upgrading assistant..." : "Checking for updates...")
+                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -236,6 +242,11 @@ struct AssistantUpgradeSection: View {
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             availableReleases = try decoder.decode([AssistantRelease].self, from: data)
+            // Reset selection if the previously selected version is no longer in the list
+            if let selected = selectedVersion,
+               !availableReleases.contains(where: { $0.version == selected }) {
+                selectedVersion = nil
+            }
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
         }
@@ -282,18 +293,20 @@ struct AssistantUpgradeSection: View {
             let body: [String: String] = version.map { ["version": $0] } ?? [:]
             let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
             if response.isSuccess {
-                successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
+                successMessage = isRollback
+                    ? "Rollback initiated. The assistant may be briefly unavailable."
+                    : "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
                 if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "Upgrade failed (HTTP \(response.statusCode))"
+                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed (HTTP \(response.statusCode))"
             }
         } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = "Unable to start upgrade: \(error.localizedDescription)"
+            errorMessage = "Unable to start \(isRollback ? "rollback" : "upgrade"): \(error.localizedDescription)"
         } catch {
-            errorMessage = "Upgrade failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
         }
     }
 

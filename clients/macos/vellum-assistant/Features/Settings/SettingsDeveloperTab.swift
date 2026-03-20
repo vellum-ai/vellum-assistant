@@ -410,10 +410,14 @@ struct SettingsDeveloperTab: View {
     /// Used to determine if an upgrade action should be offered.
     private var assistantVersionBehind: Bool {
         guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
-              let appVersion = desktopAppVersion, !appVersion.isEmpty else {
+              let appVersion = desktopAppVersion, !appVersion.isEmpty,
+              let assistantParsed = VersionCompat.parse(assistantVersion),
+              let appParsed = VersionCompat.parse(appVersion) else {
             return false
         }
-        return assistantVersion.compare(appVersion, options: .numeric) == .orderedAscending
+        if assistantParsed.major != appParsed.major { return assistantParsed.major < appParsed.major }
+        if assistantParsed.minor != appParsed.minor { return assistantParsed.minor < appParsed.minor }
+        return assistantParsed.patch < appParsed.patch
     }
 
     @ViewBuilder
