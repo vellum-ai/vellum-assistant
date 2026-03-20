@@ -27,11 +27,10 @@ export async function resolveImageRefs(
   }
 
   log?.("Falling back to DockerHub tags");
-  const versionTag = version.replace(/^v/, "");
   const imageTags: Record<ServiceName, string> = {
-    assistant: `${DOCKERHUB_IMAGES.assistant}:v${versionTag}`,
-    "credential-executor": `${DOCKERHUB_IMAGES["credential-executor"]}:v${versionTag}`,
-    gateway: `${DOCKERHUB_IMAGES.gateway}:v${versionTag}`,
+    assistant: `${DOCKERHUB_IMAGES.assistant}:${version}`,
+    "credential-executor": `${DOCKERHUB_IMAGES["credential-executor"]}:${version}`,
+    gateway: `${DOCKERHUB_IMAGES.gateway}:${version}`,
   };
   return { imageTags, source: "dockerhub" };
 }
@@ -64,9 +63,9 @@ async function fetchPlatformImageRefs(
 
     const releases = (await response.json()) as Array<{
       version?: string;
-      assistant_image?: string | null;
-      gateway_image?: string | null;
-      credential_executor_image?: string | null;
+      assistant_image_ref?: string | null;
+      gateway_image_ref?: string | null;
+      credential_executor_image_ref?: string | null;
     }>;
 
     // Strip leading "v" from the requested version for matching
@@ -82,9 +81,9 @@ async function fetchPlatformImageRefs(
       return null;
     }
 
-    const assistantImage = release.assistant_image;
-    const gatewayImage = release.gateway_image;
-    let credentialExecutorImage = release.credential_executor_image;
+    const assistantImage = release.assistant_image_ref;
+    const gatewayImage = release.gateway_image_ref;
+    let credentialExecutorImage = release.credential_executor_image_ref;
 
     // All three images must be present for a valid resolution
     if (!assistantImage || !gatewayImage) {
@@ -94,8 +93,7 @@ async function fetchPlatformImageRefs(
 
     // Fall back to DockerHub for credential-executor if its image ref is null
     if (!credentialExecutorImage) {
-      const versionTag = normalizedVersion;
-      credentialExecutorImage = `${DOCKERHUB_IMAGES["credential-executor"]}:v${versionTag}`;
+      credentialExecutorImage = `${DOCKERHUB_IMAGES["credential-executor"]}:${version}`;
       log?.(
         "credential-executor image not in platform release, using DockerHub fallback",
       );
