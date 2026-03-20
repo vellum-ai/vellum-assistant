@@ -344,6 +344,82 @@ describe("ContextWindowManager", () => {
     expect(result.compactedPersistedMessages).toBe(4);
   });
 
+  test("adjusts keep boundary to preserve tool_use/tool_result pairs", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- compacted summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    // Configure budget so compaction keeps only the last user turn,
+    // which would normally split the tool pair because the last user
+    // turn start is a mixed message (tool_result + text) whose matching
+    // tool_use lives in the preceding assistant message.
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 320,
+        targetBudgetRatio: 0.58,
+      }),
+    });
+    const long = "k".repeat(220);
+    const history: Message[] = [
+      message("user", `u1 ${long}`), // index 0: old user turn (long)
+      message("assistant", `a1 ${long}`), // index 1: assistant reply (long)
+      message("user", `u2 ${long}`), // index 2: second user turn (long)
+      {
+        // index 3: assistant with tool_use
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "read_file",
+            input: { path: "/tmp/a" },
+          },
+        ],
+      },
+      {
+        // index 4: user with tool_result AND text (mixed = user turn start)
+        // Without adjustForToolPairs, the raw boundary would land here,
+        // orphaning the tool_result from its tool_use at index 3.
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: "file contents" },
+          { type: "text", text: "thanks, now continue" },
+        ],
+      },
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    // The kept messages must include the tool_use assistant message (index 3)
+    // and tool_result user message (index 4) as a pair, not split them.
+    // Verify no orphaned tool_result blocks exist in the kept messages.
+    const keptMessages = result.messages;
+    for (let i = 0; i < keptMessages.length; i++) {
+      const msg = keptMessages[i];
+      if (msg.role !== "user") continue;
+      for (const block of msg.content) {
+        if (block.type === "tool_result") {
+          // Every tool_result must have a matching tool_use in a preceding assistant message
+          const toolUseId = (block as { tool_use_id: string }).tool_use_id;
+          const hasMatchingToolUse = keptMessages.slice(0, i).some(
+            (prev) =>
+              prev.role === "assistant" &&
+              prev.content.some(
+                (b) =>
+                  b.type === "tool_use" &&
+                  (b as { id: string }).id === toolUseId,
+              ),
+          );
+          expect(hasMatchingToolUse).toBe(true);
+        }
+      }
+    }
+  });
+
   test("counts mixed tool_result+text user messages as persisted", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- mixed summary" }],
