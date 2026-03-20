@@ -90,6 +90,31 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
     }
 
+    func testActivateManagedAssistantAfterReauthClearsPersistedOrganizationBeforeBootstrap() async throws {
+        defaults.set("stale-org", forKey: "connectedOrganizationId")
+        var orgIdSeenDuringEnsure: String?
+        let defaults = self.defaults!
+
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            bootstrapService: MockManagedAssistantBootstrapService(
+                outcome: .reusedExisting(PlatformAssistant(id: "managed-reauth")),
+                onEnsureManagedAssistant: {
+                    orgIdSeenDuringEnsure = defaults.string(forKey: "connectedOrganizationId")
+                }
+            ),
+            userDefaults: defaults,
+            runtimeURLProvider: { "https://platform.example.com" },
+            updateAssistantTag: { _ in },
+            lockfilePath: lockfilePath
+        )
+
+        let result = try await coordinator.activateManagedAssistantAfterReauth()
+
+        XCTAssertEqual(result.assistant.id, "managed-reauth")
+        XCTAssertNil(orgIdSeenDuringEnsure)
+        XCTAssertNil(defaults.string(forKey: "connectedOrganizationId"))
+    }
+
     func testActivateAssociatedManagedAssistantIfPresentPersistsManagedSelection() async throws {
         let assistant = PlatformAssistant(id: "managed-existing", name: "Existing")
         let coordinator = ManagedAssistantConnectionCoordinator(
@@ -139,13 +164,16 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
 private final class MockManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {
     private let outcome: ManagedBootstrapOutcome?
     private let discoveredAssistant: PlatformAssistant?
+    private let onEnsureManagedAssistant: (() -> Void)?
 
     init(
         outcome: ManagedBootstrapOutcome? = nil,
-        discoveredAssistant: PlatformAssistant? = nil
+        discoveredAssistant: PlatformAssistant? = nil,
+        onEnsureManagedAssistant: (() -> Void)? = nil
     ) {
         self.outcome = outcome
         self.discoveredAssistant = discoveredAssistant
+        self.onEnsureManagedAssistant = onEnsureManagedAssistant
     }
 
     func ensureManagedAssistant(
@@ -153,6 +181,7 @@ private final class MockManagedAssistantBootstrapService: ManagedAssistantBootst
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome {
+        onEnsureManagedAssistant?()
         guard let outcome else {
             fatalError("ensureManagedAssistant called without a configured outcome")
         }

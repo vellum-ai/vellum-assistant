@@ -87,6 +87,14 @@ final class ManagedAssistantConnectionCoordinator {
         )
     }
 
+    /// Reauth happens after the server session expires, so any persisted
+    /// organization selection may belong to the previous account/session.
+    /// Force a fresh org lookup before activating the managed assistant.
+    func activateManagedAssistantAfterReauth() async throws -> ManagedAssistantConnectionResult {
+        userDefaults.removeObject(forKey: "connectedOrganizationId")
+        return try await activateManagedAssistant()
+    }
+
     func activateAssociatedManagedAssistantIfPresent() async throws -> ManagedAssistantConnectionResult? {
         guard let assistant = try await bootstrapService.discoverManagedAssistant() else {
             return nil

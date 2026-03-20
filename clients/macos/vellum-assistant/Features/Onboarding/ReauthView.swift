@@ -64,12 +64,12 @@ struct ReauthView: View {
                     }
                     .frame(height: 36)
                 } else {
-                    OnboardingButton(title: "Log In", style: .primary) {
+                    OnboardingButton(title: primaryActionTitle, style: .primary) {
                         Task {
-                            await handleLoginTap()
+                            await handlePrimaryAction()
                         }
                     }
-                    .accessibilityLabel("Log In")
+                    .accessibilityLabel(primaryActionTitle)
                 }
 
                 if let error = authManager.errorMessage {
@@ -132,6 +132,24 @@ struct ReauthView: View {
     }
 
     @MainActor
+    private var primaryActionTitle: String {
+        shouldShowActivationRetry ? "Try Again" : "Log In"
+    }
+
+    private var shouldShowActivationRetry: Bool {
+        authManager.isAuthenticated && authManager.errorMessage != nil
+    }
+
+    @MainActor
+    private func handlePrimaryAction() async {
+        if shouldShowActivationRetry {
+            await completeManagedActivation()
+        } else {
+            await handleLoginTap()
+        }
+    }
+
+    @MainActor
     private func handleLoginTap() async {
         await authManager.startWorkOSLogin()
         if authManager.isAuthenticated {
@@ -148,7 +166,7 @@ struct ReauthView: View {
         defer { isActivatingManagedAssistant = false }
 
         do {
-            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistantAfterReauth()
             didComplete = true
             log.info("User re-authenticated — loading managed assistant \(activation.assistant.id, privacy: .public)")
             onComplete()
