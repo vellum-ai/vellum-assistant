@@ -770,6 +770,14 @@ struct MessageListView: View {
     private func configureBottomPinCoordinator(proxy: ScrollViewProxy) {
         bottomPinCoordinator.onPinRequested = { [self] reason, animated in
             guard !isSuppressingBottomScroll else { return false }
+            // Circuit breaker: suppress scroll-to when a scroll loop was detected.
+            // The guard re-arms after a quiet cooldown window elapses.
+            let convIdString = conversationId?.uuidString ?? "unknown"
+            if scrollLoopGuard.isTripped(conversationId: convIdString) {
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                            "target=bottomAnchor reason=circuitBreakerSuppressed")
+                return false
+            }
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                         "target=bottomAnchor reason=coordinator-%{public}s", reason.rawValue)
             recordScrollLoopEvent(.scrollToRequested)
