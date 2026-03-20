@@ -126,6 +126,31 @@ public final class ManagedAssistantBootstrapService {
         }
     }
 
+    /// Discovers an already-associated managed assistant for the signed-in
+    /// account without creating a new one when none exists.
+    public func discoverManagedAssistant() async throws -> PlatformAssistant? {
+        let organizationId = try await resolveOrganizationId()
+
+        log.info("Checking for an existing managed assistant via current/ discovery")
+        let currentResult: PlatformAssistantResult
+        do {
+            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error)
+        }
+
+        switch currentResult {
+        case .found(let assistant):
+            log.info("Discovered existing managed assistant: \(assistant.id, privacy: .public)")
+            return assistant
+        case .notFound:
+            log.info("No existing managed assistant found for the signed-in account")
+            return nil
+        case .accessDenied:
+            throw ManagedBootstrapError.authenticationRequired
+        }
+    }
+
     /// Resolve the organization ID, preferring the persisted value.
     private func resolveOrganizationId() async throws -> String {
         if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
