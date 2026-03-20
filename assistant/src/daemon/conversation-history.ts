@@ -9,9 +9,6 @@ import {
   updateMessageContent,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../memory/qdrant-client.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -66,69 +63,9 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
 
 // ── Qdrant Vector Cleanup ────────────────────────────────────────────
 
-/**
- * Delete Qdrant vector entries for the given segment and item IDs.
- * Individual deletion failures are logged and enqueued as retry jobs
- * to prevent silently orphaned vectors.
- */
-export async function cleanupQdrantVectors(
-  conversationId: string,
-  segmentIds: string[],
-  orphanedItemIds: string[],
-): Promise<void> {
-  let qdrant: ReturnType<typeof getQdrantClient>;
-  try {
-    qdrant = getQdrantClient();
-  } catch {
-    return; // Qdrant not initialized — nothing to clean up.
-  }
-
-  if (segmentIds.length === 0 && orphanedItemIds.length === 0) return;
-
-  const targets: Array<{ targetType: string; targetId: string }> = [];
-  for (const segId of segmentIds) {
-    targets.push({ targetType: "segment", targetId: segId });
-  }
-  for (const itemId of orphanedItemIds) {
-    targets.push({ targetType: "item", targetId: itemId });
-  }
-
-  const results = await Promise.allSettled(
-    targets.map((t) =>
-      withQdrantBreaker(() => qdrant.deleteByTarget(t.targetType, t.targetId)),
-    ),
-  );
-
-  let succeeded = 0;
-  let failed = 0;
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    if (result.status === "fulfilled") {
-      succeeded++;
-    } else {
-      failed++;
-      const { targetType, targetId } = targets[i];
-      log.warn(
-        { err: result.reason, targetType, targetId, conversationId },
-        "Qdrant vector deletion failed, enqueuing retry job",
-      );
-      enqueueMemoryJob("delete_qdrant_vectors", { targetType, targetId });
-    }
-  }
-
-  if (succeeded > 0) {
-    log.info(
-      {
-        conversationId,
-        succeeded,
-        failed,
-        segments: segmentIds.length,
-        items: orphanedItemIds.length,
-      },
-      "Cleaned up Qdrant vectors after regenerate",
-    );
-  }
-}
+// Legacy cleanupQdrantVectors removed — segment/item tables have been dropped.
+// Qdrant vector cleanup for simplified-memory (observations, chunks, episodes)
+// is handled by the delete_qdrant_vectors job queue in lifecycle.ts and routes.
 
 // ── Consolidation ────────────────────────────────────────────────────
 
@@ -183,29 +120,10 @@ export function consolidateAssistantMessages(
   // Only consolidate if there are multiple assistant messages
   if (messagesToConsolidate.length <= 1) {
     let didMutate = false;
-    // Still delete internal tool_result messages even if only one assistant message,
-    // and collect IDs for vector cleanup
-    const allSegmentIds: string[] = [];
-    const allOrphanedItemIds: string[] = [];
+    // Still delete internal tool_result messages even if only one assistant message.
     for (const id of messagesToDelete) {
-      const deleted = deleteMessageById(id);
+      deleteMessageById(id);
       didMutate = true;
-      allSegmentIds.push(...deleted.segmentIds);
-      allOrphanedItemIds.push(...deleted.orphanedItemIds);
-    }
-
-    // Clean up Qdrant vectors (fire-and-forget)
-    if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
-      cleanupQdrantVectors(
-        conversationId,
-        allSegmentIds,
-        allOrphanedItemIds,
-      ).catch((err) => {
-        log.warn(
-          { err, conversationId },
-          "Qdrant cleanup after consolidation failed (non-fatal)",
-        );
-      });
     }
     return didMutate;
   }
@@ -315,33 +233,12 @@ export function consolidateAssistantMessages(
     }
   }
 
-  // Delete the other assistant messages and internal tool_result messages,
-  // and collect IDs for vector cleanup
-  const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
+  // Delete the other assistant messages and internal tool_result messages.
   for (let i = 1; i < messagesToConsolidate.length; i++) {
-    const deleted = deleteMessageById(messagesToConsolidate[i].id);
-    allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    deleteMessageById(messagesToConsolidate[i].id);
   }
   for (const id of messagesToDelete) {
-    const deleted = deleteMessageById(id);
-    allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
-  }
-
-  // Clean up Qdrant vectors (fire-and-forget)
-  if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
-    cleanupQdrantVectors(
-      conversationId,
-      allSegmentIds,
-      allOrphanedItemIds,
-    ).catch((err) => {
-      log.warn(
-        { err, conversationId },
-        "Qdrant cleanup after consolidation failed (non-fatal)",
-      );
-    });
+    deleteMessageById(id);
   }
 
   log.info(
@@ -533,26 +430,10 @@ export async function regenerate(
   // Everything after the user message needs to be deleted.
   const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
 
-  // Delete each message via deleteMessageById and collect IDs for Qdrant cleanup.
-  const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
+  // Delete each message.
   for (const msg of messagesToDelete) {
-    const deleted = deleteMessageById(msg.id);
-    allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    deleteMessageById(msg.id);
   }
-
-  // Clean up Qdrant vectors (fire-and-forget).
-  cleanupQdrantVectors(
-    conversation.conversationId,
-    allSegmentIds,
-    allOrphanedItemIds,
-  ).catch((err) => {
-    log.warn(
-      { err, conversationId: conversation.conversationId },
-      "Qdrant cleanup after regenerate failed (non-fatal)",
-    );
-  });
 
   // Re-extract the user message content for the agent loop.
   // Use all content blocks (text, image, file) so attachments are

@@ -257,24 +257,6 @@ export function conversationManagementRouteDefinitions(
         deps.destroyConversation(resolvedId);
         const result = wipeConversation(resolvedId);
         // Enqueue Qdrant vector cleanup jobs
-        for (const segId of result.segmentIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "segment",
-            targetId: segId,
-          });
-        }
-        for (const itemId of result.orphanedItemIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "item",
-            targetId: itemId,
-          });
-        }
-        for (const summaryId of result.deletedSummaryIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "summary",
-            targetId: summaryId,
-          });
-        }
         for (const obsId of result.deletedObservationIds) {
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "observation",
@@ -296,16 +278,12 @@ export function conversationManagementRouteDefinitions(
         log.info(
           {
             conversationId: resolvedId,
-            unsuperseded: result.unsupersededItemIds.length,
-            summariesDeleted: result.deletedSummaryIds.length,
             jobsCancelled: result.cancelledJobCount,
           },
           "Wiped conversation and reverted memory changes",
         );
         return Response.json({
           wiped: true,
-          unsupersededItems: result.unsupersededItemIds.length,
-          deletedSummaries: result.deletedSummaryIds.length,
           cancelledJobs: result.cancelledJobCount,
         });
       },
@@ -331,24 +309,6 @@ export function conversationManagementRouteDefinitions(
         // Enqueue Qdrant vector cleanup jobs rather than calling directly.
         // Qdrant may not be initialized yet when the HTTP server starts
         // accepting requests, so enqueueing ensures cleanup is retried.
-        for (const segId of deleted.segmentIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "segment",
-            targetId: segId,
-          });
-        }
-        for (const itemId of deleted.orphanedItemIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "item",
-            targetId: itemId,
-          });
-        }
-        for (const summaryId of deleted.deletedSummaryIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "summary",
-            targetId: summaryId,
-          });
-        }
         for (const obsId of deleted.deletedObservationIds) {
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "observation",

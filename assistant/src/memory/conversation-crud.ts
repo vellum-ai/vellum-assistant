@@ -50,11 +50,7 @@ import {
   memoryChunks,
   memoryEmbeddings,
   memoryEpisodes,
-  memoryItems,
-  memoryItemSources,
   memoryObservations,
-  memorySegments,
-  memorySummaries,
   messageAttachments,
   messages,
   openLoops,
@@ -546,15 +542,12 @@ export function forkConversation(params: {
 
 /**
  * Delete a conversation and all its messages, cleaning up orphaned memory
- * artifacts (items, embeddings). Returns segment and orphaned item IDs so
- * callers can clean up the corresponding Qdrant vector entries.
+ * artifacts (embeddings). Returns deleted observation, chunk, and episode IDs
+ * so callers can clean up the corresponding Qdrant vector entries.
  */
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
-    segmentIds: [],
-    orphanedItemIds: [],
-    deletedSummaryIds: [],
     deletedObservationIds: [],
     deletedChunkIds: [],
     deletedEpisodeIds: [],
@@ -568,145 +561,17 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const isPrivateScope = memoryScopeId?.startsWith("private:") ?? false;
 
   db.transaction((tx) => {
-    // Collect all message IDs for this conversation.
-    const messageRows = tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-      .all();
-    const messageIds = messageRows.map((r) => r.id);
-
-    if (messageIds.length > 0) {
-      // Collect memory segment IDs linked to these messages before cascade.
-      const linkedSegments = tx
-        .select({ id: memorySegments.id })
-        .from(memorySegments)
-        .where(inArray(memorySegments.messageId, messageIds))
-        .all();
-      result.segmentIds = linkedSegments.map((r) => r.id);
-
-      // Collect memory item IDs linked to these messages before cascade.
-      const linkedItems = tx
-        .select({ memoryItemId: memoryItemSources.memoryItemId })
-        .from(memoryItemSources)
-        .where(inArray(memoryItemSources.messageId, messageIds))
-        .all();
-      const candidateItemIds = [
-        ...new Set(linkedItems.map((r) => r.memoryItemId)),
-      ];
-
-      // Delete non-cascading tables first.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
-      // Cascade deletes memory_segments, memory_item_sources, message_attachments.
-      tx.delete(messages).where(eq(messages.conversationId, id)).run();
-
-      // Clean up segment embeddings.
-      if (result.segmentIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
-          )
-          .run();
-      }
-
-      // Clean up orphaned memory items whose only sources were in this conversation.
-      if (candidateItemIds.length > 0) {
-        const surviving = tx
-          .select({ memoryItemId: memoryItemSources.memoryItemId })
-          .from(memoryItemSources)
-          .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
-          .all();
-        const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
-        const orphanedIds = candidateItemIds.filter(
-          (itemId) => !survivingIds.has(itemId),
-        );
-        result.orphanedItemIds = orphanedIds;
-
-        if (orphanedIds.length > 0) {
-          tx.delete(memoryEmbeddings)
-            .where(
-              and(
-                eq(memoryEmbeddings.targetType, "item"),
-                inArray(memoryEmbeddings.targetId, orphanedIds),
-              ),
-            )
-            .run();
-          tx.delete(memoryItems)
-            .where(inArray(memoryItems.id, orphanedIds))
-            .run();
-        }
-      }
-    } else {
-      // No messages — just clean up non-message tables.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
-    }
+    // Delete non-cascading tables first.
+    tx.delete(llmRequestLogs)
+      .where(eq(llmRequestLogs.conversationId, id))
+      .run();
+    tx.delete(toolInvocations)
+      .where(eq(toolInvocations.conversationId, id))
+      .run();
+    // Cascade deletes message_attachments.
+    tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
     if (isPrivateScope && memoryScopeId) {
-      // Sweep remaining memory items with this private scopeId.
-      const scopeItems = tx
-        .select({ id: memoryItems.id })
-        .from(memoryItems)
-        .where(eq(memoryItems.scopeId, memoryScopeId))
-        .all();
-      const alreadyDeleted = new Set(result.orphanedItemIds);
-      const scopeItemIds = scopeItems
-        .map((r) => r.id)
-        .filter((id) => !alreadyDeleted.has(id));
-
-      if (scopeItemIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "item"),
-              inArray(memoryEmbeddings.targetId, scopeItemIds),
-            ),
-          )
-          .run();
-        tx.delete(memoryItemSources)
-          .where(inArray(memoryItemSources.memoryItemId, scopeItemIds))
-          .run();
-        tx.delete(memoryItems)
-          .where(inArray(memoryItems.id, scopeItemIds))
-          .run();
-        result.orphanedItemIds.push(...scopeItemIds);
-      }
-
-      // Sweep memory summaries with this private scopeId.
-      const scopeSummaries = tx
-        .select({ id: memorySummaries.id })
-        .from(memorySummaries)
-        .where(eq(memorySummaries.scopeId, memoryScopeId))
-        .all();
-      const scopeSummaryIds = scopeSummaries.map((r) => r.id);
-
-      if (scopeSummaryIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "summary"),
-              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
-            ),
-          )
-          .run();
-        tx.delete(memorySummaries)
-          .where(inArray(memorySummaries.id, scopeSummaryIds))
-          .run();
-        result.deletedSummaryIds.push(...scopeSummaryIds);
-      }
-
       // Sweep conversation starters with this private scopeId.
       tx.delete(conversationStarters)
         .where(eq(conversationStarters.scopeId, memoryScopeId))
@@ -798,186 +663,20 @@ export function deleteConversation(id: string): DeletedMemoryIds {
  *
  * Extends `deleteConversation` with:
  * - Cancelling pending memory jobs before deletion
- * - Restoring memory items that were explicitly superseded by items from this conversation
- * - Restoring orphaned subject-match superseded items after deletion
- * - Deleting conversation-scoped memory summaries and their embeddings
- * - Enqueuing `embed_item` jobs for all restored items
  */
 export function wipeConversation(id: string): WipeConversationResult {
-  const db = getDb();
-  const unsupersededItemIds: string[] = [];
-  const deletedSummaryIds: string[] = [];
-
   // Step A — Cancel pending memory jobs (before deleting messages, since
   // the cancellation queries join on `messages`).
   const cancelledJobCount = cancelPendingJobsForConversation(id);
 
-  // Step B — Un-supersede memory items with explicit `supersededBy` links.
-  // Find memory items whose `superseded_by` points to an item sourced
-  // exclusively from this conversation.
-  const explicitSuperseded = rawAll<{ oldItemId: string }>(
-    `SELECT DISTINCT mi_old.id AS oldItemId
-     FROM memory_items mi_old
-     JOIN memory_items mi_new ON mi_old.superseded_by = mi_new.id
-     WHERE mi_old.status = 'superseded'
-       AND mi_new.id IN (
-         SELECT mis.memory_item_id
-         FROM memory_item_sources mis
-         JOIN messages m ON m.id = mis.message_id
-         WHERE m.conversation_id = ?
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_item_sources mis2
-         JOIN messages m2 ON m2.id = mis2.message_id
-         WHERE mis2.memory_item_id = mi_new.id
-           AND m2.conversation_id != ?
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_items mi_active
-         WHERE mi_active.kind = mi_old.kind
-           AND mi_active.subject = mi_old.subject
-           AND mi_active.scope_id = mi_old.scope_id
-           AND mi_active.status = 'active'
-           AND mi_active.id != mi_old.id
-           -- Exclude items sourced exclusively from the conversation being
-           -- wiped — deleteConversation will remove them, so they should not
-           -- block restoration of mi_old.
-           AND NOT (
-             EXISTS (
-               SELECT 1 FROM memory_item_sources mis_a
-               JOIN messages m_a ON m_a.id = mis_a.message_id
-               WHERE mis_a.memory_item_id = mi_active.id
-                 AND m_a.conversation_id = ?
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM memory_item_sources mis_b
-               JOIN messages m_b ON m_b.id = mis_b.message_id
-               WHERE mis_b.memory_item_id = mi_active.id
-                 AND m_b.conversation_id != ?
-             )
-           )
-       )`,
-    id,
-    id,
-    id,
-    id,
-  );
-  for (const { oldItemId } of explicitSuperseded) {
-    rawRun(
-      "UPDATE memory_items SET status = 'active', superseded_by = NULL WHERE id = ?",
-      oldItemId,
-    );
-    enqueueMemoryJob("embed_item", { itemId: oldItemId });
-    unsupersededItemIds.push(oldItemId);
-  }
-
-  // Step C — Delete conversation-scoped memory summaries and their embeddings.
-  const summaryRows = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .where(
-      and(
-        eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id),
-      ),
-    )
-    .all();
-  const summaryIds = summaryRows.map((r) => r.id);
-  if (summaryIds.length > 0) {
-    db.delete(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds),
-        ),
-      )
-      .run();
-    db.delete(memorySummaries)
-      .where(inArray(memorySummaries.id, summaryIds))
-      .run();
-  }
-  deletedSummaryIds.push(...summaryIds);
-
-  // Step D — Get the conversation's memoryScopeId before deletion.
-  const scopeId = getConversationMemoryScopeId(id);
-
-  // Step D.5 — Collect kind + subject pairs of items that will be orphaned
-  // by deleteConversation. These are items sourced from this conversation's
-  // messages that have NO sources from any other conversation. We need this
-  // before deletion so we can scope Step F to only restore superseded items
-  // matching the specific kind + subject pairs that just lost their active
-  // replacement.
-  const orphanedKindSubjects = rawAll<{ kind: string; subject: string }>(
-    `SELECT DISTINCT mi.kind, mi.subject
-     FROM memory_items mi
-     JOIN memory_item_sources mis ON mis.memory_item_id = mi.id
-     JOIN messages m ON m.id = mis.message_id
-     WHERE m.conversation_id = ?
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_item_sources mis2
-         JOIN messages m2 ON m2.id = mis2.message_id
-         WHERE mis2.memory_item_id = mi.id
-           AND m2.conversation_id != ?
-       )`,
-    id,
-    id,
-  );
-
-  // Step E — Delegate to deleteConversation which handles messages (cascade
-  // segments, item_sources, attachments), llmRequestLogs, toolInvocations,
-  // orphaned memory items + embeddings, and the conversation row.
+  // Step B — Delegate to deleteConversation which handles messages (cascade
+  // attachments), llmRequestLogs, toolInvocations, observation/chunk/episode
+  // embeddings, and the conversation row.
   const deletedMemoryIds = deleteConversation(id);
 
-  // Step F — Restore orphaned subject-match superseded items. After
-  // deleteConversation removes superseding items, find superseded items
-  // with no supersededBy link where no active item with the same
-  // kind + subject + scope_id exists. Scoped to only the kind + subject
-  // pairs of items that were just orphaned by deleteConversation, so we
-  // don't accidentally restore items superseded by unrelated conversations.
-  let orphanedSuperseded: Array<{ id: string }> = [];
-  if (orphanedKindSubjects.length > 0) {
-    const placeholders = orphanedKindSubjects.map(() => "(?, ?)").join(", ");
-    const params: Array<string> = [scopeId];
-    for (const { kind, subject } of orphanedKindSubjects) {
-      params.push(kind, subject);
-    }
-    orphanedSuperseded = rawAll<{ id: string }>(
-      `SELECT id FROM (
-         SELECT id, ROW_NUMBER() OVER (
-           PARTITION BY kind, subject, scope_id
-           ORDER BY last_seen_at DESC
-         ) AS rn
-         FROM memory_items
-         WHERE status = 'superseded'
-           AND superseded_by IS NULL
-           AND scope_id = ?
-           AND (kind, subject) IN (VALUES ${placeholders})
-           AND NOT EXISTS (
-             SELECT 1 FROM memory_items mi2
-             WHERE mi2.kind = memory_items.kind
-               AND mi2.subject = memory_items.subject
-               AND mi2.scope_id = memory_items.scope_id
-               AND mi2.status = 'active'
-               AND mi2.id != memory_items.id
-           )
-       ) WHERE rn = 1`,
-      ...params,
-    );
-  }
-  for (const { id: itemId } of orphanedSuperseded) {
-    rawRun("UPDATE memory_items SET status = 'active' WHERE id = ?", itemId);
-    enqueueMemoryJob("embed_item", { itemId });
-    unsupersededItemIds.push(itemId);
-  }
-
-  // Step G — Return the combined result.
+  // Step C — Return the combined result.
   return {
     ...deletedMemoryIds,
-    unsupersededItemIds,
-    deletedSummaryIds: [
-      ...deletedSummaryIds,
-      ...deletedMemoryIds.deletedSummaryIds,
-    ],
     cancelledJobCount,
   };
 }
@@ -1002,9 +701,6 @@ export function purgePrivateConversations(): {
     return {
       count: 0,
       deletedMemory: {
-        segmentIds: [],
-        orphanedItemIds: [],
-        deletedSummaryIds: [],
         deletedObservationIds: [],
         deletedChunkIds: [],
         deletedEpisodeIds: [],
@@ -1012,18 +708,12 @@ export function purgePrivateConversations(): {
     };
   }
 
-  const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
-  const allDeletedSummaryIds: string[] = [];
   const allDeletedObservationIds: string[] = [];
   const allDeletedChunkIds: string[] = [];
   const allDeletedEpisodeIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
-    allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
-    allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
     allDeletedObservationIds.push(...deleted.deletedObservationIds);
     allDeletedChunkIds.push(...deleted.deletedChunkIds);
     allDeletedEpisodeIds.push(...deleted.deletedEpisodeIds);
@@ -1032,9 +722,6 @@ export function purgePrivateConversations(): {
   return {
     count: privateConvs.length,
     deletedMemory: {
-      segmentIds: allSegmentIds,
-      orphanedItemIds: allOrphanedItemIds,
-      deletedSummaryIds: allDeletedSummaryIds,
       deletedObservationIds: allDeletedObservationIds,
       deletedChunkIds: allDeletedChunkIds,
       deletedEpisodeIds: allDeletedEpisodeIds,
@@ -1278,19 +965,14 @@ export function clearAll(): { conversations: number; messages: number } {
   const convCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
 
-  // Delete in dependency order. Cascades handle memory_segments,
-  // memory_item_sources, and tool_invocations, but we explicitly
-  // clear non-cascading memory tables too.
+  // Delete in dependency order. Cascades handle tool_invocations, but we
+  // explicitly clear non-cascading memory tables too.
   //
   // FTS virtual tables are cleared before their base tables. If an FTS
   // table is corrupted, the DELETE will fail — we drop the associated
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
-  rawExec("DELETE FROM memory_item_sources");
-  rawExec("DELETE FROM memory_segments");
-  rawExec("DELETE FROM memory_items");
-  rawExec("DELETE FROM memory_summaries");
   rawExec("DELETE FROM memory_embeddings");
   rawExec("DELETE FROM memory_jobs");
   rawExec("DELETE FROM memory_checkpoints");
@@ -1428,16 +1110,12 @@ export function deleteLastExchange(conversationId: string): number {
  * SQLite transaction commits.
  */
 export interface DeletedMemoryIds {
-  segmentIds: string[];
-  orphanedItemIds: string[];
-  deletedSummaryIds: string[];
   deletedObservationIds: string[];
   deletedChunkIds: string[];
   deletedEpisodeIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
-  unsupersededItemIds: string[];
   cancelledJobCount: number;
 }
 
@@ -1491,22 +1169,12 @@ export function relinkAttachments(
  * NULL before the message row is removed, so associated run and event
  * records survive.
  *
- * Also cleans up derived memory_items: if the memory worker has already
- * processed an extract_items job for this message, deleting the message
- * cascades memory_item_sources but leaves the memory_items active.
- * Without cleanup, those items would leak into summaries and recall.
- * We delete any memory_items that become orphaned (no remaining sources)
- * after this message is removed.
- *
- * Returns segment and orphaned item IDs so the caller can clean up the
+ * Returns deleted memory IDs so the caller can clean up the
  * corresponding Qdrant vector entries.
  */
 export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
-    segmentIds: [],
-    orphanedItemIds: [],
-    deletedSummaryIds: [],
     deletedObservationIds: [],
     deletedChunkIds: [],
     deletedEpisodeIds: [],
@@ -1523,74 +1191,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .filter((id): id is string => id !== undefined);
 
   db.transaction((tx) => {
-    // Collect memory segment IDs linked to this message before cascade.
-    const linkedSegments = tx
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-    result.segmentIds = linkedSegments.map((r) => r.id);
-
-    // Collect memory item IDs linked to this message before cascade.
-    const linkedItems = tx
-      .select({ memoryItemId: memoryItemSources.memoryItemId })
-      .from(memoryItemSources)
-      .where(eq(memoryItemSources.messageId, messageId))
-      .all();
-    const candidateItemIds = linkedItems.map((r) => r.memoryItemId);
-
     // Detach nullable FK references so the cascade doesn't destroy them.
     tx.update(channelInboundEvents)
       .set({ messageId: null })
       .where(eq(channelInboundEvents.messageId, messageId))
       .run();
 
-    // Now safe to delete — NOT NULL cascades remove memory_item_sources,
-    // memory_segments, and message_attachments.
+    // Now safe to delete — NOT NULL cascades remove message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
-
-    // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
-    if (result.segmentIds.length > 0) {
-      tx.delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
-
-    // Clean up orphaned memory items whose only source was this message.
-    if (candidateItemIds.length > 0) {
-      // Find which items still have at least one remaining source.
-      const surviving = tx
-        .select({ memoryItemId: memoryItemSources.memoryItemId })
-        .from(memoryItemSources)
-        .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
-        .all();
-      const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
-      const orphanedIds = candidateItemIds.filter(
-        (id) => !survivingIds.has(id),
-      );
-      result.orphanedItemIds = orphanedIds;
-
-      if (orphanedIds.length > 0) {
-        // Delete embeddings referencing these items.
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "item"),
-              inArray(memoryEmbeddings.targetId, orphanedIds),
-            ),
-          )
-          .run();
-        // Delete the orphaned memory items themselves.
-        tx.delete(memoryItems)
-          .where(inArray(memoryItems.id, orphanedIds))
-          .run();
-      }
-    }
   });
 
   deleteOrphanAttachments(candidateAttachmentIds);

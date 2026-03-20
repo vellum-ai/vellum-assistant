@@ -11,10 +11,9 @@ import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
   mediaAssets,
+  memoryChunks,
   memoryEmbeddings,
-  memoryItems,
-  memorySegments,
-  memorySummaries,
+  memoryObservations,
   messages,
 } from "../schema.js";
 
@@ -24,29 +23,24 @@ export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
   db.delete(memoryEmbeddings).run();
 
-  const items = db
-    .select({ id: memoryItems.id })
-    .from(memoryItems)
-    .where(eq(memoryItems.status, "active"))
+  // Enqueue embed jobs for all observations via their chunks.
+  const observations = db
+    .select({ id: memoryObservations.id })
+    .from(memoryObservations)
     .all();
-  for (const item of items) {
-    enqueueMemoryJob("embed_item", { itemId: item.id });
-  }
-
-  const summaries = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .all();
-  for (const summary of summaries) {
-    enqueueMemoryJob("embed_summary", { summaryId: summary.id });
-  }
-
-  const segments = db
-    .select({ id: memorySegments.id })
-    .from(memorySegments)
-    .all();
-  for (const segment of segments) {
-    enqueueMemoryJob("embed_segment", { segmentId: segment.id });
+  for (const obs of observations) {
+    const chunks = db
+      .select({ id: memoryChunks.id })
+      .from(memoryChunks)
+      .where(eq(memoryChunks.observationId, obs.id))
+      .all();
+    for (const chunk of chunks) {
+      enqueueMemoryJob("embed_observation", {
+        observationId: obs.id,
+        chunkId: chunk.id,
+      });
+      enqueueMemoryJob("embed_chunk", { chunkId: chunk.id });
+    }
   }
 
   // Re-enqueue multimodal embedding jobs only when the resolved embedding

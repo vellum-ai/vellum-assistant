@@ -14,30 +14,8 @@ import {
   memoryChunks,
   memoryEpisodes,
   memoryObservations,
-  memorySegments,
   messages,
 } from "../schema.js";
-
-export async function embedSegmentJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const segmentId = asString(job.payload.segmentId);
-  if (!segmentId) return;
-  const db = getDb();
-  const segment = db
-    .select()
-    .from(memorySegments)
-    .where(eq(memorySegments.id, segmentId))
-    .get();
-  if (!segment) return;
-  await embedAndUpsert(config, "segment", segment.id, segment.text, {
-    conversation_id: segment.conversationId,
-    message_id: segment.messageId,
-    created_at: segment.createdAt,
-    memory_scope_id: segment.scopeId,
-  });
-}
 
 export async function embedChunkJob(
   job: MemoryJob,

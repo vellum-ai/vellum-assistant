@@ -25,7 +25,7 @@ import { rawAll, rawGet } from "../raw-query.js";
 import {
   conversationStarters,
   memoryCheckpoints,
-  memoryItems,
+  memoryObservations,
 } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
@@ -42,31 +42,28 @@ const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 
 export function buildMemoryRollup(scopeId: string): string {
   const db = getDb();
-  const items = db
+  const observations = db
     .select({
-      kind: memoryItems.kind,
-      subject: memoryItems.subject,
-      statement: memoryItems.statement,
-      importance: memoryItems.importance,
+      content: memoryObservations.content,
+      role: memoryObservations.role,
     })
-    .from(memoryItems)
-    .where(
-      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
-    )
-    .orderBy(desc(memoryItems.importance))
+    .from(memoryObservations)
+    .where(eq(memoryObservations.scopeId, scopeId))
+    .orderBy(desc(memoryObservations.createdAt))
     .limit(60)
     .all();
 
-  if (items.length === 0) return "";
+  if (observations.length === 0) return "";
 
   const byKind = new Map<string, string[]>();
-  for (const item of items) {
-    let lines = byKind.get(item.kind);
+  for (const item of observations) {
+    const kind = item.role;
+    let lines = byKind.get(kind);
     if (!lines) {
       lines = [];
-      byKind.set(item.kind, lines);
+      byKind.set(kind, lines);
     }
-    lines.push(`- ${item.subject}: ${item.statement}`);
+    lines.push(`- ${item.content}`);
   }
 
   let rollup = "";
@@ -370,16 +367,14 @@ export async function generateConversationStartersJob(
     ? parseInt(batchCheckpoint.value, 10) + 1
     : 1;
 
-  // Collect the memory kinds that informed this batch
-  const kindRows = db
-    .select({ kind: memoryItems.kind })
-    .from(memoryItems)
-    .where(
-      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
-    )
-    .groupBy(memoryItems.kind)
+  // Collect the memory roles that informed this batch
+  const roleRows = db
+    .select({ role: memoryObservations.role })
+    .from(memoryObservations)
+    .where(eq(memoryObservations.scopeId, scopeId))
+    .groupBy(memoryObservations.role)
     .all();
-  const sourceKinds = kindRows.map((r) => r.kind).join(",");
+  const sourceKinds = roleRows.map((r) => r.role).join(",");
 
   // Remove previous starters for this scope before inserting the new batch
   db.delete(conversationStarters)

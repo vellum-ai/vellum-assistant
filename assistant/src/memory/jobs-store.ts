@@ -9,7 +9,6 @@ import { memoryJobs } from "./schema.js";
 const log = getLogger("memory-jobs-store");
 
 export type MemoryJobType =
-  | "embed_segment"
   | "embed_chunk"
   | "embed_episode"
   | "embed_observation"
@@ -23,6 +22,7 @@ export type MemoryJobType =
   | "generate_conversation_starters"
   | "reduce_conversation_memory"
   | "backfill_simplified_memory"
+  | "embed_segment" // legacy compat — silently dropped by worker (segment-based memory retired)
   | "embed_item" // legacy compat — silently dropped by worker (item-based memory retired)
   | "embed_summary" // legacy compat — silently dropped by worker (item-based memory retired)
   | "extract_items" // legacy compat — silently dropped by worker (item-based memory retired)
@@ -36,7 +36,6 @@ export type MemoryJobType =
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
-  "embed_segment",
   "embed_chunk",
   "embed_episode",
   "embed_observation",

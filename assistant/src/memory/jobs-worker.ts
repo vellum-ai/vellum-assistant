@@ -12,7 +12,6 @@ import {
   embedEpisodeJob,
   embedMediaJob,
   embedObservationJob,
-  embedSegmentJob,
 } from "./job-handlers/embedding.js";
 import {
   deleteQdrantVectorsJob,
@@ -251,9 +250,6 @@ async function processJob(
   config: AssistantConfig,
 ): Promise<void> {
   switch (job.type) {
-    case "embed_segment":
-      await embedSegmentJob(job, config);
-      return;
     case "embed_chunk":
       await embedChunkJob(job, config);
       return;
@@ -295,6 +291,7 @@ async function processJob(
       return;
 
     // ── Legacy compat — silently drop jobs from retired systems ────
+    case "embed_segment":
     case "embed_item":
     case "embed_summary":
     case "extract_items":

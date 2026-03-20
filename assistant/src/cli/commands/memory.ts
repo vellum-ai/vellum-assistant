@@ -2,7 +2,6 @@ import type { Command } from "commander";
 
 import {
   getMemorySystemStatus,
-  queryMemory,
   requestMemoryBackfill,
   requestMemoryRebuildIndex,
 } from "../../memory/admin.js";
@@ -65,9 +64,9 @@ Examples:
       } else {
         log.info("Embedding backend: none");
       }
-      log.info(`Segments: ${status.counts.segments.toLocaleString()}`);
-      log.info(`Items: ${status.counts.items.toLocaleString()}`);
-      log.info(`Summaries: ${status.counts.summaries.toLocaleString()}`);
+      log.info(`Observations: ${status.counts.observations.toLocaleString()}`);
+      log.info(`Chunks: ${status.counts.chunks.toLocaleString()}`);
+      log.info(`Episodes: ${status.counts.episodes.toLocaleString()}`);
       log.info(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
       log.info("Jobs:");
       for (const [key, value] of Object.entries(status.jobs)) {
@@ -134,20 +133,14 @@ Examples:
         const latest = listConversations(1)[0];
         conversationId = latest?.id ?? "";
       }
-      const result = await queryMemory(text, conversationId ?? "");
-      if (result.degraded) {
-        log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
-      }
-      log.info(`Semantic hits: ${result.semanticHits}`);
-      log.info(`Recency hits: ${result.recencyHits}`);
-      log.info(`Injected tokens: ${result.injectedTokens}`);
-      log.info(`Latency: ${result.latencyMs}ms`);
-      if (result.injectedText.length > 0) {
-        log.info("");
-        log.info(result.injectedText);
-      } else {
-        log.info("No memory injected.");
-      }
+      // Legacy memory query pipeline has been retired. The simplified memory
+      // system uses a different recall path via the conversation reducer.
+      void conversationId;
+      void text;
+      log.info(
+        "The `memory query` command is no longer available. " +
+          "The legacy item-based memory system has been retired.",
+      );
     });
 
   memory

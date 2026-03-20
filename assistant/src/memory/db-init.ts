@@ -112,6 +112,7 @@ import {
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
+  migrateDropLegacyMemorySystem,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -499,6 +500,10 @@ export function initializeDb(): void {
 
   // 88. Add quiet flag to schedule jobs
   migrateScheduleQuietFlag(database);
+
+  // 89. Drop legacy memory tables (memory_items, memory_item_sources, memory_segments, memory_summaries)
+  // and purge orphaned embedding rows for retired target types (item, segment, summary)
+  migrateDropLegacyMemorySystem(database);
 
   validateMigrationState(database);
 

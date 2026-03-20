@@ -195,24 +195,6 @@ export async function runDaemon(): Promise<void> {
       );
       // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
       // rather than attempting direct deletion.
-      for (const segId of deletedMemory.segmentIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "segment",
-          targetId: segId,
-        });
-      }
-      for (const itemId of deletedMemory.orphanedItemIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "item",
-          targetId: itemId,
-        });
-      }
-      for (const summaryId of deletedMemory.deletedSummaryIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "summary",
-          targetId: summaryId,
-        });
-      }
       for (const obsId of deletedMemory.deletedObservationIds) {
         enqueueMemoryJob("delete_qdrant_vectors", {
           targetType: "observation",
@@ -232,18 +214,12 @@ export async function runDaemon(): Promise<void> {
         });
       }
       if (
-        deletedMemory.segmentIds.length > 0 ||
-        deletedMemory.orphanedItemIds.length > 0 ||
-        deletedMemory.deletedSummaryIds.length > 0 ||
         deletedMemory.deletedObservationIds.length > 0 ||
         deletedMemory.deletedChunkIds.length > 0 ||
         deletedMemory.deletedEpisodeIds.length > 0
       ) {
         log.info(
           {
-            segments: deletedMemory.segmentIds.length,
-            orphanedItems: deletedMemory.orphanedItemIds.length,
-            deletedSummaries: deletedMemory.deletedSummaryIds.length,
             deletedObservations: deletedMemory.deletedObservationIds.length,
             deletedChunks: deletedMemory.deletedChunkIds.length,
             deletedEpisodes: deletedMemory.deletedEpisodeIds.length,

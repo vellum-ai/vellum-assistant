@@ -10,6 +10,14 @@ import {
 
 import { conversations, messages } from "./conversations.js";
 
+// ---------------------------------------------------------------------------
+// DEPRECATED — Legacy memory tables. The underlying SQLite tables are dropped
+// by migration 189. These Drizzle schema definitions are retained temporarily
+// so downstream code that still references them can compile. Queries against
+// these tables will fail at runtime. Remove in the final cleanup PR.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Table dropped by migration 189. */
 export const memorySegments = sqliteTable(
   "memory_segments",
   {
@@ -32,6 +40,7 @@ export const memorySegments = sqliteTable(
   (table) => [index("idx_memory_segments_scope_id").on(table.scopeId)],
 );
 
+/** @deprecated Table dropped by migration 189. */
 export const memoryItems = sqliteTable(
   "memory_items",
   {
@@ -63,6 +72,7 @@ export const memoryItems = sqliteTable(
   ],
 );
 
+/** @deprecated Table dropped by migration 189. */
 export const memoryItemSources = sqliteTable(
   "memory_item_sources",
   {
@@ -80,6 +90,7 @@ export const memoryItemSources = sqliteTable(
   ],
 );
 
+/** @deprecated Table dropped by migration 189. */
 export const memorySummaries = sqliteTable(
   "memory_summaries",
   {
@@ -103,6 +114,10 @@ export const memorySummaries = sqliteTable(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Active memory tables
+// ---------------------------------------------------------------------------
 
 export const memoryEmbeddings = sqliteTable(
   "memory_embeddings",

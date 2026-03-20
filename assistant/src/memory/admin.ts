@@ -4,7 +4,6 @@ import { rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from "./indexer.js";
 import { getMemoryJobCounts } from "./jobs-store.js";
-import { queryMemoryForCli } from "./retriever.js";
 
 const log = getLogger("memory-admin");
 
@@ -15,9 +14,9 @@ export interface MemorySystemStatus {
   provider: string | null;
   model: string | null;
   counts: {
-    segments: number;
-    items: number;
-    summaries: number;
+    observations: number;
+    chunks: number;
+    episodes: number;
     embeddings: number;
   };
   jobs: Record<string, number>;
@@ -27,9 +26,9 @@ export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
   const config = getConfig();
   const backend = await getMemoryBackendStatus(config);
   const counts = {
-    segments: countTable("memory_segments"),
-    items: countTable("memory_items"),
-    summaries: countTable("memory_summaries"),
+    observations: countTable("memory_observations"),
+    chunks: countTable("memory_chunks"),
+    episodes: countTable("memory_episodes"),
     embeddings: countTable("memory_embeddings"),
   };
   return {
@@ -57,8 +56,4 @@ export function requestMemoryRebuildIndex(): string {
   const id = enqueueRebuildIndexJob();
   log.info({ jobId: id }, "Queued memory index rebuild job");
   return id;
-}
-
-export async function queryMemory(query: string, conversationId: string) {
-  return queryMemoryForCli(query, conversationId, getConfig());
 }

@@ -357,24 +357,6 @@ Examples:
       const result = wipeConversation(conversation.id);
 
       // Enqueue Qdrant cleanup
-      for (const segId of result.segmentIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "segment",
-          targetId: segId,
-        });
-      }
-      for (const itemId of result.orphanedItemIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "item",
-          targetId: itemId,
-        });
-      }
-      for (const summaryId of result.deletedSummaryIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "summary",
-          targetId: summaryId,
-        });
-      }
       for (const obsId of result.deletedObservationIds) {
         enqueueMemoryJob("delete_qdrant_vectors", {
           targetType: "observation",
@@ -396,9 +378,7 @@ Examples:
 
       log.info(
         `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
-          `Restored ${result.unsupersededItemIds.length} memory items, ` +
-          `deleted ${result.deletedSummaryIds.length} summaries, ` +
-          `cancelled ${result.cancelledJobCount} jobs.`,
+          `Cancelled ${result.cancelledJobCount} jobs.`,
       );
     });
 }

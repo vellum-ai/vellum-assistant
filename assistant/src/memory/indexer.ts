@@ -11,11 +11,7 @@ import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import {
-  memoryChunks,
-  memoryObservations,
-  memorySegments,
-} from "./schema.js";
+import { memoryChunks, memoryObservations } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
@@ -178,20 +174,6 @@ export function enqueueBackfillJob(force = false): string {
 
 export function enqueueRebuildIndexJob(): string {
   return enqueueMemoryJob("rebuild_index", {});
-}
-
-export function getRecentSegmentsForConversation(
-  conversationId: string,
-  limit: number,
-): Array<typeof memorySegments.$inferSelect> {
-  const db = getDb();
-  return db
-    .select()
-    .from(memorySegments)
-    .where(eq(memorySegments.conversationId, conversationId))
-    .orderBy(desc(memorySegments.createdAt))
-    .limit(limit)
-    .all();
 }
 
 /**
