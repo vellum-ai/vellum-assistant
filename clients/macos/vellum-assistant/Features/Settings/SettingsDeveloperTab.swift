@@ -397,29 +397,20 @@ struct SettingsDeveloperTab: View {
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
-            if daemonClient?.isUpdateInProgress == true {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Updating to \(daemonClient?.updateTargetVersion ?? "...")...")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.systemMidStrong)
+            if let daemonClient {
+                DeveloperUpdateProgressRow(
+                    daemonClient: daemonClient,
+                    effectiveVersion: effectiveVersion,
+                    isVersionIncompatible: isVersionIncompatible,
+                    assistantVersionBehind: assistantVersionBehind,
+                    isUpgradingInline: isUpgradingInline,
+                    onUpgradeTapped: { showingInlineUpgradeConfirmation = true }
+                )
             } else if let version = effectiveVersion {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                     .textSelection(.enabled)
-
-                if assistantVersionBehind {
-                    if isUpgradingInline {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        VButton(label: "Upgrade", style: .primary) {
-                            showingInlineUpgradeConfirmation = true
-                        }
-                        .disabled(isUpgradingInline)
-                    }
-                }
             } else {
                 Text("Not available")
                     .font(VFont.body)
@@ -1289,6 +1280,54 @@ private struct DeveloperDaemonStatusRows: View {
                 .foregroundColor(VColor.contentDefault)
 
             Spacer()
+        }
+    }
+}
+
+// MARK: - Update Progress Row (Developer Tab)
+
+/// Extracted sub-view that uses `@ObservedObject` to subscribe to
+/// `DaemonClient.isUpdateInProgress` and `updateTargetVersion` changes.
+/// The parent (`healthzInfoRows`) passes in a non-optional `DaemonClient`
+/// via `if let`, which is the standard SwiftUI pattern for observing
+/// optional ObservableObjects.
+private struct DeveloperUpdateProgressRow: View {
+    @ObservedObject var daemonClient: DaemonClient
+
+    let effectiveVersion: String?
+    let isVersionIncompatible: Bool
+    let assistantVersionBehind: Bool
+    let isUpgradingInline: Bool
+    let onUpgradeTapped: () -> Void
+
+    var body: some View {
+        if daemonClient.isUpdateInProgress {
+            ProgressView()
+                .controlSize(.small)
+            Text("Updating to \(daemonClient.updateTargetVersion ?? "...")...")
+                .font(VFont.body)
+                .foregroundColor(VColor.systemMidStrong)
+        } else if let version = effectiveVersion {
+            Text(version)
+                .font(VFont.mono)
+                .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
+                .textSelection(.enabled)
+
+            if assistantVersionBehind {
+                if isUpgradingInline {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    VButton(label: "Upgrade", style: .primary) {
+                        onUpgradeTapped()
+                    }
+                    .disabled(isUpgradingInline)
+                }
+            }
+        } else {
+            Text("Not available")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 }
