@@ -1,5 +1,6 @@
 import Foundation
 import Sparkle
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "UpdateManager")
@@ -17,9 +18,17 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     @Published public private(set) var isDeferredUpdateReady = false
     @Published public private(set) var availableUpdateVersion: String?
 
+    /// Whether a newer service group release is available for Docker/managed topologies.
+    @Published public private(set) var isServiceGroupUpdateAvailable = false
+    /// The version string of the available service group update, if any.
+    @Published public private(set) var serviceGroupUpdateVersion: String?
+
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.
     var onWillInstallUpdate: (() -> Void)?
+
+    /// Timer for periodic service group update checks (Docker/managed topologies).
+    private var serviceGroupCheckTimer: Timer?
 
     /// Lock-protected storage for the deferred install handler.  Written from
     /// any thread by the Sparkle delegate callback and read on MainActor by
@@ -45,6 +54,16 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         } catch {
             log.error("Failed to start Sparkle updater: \(error.localizedDescription, privacy: .public)")
         }
+
+        // Run an initial service group update check and schedule periodic re-checks
+        // every hour (matching Sparkle's default automatic check interval).
+        Task { await checkServiceGroupUpdate() }
+        serviceGroupCheckTimer?.invalidate()
+        serviceGroupCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.checkServiceGroupUpdate()
+            }
+        }
     }
 
     /// Manually trigger "Check for Updates…" (shows UI).
@@ -60,18 +79,22 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     // MARK: - Menu Item Helpers
 
     /// Context-aware title for the update menu item.
-    /// Returns "Update Available..." when an update is ready,
+    /// Returns "Update Available..." when a Sparkle update is ready,
+    /// "Update Available (vX.Y.Z)" when a service group update is available,
     /// "Check for Updates..." when a manual check can be triggered,
     /// or "Up to Date" when neither applies.
     public var updateMenuItemTitle: String {
         if isUpdateAvailable { return "Update Available..." }
+        if isServiceGroupUpdateAvailable, let v = serviceGroupUpdateVersion {
+            return "Update Available (\(v))"
+        }
         if canCheckForUpdates { return "Check for Updates..." }
         return "Up to Date"
     }
 
     /// Whether the update menu item should accept user interaction.
     public var updateMenuItemIsEnabled: Bool {
-        isUpdateAvailable || canCheckForUpdates
+        isUpdateAvailable || isServiceGroupUpdateAvailable || canCheckForUpdates
     }
 
     /// Whether an update has been downloaded and is waiting to be installed.
@@ -92,6 +115,100 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         log.info("Installing deferred update now")
         onWillInstallUpdate?()
         handler()
+    }
+
+    // MARK: - Service Group Update Check
+
+    /// Checks whether a newer service group release is available for Docker/managed topologies.
+    /// For `.local` topology this is a no-op (Sparkle handles local app updates).
+    /// Failures are silently swallowed — the menu simply stays in "Check for Updates…" state.
+    func checkServiceGroupUpdate() async {
+        do {
+            // Resolve current topology from the lockfile
+            let assistants = LockfileAssistant.loadAll()
+            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                  let assistant = assistants.first(where: { $0.assistantId == connectedId }) else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            // Only check for Docker and managed topologies
+            guard assistant.isDocker || assistant.isManaged else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            // Fetch the latest stable release from the platform API
+            let platformBase = AuthService.shared.baseURL
+            guard let releasesURL = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            var request = URLRequest(url: releasesURL)
+            request.httpMethod = "GET"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let token = await SessionTokenManager.getTokenAsync() {
+                request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+            }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let releases = try decoder.decode([AssistantRelease].self, from: data)
+            guard let latestRelease = releases.first else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            // Fetch the current service group version from healthz
+            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/\(connectedId)/healthz",
+                timeout: 10
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+
+            guard let currentVersion = decoded?.version, !currentVersion.isEmpty else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            // Compare versions
+            guard let latestParsed = VersionCompat.parse(latestRelease.version),
+                  let currentParsed = VersionCompat.parse(currentVersion) else {
+                clearServiceGroupFlags()
+                return
+            }
+
+            let isNewer: Bool = {
+                if latestParsed.major != currentParsed.major { return latestParsed.major > currentParsed.major }
+                if latestParsed.minor != currentParsed.minor { return latestParsed.minor > currentParsed.minor }
+                return latestParsed.patch > currentParsed.patch
+            }()
+
+            if isNewer {
+                isServiceGroupUpdateAvailable = true
+                serviceGroupUpdateVersion = latestRelease.version
+            } else {
+                clearServiceGroupFlags()
+            }
+        } catch {
+            // Failures silently clear the flags — no error state in the menu.
+            clearServiceGroupFlags()
+        }
+    }
+
+    /// Resets service group update flags to their default (no update available) state.
+    private func clearServiceGroupFlags() {
+        isServiceGroupUpdateAvailable = false
+        serviceGroupUpdateVersion = nil
     }
 
     // MARK: - SPUUpdaterDelegate
