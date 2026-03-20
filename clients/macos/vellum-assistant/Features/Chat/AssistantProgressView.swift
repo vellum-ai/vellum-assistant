@@ -342,119 +342,142 @@ struct AssistantProgressView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: toolCalls) { _, newToolCalls in
-            derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
+            handleToolCallsChange(newToolCalls)
         }
         .onChange(of: decidedConfirmations) { _, newConfirmations in
-            derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
+            handleConfirmationsChange(newConfirmations)
         }
         .onChange(of: phase) { _, newPhase in
-            let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: derived.totalToolCount
-            ))
-            if newPhase == .processing {
-                processingStartDate = Date()
-                startDate = Date()
-            }
-            // Auto-expand when a step group completes, if the flag is enabled
-            if (newPhase == .complete || newPhase == .denied),
-               !isExpanded,
-               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
-            {
-                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                    kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                    toolCallCount: derived.totalToolCount
-                ))
-                withAnimation(VAnimation.fast) {
-                    isExpanded = true
-                }
-            }
+            handlePhaseChange(newPhase)
         }
         .onChange(of: isExpanded) { _, expanded in
-            if expanded, onRehydrate != nil {
-                // Trigger rehydrate when expanding if any complete tool call
-                // has been stripped (all detail fields cleared by stripHeavyContent).
-                let hasStrippedToolCall = toolCalls.contains { tc in
-                    tc.isComplete
-                        && tc.inputFull.isEmpty
-                        && tc.result == nil
-                        && tc.inputRawDict == nil
-                        && tc.cachedImage == nil
-                }
-                if hasStrippedToolCall {
-                    onRehydrate?()
-                }
-            }
+            handleExpansionChange(expanded)
         }
         .onChange(of: derived.hasPendingConfirmation) { _, pending in
-            if pending && !isExpanded {
-                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                    kind: .progressCardTransition,
-                    reason: "auto_expand:pending_confirmation",
-                    toolCallCount: derived.totalToolCount
-                ))
-                withAnimation(VAnimation.fast) {
-                    isExpanded = true
-                }
-            }
+            handlePendingConfirmationChange(pending)
         }
         .onAppear {
-            let wasExpandedOnEntry = isExpanded
-            if phase == .processing && processingStartDate == nil {
-                processingStartDate = Date()
-            }
-            // Seed startDate from persisted timestamps so the header timer
-            // shows correct elapsed time after history restore.
-            if let earliest = derived.earliestStartedAt {
-                startDate = earliest
-            }
-            // Auto-expand completed step groups when the flag is enabled.
-            // Also triggers rehydration for stripped tool call data so
-            // expanded groups don't render with empty details.
-            if !isExpanded,
-               (phase == .complete || phase == .denied),
-               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
-            {
-                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                    kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag_on_appear group=\(derived.groupId) phase=\(phase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                    toolCallCount: derived.totalToolCount
-                ))
-                isExpanded = true
-                // Rehydration is handled by onChange(of: isExpanded) above.
-            }
-            // Auto-expand when a pending confirmation exists on appear
-            if derived.hasPendingConfirmation && !isExpanded {
-                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                    kind: .progressCardTransition,
-                    reason: "auto_expand:pending_confirmation_on_appear",
-                    toolCallCount: derived.totalToolCount
-                ))
-                withAnimation(VAnimation.fast) {
-                    isExpanded = true
-                }
-            }
+            handleOnAppear()
+        }
+    }
 
-            // Rehydrate stripped tool calls for cards that start expanded.
-            // When isExpanded is set to true in init(), onChange(of: isExpanded)
-            // never fires (no false→true transition), so we must check here.
-            // Gate on wasExpandedOnEntry so cards that just expanded above
-            // don't double-fire — onChange already handles their rehydration.
-            if wasExpandedOnEntry, onRehydrate != nil {
-                let hasStrippedToolCall = toolCalls.contains { tc in
-                    tc.isComplete
-                        && tc.inputFull.isEmpty
-                        && tc.result == nil
-                        && tc.inputRawDict == nil
-                        && tc.cachedImage == nil
-                }
-                if hasStrippedToolCall {
-                    onRehydrate?()
-                }
+    // MARK: - Change Handlers (extracted to reduce body type-check complexity)
+
+    private func handleToolCallsChange(_ newToolCalls: [ToolCallData]) {
+        derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
+    }
+
+    private func handleConfirmationsChange(_ newConfirmations: [ToolConfirmationData]) {
+        derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
+    }
+
+    private func handlePhaseChange(_ newPhase: ProgressPhase) {
+        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+            kind: .progressCardTransition,
+            reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+            toolCallCount: derived.totalToolCount
+        ))
+        if newPhase == .processing {
+            processingStartDate = Date()
+            startDate = Date()
+        }
+        // Auto-expand when a step group completes, if the flag is enabled
+        if (newPhase == .complete || newPhase == .denied),
+           !isExpanded,
+           MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        {
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                toolCallCount: derived.totalToolCount
+            ))
+            withAnimation(VAnimation.fast) {
+                isExpanded = true
             }
+        }
+    }
+
+    private func handleExpansionChange(_ expanded: Bool) {
+        if expanded, onRehydrate != nil {
+            // Trigger rehydrate when expanding if any complete tool call
+            // has been stripped (all detail fields cleared by stripHeavyContent).
+            if hasStrippedToolCalls {
+                onRehydrate?()
+            }
+        }
+    }
+
+    private func handlePendingConfirmationChange(_ pending: Bool) {
+        if pending && !isExpanded {
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "auto_expand:pending_confirmation",
+                toolCallCount: derived.totalToolCount
+            ))
+            withAnimation(VAnimation.fast) {
+                isExpanded = true
+            }
+        }
+    }
+
+    private func handleOnAppear() {
+        let wasExpandedOnEntry = isExpanded
+        if phase == .processing && processingStartDate == nil {
+            processingStartDate = Date()
+        }
+        // Seed startDate from persisted timestamps so the header timer
+        // shows correct elapsed time after history restore.
+        if let earliest = derived.earliestStartedAt {
+            startDate = earliest
+        }
+        // Auto-expand completed step groups when the flag is enabled.
+        // Also triggers rehydration for stripped tool call data so
+        // expanded groups don't render with empty details.
+        if !isExpanded,
+           (phase == .complete || phase == .denied),
+           MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        {
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "auto_expand:completed_steps_flag_on_appear group=\(derived.groupId) phase=\(phase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                toolCallCount: derived.totalToolCount
+            ))
+            isExpanded = true
+            // Rehydration is handled by onChange(of: isExpanded) above.
+        }
+        // Auto-expand when a pending confirmation exists on appear
+        if derived.hasPendingConfirmation && !isExpanded {
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "auto_expand:pending_confirmation_on_appear",
+                toolCallCount: derived.totalToolCount
+            ))
+            withAnimation(VAnimation.fast) {
+                isExpanded = true
+            }
+        }
+
+        // Rehydrate stripped tool calls for cards that start expanded.
+        // When isExpanded is set to true in init(), onChange(of: isExpanded)
+        // never fires (no false→true transition), so we must check here.
+        // Gate on wasExpandedOnEntry so cards that just expanded above
+        // don't double-fire — onChange already handles their rehydration.
+        if wasExpandedOnEntry, onRehydrate != nil {
+            if hasStrippedToolCalls {
+                onRehydrate?()
+            }
+        }
+    }
+
+    /// Whether any completed tool call has been stripped of its heavy content.
+    private var hasStrippedToolCalls: Bool {
+        toolCalls.contains { tc in
+            tc.isComplete
+                && tc.inputFull.isEmpty
+                && tc.result == nil
+                && tc.inputRawDict == nil
+                && tc.cachedImage == nil
         }
     }
 
