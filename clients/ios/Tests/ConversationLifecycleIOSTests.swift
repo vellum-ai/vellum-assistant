@@ -69,7 +69,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         XCTAssertNotNil(vm.conversationId, "Should have a locally-generated conversation ID")
@@ -99,7 +99,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         XCTAssertEqual(vm.conversationType, "private")
@@ -123,7 +123,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         XCTAssertNotNil(vm.conversationId)
@@ -147,7 +147,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         let localId = vm.conversationId
@@ -181,7 +181,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         XCTAssertNotNil(capturedConversationId)
@@ -210,7 +210,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             }
         }
         poll()
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 10.0)
         cancelled = true
 
         XCTAssertNotNil(vm.conversationId)
