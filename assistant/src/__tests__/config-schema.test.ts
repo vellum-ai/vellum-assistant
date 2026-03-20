@@ -638,6 +638,7 @@ describe("AssistantConfigSchema", () => {
       voice: {
         language: "en-US",
         transcriptionProvider: "Deepgram",
+        ttsProvider: "elevenlabs",
       },
       callerIdentity: {
         allowPerCallOverride: true,

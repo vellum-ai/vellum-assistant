@@ -6,6 +6,7 @@ export const VALID_CALLER_IDENTITY_MODES = [
   "user_number",
 ] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ["Deepgram", "Google"] as const;
+export const VALID_TTS_PROVIDERS = ["elevenlabs", "fish-audio"] as const;
 
 export const CallsDisclosureConfigSchema = z
   .object({
@@ -57,6 +58,12 @@ export const CallsVoiceConfigSchema = z
       })
       .default("Deepgram")
       .describe("Speech-to-text provider used for call transcription"),
+    ttsProvider: z
+      .enum(VALID_TTS_PROVIDERS, {
+        error: `calls.voice.ttsProvider must be one of: ${VALID_TTS_PROVIDERS.join(", ")}`,
+      })
+      .default("elevenlabs")
+      .describe("Text-to-speech provider for phone calls"),
   })
   .describe("Voice and speech settings for phone calls");
 
