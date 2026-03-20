@@ -275,7 +275,7 @@ struct SettingsDeveloperTab: View {
                 Task { await performRollback() }
             }
         } message: {
-            Text("Roll back to version v\(rollbackVersion)? The assistant will be briefly unavailable.")
+            Text("Roll back to version \(rollbackVersion)? The assistant will be briefly unavailable.")
         }
         .sheet(isPresented: $isRestarting) {
             VStack(spacing: VSpacing.lg) {
@@ -1408,7 +1408,7 @@ private struct DockerRollbackSection: View {
                 Text("Previous version:")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
-                Text("v\(previousVersion)")
+                Text("\(previousVersion)")
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentDefault)
             }
@@ -1457,7 +1457,7 @@ private struct ManagedRollbackSection: View {
                 Text("Previous version:")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
-                Text("v\(previousVersion)")
+                Text("\(previousVersion)")
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentDefault)
             }
