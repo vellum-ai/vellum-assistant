@@ -92,7 +92,7 @@ struct MemoriesPanel: View {
         .task(id: focusedMemoryId) {
             guard let memoryId = focusedMemoryId else { return }
             if let item = await store.fetchDetail(id: memoryId) {
-                selectedItem = item
+                withAnimation(VAnimation.fast) { selectedItem = item }
             }
             focusedMemoryId = nil
         }
@@ -100,13 +100,25 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(item: $selectedItem) { item in
-            MemoryItemDetailSheet(
-                item: item,
-                store: store,
-                onDismiss: { selectedItem = nil }
-            )
+        .overlay {
+            if let item = selectedItem {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(VAnimation.fast) { selectedItem = nil }
+                    }
+
+                MemoryItemDetailSheet(
+                    item: item,
+                    store: store,
+                    onDismiss: {
+                        withAnimation(VAnimation.fast) { selectedItem = nil }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
         }
+        .animation(VAnimation.fast, value: selectedItem?.id)
         .sheet(isPresented: $showCreateSheet) {
             MemoryItemCreateSheet(
                 store: store,
@@ -428,7 +440,7 @@ struct MemoriesPanel: View {
                     ForEach(filteredItems) { item in
                         MemoryItemRow(
                             item: item,
-                            onSelect: { selectedItem = item },
+                            onSelect: { withAnimation(VAnimation.fast) { selectedItem = item } },
                             onDelete: {
                                 Task { _ = await store.deleteItem(id: item.id) }
                             }
