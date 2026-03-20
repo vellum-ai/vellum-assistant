@@ -24,6 +24,11 @@ const VOICE_SETTINGS = {
     type: "number" as const,
   },
   tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" as const },
+  tts_provider: { userDefaultsKey: "ttsProvider", type: "string" as const },
+  fish_audio_reference_id: {
+    userDefaultsKey: "fishAudioReferenceId",
+    type: "string" as const,
+  },
 } as const;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
@@ -36,6 +41,8 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   activation_key: "PTT activation key",
   conversation_timeout: "Conversation timeout",
   tts_voice_id: "ElevenLabs voice",
+  tts_provider: "TTS provider",
+  fish_audio_reference_id: "Fish Audio voice",
 };
 
 function validateSetting(
@@ -96,6 +103,25 @@ function validateSetting(
         };
       }
       return { ok: true, coerced: trimmed };
+    }
+    case "tts_provider": {
+      const valid = ["elevenlabs", "fish-audio"];
+      if (typeof value !== "string" || !valid.includes(value.trim())) {
+        return {
+          ok: false,
+          error: `tts_provider must be one of: ${valid.join(", ")}`,
+        };
+      }
+      return { ok: true, coerced: value.trim() };
+    }
+    case "fish_audio_reference_id": {
+      if (typeof value !== "string" || value.trim().length === 0) {
+        return {
+          ok: false,
+          error: "fish_audio_reference_id must be a non-empty string",
+        };
+      }
+      return { ok: true, coerced: value.trim() };
     }
     default:
       return { ok: false, error: `Unknown setting "${setting}"` };
@@ -162,6 +188,22 @@ export async function run(
       "elevenlabs.conversationTimeoutSeconds",
       validation.coerced,
     );
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  // For tts_provider, persist to config file (calls.voice.ttsProvider).
+  if (setting === "tts_provider") {
+    const raw = loadRawConfig();
+    setNestedValue(raw, "calls.voice.ttsProvider", validation.coerced);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  // For fish_audio_reference_id, persist to config file (fishAudio.referenceId).
+  if (setting === "fish_audio_reference_id") {
+    const raw = loadRawConfig();
+    setNestedValue(raw, "fishAudio.referenceId", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }
