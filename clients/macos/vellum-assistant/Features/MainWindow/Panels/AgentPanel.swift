@@ -338,7 +338,7 @@ struct AgentPanelContent: View {
         var body: some View {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: VSpacing.lg) {
-                    // Icon — centered vertically, large
+                    // Icon — top-aligned, large
                     skillIcon(skill.emoji)
 
                     // Text content
