@@ -19,6 +19,7 @@ import {
   CredentialWatcher,
   type CredentialChangeEvent,
 } from "./credential-watcher.js";
+import { createSigningKeyBootstrapHandler } from "./http/routes/signing-key-bootstrap.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
@@ -201,6 +202,8 @@ async function main() {
   const signingKey = loadOrCreateSigningKey();
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
+
+  const signingKeyBootstrap = createSigningKeyBootstrapHandler(config);
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -526,6 +529,14 @@ async function main() {
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
+    },
+
+    // ── Signing key bootstrap (one-shot, lockfile-protected) ──
+    {
+      path: "/internal/signing-key-bootstrap",
+      method: "GET",
+      auth: "none",
+      handler: () => signingKeyBootstrap.handleGetSigningKey(),
     },
 
     // ── Channel verification sessions ──
