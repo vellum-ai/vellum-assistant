@@ -58,25 +58,11 @@ struct SettingsDeveloperTab: View {
     @State private var showingRestartConfirmation: Bool = false
     @State private var isRestarting: Bool = false
 
-    // -- Inline upgrade state --
-    @State private var isUpgradingInline = false
-    @State private var showingInlineUpgradeConfirmation = false
-    @State private var inlineUpgradeError: String?
-    @State private var inlineUpgradeSuccess: String?
-
     // -- Revoke API key state --
     @State private var showingRevokeApiKeyConfirmation: Bool = false
     @State private var isRevokingApiKey: Bool = false
     @State private var revokeApiKeyStatus: String?
     @State private var revokeApiKeyDismissTask: Task<Void, Never>?
-
-    // -- Docker operation progress state --
-    @State private var isDockerOperationInProgress = false
-    @State private var dockerOperationLabel: String = ""
-
-    // -- Sparkle update state (local topology) --
-    @State private var sparkleUpdateAvailable: Bool = false
-    @State private var sparkleUpdateVersion: String?
 
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
@@ -125,21 +111,6 @@ struct SettingsDeveloperTab: View {
                 daemonClient: daemonClient,
                 isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
             )
-            // Upgrade
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
-                let topo: AssistantTopology = assistant.isDocker ? .docker
-                    : assistant.isManaged ? .managed
-                    : assistant.cloud.lowercased() == "local" ? .local
-                    : .remote
-                AssistantUpgradeSection(
-                    currentVersion: healthz?.version,
-                    topology: topo,
-                    isDockerOperationInProgress: $isDockerOperationInProgress,
-                    dockerOperationLabel: $dockerOperationLabel,
-                    sparkleUpdateAvailable: sparkleUpdateAvailable,
-                    sparkleUpdateVersion: sparkleUpdateVersion
-                )
-            }
             // Hatch New Assistant
             hatchNewAssistantSection
             // Retire Assistant
@@ -214,14 +185,6 @@ struct SettingsDeveloperTab: View {
             // Sentry setup
             isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
                 ?? true
-
-            // Sparkle update state (local topology)
-            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-            sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -240,14 +203,6 @@ struct SettingsDeveloperTab: View {
             } else {
                 Text("This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone.")
             }
-        }
-        .alert("Upgrade Assistant", isPresented: $showingInlineUpgradeConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Upgrade") {
-                Task { await performInlineUpgrade() }
-            }
-        } message: {
-            Text("Upgrade the assistant to match the desktop app version? The assistant will be briefly unavailable during the upgrade.")
         }
         .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -278,22 +233,6 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
                 Text("The assistant will be briefly unavailable.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding(VSpacing.xxl)
-            .frame(minWidth: 260)
-            .interactiveDismissDisabled()
-        }
-        .sheet(isPresented: $isDockerOperationInProgress) {
-            VStack(spacing: VSpacing.lg) {
-                ProgressView()
-                    .controlSize(.regular)
-                    .progressViewStyle(.circular)
-                Text(dockerOperationLabel)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-                Text("This may take a minute. The assistant will be briefly unavailable.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
             }
@@ -443,23 +382,7 @@ struct SettingsDeveloperTab: View {
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
-            if let daemonClient {
-                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-                let topo: AssistantTopology = assistant?.isDocker == true ? .docker
-                    : assistant?.isManaged == true ? .managed
-                    : assistant?.cloud.lowercased() == "local" ? .local
-                    : .remote
-                DeveloperUpdateProgressRow(
-                    daemonClient: daemonClient,
-                    effectiveVersion: effectiveVersion,
-                    isVersionIncompatible: isVersionIncompatible,
-                    assistantVersionBehind: assistantVersionBehind,
-                    isUpgradingInline: isUpgradingInline,
-                    isUpgradeSectionActive: isDockerOperationInProgress,
-                    topology: topo,
-                    onUpgradeTapped: { showingInlineUpgradeConfirmation = true }
-                )
-            } else if let version = effectiveVersion {
+            if let version = effectiveVersion {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
@@ -482,18 +405,6 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.primaryBase)
             }
-        }
-
-        if let error = inlineUpgradeError {
-            Text(error)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemNegativeStrong)
-        }
-
-        if let success = inlineUpgradeSuccess {
-            Text(success)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemPositiveStrong)
         }
 
         if let healthz {
@@ -538,47 +449,6 @@ struct SettingsDeveloperTab: View {
             return String(format: "%.1f GB", mb / 1024.0)
         }
         return String(format: "%.0f MB", mb)
-    }
-
-    private func performInlineUpgrade() async {
-        inlineUpgradeError = nil
-        inlineUpgradeSuccess = nil
-        isUpgradingInline = true
-        defer { isUpgradingInline = false }
-
-        let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-
-        if assistant?.isDocker == true {
-            dockerOperationLabel = "Upgrading assistant..."
-            isDockerOperationInProgress = true
-            defer { isDockerOperationInProgress = false }
-            guard let cli = AppDelegate.shared?.vellumCli else {
-                inlineUpgradeError = "CLI not available"
-                return
-            }
-            do {
-                try await cli.upgrade(name: selectedAssistantId)
-                inlineUpgradeSuccess = "Upgrade complete."
-                await fetchHealthz()
-            } catch {
-                inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
-            }
-        } else {
-            do {
-                let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
-                if response.isSuccess {
-                    inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    await fetchHealthz()
-                } else {
-                    inlineUpgradeError = "Upgrade failed (HTTP \(response.statusCode))"
-                }
-            } catch let error as GatewayHTTPClient.ClientError {
-                inlineUpgradeError = error.localizedDescription
-            } catch {
-                inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
-            }
-        }
     }
 
     private func fetchHealthz() async {
@@ -1362,56 +1232,3 @@ private struct DeveloperDaemonStatusRows: View {
         }
     }
 }
-
-// MARK: - Update Progress Row (Developer Tab)
-
-/// Extracted sub-view that uses `@ObservedObject` to subscribe to
-/// `DaemonClient.isUpdateInProgress` and `updateTargetVersion` changes.
-/// The parent (`healthzInfoRows`) passes in a non-optional `DaemonClient`
-/// via `if let`, which is the standard SwiftUI pattern for observing
-/// optional ObservableObjects.
-private struct DeveloperUpdateProgressRow: View {
-    @ObservedObject var daemonClient: DaemonClient
-
-    let effectiveVersion: String?
-    let isVersionIncompatible: Bool
-    let assistantVersionBehind: Bool
-    let isUpgradingInline: Bool
-    let isUpgradeSectionActive: Bool
-    let topology: AssistantTopology
-    let onUpgradeTapped: () -> Void
-
-    var body: some View {
-        if daemonClient.isUpdateInProgress {
-            ProgressView()
-                .controlSize(.small)
-            Text("Updating to \(daemonClient.updateTargetVersion ?? "...")...")
-                .font(VFont.body)
-                .foregroundColor(VColor.systemMidStrong)
-        } else if let version = effectiveVersion {
-            Text(version)
-                .font(VFont.mono)
-                .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
-                .textSelection(.enabled)
-
-            if assistantVersionBehind {
-                if topology == .docker || topology == .managed {
-                    if isUpgradingInline {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        VButton(label: "Upgrade", style: .primary) {
-                            onUpgradeTapped()
-                        }
-                        .disabled(isUpgradingInline || isUpgradeSectionActive)
-                    }
-                }
-            }
-        } else {
-            Text("Not available")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-        }
-    }
-}
-
