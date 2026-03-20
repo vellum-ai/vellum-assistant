@@ -17,6 +17,7 @@ private let log = Logger(
 /// exit, renames the bundle in-place, re-signs it, and relaunches it.
 ///
 /// Production builds always use "Vellum" so this is a no-op for them.
+@MainActor
 enum AppBundleRenamer {
 
     private static let targetName = AppDelegate.appName
