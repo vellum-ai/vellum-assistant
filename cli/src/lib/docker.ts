@@ -1089,6 +1089,19 @@ export async function hatchDocker(
       "/workspace",
     ]);
 
+    // Clear any stale signing-key bootstrap lockfile so the daemon can
+    // fetch the key from the gateway on first startup.
+    await exec("docker", [
+      "run",
+      "--rm",
+      "-v",
+      `${res.gatewaySecurityVolume}:/gateway-security`,
+      "busybox",
+      "rm",
+      "-f",
+      "/gateway-security/signing-key-bootstrap.lock",
+    ]);
+
     const cesServiceToken = randomBytes(32).toString("hex");
     await startContainers(
       { cesServiceToken, gatewayPort, imageTags, instanceName, res },
