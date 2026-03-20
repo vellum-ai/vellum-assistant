@@ -203,8 +203,11 @@ public final class ChatViewModel: ObservableObject {
                     try? await Task.sleep(for: .seconds(60))
                     guard !Task.isCancelled, let self, self.isSending else { return }
                     log.error("isSending watchdog: still true after 60s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    // Reset all transient state to match the reconnect recovery
+                    // path, so the chat is fully usable again.
                     self.isThinking = false
                     self.isCancelling = false
+                    // Workspace refinement state
                     self.isWorkspaceRefinementInFlight = false
                     self.refinementFlushTask?.cancel()
                     self.refinementFlushTask = nil
@@ -213,6 +216,12 @@ public final class ChatViewModel: ObservableObject {
                     self.cancelledDuringRefinement = false
                     self.refinementTextBuffer = ""
                     self.refinementReceivedSurfaceUpdate = false
+                    // Activity phase state
+                    self.assistantActivityPhase = "idle"
+                    self.assistantActivityAnchor = "global"
+                    self.assistantActivityReason = nil
+                    self.assistantStatusText = nil
+                    // Streaming message state
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
                         self.messages[index].isStreaming = false
@@ -220,8 +229,17 @@ public final class ChatViewModel: ObservableObject {
                         self.messages[index].streamingCodeToolName = nil
                     }
                     self.currentAssistantMessageId = nil
+                    self.currentTurnUserText = nil
+                    self.currentAssistantHasText = false
+                    self.lastContentWasToolCall = false
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
+                    // Queue tracking state
+                    self.pendingQueuedCount = 0
+                    self.pendingMessageIds.removeAll()
+                    self.requestIdToMessageId.removeAll()
+                    self.activeRequestIdToMessageId.removeAll()
+                    self.pendingLocalDeletions.removeAll()
                     // Setting isSending = false triggers the setter again which
                     // cancels this watchdog task — use the backing store directly.
                     self.messageManager.isSending = false
