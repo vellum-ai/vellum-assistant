@@ -6,12 +6,7 @@ import {
   memoryManageDefinition,
   memoryRecallDefinition,
 } from "./definitions.js";
-import {
-  handleMemoryDelete,
-  handleMemoryRecall,
-  handleMemorySave,
-  handleMemoryUpdate,
-} from "./handlers.js";
+import { handleMemoryRecall, handleMemorySave } from "./handlers.js";
 
 // ── memory_manage ────────────────────────────────────────────────────
 
@@ -39,13 +34,9 @@ class MemoryManageTool implements Tool {
           context.requestId,
           context.memoryScopeId,
         );
-      case "update":
-        return handleMemoryUpdate(input, config, context.memoryScopeId);
-      case "delete":
-        return handleMemoryDelete(input, config, context.memoryScopeId);
       default:
         return {
-          content: `Error: unknown op "${input.op}". Must be one of: save, update, delete`,
+          content: `Error: unknown op "${input.op}". Must be: save`,
           isError: true,
         };
     }
