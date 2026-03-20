@@ -180,6 +180,8 @@ DesignSystem/
 | Card wrapper with consistent padding/radius | `.vCard()` modifier or `VCard` | Manual padding + background + cornerRadius |
 | Button with standard styling | `VButton` with appropriate `style` and `size` | Custom `Button` with manual styling |
 | Dropdown/picker input | `VDropdown` | Raw `Menu` + `Picker` |
+| Text input field | `VTextField` | Raw `TextField` + manual styling |
+| Secure text input | `VTextField(isSecure: true)` | Raw `SecureField` + manual styling |
 
 </details>
 
@@ -199,12 +201,13 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
 **VFont** — macOS HIG-aligned type scale:
-- `largeTitle` (26pt bold), `title` (22pt semibold), `headline` (13pt bold)
-- `body` (13pt), `bodyMedium` (13pt medium), `bodyBold` (13pt semibold)
+- `largeTitle` (26pt semibold), `title` (22pt semibold), `headline` (13pt semibold)
+- `body` (13pt), `bodyMedium` (13pt medium), `bodyBold` (13pt semibold), `bodySmall` (12pt)
 - `caption` (11pt), `captionMedium` (11pt medium), `small` (10pt)
-- `mono` (13pt monospaced), `monoSmall` (11pt monospaced)
-- `display` (18pt black monospaced — for panel headers like "AGENT", "GENERATED CONTENT")
-- `cardTitle` (17pt semibold), `cardEmoji` (32pt)
+- `mono` (13pt DM Mono), `monoSmall` (11pt DM Mono), `monoBodyMedium` (13pt DM Mono medium), `monoMedium` (16pt DM Mono medium)
+- `sectionTitle` (17pt medium), `sectionDescription` (13pt), `inputLabel` (12pt medium)
+- `cardTitle` (16pt semibold), `cardEmoji` (32pt system)
+- `display` (18pt semibold), `modalTitle` (18pt semibold), `panelTitle` (24pt medium)
 
 **VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
 
