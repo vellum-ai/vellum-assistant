@@ -1,4 +1,7 @@
-import type { DrizzleDb } from "../db-connection.js";
+import { getLogger } from "../../util/logger.js";
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+
+const logger = getLogger("messages-fts");
 
 /**
  * FTS5 virtual table for full-text search over messages.content.
@@ -21,6 +24,14 @@ import type { DrizzleDb } from "../db-connection.js";
  * ALL writes to the messages table to fail until the FTS table is rebuilt.
  * If this happens, `messages_fts` should be dropped and recreated, then
  * backfilled via `migrateMessagesFtsBackfill`.
+ *
+ * ## Auto-recovery from corruption
+ *
+ * After creating (or finding an existing) messages_fts table, we probe it
+ * with a lightweight SELECT. If the probe throws SQLITE_CORRUPT_VTAB, we
+ * drop the virtual table and all its FTS5 shadow tables, then recreate it.
+ * The subsequent `migrateMessagesFtsBackfill` call in db-init.ts will
+ * repopulate the index from the messages table — no message data is lost.
  */
 export function createMessagesFts(database: DrizzleDb): void {
   database.run(/*sql*/ `
@@ -29,6 +40,39 @@ export function createMessagesFts(database: DrizzleDb): void {
       content
     )
   `);
+
+  // Probe the FTS table for corruption. A corrupt vtable will throw
+  // SQLITE_CORRUPT_VTAB on any query; catching it here lets us rebuild
+  // before the rest of startup touches it.
+  const raw = getSqliteFrom(database);
+  try {
+    raw.query(`SELECT COUNT(*) FROM messages_fts`).get();
+  } catch (err: unknown) {
+    const code =
+      err != null && typeof err === "object" && "code" in err
+        ? (err as { code: string }).code
+        : undefined;
+    if (code === "SQLITE_CORRUPT_VTAB" || code === "SQLITE_CORRUPT") {
+      logger.warn(
+        { err },
+        "[messages-fts] Detected corrupt messages_fts virtual table — dropping and recreating",
+      );
+      raw.exec(/*sql*/ `
+        DROP TRIGGER IF EXISTS messages_fts_ai;
+        DROP TRIGGER IF EXISTS messages_fts_ad;
+        DROP TRIGGER IF EXISTS messages_fts_au;
+        DROP TABLE IF EXISTS messages_fts;
+      `);
+      database.run(/*sql*/ `
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+          message_id UNINDEXED,
+          content
+        )
+      `);
+    } else {
+      throw err;
+    }
+  }
 
   database.run(/*sql*/ `
     CREATE TRIGGER IF NOT EXISTS messages_fts_ai
