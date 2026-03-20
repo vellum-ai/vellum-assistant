@@ -225,16 +225,18 @@ struct AssistantProgressView: View {
             return .toolRunning
         }
 
+        // All tools done, model composing response (daemon sent activity_state "thinking").
+        // Check this before toolsCompleteThinking so the "Processing results" label
+        // is shown instead of the stale last-tool label during extended thinking gaps.
+        if derived.allComplete && isProcessing {
+            return .processing
+        }
+
         // All tools done but message still streaming with no text yet — more tools
         // may come. Show active "Thinking" state rather than premature "Completed N steps".
         // Once text appears, fall through to .complete (which shows warning icon if denied).
         if derived.allComplete && isStreaming && !hasText {
             return .toolsCompleteThinking
-        }
-
-        // All tools done, model composing response
-        if derived.allComplete && isProcessing {
-            return .processing
         }
 
         // All done — either message finished (!isStreaming && !isProcessing) or
