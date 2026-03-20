@@ -28,7 +28,7 @@ const logger = getLogger("messages-fts");
  * ## Auto-recovery from corruption
  *
  * After creating (or finding an existing) messages_fts table, we probe it
- * with a lightweight MATCH query that exercises the FTS index in O(1).
+ * with a lightweight SELECT that touches the FTS virtual table in O(1).
  * If the probe throws SQLITE_CORRUPT_VTAB or SQLITE_CORRUPT, we drop
  * the virtual table and recreate it. The subsequent
  * `migrateMessagesFtsBackfill` call in db-init.ts will repopulate the
@@ -42,14 +42,13 @@ export function createMessagesFts(database: DrizzleDb): void {
     )
   `);
 
-  // Probe the FTS index for corruption with a lightweight MATCH query.
-  // This exercises the index structures (not just the row store) in O(1)
-  // regardless of table size, unlike a full integrity-check scan.
-  // A corrupt vtable will throw SQLITE_CORRUPT_VTAB; catching it here
-  // lets us rebuild before the rest of startup touches it.
+  // Probe the FTS virtual table for corruption. Any query against a
+  // corrupt vtable throws SQLITE_CORRUPT_VTAB; catching it here lets us
+  // rebuild before the rest of startup touches it. This is O(1)
+  // regardless of table size.
   const raw = getSqliteFrom(database);
   try {
-    raw.query(`SELECT * FROM messages_fts('*') LIMIT 1`).get();
+    raw.query(`SELECT * FROM messages_fts LIMIT 1`).get();
   } catch (err: unknown) {
     const code =
       err != null && typeof err === "object" && "code" in err
