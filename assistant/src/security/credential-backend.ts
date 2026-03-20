@@ -18,6 +18,18 @@ const log = getLogger("credential-backend");
 /** Result of a delete operation — distinguishes success, not-found, and error. */
 export type DeleteResult = "deleted" | "not-found" | "error";
 
+/**
+ * Result of a credential get() call.
+ * Distinguishes "key not found" from "backend unreachable" so callers
+ * can surface meaningful error messages.
+ */
+export interface CredentialGetResult {
+  /** The secret value, or undefined if not found or backend unreachable. */
+  value: string | undefined;
+  /** True when the primary backend could not be reached (e.g. broker socket down, HTTP timeout). */
+  unreachable: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Interface
 // ---------------------------------------------------------------------------
@@ -29,8 +41,8 @@ export interface CredentialBackend {
   /** Whether this backend is currently reachable. Sync and cheap. */
   isAvailable(): boolean;
 
-  /** Retrieve a secret. Returns undefined if not found or on error. */
-  get(account: string): Promise<string | undefined>;
+  /** Retrieve a secret. Returns a result distinguishing not-found from unreachable. */
+  get(account: string): Promise<CredentialGetResult>;
 
   /** Store a secret. Returns true on success. */
   set(account: string, value: string): Promise<boolean>;
@@ -55,7 +67,7 @@ export class KeychainBackend implements CredentialBackend {
     return this.client.isAvailable();
   }
 
-  async get(account: string): Promise<string | undefined> {
+  async get(account: string): Promise<CredentialGetResult> {
     try {
       const result = await this.client.get(account);
       if (result == null) {
@@ -63,13 +75,13 @@ export class KeychainBackend implements CredentialBackend {
           { account },
           "Keychain broker unreachable during get — falling back",
         );
-        return undefined;
+        return { value: undefined, unreachable: true };
       }
-      if (!result.found) return undefined;
-      return result.value;
+      if (!result.found) return { value: undefined, unreachable: false };
+      return { value: result.value, unreachable: false };
     } catch (err) {
       log.warn({ err, account }, "Keychain get threw unexpectedly");
-      return undefined;
+      return { value: undefined, unreachable: true };
     }
   }
 
@@ -126,11 +138,11 @@ export class EncryptedStoreBackend implements CredentialBackend {
     return true;
   }
 
-  async get(account: string): Promise<string | undefined> {
+  async get(account: string): Promise<CredentialGetResult> {
     try {
-      return encryptedStore.getKey(account);
+      return { value: encryptedStore.getKey(account), unreachable: false };
     } catch {
-      return undefined;
+      return { value: undefined, unreachable: false };
     }
   }
 

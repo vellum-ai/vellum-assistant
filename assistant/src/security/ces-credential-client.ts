@@ -16,7 +16,11 @@
  */
 
 import { getLogger } from "../util/logger.js";
-import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
+import type {
+  CredentialBackend,
+  CredentialGetResult,
+  DeleteResult,
+} from "./credential-backend.js";
 
 const log = getLogger("ces-credential-client");
 
@@ -77,26 +81,26 @@ export class CesCredentialBackend implements CredentialBackend {
     return !!getBaseUrl() && !!getServiceToken();
   }
 
-  async get(account: string): Promise<string | undefined> {
+  async get(account: string): Promise<CredentialGetResult> {
     try {
       const res = await cesRequest(
         "GET",
         `/v1/credentials/${encodeURIComponent(account)}`,
       );
-      if (!res) return undefined;
-      if (res.status === 404) return undefined;
+      if (!res) return { value: undefined, unreachable: true };
+      if (res.status === 404) return { value: undefined, unreachable: false };
       if (!res.ok) {
         log.warn(
           { account, status: res.status },
           "CES credential get returned non-OK status",
         );
-        return undefined;
+        return { value: undefined, unreachable: true };
       }
       const data = (await res.json()) as { value?: string };
-      return data.value;
+      return { value: data.value, unreachable: false };
     } catch (err) {
       log.warn({ err, account }, "CES credential get threw unexpectedly");
-      return undefined;
+      return { value: undefined, unreachable: true };
     }
   }
 
