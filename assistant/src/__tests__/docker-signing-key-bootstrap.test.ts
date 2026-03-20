@@ -47,8 +47,8 @@ mock.module("../util/logger.js", () => ({
 
 const {
   resolveSigningKey,
-  loadOrCreateSigningKey,
-  BootstrapAlreadyCompleted,
+  loadOrCreateSigningKey: _loadOrCreateSigningKey,
+  BootstrapAlreadyCompleted: _BootstrapAlreadyCompleted,
 } = await import("../runtime/auth/token-service.js");
 
 // ---------------------------------------------------------------------------
