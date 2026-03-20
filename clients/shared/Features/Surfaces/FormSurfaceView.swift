@@ -162,7 +162,7 @@ public struct FormSurfaceView: View {
             .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
-            .background(VColor.surfaceBase.opacity(0.5))
+            .background(VColor.surfaceOverlay.opacity(0.5))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)

@@ -258,7 +258,7 @@ public struct ToolCallProgressBar: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)

@@ -69,7 +69,7 @@ public struct CommandListBubble: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceBase)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)

@@ -135,7 +135,7 @@ public struct FileUploadSurfaceView: View {
                 .padding(VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(VColor.surfaceBase)
+                        .fill(VColor.surfaceOverlay)
                 )
             }
         }

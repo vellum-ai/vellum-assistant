@@ -97,7 +97,7 @@ public struct ModelListBubble: View {
                 .padding(.bottom, VSpacing.sm)
         }
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceBase)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)

@@ -26,7 +26,7 @@ public struct TypingIndicatorView: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
         .onAppear {
             animate = true

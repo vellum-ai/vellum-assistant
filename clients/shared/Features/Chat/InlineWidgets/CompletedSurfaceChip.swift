@@ -29,7 +29,7 @@ public struct CompletedSurfaceChip: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase.opacity(0.5))
+                .fill(VColor.surfaceOverlay.opacity(0.5))
         )
     }
 }

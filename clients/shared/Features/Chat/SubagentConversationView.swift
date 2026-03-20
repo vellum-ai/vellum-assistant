@@ -140,7 +140,7 @@ public struct SubagentConversationView: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(isHovered ? VColor.surfaceBase.opacity(0.5) : VColor.surfaceBase.opacity(0.2))
+                .fill(isHovered ? VColor.surfaceOverlay.opacity(0.5) : VColor.surfaceOverlay.opacity(0.2))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)

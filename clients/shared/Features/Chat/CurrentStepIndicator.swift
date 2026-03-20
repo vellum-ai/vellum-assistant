@@ -91,7 +91,7 @@ public struct CurrentStepIndicator: View {
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered ? VColor.borderBase.opacity(0.5) : VColor.surfaceBase)
+                    .fill(isHovered ? VColor.borderBase.opacity(0.5) : VColor.surfaceOverlay)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)

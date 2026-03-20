@@ -87,7 +87,7 @@ public struct SubagentStatusChip: View {
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase.opacity(0.3))
+                .fill(VColor.surfaceOverlay.opacity(0.3))
         )
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
