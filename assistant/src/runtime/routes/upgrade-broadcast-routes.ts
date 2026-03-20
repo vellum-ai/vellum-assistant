@@ -2,10 +2,11 @@
  * Upgrade broadcast endpoint — publishes service group update lifecycle
  * events (starting / complete) to all connected SSE clients.
  *
- * This endpoint is unprotected at the daemon level (no policy registration),
- * following the same pattern as health, identity, and debug routes. The
- * gateway is responsible for auth — it requires a valid edge JWT and
- * forwards the request with a service token.
+ * Protected by a route policy restricting access to gateway service
+ * principals only (`svc_gateway` with `internal.write` scope), following
+ * the same pattern as other gateway-forwarded control-plane endpoints.
+ * The gateway requires a valid edge JWT and forwards the request with a
+ * minted service token.
  */
 
 import type {

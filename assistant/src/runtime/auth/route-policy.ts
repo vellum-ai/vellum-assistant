@@ -502,3 +502,9 @@ for (const endpoint of INTERNAL_ENDPOINTS) {
     allowedPrincipalTypes: ["svc_gateway"],
   });
 }
+
+// Admin control-plane endpoints: gateway-only
+registerPolicy("admin/upgrade-broadcast", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
