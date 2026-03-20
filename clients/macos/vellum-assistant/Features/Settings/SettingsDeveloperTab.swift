@@ -1392,6 +1392,7 @@ private struct DeveloperUpdateProgressRow: View {
 
 // MARK: - Docker Rollback Section
 
+@MainActor
 private struct DockerRollbackSection: View {
     let assistantName: String
     let previousVersion: String
