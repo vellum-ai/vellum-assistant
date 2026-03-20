@@ -185,9 +185,10 @@ function backfillDefaults(rules: TrustRule[]): boolean {
     }
   }
 
-  // Migrate existing default rules whose priority, pattern, decision, or
-  // allowHighRisk has changed in the template (e.g. host_bash pattern changed
-  // from '*' to '**', host tool priorities changed from 1000 to 50).
+  // Migrate existing default rules whose priority, pattern, scope, decision,
+  // or allowHighRisk has changed in the template (e.g. host_bash pattern
+  // changed from '*' to '**', host tool priorities changed from 1000 to 50,
+  // workspace scope changed from getRootDir()+workspace to getWorkspaceDir()).
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
@@ -195,6 +196,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         rule &&
         (rule.priority !== template.priority ||
           rule.pattern !== template.pattern ||
+          rule.scope !== template.scope ||
           rule.decision !== template.decision ||
           rule.allowHighRisk !== template.allowHighRisk)
       ) {
@@ -205,11 +207,14 @@ function backfillDefaults(rules: TrustRule[]): boolean {
             newPriority: template.priority,
             oldPattern: rule.pattern,
             newPattern: template.pattern,
+            oldScope: rule.scope,
+            newScope: template.scope,
           },
           "Migrated default rule to updated template values",
         );
         rule.priority = template.priority;
         rule.pattern = template.pattern;
+        rule.scope = template.scope;
         rule.decision = template.decision;
         if (template.allowHighRisk != null) {
           rule.allowHighRisk = template.allowHighRisk;
