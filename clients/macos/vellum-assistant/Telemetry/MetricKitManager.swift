@@ -120,6 +120,16 @@ import os
                 }
             }
 
+            // Set reporter identity on the event so log reports are searchable
+            // by email (user.email:foo@example.com) in Sentry. Only set for
+            // manual reports where the user explicitly provided their email.
+            if let feedbackData = userFeedback {
+                let user = User()
+                user.email = feedbackData.email
+                user.name = feedbackData.name
+                SentrySDK.setUser(user)
+            }
+
             let eventId = SentrySDK.capture(event: event)
 
             // Send user feedback linked to the event so it appears in Sentry's
@@ -150,6 +160,11 @@ import os
             // spindump .tar.gz) can be several MB on slow connections.
             let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
             SentrySDK.flush(timeout: flushTimeout)
+
+            // Clear reporter identity so it doesn't leak into subsequent events.
+            if userFeedback != nil {
+                SentrySDK.setUser(nil)
+            }
 
             // Restore SDK state: if we switched DSN, close and restart
             // synchronously with the original DSN so no queued events are
