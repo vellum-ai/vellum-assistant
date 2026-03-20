@@ -280,14 +280,6 @@ subgraph "Text Q&A Session"
             EVENT_BUS["EventBus<br/>domain events"]
         end
 
-        subgraph "Swarm Orchestration"
-            SWARM_TOOL["swarm_delegate tool<br/>recursion guard"]
-            ROUTER_PLAN["Router Planner<br/>LLM → DAG plan"]
-            DAG_SCHED["DAG Scheduler<br/>topological order<br/>bounded concurrency"]
-            WORKER_POOL["Worker Pool<br/>role-scoped profiles"]
-            SYNTH["Synthesizer<br/>LLM + markdown fallback"]
-        end
-
         subgraph "Skill Tool System"
             SKILL_CATALOG["Skill Catalog<br/>bundled + managed + workspace + extra"]
             SKILL_MANIFEST["SKILL.md + TOOLS.json<br/>per-skill directory"]
@@ -475,15 +467,6 @@ subgraph "Text Q&A Session"
     %% Web server
     WEB_API -->|"HTTP"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_RT
-
-    %% Swarm data flow
-    SESSION_MGR -->|"swarm_delegate<br/>tool_use"| SWARM_TOOL
-    SWARM_TOOL --> ROUTER_PLAN
-    ROUTER_PLAN --> DAG_SCHED
-    DAG_SCHED --> WORKER_POOL
-    WORKER_POOL --> ANTHROPIC
-    DAG_SCHED --> SYNTH
-    SYNTH --> ANTHROPIC
 
     %% Tracing data flow
     SESSION_MGR --> TRACE_EMITTER

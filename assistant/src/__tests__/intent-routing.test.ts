@@ -250,16 +250,6 @@ describe("Activation hints in skills catalog", () => {
     expect(line).toContain("voice-setup");
   });
 
-  test("orchestration skill includes hints and avoid-when in catalog line", () => {
-    const prompt = buildSystemPrompt();
-    const line = prompt
-      .split("\n")
-      .find((l) => l.includes("**orchestration**"));
-    expect(line).toBeDefined();
-    expect(line).toContain("parallel");
-    expect(line).toContain("Single-focus");
-  });
-
   test("browser skill includes hints in catalog line", () => {
     const prompt = buildSystemPrompt();
     const line = prompt.split("\n").find((l) => l.includes("**browser**"));
