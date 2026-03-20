@@ -537,8 +537,8 @@ describe("keychain-broker-client", () => {
       writeFileSync(SOCKET_PATH, "");
       expect(client.isAvailable()).toBe(false);
 
-      // Advance time past the first cooldown (30s)
-      fakeNow += 30_001;
+      // Advance time past the first cooldown (5s)
+      fakeNow += 5_001;
       expect(client.isAvailable()).toBe(true);
 
       // Now start a real broker and verify the client reconnects
@@ -558,8 +558,8 @@ describe("keychain-broker-client", () => {
       const client = createBrokerClient();
       await client.ping();
 
-      // Advance past first cooldown (30s)
-      fakeNow += 30_001;
+      // Advance past first cooldown (5s)
+      fakeNow += 5_001;
 
       // Start broker — reconnection should succeed and reset counters
       const broker = createMockBroker();
@@ -578,15 +578,15 @@ describe("keychain-broker-client", () => {
       rmSync(SOCKET_PATH, { force: true });
 
       // This new failure should start from the beginning of the cooldown
-      // schedule (30s), not escalated.
+      // schedule (5s), not escalated.
       await client.ping();
 
-      // Verify cooldown is back to 30s (not 60s)
+      // Verify cooldown is back to 5s (not 15s)
       writeFileSync(SOCKET_PATH, "");
       expect(client.isAvailable()).toBe(false);
 
-      // 30s should be enough to clear cooldown
-      fakeNow += 30_001;
+      // 5s should be enough to clear cooldown
+      fakeNow += 5_001;
       expect(client.isAvailable()).toBe(true);
     }, 15_000);
 
@@ -594,21 +594,47 @@ describe("keychain-broker-client", () => {
       const client = createBrokerClient();
 
       // First failure round: two attempts (first + immediate retry) ->
-      // consecutiveFailures=2, cooldown index = max(2-2,0) = 0 -> 30s.
+      // consecutiveFailures=2, cooldown index = max(2-2,0) = 0 -> 5s.
       await client.ping();
 
       writeFileSync(SOCKET_PATH, "");
       expect(client.isAvailable()).toBe(false);
 
-      // 30s should clear the first cooldown
-      fakeNow += 30_001;
+      // 5s should clear the first cooldown
+      fakeNow += 5_001;
       expect(client.isAvailable()).toBe(true);
 
       // Remove socket to trigger another failure. After cooldown elapses,
       // ensureConnected clears unavailableSince and tries connect().
       // This failure increments consecutiveFailures to 3 (no immediate retry
       // since consecutiveFailures > 1 after increment).
-      // Cooldown index = max(3-2,0) = 1 -> 60s.
+      // Cooldown index = max(3-2,0) = 1 -> 15s.
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 5_001;
+      expect(client.isAvailable()).toBe(false); // 5s not enough
+
+      fakeNow += 10_000; // total 15_001ms since this cooldown started
+      expect(client.isAvailable()).toBe(true);
+
+      // Another failure -> consecutiveFailures=4, index = max(4-2,0) = 2 -> 30s
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 15_001;
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 15_000; // total 30_001ms
+      expect(client.isAvailable()).toBe(true);
+
+      // Another failure -> consecutiveFailures=5, index = max(5-2,0) = 3 -> 60s
       rmSync(SOCKET_PATH, { force: true });
       await client.ping();
 
@@ -616,12 +642,12 @@ describe("keychain-broker-client", () => {
       expect(client.isAvailable()).toBe(false);
 
       fakeNow += 30_001;
-      expect(client.isAvailable()).toBe(false); // 30s not enough
+      expect(client.isAvailable()).toBe(false);
 
-      fakeNow += 30_000; // total 60_001ms since this cooldown started
+      fakeNow += 30_000; // total 60_001ms
       expect(client.isAvailable()).toBe(true);
 
-      // Another failure -> consecutiveFailures=4, index = max(4-2,0) = 2 -> 120s (2min)
+      // Another failure -> consecutiveFailures=6, index = min(max(6-2,0), 4) = 4 -> 300s (5min)
       rmSync(SOCKET_PATH, { force: true });
       await client.ping();
 
@@ -631,23 +657,10 @@ describe("keychain-broker-client", () => {
       fakeNow += 60_001;
       expect(client.isAvailable()).toBe(false);
 
-      fakeNow += 60_000; // total 120_001ms
+      fakeNow += 240_000; // total 300_001ms
       expect(client.isAvailable()).toBe(true);
 
-      // Another failure -> consecutiveFailures=5, index = max(5-2,0) = 3 -> 300s (5min)
-      rmSync(SOCKET_PATH, { force: true });
-      await client.ping();
-
-      writeFileSync(SOCKET_PATH, "");
-      expect(client.isAvailable()).toBe(false);
-
-      fakeNow += 120_001;
-      expect(client.isAvailable()).toBe(false);
-
-      fakeNow += 180_000; // total 300_001ms
-      expect(client.isAvailable()).toBe(true);
-
-      // Another failure -> consecutiveFailures=6, index = min(max(6-2,0), 3) = 3 -> 300s (capped)
+      // Another failure -> consecutiveFailures=7, index = min(max(7-2,0), 4) = 4 -> 300s (capped)
       rmSync(SOCKET_PATH, { force: true });
       await client.ping();
 
@@ -656,6 +669,100 @@ describe("keychain-broker-client", () => {
 
       fakeNow += 300_001;
       expect(client.isAvailable()).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Connect timeout
+  // -----------------------------------------------------------------------
+  describe("connect timeout", () => {
+    test("returns null within bounded time when broker accepts but never responds", async () => {
+      writeFileSync(TOKEN_PATH, TEST_TOKEN);
+
+      // Create a server that accepts connections but never sends any data,
+      // simulating an unresponsive broker. The OS-level connect succeeds
+      // (so connect timeout won't fire), but the request will hit the
+      // REQUEST_TIMEOUT (5s) since no response arrives.
+      const connections = new Set<import("node:net").Socket>();
+      const server = createServer((conn) => {
+        connections.add(conn);
+        conn.on("close", () => connections.delete(conn));
+        // Accept connection but never respond
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(SOCKET_PATH, () => resolve());
+      });
+
+      try {
+        const client = createBrokerClient();
+        const start = Date.now();
+
+        // get() should resolve to null (timeout) within a bounded time,
+        // not hang indefinitely.
+        const result = await client.get("test-account");
+        const elapsed = Date.now() - start;
+
+        expect(result).toBeNull();
+        // Should complete well under 10s (request timeout is 5s)
+        expect(elapsed).toBeLessThan(10_000);
+      } finally {
+        for (const conn of connections) conn.destroy();
+        connections.clear();
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      }
+    }, 15_000);
+
+    test("connect rejects when socket file is not a real socket", async () => {
+      writeFileSync(TOKEN_PATH, TEST_TOKEN);
+
+      // Write a regular file at the socket path. createConnection to a
+      // non-socket file triggers an immediate ENOTSOCK / ECONNREFUSED on
+      // most platforms. This verifies the connect() promise rejects (via
+      // error or timeout) and doesn't hang.
+      writeFileSync(SOCKET_PATH, "not-a-socket");
+
+      const client = createBrokerClient();
+      const start = Date.now();
+
+      const result = await client.get("test-account");
+      const elapsed = Date.now() - start;
+
+      expect(result).toBeNull();
+      // Should resolve quickly (immediate error) or within connect timeout (3s x 2)
+      expect(elapsed).toBeLessThan(10_000);
+
+      // Client should have entered cooldown after failures
+      expect(client.isAvailable()).toBe(false);
+    }, 15_000);
+
+    test("first cooldown after failure is 5s, not 30s", async () => {
+      const originalDateNow = Date.now;
+      let fakeNow = originalDateNow.call(Date);
+      Date.now = () => fakeNow;
+
+      try {
+        writeFileSync(TOKEN_PATH, TEST_TOKEN);
+
+        // No socket file — triggers two connection failures (first + immediate retry)
+        const client = createBrokerClient();
+        await client.ping();
+
+        // Client should be in cooldown now
+        writeFileSync(SOCKET_PATH, "");
+        expect(client.isAvailable()).toBe(false);
+
+        // After 4s (less than 5s), still in cooldown
+        fakeNow += 4_000;
+        expect(client.isAvailable()).toBe(false);
+
+        // After 5s+1ms total, cooldown should have elapsed
+        fakeNow += 1_001;
+        expect(client.isAvailable()).toBe(true);
+      } finally {
+        Date.now = originalDateNow;
+      }
     });
   });
 });
