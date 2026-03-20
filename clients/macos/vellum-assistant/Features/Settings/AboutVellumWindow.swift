@@ -67,10 +67,11 @@ struct AboutVellumView: View {
             }
             #endif
 
-            // Check for Updates button
+            // Check for Updates button — uses topology-aware routing:
+            // local triggers Sparkle directly, Docker/managed opens Settings > General.
             VButton(label: "Check for Updates...", style: .outlined) {
                 AppDelegate.shared?.aboutWindow?.close()
-                AppDelegate.shared?.showSettingsTab("General")
+                AppDelegate.shared?.checkForUpdates()
             }
         }
         .frame(width: 320)
