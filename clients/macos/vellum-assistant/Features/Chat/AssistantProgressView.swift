@@ -98,7 +98,7 @@ private struct DerivedProgressState: Equatable {
             }
         }
 
-        state.allComplete = toolCalls.isEmpty ? true : allComplete
+        state.allComplete = !toolCalls.isEmpty && allComplete
         state.lastToolCall = toolCalls.last
         state.groupId = toolCalls.first?.id.uuidString ?? "no-tools"
         state.earliestStartedAt = earliestStart
