@@ -4,7 +4,7 @@
  * and local mode (file-based load/create).
  */
 
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -129,8 +129,13 @@ describe("resolveSigningKey — Docker bootstrap lifecycle", () => {
     process.env.IS_CONTAINERIZED = "true";
     process.env.GATEWAY_INTERNAL_URL = "http://localhost:19876";
 
-    // The previous test persisted the key. Simulate a daemon restart where
-    // the gateway returns 403 (bootstrap already completed).
+    // Seed the persisted key so this test is self-contained (no dependency
+    // on the previous test having run first).
+    mkdirSync(join(testDir, "protected"), { recursive: true });
+    writeFileSync(SIGNING_KEY_PATH, Buffer.from(VALID_32_BYTE_KEY, "hex"));
+
+    // Simulate a daemon restart where the gateway returns 403
+    // (bootstrap already completed).
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: "Bootstrap already completed" }), {
         status: 403,
