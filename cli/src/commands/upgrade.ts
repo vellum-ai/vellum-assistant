@@ -356,14 +356,27 @@ async function upgradeDocker(
 
         const rollbackReady = await waitForReady(entry.runtimeUrl);
         if (rollbackReady) {
-          // Restore previous container info in lockfile after rollback
+          // Restore previous container info in lockfile after rollback.
+          // previousImageRefs contains sha256 digests from `docker inspect
+          // --format {{.Image}}`.  The *Image fields should hold
+          // human-readable image:tag names, so prefer the pre-upgrade
+          // containerInfo values and store digests in the *Digest fields.
           if (previousImageRefs) {
             const rolledBackEntry: AssistantEntry = {
               ...entry,
               containerInfo: {
-                assistantImage: previousImageRefs.assistant,
-                gatewayImage: previousImageRefs.gateway,
-                cesImage: previousImageRefs["credential-executor"],
+                assistantImage:
+                  entry.containerInfo?.assistantImage ??
+                  previousImageRefs.assistant,
+                gatewayImage:
+                  entry.containerInfo?.gatewayImage ??
+                  previousImageRefs.gateway,
+                cesImage:
+                  entry.containerInfo?.cesImage ??
+                  previousImageRefs["credential-executor"],
+                assistantDigest: previousImageRefs.assistant,
+                gatewayDigest: previousImageRefs.gateway,
+                cesDigest: previousImageRefs["credential-executor"],
                 networkName: res.network,
               },
             };
