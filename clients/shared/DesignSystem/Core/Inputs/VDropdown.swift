@@ -84,7 +84,7 @@ public struct VDropdown<T: Hashable>: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                HStack(spacing: VSpacing.md) {
+                HStack(spacing: size.horizontalPadding) {
                     HStack(spacing: size == .small ? VSpacing.xs : VSpacing.sm) {
                         if let resolvedIcon = icon ?? optionIcon?(selection) {
                             VIconView(resolvedIcon, size: size.iconSize)
