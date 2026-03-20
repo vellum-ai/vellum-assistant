@@ -31,7 +31,7 @@ public extension View {
     /// Prefer `.help()` for simple views. Use this modifier in views where
     /// SwiftUI gesture recognizers (`.onTapGesture`, `.contextMenu`, `.onDrag`)
     /// prevent `.help()` tooltips from appearing.
-    func nativeTooltip(_ text: String) -> some View {
+    func vNativeTooltip(_ text: String) -> some View {
         self.background(NativeTooltipView(text: text))
     }
 }
@@ -204,7 +204,7 @@ private struct VTooltipContent: View {
 #else
 public extension View {
     /// On non-macOS platforms, falls back to the standard `.help()` modifier.
-    func nativeTooltip(_ text: String) -> some View {
+    func vNativeTooltip(_ text: String) -> some View {
         self.help(text)
     }
 

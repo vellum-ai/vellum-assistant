@@ -64,26 +64,26 @@ struct SidebarConversationItem: View {
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity)
-                    .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
+                    .vNativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
                     .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
                 } else {
                     switch interactionState {
                     case .processing:
                         VBusyIndicator()
                             .frame(width: 20, height: 20)
-                            .nativeTooltip("Processing")
+                            .vNativeTooltip("Processing")
                             .accessibilityLabel("Processing")
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.systemMidStrong)
                             .frame(width: 20, height: 20)
-                            .nativeTooltip("Waiting for input")
+                            .vNativeTooltip("Waiting for input")
                             .accessibilityLabel("Waiting for input")
                     case .error:
                         VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.systemNegativeStrong)
                             .frame(width: 20, height: 20)
-                            .nativeTooltip("Error")
+                            .vNativeTooltip("Error")
                             .accessibilityLabel("Error")
                             .transition(.opacity)
                     case .idle:
@@ -91,14 +91,14 @@ struct SidebarConversationItem: View {
                             VBadge(style: .dot, color: VColor.systemMidStrong)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
-                                .nativeTooltip("Unread")
+                                .vNativeTooltip("Unread")
                                 .transition(.opacity)
                         } else if conversation.isPinned {
                             VIconView(.pin, size: 13)
                                 .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
-                                .nativeTooltip("Pinned")
+                                .vNativeTooltip("Pinned")
                                 .accessibilityLabel("Pinned")
                                 .transition(.opacity)
                         } else {
@@ -110,7 +110,7 @@ struct SidebarConversationItem: View {
                 if conversation.kind == .private {
                     VIconView(.lock, size: 13)
                         .foregroundColor(VColor.primaryBase.opacity(0.7))
-                        .nativeTooltip("Private conversation")
+                        .vNativeTooltip("Private conversation")
                         .accessibilityLabel("Private conversation")
                 }
                 Text(conversation.title)
@@ -118,7 +118,7 @@ struct SidebarConversationItem: View {
                     .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .nativeTooltip(conversation.title)
+                    .vNativeTooltip(conversation.title)
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,7 +169,7 @@ struct SidebarConversationItem: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .nativeTooltip("Archive")
+                .vNativeTooltip("Archive")
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Archive \(conversation.title)")
             }

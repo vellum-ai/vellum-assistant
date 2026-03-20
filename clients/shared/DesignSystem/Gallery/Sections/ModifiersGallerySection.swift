@@ -108,13 +108,13 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "nativeTooltip" {
+            if filter == nil || filter == "vNativeTooltip" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - .nativeTooltip()
+                // MARK: - .vNativeTooltip()
                 GallerySectionHeader(
-                    title: ".nativeTooltip(_:)",
+                    title: ".vNativeTooltip(_:)",
                     description: "Attaches a native macOS tooltip via AppKit's NSView.toolTip. Use instead of .help() in views where gesture recognizers prevent .help() tooltips from appearing. Falls back to .help() on non-macOS platforms."
                 )
 
@@ -130,21 +130,21 @@ struct ModifiersGallerySection: View {
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .nativeTooltip("Pinned")
+                                .vNativeTooltip("Pinned")
 
                             VIconView(.circleAlert, size: 16)
                                 .foregroundColor(VColor.systemNegativeStrong)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .nativeTooltip("Error")
+                                .vNativeTooltip("Error")
 
                             VIconView(.lock, size: 16)
                                 .foregroundColor(VColor.primaryBase)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .nativeTooltip("Private conversation")
+                                .vNativeTooltip("Private conversation")
                         }
                     }
                 }
@@ -348,7 +348,7 @@ extension ModifiersGallerySection {
         switch id {
         case "vCardMod": ModifiersGallerySection(filter: "vCardMod")
         case "pointerCursor": ModifiersGallerySection(filter: "pointerCursor")
-        case "nativeTooltip": ModifiersGallerySection(filter: "nativeTooltip")
+        case "vNativeTooltip": ModifiersGallerySection(filter: "vNativeTooltip")
         case "vTooltip": ModifiersGallerySection(filter: "vTooltip")
         case "vPanelBackground": ModifiersGallerySection(filter: "vPanelBackground")
         case "ifMod": ModifiersGallerySection(filter: "ifMod")
