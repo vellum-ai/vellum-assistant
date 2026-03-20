@@ -42,19 +42,36 @@ export function buildElevenLabsVoiceSpec(config: {
 /**
  * Resolve the effective voice quality profile from config.
  *
- * Always uses ElevenLabs TTS via Twilio ConversationRelay.
- * The voice ID comes from the shared `elevenlabs.voiceId` config
- * (defaults to Amelia — ZF6FPAbjXT4488VcRRnw).
+ * Supports ElevenLabs (default) and Fish Audio TTS providers.
+ * When Fish Audio is selected, `ttsProvider` is set to `"Google"` as a
+ * placeholder — ConversationRelay requires a valid provider in TwiML, but
+ * actual audio is delivered via `play` messages from the call-controller.
+ * The voice string is left empty since it is unused in that mode.
+ *
+ * For ElevenLabs, the voice ID comes from the shared `elevenlabs.voiceId`
+ * config (defaults to Amelia — ZF6FPAbjXT4488VcRRnw).
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
 ): VoiceQualityProfile {
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
+  const configuredTts = voice.ttsProvider ?? "elevenlabs";
+  const fishAudio = configuredTts === "fish-audio";
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
-    ttsProvider: "ElevenLabs",
-    voice: buildElevenLabsVoiceSpec(cfg.elevenlabs),
+    ttsProvider: fishAudio ? "Google" : "ElevenLabs",
+    voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
+}
+
+/**
+ * Check whether Fish Audio TTS is configured for phone calls.
+ */
+export function isFishAudioTts(
+  config?: ReturnType<typeof loadConfig>,
+): boolean {
+  const cfg = config ?? loadConfig();
+  return cfg.calls.voice.ttsProvider === "fish-audio";
 }
