@@ -466,12 +466,18 @@ struct SettingsDeveloperTab: View {
                 .frame(width: 100, alignment: .leading)
 
             if let daemonClient {
+                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
+                let topo: AssistantTopology = assistant?.isDocker == true ? .docker
+                    : assistant?.isManaged == true ? .managed
+                    : assistant?.cloud.lowercased() == "local" ? .local
+                    : .remote
                 DeveloperUpdateProgressRow(
                     daemonClient: daemonClient,
                     effectiveVersion: effectiveVersion,
                     isVersionIncompatible: isVersionIncompatible,
                     assistantVersionBehind: assistantVersionBehind,
                     isUpgradingInline: isUpgradingInline,
+                    topology: topo,
                     onUpgradeTapped: { showingInlineUpgradeConfirmation = true }
                 )
             } else if let version = effectiveVersion {
@@ -1428,6 +1434,7 @@ private struct DeveloperUpdateProgressRow: View {
     let isVersionIncompatible: Bool
     let assistantVersionBehind: Bool
     let isUpgradingInline: Bool
+    let topology: AssistantTopology
     let onUpgradeTapped: () -> Void
 
     var body: some View {
@@ -1444,14 +1451,16 @@ private struct DeveloperUpdateProgressRow: View {
                 .textSelection(.enabled)
 
             if assistantVersionBehind {
-                if isUpgradingInline {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    VButton(label: "Upgrade", style: .primary) {
-                        onUpgradeTapped()
+                if topology == .docker || topology == .managed {
+                    if isUpgradingInline {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(label: "Upgrade", style: .primary) {
+                            onUpgradeTapped()
+                        }
+                        .disabled(isUpgradingInline)
                     }
-                    .disabled(isUpgradingInline)
                 }
             }
         } else {
