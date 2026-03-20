@@ -1934,6 +1934,14 @@ private struct ConversationScrollbarVisibilityController: NSViewRepresentable, E
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        // If the initial async install in makeNSView ran before the view was in
+        // the hierarchy, findEnclosingScrollView would have returned nil and the
+        // controller stays permanently uninstalled. Retry here — but only when
+        // still unresolved, to avoid the render loop that unconditional
+        // re-installation would cause.
+        if context.coordinator.lastResolvedScrollView == nil {
+            context.coordinator.install(from: nsView)
+        }
         context.coordinator.update(isAppActive: isAppActive, suppressScrollbar: suppressScrollbar)
     }
 
