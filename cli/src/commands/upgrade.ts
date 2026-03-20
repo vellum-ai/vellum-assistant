@@ -27,6 +27,7 @@ import {
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
+import { loadGuardianToken } from "../lib/guardian-token";
 import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
@@ -200,6 +201,35 @@ async function waitForReady(runtimeUrl: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * Best-effort broadcast of an upgrade lifecycle event to connected clients
+ * via the gateway's upgrade-broadcast proxy. Uses guardian token auth.
+ * Failures are logged but never block the upgrade flow.
+ */
+async function broadcastUpgradeEvent(
+  gatewayUrl: string,
+  assistantId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const token = loadGuardianToken(assistantId);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token?.accessToken) {
+      headers["Authorization"] = `Bearer ${token.accessToken}`;
+    }
+    await fetch(`${gatewayUrl}/v1/admin/upgrade-broadcast`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(event),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {
+    // Best-effort — gateway/daemon may already be shutting down or not yet ready
+  }
+}
+
 async function upgradeDocker(
   entry: AssistantEntry,
   version: string | null,
@@ -246,6 +276,16 @@ async function upgradeDocker(
   await exec("docker", ["pull", imageTags.gateway]);
   await exec("docker", ["pull", imageTags["credential-executor"]]);
   console.log("✅ Docker images pulled\n");
+
+  // Notify connected clients that an upgrade is about to begin.
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "starting",
+    targetVersion: versionTag,
+    expectedDowntimeSeconds: 60,
+  });
+  // Brief pause to allow SSE delivery before containers stop.
+  await new Promise((r) => setTimeout(r, 500));
 
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
@@ -335,6 +375,13 @@ async function upgradeDocker(
     };
     saveAssistantEntry(updatedEntry);
 
+    // Notify clients on the new service group that the upgrade succeeded.
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "complete",
+      installedVersion: versionTag,
+      success: true,
+    });
+
     console.log(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
     );
@@ -386,6 +433,15 @@ async function upgradeDocker(
             };
             saveAssistantEntry(rolledBackEntry);
           }
+
+          // Notify clients that the upgrade failed and rolled back.
+          await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+            type: "complete",
+            installedVersion: entry.serviceGroupVersion ?? "unknown",
+            success: false,
+            rolledBackToVersion: entry.serviceGroupVersion,
+          });
+
           console.log(
             `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
           );
@@ -448,6 +504,15 @@ async function upgradePlatform(
     body.version = version;
   }
 
+  // Notify connected clients that an upgrade is about to begin.
+  const targetVersion = version ?? `v${cliPkg.version}`;
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "starting",
+    targetVersion,
+    expectedDowntimeSeconds: 90,
+  });
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -463,10 +528,23 @@ async function upgradePlatform(
     console.error(
       `Error: Platform upgrade failed (${response.status}): ${text}`,
     );
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "complete",
+      installedVersion: entry.serviceGroupVersion ?? "unknown",
+      success: false,
+    });
     process.exit(1);
   }
 
   const result = (await response.json()) as UpgradeApiResponse;
+
+  // Notify clients that the platform upgrade was initiated successfully.
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "complete",
+    installedVersion: result.version ?? targetVersion,
+    success: true,
+  });
+
   console.log(`✅ ${result.detail}`);
   if (result.version) {
     console.log(`   Version: ${result.version}`);
