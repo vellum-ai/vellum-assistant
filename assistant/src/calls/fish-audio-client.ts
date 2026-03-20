@@ -1,4 +1,4 @@
-import { encode, decode } from "@msgpack/msgpack";
+import { decode, encode } from "@msgpack/msgpack";
 
 import type { FishAudioConfig } from "../config/schemas/fish-audio.js";
 import { credentialKey } from "../security/credential-key.js";
