@@ -154,6 +154,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Guards `.appOpen` sound so it fires only once per app session,
+    /// even if `proceedToApp()` is called again after assistant switches
+    /// or re-authentication flows.
+    private var hasPlayedAppOpenSound = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     // MARK: - App Menu Name Patching
@@ -318,10 +323,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
             SentrySDK.start { options in
                 options.dsn = MetricKitManager.macosDSN
                 options.releaseName = "vellum-macos@\(appVersion)"
-                options.dist = buildNumber
+                options.dist = commitSHA ?? buildNumber
                 options.environment = SentryDeviceInfo.sentryEnvironment
                 options.debug = false
                 options.tracesSampleRate = 0.1
@@ -472,6 +478,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupNotifications()
         setupAutoUpdate()
 
+        SoundManager.shared.start()
+        RandomSoundTimer.shared.start()
+        if !hasPlayedAppOpenSound {
+            hasPlayedAppOpenSound = true
+            SoundManager.shared.play(.appOpen)
+        }
+
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
@@ -586,6 +599,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
+        RandomSoundTimer.shared.stop()
+        SoundManager.shared.stop()
         #if !DEBUG
         keychainBroker?.stop()
         #endif
@@ -601,6 +616,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
     }
 
 }

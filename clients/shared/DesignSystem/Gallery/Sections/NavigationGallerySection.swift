@@ -8,6 +8,8 @@ struct NavigationGallerySection: View {
     @State private var pillSelection = "active"
     @State private var compactPillSelection = "preview"
     @State private var selectedTab = 0
+    @State private var sidebarRowActive = "Intelligence"
+    @State private var sidebarDisclosureExpanded = true
 
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
     private let tabs = [
@@ -101,6 +103,80 @@ struct NavigationGallerySection: View {
                     }
                 }
 
+            }
+
+            if filter == nil || filter == "vSidebarRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VSidebarRow
+                GallerySectionHeader(
+                    title: "VSidebarRow",
+                    description: "Sidebar navigation row with icon, label, hover/active states, and optional trailing icon. Used by the main app sidebar and the component gallery."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("States").font(VFont.headline).foregroundColor(VColor.contentSecondary)
+
+                        VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
+                            sidebarRowActive = "Intelligence"
+                        }
+                        VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
+                            sidebarRowActive = "Library"
+                        }
+                        VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
+                            sidebarRowActive = "Settings"
+                        }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Without Icon").font(VFont.headline).foregroundColor(VColor.contentSecondary)
+
+                        VSidebarRow(label: "Overview", isActive: false) {}
+                        VSidebarRow(label: "VButton", isActive: true) {}
+                        VSidebarRow(label: "VSplitButton", isActive: false) {}
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Trailing Icon (Disclosure)").font(VFont.headline).foregroundColor(VColor.contentSecondary)
+
+                        VSidebarRow(
+                            icon: VIcon.layers.rawValue,
+                            label: "Display",
+                            trailingIcon: VIcon.chevronRight.rawValue,
+                            trailingIconRotation: .degrees(sidebarDisclosureExpanded ? 90 : 0)
+                        ) {
+                            withAnimation(VAnimation.fast) {
+                                sidebarDisclosureExpanded.toggle()
+                            }
+                        }
+
+                        if sidebarDisclosureExpanded {
+                            VSidebarRow(label: "VCard", isActive: false) {}
+                                .padding(.leading, VSpacing.md)
+                            VSidebarRow(label: "VEmptyState", isActive: false) {}
+                                .padding(.leading, VSpacing.md)
+                        }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Collapsed Mode").font(VFont.headline).foregroundColor(VColor.contentSecondary)
+
+                        HStack(spacing: VSpacing.md) {
+                            VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
+                            VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
+                            VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
+                        }
+                        .frame(maxWidth: 200)
+                    }
+                }
             }
 
             if filter == nil || filter == "vTabBar" {
@@ -265,6 +341,7 @@ extension NavigationGallerySection {
         switch id {
         case "vSegmentedControl": NavigationGallerySection(filter: "vSegmentedControl")
         case "vTabBar": NavigationGallerySection(filter: "vTabBar")
+        case "vSidebarRow": NavigationGallerySection(filter: "vSidebarRow")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
         default: EmptyView()
         }

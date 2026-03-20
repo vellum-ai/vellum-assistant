@@ -1,10 +1,5 @@
 import Foundation
 import os
-import CryptoKit
-#if os(macOS)
-import IOKit
-#endif
-
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HTTPTransport")
 
 // MARK: - AssistantEvent Envelope
@@ -1651,31 +1646,9 @@ public final class HTTPTransport {
     // MARK: - macOS Device ID
 
     #if os(macOS)
-    /// Compute a stable device ID matching PairingQRCodeSheet.computeHostId().
-    /// SHA-256 of the IOPlatformUUID + an app-specific salt.
+    /// Compute a stable device ID via the shared HostIdComputer.
     private static func computeMacOSDeviceId() -> String {
-        let platformUUID = getMacOSPlatformUUID() ?? UUID().uuidString
-        let salt = "vellum-assistant-host-id"
-        let input = Data((platformUUID + salt).utf8)
-        let hash = SHA256.hash(data: input)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
-    private static func getMacOSPlatformUUID() -> String? {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        let key = kIOPlatformUUIDKey as CFString
-        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
-            .takeRetainedValue() as? String else {
-            return nil
-        }
-        return uuid
+        return HostIdComputer.computeHostId()
     }
     #endif
 

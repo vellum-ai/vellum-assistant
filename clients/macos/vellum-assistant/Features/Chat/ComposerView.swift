@@ -318,6 +318,7 @@ struct ComposerView: View {
         } else if canSend {
             sendPath = "normalSend"
             onSend()
+            SoundManager.shared.play(.messageSent)
         } else if hasPendingConfirmation
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sendPath = "pendingConfirmationApproval"
@@ -432,7 +433,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
                 .vTooltip("Type a message to send")
             } else if !hasPendingConfirmation {
@@ -456,7 +457,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
                 .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
@@ -487,7 +488,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
-                    onSend()
+                    performSendAction()
                 }
             }
         }

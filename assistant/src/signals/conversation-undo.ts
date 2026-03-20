@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -46,6 +47,8 @@ export function registerConversationUndoCallback(cb: UndoCallback): void {
  * file is written.
  */
 export async function handleConversationUndoSignal(): Promise<void> {
+  if (getIsContainerized()) return;
+
   const resultPath = join(getSignalsDir(), "conversation-undo.result");
 
   const writeResult = (

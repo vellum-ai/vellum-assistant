@@ -7,9 +7,9 @@ struct TokensGallerySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
             if filter == nil || filter == "colors" {
-                // MARK: - Colors: Semantic
+                // MARK: - VColor
                 GallerySectionHeader(
-                    title: "Colors",
+                    title: "VColor",
                     description: "Semantic color tokens for consistent theming."
                 )
 
@@ -82,9 +82,9 @@ struct TokensGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Typography
+                // MARK: - VFont
                 GallerySectionHeader(
-                    title: "Typography",
+                    title: "VFont",
                     description: "Font scale tokens for consistent text styling."
                 )
 
@@ -114,9 +114,9 @@ struct TokensGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Spacing
+                // MARK: - VSpacing
                 GallerySectionHeader(
-                    title: "Spacing",
+                    title: "VSpacing",
                     description: "Spacing scale tokens for consistent layout."
                 )
 
@@ -148,9 +148,9 @@ struct TokensGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Radius
+                // MARK: - VRadius
                 GallerySectionHeader(
-                    title: "Radius",
+                    title: "VRadius",
                     description: "Corner radius tokens for consistent rounding."
                 )
 
@@ -188,9 +188,9 @@ struct TokensGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Shadows
+                // MARK: - VShadow
                 GallerySectionHeader(
-                    title: "Shadows",
+                    title: "VShadow",
                     description: "Shadow tokens for depth and emphasis."
                 )
 
@@ -222,9 +222,9 @@ struct TokensGallerySection: View {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - Animations
+                // MARK: - VAnimation
                 GallerySectionHeader(
-                    title: "Animations",
+                    title: "VAnimation",
                     description: "Animation timing tokens."
                 )
 

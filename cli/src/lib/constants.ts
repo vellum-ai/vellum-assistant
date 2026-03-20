@@ -16,6 +16,7 @@ export const GATEWAY_PORT = process.env.GATEWAY_PORT
 export const DEFAULT_DAEMON_PORT = 7821;
 export const DEFAULT_GATEWAY_PORT = 7830;
 export const DEFAULT_QDRANT_PORT = 6333;
+export const DEFAULT_CES_PORT = 8090;
 
 /**
  * Environment variable names for provider API keys, keyed by provider ID.

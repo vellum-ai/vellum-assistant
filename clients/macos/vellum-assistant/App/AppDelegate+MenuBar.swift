@@ -380,6 +380,7 @@ extension AppDelegate {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
+        SoundManager.shared.play(.newConversation)
         if let id = mainWindow?.conversationManager.activeConversationId {
             mainWindow?.windowState.selection = .conversation(id)
         }

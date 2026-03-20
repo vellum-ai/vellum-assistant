@@ -1,9 +1,12 @@
+import { randomBytes } from "crypto";
+
 import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  saveAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
@@ -12,6 +15,8 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
+  migrateCesSecurityFiles,
+  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "../lib/docker";
@@ -257,10 +262,18 @@ async function upgradeDocker(
     // use default
   }
 
+  // Extract CES_SERVICE_TOKEN from the captured env so it can be passed via
+  // the dedicated cesServiceToken parameter (which propagates it to all three
+  // containers). If the old instance predates CES_SERVICE_TOKEN, generate a
+  // fresh one so gateway and CES can authenticate.
+  const cesServiceToken =
+    capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
+
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
   // serviceDockerRunArgs are excluded to avoid duplicates.
   const envKeysSetByRunArgs = new Set([
+    "CES_SERVICE_TOKEN",
     "VELLUM_ASSISTANT_NAME",
     "RUNTIME_HTTP_HOST",
     "PATH",
@@ -278,9 +291,16 @@ async function upgradeDocker(
     }
   }
 
+  console.log("🔄 Migrating security files to gateway volume...");
+  await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
+
+  console.log("🔄 Migrating credential files to CES security volume...");
+  await migrateCesSecurityFiles(res, (msg) => console.log(msg));
+
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
+      cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
       imageTags,
@@ -294,6 +314,23 @@ async function upgradeDocker(
   console.log("Waiting for assistant to become ready...");
   const ready = await waitForReady(entry.runtimeUrl);
   if (ready) {
+    // Update lockfile with new service group topology
+    const newDigests = await captureImageRefs(res);
+    const updatedEntry: AssistantEntry = {
+      ...entry,
+      serviceGroupVersion: versionTag,
+      containerInfo: {
+        assistantImage: imageTags.assistant,
+        gatewayImage: imageTags.gateway,
+        cesImage: imageTags["credential-executor"],
+        assistantDigest: newDigests?.assistant,
+        gatewayDigest: newDigests?.gateway,
+        cesDigest: newDigests?.["credential-executor"],
+        networkName: res.network,
+      },
+    };
+    saveAssistantEntry(updatedEntry);
+
     console.log(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
     );
@@ -307,6 +344,7 @@ async function upgradeDocker(
 
         await startContainers(
           {
+            cesServiceToken,
             extraAssistantEnv,
             gatewayPort,
             imageTags: previousImageRefs,
@@ -318,6 +356,19 @@ async function upgradeDocker(
 
         const rollbackReady = await waitForReady(entry.runtimeUrl);
         if (rollbackReady) {
+          // Restore previous container info in lockfile after rollback
+          if (previousImageRefs) {
+            const rolledBackEntry: AssistantEntry = {
+              ...entry,
+              containerInfo: {
+                assistantImage: previousImageRefs.assistant,
+                gatewayImage: previousImageRefs.gateway,
+                cesImage: previousImageRefs["credential-executor"],
+                networkName: res.network,
+              },
+            };
+            saveAssistantEntry(rolledBackEntry);
+          }
           console.log(
             `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
           );

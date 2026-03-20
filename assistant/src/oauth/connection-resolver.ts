@@ -1,7 +1,6 @@
-import { getPlatformAssistantId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { type Services, ServicesSchema } from "../config/schemas/services.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { VellumPlatformClient } from "../platform/client.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
@@ -49,14 +48,21 @@ export async function resolveOAuthConnection(
   if (managedKey && managedKey in ServicesSchema.shape) {
     const services: Services = getConfig().services;
     if (services[managedKey as keyof Services].mode === "managed") {
-      const ctx = await resolveManagedProxyContext();
-      const assistantId = getPlatformAssistantId();
+      const client = await VellumPlatformClient.create();
+      if (!client || !client.platformAssistantId) {
+        const detail = !client
+          ? "missing platform prerequisites"
+          : "missing assistant ID";
+        throw new Error(
+          `Platform-managed connection for "${providerKey}" cannot be created: ${detail}. ` +
+            `Log in to the Vellum platform or switch to using your own OAuth app.`,
+        );
+      }
+
       const providerSlug = providerKey.replace(/^integration:/, "");
 
       const connectionId = await resolvePlatformConnectionId({
-        assistantId,
-        platformBaseUrl: ctx.platformBaseUrl.replace(/\/+$/, ""),
-        apiKey: ctx.assistantApiKey,
+        client,
         provider: providerSlug,
         account,
       });
@@ -66,9 +72,7 @@ export async function resolveOAuthConnection(
         providerKey,
         externalId: providerKey,
         accountInfo: account ?? null,
-        assistantId,
-        platformBaseUrl: ctx.platformBaseUrl,
-        apiKey: ctx.assistantApiKey,
+        client,
         connectionId,
       });
     }
@@ -118,9 +122,7 @@ export async function resolveOAuthConnection(
 // ---------------------------------------------------------------------------
 
 interface ResolvePlatformConnectionIdOptions {
-  assistantId: string;
-  platformBaseUrl: string;
-  apiKey: string;
+  client: VellumPlatformClient;
   provider: string;
   account?: string;
 }
@@ -132,32 +134,17 @@ interface ResolvePlatformConnectionIdOptions {
 async function resolvePlatformConnectionId(
   options: ResolvePlatformConnectionIdOptions,
 ): Promise<string> {
-  const { assistantId, platformBaseUrl, apiKey, provider, account } = options;
+  const { client, provider, account } = options;
 
-  const missing: string[] = [];
-  if (!platformBaseUrl) missing.push("platform base URL");
-  if (!apiKey) missing.push("assistant API key");
-  if (!assistantId) missing.push("assistant ID");
-  if (missing.length > 0) {
-    throw new Error(
-      `Platform-managed connection for "${provider}" cannot be created: missing ${missing.join(", ")}. ` +
-        `Log in to the Vellum platform or switch to using your own OAuth app.`,
-    );
-  }
-
-  const url = new URL(
-    `/v1/assistants/${assistantId}/oauth/connections/`,
-    platformBaseUrl,
-  );
-  url.searchParams.set("provider", provider);
-  url.searchParams.set("status", "ACTIVE");
+  const params = new URLSearchParams();
+  params.set("provider", provider);
+  params.set("status", "ACTIVE");
   if (account) {
-    url.searchParams.set("account_identifier", account);
+    params.set("account_identifier", account);
   }
 
-  const response = await fetch(url.toString(), {
-    headers: { Authorization: `Api-Key ${apiKey}` },
-  });
+  const path = `/v1/assistants/${client.platformAssistantId}/oauth/connections/?${params.toString()}`;
+  const response = await client.fetch(path);
 
   if (!response.ok) {
     log.error(

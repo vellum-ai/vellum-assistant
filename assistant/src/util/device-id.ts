@@ -6,8 +6,10 @@
  * extensible for future per-device metadata.
  *
  * Path resolution:
- *   - Containerized (IS_CONTAINERIZED=true): uses BASE_DATA_DIR, which maps to a
- *     persistent volume. Each container is effectively its own "device."
+ *   - Containerized (IS_CONTAINERIZED=true): uses /home/assistant (the assistant
+ *     user's persistent home dir) so device.json lives on the assistant's own
+ *     filesystem rather than the shared data volume. Falls back to BASE_DATA_DIR
+ *     for migration from the old location.
  *   - Local (single or multi-instance): uses homedir() so all instances on the
  *     same machine share a single device ID, even when BASE_DATA_DIR is set to
  *     an instance-scoped directory.
@@ -31,16 +33,32 @@ let cached: string | undefined;
 /**
  * Resolve the base directory for device.json.
  *
- * In containerized environments, BASE_DATA_DIR points to a persistent volume
- * and homedir() is ephemeral, so we must use BASE_DATA_DIR.
+ * In containerized environments, device.json is stored under /home/assistant
+ * (the assistant user's persistent home dir) rather than on the shared data
+ * volume. Device ID is assistant-specific state that doesn't need to be shared.
  * In local environments (including multi-instance), homedir() is stable and
  * shared across instances, giving a true per-machine device ID.
  */
 export function getDeviceIdBaseDir(): string {
   if (getIsContainerized()) {
-    return getBaseDataDir() || homedir();
+    return "/home/assistant";
   }
   return homedir();
+}
+
+/**
+ * Resolve the legacy base directory for device.json migration.
+ *
+ * Returns the old containerized path (BASE_DATA_DIR) so we can fall back to
+ * reading device.json from the shared volume if it hasn't been migrated yet.
+ * Returns undefined when not containerized or when no legacy path exists.
+ */
+function getLegacyDeviceIdBaseDir(): string | undefined {
+  if (!getIsContainerized()) {
+    return undefined;
+  }
+  const baseDataDir = getBaseDataDir();
+  return baseDataDir || undefined;
 }
 
 /**
@@ -78,10 +96,55 @@ export function getDeviceId(): string {
       }
     }
   } catch (err) {
-    log.warn({ err }, "Failed to read device.json — generating new device ID");
+    log.warn({ err }, "Failed to read device.json — checking legacy path");
   }
 
-  // Either the file doesn't exist, or deviceId was missing/empty.
+  // Migration fallback: check the legacy location (shared volume) if the new
+  // location doesn't have a valid device.json yet.
+  const legacyBase = getLegacyDeviceIdBaseDir();
+  if (legacyBase) {
+    const legacyPath = join(legacyBase, ".vellum", "device.json");
+    try {
+      if (existsSync(legacyPath)) {
+        const raw = JSON.parse(readFileSync(legacyPath, "utf-8"));
+        if (
+          raw &&
+          typeof raw === "object" &&
+          typeof raw.deviceId === "string" &&
+          raw.deviceId.length > 0
+        ) {
+          cached = raw.deviceId as string;
+          log.info(
+            { deviceId: cached },
+            "Resolved device ID from legacy device.json — will persist to new location",
+          );
+          // Persist to the new location so future reads don't need the fallback
+          try {
+            mkdirSync(vellumDir, { recursive: true });
+            writeFileSync(
+              filePath,
+              JSON.stringify({ deviceId: cached }, null, 2) + "\n",
+              { mode: 0o644 },
+            );
+            log.info("Migrated device.json to new location");
+          } catch (writeErr) {
+            log.warn(
+              { err: writeErr },
+              "Failed to migrate device.json to new location",
+            );
+          }
+          return cached;
+        }
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to read legacy device.json — generating new device ID",
+      );
+    }
+  }
+
+  // Either the file doesn't exist at either location, or deviceId was missing/empty.
   // Generate a new UUID and persist it.
   try {
     mkdirSync(vellumDir, { recursive: true });

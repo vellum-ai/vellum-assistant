@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { addRule } from "../permissions/trust-store.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getTool } from "../tools/registry.js";
@@ -27,6 +28,8 @@ const VALID_TRUST_DECISIONS: ReadonlySet<string> = new Set(["allow", "deny"]);
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleTrustRuleSignal(): void {
+  if (getIsContainerized()) return;
+
   const resultPath = join(getSignalsDir(), "trust-rule.result");
 
   const writeError = (requestId: string | undefined, error: string): void => {

@@ -15,6 +15,7 @@ import crypto from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import {
   fireWatchCompletionNotifier,
   fireWatchStartNotifier,
@@ -54,6 +55,8 @@ function writeResult(requestId: string, result: ShotgunResult): void {
  * when a matching signal file is created or modified.
  */
 export function handleShotgunSignal(filename: string): void {
+  if (getIsContainerized()) return;
+
   const signalPath = join(getSignalsDir(), filename);
   let raw: string;
   try {

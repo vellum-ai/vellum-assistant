@@ -1,124 +1,58 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Sort Options
+// MARK: - Section Tab
 
-private enum MemorySortOption: String, CaseIterable {
-    case newest = "Newest"
-    case oldest = "Oldest"
-    case importance = "Importance"
-    case accessCount = "Access Count"
-    case kind = "Kind"
-
-    var sortField: String {
-        switch self {
-        case .newest, .oldest: return "lastSeenAt"
-        case .importance: return "importance"
-        case .accessCount: return "accessCount"
-        case .kind: return "kind"
-        }
-    }
-
-    var sortOrder: String {
-        switch self {
-        case .newest, .importance, .accessCount: return "desc"
-        case .oldest, .kind: return "asc"
-        }
-    }
-
-    var icon: VIcon {
-        switch self {
-        case .newest: return .arrowDown
-        case .oldest: return .arrowUp
-        case .importance: return .star
-        case .accessCount: return .eye
-        case .kind: return .tag
-        }
-    }
-}
-
-private enum MemoryStatusFilter: String, CaseIterable {
-    case active = "Active"
-    case inactive = "Inactive"
-    case all = "All"
-
-    /// API value sent as the `status` query parameter.
-    var apiValue: String {
-        switch self {
-        case .active: return "active"
-        case .inactive: return "inactive"
-        case .all: return "all"
-        }
-    }
-
-    var icon: VIcon {
-        switch self {
-        case .active: return .circleCheck
-        case .inactive: return .circleDashed
-        case .all: return .circle
-        }
-    }
+private enum MemorySection: String, CaseIterable {
+    case observations = "Observations"
+    case episodes = "Episodes"
+    case brief = "Brief"
 }
 
 // MARK: - Memories Panel
 
 struct MemoriesPanel: View {
-    let daemonClient: DaemonClient
     @Binding var focusedMemoryId: String?
-    @StateObject private var store: MemoryItemsStore
+    @StateObject private var store: SimplifiedMemoryStore
+    @State private var selectedSection: MemorySection = .observations
     @State private var showCreateSheet = false
-    @State private var selectedItem: MemoryItemPayload?
-    @State private var selectedKinds: Set<MemoryKind> = []
-    @State private var statusFilter: MemoryStatusFilter = .active
-    @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var showKindFilterPopover = false
-    @State private var showStatusFilterPopover = false
-    @State private var showSortPopover = false
 
-    init(daemonClient: DaemonClient, focusedMemoryId: Binding<String?> = .constant(nil)) {
-        self.daemonClient = daemonClient
+    init(focusedMemoryId: Binding<String?> = .constant(nil)) {
         _focusedMemoryId = focusedMemoryId
-        _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
+        _store = StateObject(wrappedValue: SimplifiedMemoryStore(client: SimplifiedMemoryClient()))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            filterBar
-            contentView
+            toolBar
+            sectionTabs
+                .padding(.top, VSpacing.md)
+            sectionContent
                 .padding(.top, VSpacing.lg)
         }
-        .task { await store.loadItems() }
+        .task { await store.loadMemories() }
         .task(id: focusedMemoryId) {
-            guard let memoryId = focusedMemoryId else { return }
-            if let item = await store.fetchDetail(id: memoryId) {
-                selectedItem = item
-            }
+            guard focusedMemoryId != nil else { return }
+            withAnimation(VAnimation.fast) { selectedSection = .observations }
             focusedMemoryId = nil
         }
         .onDisappear {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(item: $selectedItem) { item in
-            MemoryItemDetailSheet(
-                item: item,
-                store: store,
-                onDismiss: { selectedItem = nil }
-            )
-        }
         .sheet(isPresented: $showCreateSheet) {
-            MemoryItemCreateSheet(
+            MemoryCreateSheet(
                 store: store,
                 onDismiss: { showCreateSheet = false }
             )
         }
     }
 
-    // MARK: - Filter Bar
+    // MARK: - Tool Bar
 
     @ViewBuilder
-    private var filterBar: some View {
+    private var toolBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Memories", text: $store.searchText)
                 .onChange(of: store.searchText) {
@@ -126,305 +60,96 @@ struct MemoriesPanel: View {
                     searchDebounceTask = Task {
                         try? await Task.sleep(nanoseconds: 300_000_000)
                         guard !Task.isCancelled else { return }
-                        await store.loadItems()
+                        await store.loadMemories()
                     }
                 }
-
-            kindFilterDropdown
-                .frame(width: 200)
-
-            statusFilterDropdown
-                .frame(width: 140)
-
-            sortFilterDropdown
-                .frame(width: 160)
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
             }
-            .accessibilityLabel("Create new memory")
+            .accessibilityLabel("Add new memory")
         }
         .padding(.top, VSpacing.sm)
     }
 
-    // MARK: - Kind Filter Dropdown
-
-    private var kindFilterLabel: String {
-        if selectedKinds.isEmpty {
-            return "All"
-        }
-        let sorted = MemoryKind.allCases.filter { selectedKinds.contains($0) }
-        if sorted.count <= 2 {
-            return sorted.map(\.label).joined(separator: ", ")
-        }
-        return "\(sorted.count) kinds"
-    }
-
-    private var kindFilterDropdown: some View {
-        Button {
-            showKindFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.filter, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(kindFilterLabel)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Filter by kind: \(kindFilterLabel)")
-        .popover(isPresented: $showKindFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        selectedKinds.removeAll()
-                    }
-                    store.kindFilter = nil
-                    Task { await store.loadItems() }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.layoutGrid, size: 14)
-                            .foregroundColor(VColor.contentDefault)
-                            .frame(width: 20)
-                        Text("All")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                        Spacer()
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("All kinds")
-                .accessibilityAddTraits(selectedKinds.isEmpty ? .isSelected : [])
-
-                Divider().padding(.horizontal, VSpacing.sm)
-
-                ForEach(MemoryKind.allCases.sorted { $0.label < $1.label }) { kind in
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            if selectedKinds.contains(kind) {
-                                selectedKinds.remove(kind)
-                            } else {
-                                selectedKinds.insert(kind)
-                            }
-                            // All selected = same as none selected (show all)
-                            if selectedKinds.count == MemoryKind.allCases.count {
-                                selectedKinds.removeAll()
-                            }
-                        }
-                        // Single kind selected → use API filter; otherwise filter client-side
-                        if selectedKinds.count == 1, let only = selectedKinds.first {
-                            store.kindFilter = only.rawValue
-                        } else {
-                            store.kindFilter = nil
-                        }
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            if let icon = VIcon(rawValue: kind.icon) {
-                                VIconView(icon, size: 14)
-                                    .foregroundColor(VColor.contentDefault)
-                                    .frame(width: 20)
-                            }
-                            Text(kind.label)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                            Spacer()
-                            if selectedKinds.contains(kind) {
-                                VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(kind.label) filter")
-                    .accessibilityAddTraits(selectedKinds.contains(kind) ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 220)
-        }
-    }
-
-    /// Items filtered by selected kinds (client-side, for multi-select).
-    private var filteredItems: [MemoryItemPayload] {
-        guard selectedKinds.count > 1 else { return store.items }
-        let kindValues = Set(selectedKinds.map(\.rawValue))
-        return store.items.filter { kindValues.contains($0.kind) }
-    }
-
-    // MARK: - Status Filter Dropdown
-
-    private var statusFilterDropdown: some View {
-        Button {
-            showStatusFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(statusFilter.icon, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(statusFilter.rawValue)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Status filter: \(statusFilter.rawValue)")
-        .popover(isPresented: $showStatusFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemoryStatusFilter.allCases, id: \.self) { status in
-                    Button {
-                        statusFilter = status
-                        store.statusFilter = status.apiValue
-                        showStatusFilterPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(status.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(status.rawValue)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                            Spacer()
-                            if statusFilter == status {
-                                VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(status.rawValue) status")
-                    .accessibilityAddTraits(statusFilter == status ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 180)
-        }
-    }
-
-    // MARK: - Sort Filter Dropdown
-
-    private var sortFilterDropdown: some View {
-        Button {
-            showSortPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(sortOption.icon, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(sortOption.rawValue)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Sort by: \(sortOption.rawValue)")
-        .popover(isPresented: $showSortPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemorySortOption.allCases, id: \.self) { option in
-                    Button {
-                        sortOption = option
-                        store.sortField = option.sortField
-                        store.sortOrder = option.sortOrder
-                        showSortPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(option.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(option.rawValue)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                            Spacer()
-                            if sortOption == option {
-                                VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Sort by \(option.rawValue)")
-                    .accessibilityAddTraits(sortOption == option ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 200)
-        }
-    }
-
-    // MARK: - Content View
+    // MARK: - Section Tabs
 
     @ViewBuilder
-    private var contentView: some View {
-        if store.isLoading && store.items.isEmpty {
+    private var sectionTabs: some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(MemorySection.allCases, id: \.self) { section in
+                sectionPill(section)
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func sectionPill(_ section: MemorySection) -> some View {
+        let isActive = selectedSection == section
+        Button {
+            withAnimation(VAnimation.fast) { selectedSection = section }
+        } label: {
+            Text(section.rawValue)
+                .font(VFont.captionMedium)
+                .foregroundColor(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.xs)
+                .background(isActive ? VColor.surfaceActive : Color.clear)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(isActive ? VColor.borderBase : VColor.borderDisabled, lineWidth: 1)
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    // MARK: - Section Content
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        if store.isLoading && store.observations.isEmpty && store.episodes.isEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filteredItems.isEmpty {
+        } else {
+            switch selectedSection {
+            case .observations:
+                observationsSection
+            case .episodes:
+                episodesSection
+            case .brief:
+                briefSection
+            }
+        }
+    }
+}
+
+// MARK: - Observations Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var observationsSection: some View {
+        if store.observations.isEmpty {
             VEmptyState(
-                title: selectedKinds.isEmpty ? "No Memories Yet" : "No Memories in Selected Kinds",
-                subtitle: selectedKinds.isEmpty
-                    ? "Your assistant learns and remembers things from your conversations. Memories will appear here as they're created."
-                    : "Try selecting different kinds or clearing the filter.",
-                icon: VIcon.bookOpen.rawValue
+                title: "No Memories Yet",
+                subtitle: "Your assistant builds memories from your conversations. Have a chat and check back.",
+                icon: VIcon.lightbulb.rawValue
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(filteredItems) { item in
-                        MemoryItemRow(
-                            item: item,
-                            onSelect: { selectedItem = item },
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(store.observations) { observation in
+                        MemoryObservationRow(
+                            observation: observation,
                             onDelete: {
-                                Task { _ = await store.deleteItem(id: item.id) }
+                                Task { _ = await store.deleteObservation(id: observation.id) }
                             }
                         )
                     }
@@ -433,5 +158,174 @@ struct MemoriesPanel: View {
             }
             .scrollContentBackground(.hidden)
         }
+    }
+}
+
+// MARK: - Episodes Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var episodesSection: some View {
+        if store.episodes.isEmpty {
+            VEmptyState(
+                title: "No Episodes Yet",
+                subtitle: "Episodes are narrative summaries your assistant creates from longer interactions.",
+                icon: VIcon.bookOpen.rawValue
+            )
+        } else {
+            ScrollView {
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(store.episodes) { episode in
+                        MemoryEpisodeRow(episode: episode)
+                    }
+                }
+                .background { OverlayScrollerStyle() }
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+}
+
+// MARK: - Brief Section
+
+extension MemoriesPanel {
+
+    @ViewBuilder
+    private var briefSection: some View {
+        let hasTimeContexts = !store.timeContexts.isEmpty
+        let hasOpenLoops = !store.openLoops.isEmpty
+
+        if !hasTimeContexts && !hasOpenLoops {
+            VEmptyState(
+                title: "No Brief Items Yet",
+                subtitle: "Time contexts and open loops from your conversations will appear here.",
+                icon: VIcon.clock.rawValue
+            )
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: VSpacing.xl) {
+                    if hasTimeContexts {
+                        timeContextsSubsection
+                    }
+                    if hasOpenLoops {
+                        openLoopsSubsection
+                    }
+                }
+                .background { OverlayScrollerStyle() }
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var timeContextsSubsection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Time Contexts")
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+
+            ForEach(store.timeContexts) { ctx in
+                timeContextCard(ctx)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func timeContextCard(_ ctx: MemoryTimeContextPayload) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(ctx.summary)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.calendar, size: 11)
+                    .foregroundColor(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+                Text("Active: \(formattedDateRange(from: ctx.activeFromDate, to: ctx.activeUntilDate))")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                Spacer()
+            }
+        }
+        .padding(VSpacing.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    @ViewBuilder
+    private var openLoopsSubsection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Open Loops")
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+
+            ForEach(store.openLoops) { loop in
+                openLoopCard(loop)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func openLoopCard(_ loop: MemoryOpenLoopPayload) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(loop.summary)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            HStack(spacing: VSpacing.sm) {
+                statusBadge(loop.status)
+
+                if let dueDate = loop.dueDate {
+                    HStack(spacing: VSpacing.xxs) {
+                        VIconView(.clock, size: 11)
+                            .foregroundColor(VColor.contentTertiary)
+                            .accessibilityHidden(true)
+                        Text("Due: \(formattedShortDate(dueDate))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+
+                Spacer()
+            }
+        }
+        .padding(VSpacing.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    // MARK: - Helpers
+
+    private func statusBadge(_ status: String) -> some View {
+        let tone: VBadge.Tone = switch status {
+        case "open": .warning
+        case "resolved": .positive
+        case "expired": .neutral
+        default: .neutral
+        }
+        return VBadge(label: status.capitalized, tone: tone, emphasis: .subtle, shape: .pill)
+    }
+
+    private func formattedDateRange(from start: Date, to end: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return "\(formatter.string(from: start)) \u{2013} \(formatter.string(from: end))"
+    }
+
+    private func formattedShortDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 }

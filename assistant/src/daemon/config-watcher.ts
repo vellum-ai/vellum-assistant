@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
@@ -209,7 +210,9 @@ export class ConfigWatcher {
       );
     }
 
-    this.startSignalsWatcher();
+    if (!getIsContainerized()) {
+      this.startSignalsWatcher();
+    }
     this.startSkillsWatchers(onConversationEvict);
   }
 

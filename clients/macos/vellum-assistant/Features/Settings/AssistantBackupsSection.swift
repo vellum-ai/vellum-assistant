@@ -17,8 +17,6 @@ struct AssistantBackupsSection: View {
 
     @State private var isExporting = false
     @State private var isImporting = false
-    @State private var showingRestoreConfirmation = false
-    @State private var pendingRestoreURL: URL?
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
@@ -227,10 +225,11 @@ struct AssistantBackupsSection: View {
                 filename = "export-\(formatter.string(from: Date())).vbundle"
             }
 
-            // Show save panel
+            // Show save panel — don't set allowedContentTypes since the filename
+            // already includes .vbundle; setting it causes NSSavePanel to append
+            // a duplicate extension (.vbundle.vbundle).
             let panel = NSSavePanel()
             panel.nameFieldStringValue = filename
-            panel.allowedContentTypes = [.init(filenameExtension: "vbundle") ?? .data]
             panel.canCreateDirectories = true
 
             let panelResult = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first!)
@@ -245,16 +244,31 @@ struct AssistantBackupsSection: View {
 
     private func selectAndRestoreLocalBackup() {
         clearMessages()
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "vbundle") ?? .data]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
         panel.begin { result in
-            guard result == .OK, let url = panel.url else { return }
             Task { @MainActor in
-                pendingRestoreURL = url
-                showingRestoreConfirmation = true
+                guard result == .OK, let url = panel.url else { return }
+
+                // Use NSAlert instead of SwiftUI .alert — SwiftUI alerts on
+                // inner views are swallowed when the parent has its own .alert
+                // modifiers (SettingsDeveloperTab has several).
+                let alert = NSAlert()
+                alert.messageText = "Restore from Backup"
+                alert.informativeText = "This will replace the assistant's current data with the backup and restart it. This action cannot be undone."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Restore")
+                alert.addButton(withTitle: "Cancel")
+                alert.buttons.first?.hasDestructiveAction = true
+
+                let response = alert.runModal()
+                guard response == .alertFirstButtonReturn else { return }
+
+                await performLocalRestore(url)
             }
         }
     }
@@ -341,27 +355,10 @@ struct AssistantBackupsSection: View {
     }
 }
 
-// MARK: - Local Restore Confirmation Modifier
+// MARK: - Local Restore
 
 extension AssistantBackupsSection {
-    /// Attaches the restore confirmation alert. Called from the parent view so the alert
-    /// scope covers the entire card.
-    var withRestoreConfirmation: some View {
-        self.alert("Restore from Backup", isPresented: $showingRestoreConfirmation) {
-            Button("Cancel", role: .cancel) {
-                pendingRestoreURL = nil
-            }
-            Button("Restore", role: .destructive) {
-                if let url = pendingRestoreURL {
-                    Task { await performLocalRestore(url) }
-                }
-            }
-        } message: {
-            Text("This will replace the assistant's current data with the backup and restart it. This action cannot be undone.")
-        }
-    }
-
-    private func performLocalRestore(_ fileURL: URL) async {
+    func performLocalRestore(_ fileURL: URL) async {
         isImporting = true
         defer { isImporting = false }
 
@@ -402,18 +399,20 @@ extension AssistantBackupsSection {
                         AppDelegate.shared?.vellumCli.stop(name: assistantName)
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
+                        // Reload avatar after restart so the restored avatar is displayed
+                        AvatarAppearanceManager.shared.reloadAvatar()
                     }
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."
                 }
+            } else if httpResponse.statusCode == 413 {
+                errorMessage = "Backup file is too large. Please upgrade the assistant to restore this backup."
             } else {
                 errorMessage = "Import failed (HTTP \(httpResponse.statusCode))"
             }
         } catch {
             errorMessage = "Import failed: \(error.localizedDescription)"
         }
-
-        pendingRestoreURL = nil
     }
 }
 

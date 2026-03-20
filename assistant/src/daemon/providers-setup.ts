@@ -5,7 +5,7 @@ import {
   setPlatformUserId,
 } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
-import { setSentryOrganizationId } from "../instrument.js";
+import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { slackProvider as slackMessagingProvider } from "../messaging/providers/slack/adapter.js";
@@ -91,6 +91,7 @@ export async function initializeProvidersAndTools(
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformUserId(trimmed);
+      setSentryUserId(trimmed);
       log.info("Rehydrated platform user ID from credential store");
     }
   } catch (err) {

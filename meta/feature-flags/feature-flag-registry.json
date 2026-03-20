@@ -288,6 +288,14 @@
       "label": "Inline Skill Command Expansion",
       "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
       "defaultEnabled": true
+    },
+    {
+      "id": "channel-voice-transcription",
+      "scope": "assistant",
+      "key": "feature_flags.channel-voice-transcription.enabled",
+      "label": "Channel Voice Transcription",
+      "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
+      "defaultEnabled": true
     }
   ]
 }

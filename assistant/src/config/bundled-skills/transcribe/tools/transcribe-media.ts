@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
+import { OpenAIWhisperProvider } from "../../../../providers/speech-to-text/openai-whisper.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
@@ -168,12 +169,19 @@ async function transcribeViaApi(
   apiKey: string,
   context: ToolContext,
 ): Promise<string> {
+  const provider = new OpenAIWhisperProvider(apiKey);
   const duration = await getAudioDuration(audioPath);
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
   if (fileSize <= WHISPER_API_MAX_BYTES) {
-    return await whisperApiRequest(audioPath, apiKey);
+    const audioBuffer = await readFile(audioPath);
+    const result = await provider.transcribe(
+      audioBuffer,
+      "audio/wav",
+      AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+    );
+    return result.text;
   }
 
   // Split into chunks for large files
@@ -199,8 +207,13 @@ async function transcribeViaApi(
     for (let i = 0; i < chunks.length; i++) {
       if (context.signal?.aborted) throw new Error("Cancelled");
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
-      const text = await whisperApiRequest(chunks[i], apiKey);
-      if (text) parts.push(text);
+      const audioBuffer = await readFile(chunks[i]);
+      const result = await provider.transcribe(
+        audioBuffer,
+        "audio/wav",
+        AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+      );
+      if (result.text) parts.push(result.text);
     }
 
     return parts.join(" ");
@@ -211,40 +224,6 @@ async function transcribeViaApi(
       "transcribe chunk cleanup",
     );
   }
-}
-
-async function whisperApiRequest(
-  audioPath: string,
-  apiKey: string,
-): Promise<string> {
-  const audioData = await readFile(audioPath);
-  const formData = new FormData();
-  formData.append(
-    "file",
-    new Blob([audioData], { type: "audio/wav" }),
-    "audio.wav",
-  );
-  formData.append("model", "whisper-1");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
-      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Whisper API error (${response.status}): ${body.slice(0, 300)}`,
-    );
-  }
-
-  const result = (await response.json()) as { text?: string };
-  return result.text?.trim() ?? "";
 }
 
 // ---------------------------------------------------------------------------

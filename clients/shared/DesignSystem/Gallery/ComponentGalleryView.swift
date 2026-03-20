@@ -32,92 +32,93 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    var components: [(id: String, title: String)] {
+    var components: [(id: String, title: String, keywords: [String])] {
         switch self {
         case .buttons:
             return [
-                ("vButton", "VButton"),
-                ("vSplitButton", "VSplitButton"),
+                ("vButton", "VButton", ["button"]),
+                ("vSplitButton", "VSplitButton", ["split button", "dropdown button"]),
             ]
         case .chat:
             return [
-                ("voiceComposer", "Voice Composer"),
-                ("skillInvocation", "Skill Invocation"),
-                ("subagentStatus", "Subagent Status"),
-                ("toolChips", "Tool Chips"),
-                ("stepIndicators", "Step Indicators"),
-                ("progressIndicators", "Progress Indicators"),
-                ("toolConfirmations", "Tool Confirmations"),
+                ("voiceComposer", "VStreamingWaveform", ["voice composer", "waveform", "dictation"]),
+                ("skillInvocation", "SkillInvocationChip", ["skill invocation", "skill chip"]),
+                ("subagentStatus", "SubagentStatusChip", ["subagent status", "subagent conversation"]),
+                ("toolChips", "ToolCallChip", ["tool chips", "tool call"]),
+                ("stepIndicators", "CurrentStepIndicator", ["step indicators", "progress bar", "tool call progress"]),
+                ("progressIndicators", "TypingIndicatorView", ["progress indicators", "typing", "running"]),
+                ("toolConfirmations", "ToolConfirmationBubble", ["tool confirmations", "permission", "approval"]),
             ]
         case .display:
             return [
-                ("vCard", "VCard"),
-                ("vEmptyState", "VEmptyState"),
-                ("vDisclosureSection", "VDisclosureSection"),
-                ("vListRow", "VListRow"),
-                ("vAvatarImage", "VAvatarImage"),
-                ("vCodeView", "VCodeView"),
-                ("vDiffView", "VDiffView"),
-                ("vStreamingWaveform", "VStreamingWaveform"),
+                ("vCard", "VCard", ["card"]),
+                ("vEmptyState", "VEmptyState", ["empty state"]),
+                ("vDisclosureSection", "VDisclosureSection", ["disclosure", "collapsible"]),
+                ("vListRow", "VListRow", ["list row"]),
+                ("vAvatarImage", "VAvatarImage", ["avatar", "image"]),
+                ("vCodeView", "VCodeView", ["code view", "syntax"]),
+                ("vDiffView", "VDiffView", ["diff view"]),
+                ("vStreamingWaveform", "VStreamingWaveform", ["waveform", "streaming"]),
             ]
         case .feedback:
             return [
-                ("vBadge", "VBadge"),
-                ("vLoadingIndicator", "VLoadingIndicator"),
-                ("vToast", "VToast"),
-                ("vInlineMessage", "VInlineMessage"),
-                ("vShortcutTag", "VShortcutTag"),
-                ("vCopyButton", "VCopyButton"),
-                ("vBusyIndicator", "VBusyIndicator"),
-                ("vSkeletonBone", "VSkeletonBone"),
-                ("vSkillTypePill", "VSkillTypePill"),
-                ("vInfoTooltip", "VInfoTooltip"),
+                ("vBadge", "VBadge", ["badge"]),
+                ("vLoadingIndicator", "VLoadingIndicator", ["loading", "spinner"]),
+                ("vToast", "VToast", ["toast", "notification"]),
+                ("vInlineMessage", "VInlineMessage", ["inline message", "alert"]),
+                ("vShortcutTag", "VShortcutTag", ["shortcut", "keyboard"]),
+                ("vCopyButton", "VCopyButton", ["copy", "clipboard"]),
+                ("vBusyIndicator", "VBusyIndicator", ["busy", "activity"]),
+                ("vSkeletonBone", "VSkeletonBone", ["skeleton", "placeholder"]),
+                ("vSkillTypePill", "VSkillTypePill", ["skill type", "pill"]),
+                ("vInfoTooltip", "VInfoTooltip", ["info", "tooltip"]),
             ]
         case .icons:
             return [
-                ("vAppIconGenerator", "VAppIconGenerator"),
-                ("iconTokens", "Icon Tokens"),
+                ("vAppIconGenerator", "VAppIconGenerator", ["app icon", "generator"]),
+                ("iconTokens", "VIcon", ["icon tokens", "icon catalog"]),
             ]
         case .inputs:
             return [
-                ("vTextField", "VTextField"),
-                ("vSlider", "VSlider"),
-                ("vTextEditor", "VTextEditor"),
-                ("vToggle", "VToggle"),
-                ("vDropdown", "VDropdown"),
+                ("vTextField", "VTextField", ["text field", "input"]),
+                ("vSlider", "VSlider", ["slider", "range"]),
+                ("vTextEditor", "VTextEditor", ["text editor", "multiline"]),
+                ("vToggle", "VToggle", ["toggle", "switch"]),
+                ("vDropdown", "VDropdown", ["dropdown", "select", "picker"]),
             ]
         case .layout:
             return [
-                ("vModal", "VModal"),
-                ("vAdaptiveStack", "VAdaptiveStack"),
-                ("vSidePanel", "VSidePanel"),
-                ("vSplitView", "VSplitView"),
+                ("vModal", "VModal", ["modal", "dialog"]),
+                ("vAdaptiveStack", "VAdaptiveStack", ["adaptive stack", "responsive"]),
+                ("vSidePanel", "VSidePanel", ["side panel", "drawer"]),
+                ("vSplitView", "VSplitView", ["split view", "resizable"]),
             ]
         case .modifiers:
             return [
-                ("vCardMod", ".vCard()"),
-                ("pointerCursor", ".pointerCursor()"),
-                ("nativeTooltip", ".nativeTooltip()"),
-                ("vTooltip", ".vTooltip()"),
-                ("vPanelBackground", ".vPanelBackground()"),
-                ("ifMod", ".if()"),
-                ("vShimmer", ".vShimmer()"),
-                ("inlineWidgetCard", ".inlineWidgetCard()"),
+                ("vCardMod", ".vCard()", ["card modifier"]),
+                ("pointerCursor", ".pointerCursor()", ["pointer", "cursor", "hand"]),
+                ("nativeTooltip", ".nativeTooltip()", ["native tooltip", "help"]),
+                ("vTooltip", ".vTooltip()", ["tooltip", "popover"]),
+                ("vPanelBackground", ".vPanelBackground()", ["panel background"]),
+                ("ifMod", ".if()", ["conditional modifier"]),
+                ("vShimmer", ".vShimmer()", ["shimmer", "loading animation"]),
+                ("inlineWidgetCard", ".inlineWidgetCard()", ["inline widget", "card"]),
             ]
         case .navigation:
             return [
-                ("vSegmentedControl", "VSegmentedControl"),
-                ("vTabBar", "VTabBar + VTab"),
-                ("vThemeToggle", "VThemeToggle"),
+                ("vSegmentedControl", "VSegmentedControl", ["segmented control", "tabs"]),
+                ("vSidebarRow", "VSidebarRow", ["sidebar row", "navigation row"]),
+                ("vTabBar", "VTabBar + VTab", ["tab bar", "tabs"]),
+                ("vThemeToggle", "VThemeToggle", ["theme toggle", "dark mode", "light mode"]),
             ]
         case .tokens:
             return [
-                ("colors", "Colors"),
-                ("typography", "Typography"),
-                ("spacing", "Spacing"),
-                ("radius", "Radius"),
-                ("shadows", "Shadows"),
-                ("animations", "Animations"),
+                ("colors", "VColor", ["colors", "semantic colors", "theme"]),
+                ("typography", "VFont", ["typography", "fonts", "text styles"]),
+                ("spacing", "VSpacing", ["spacing", "padding", "margins"]),
+                ("radius", "VRadius", ["radius", "corner radius", "rounded"]),
+                ("shadows", "VShadow", ["shadows", "elevation"]),
+                ("animations", "VAnimation", ["animations", "transitions", "motion"]),
             ]
         }
     }
@@ -134,7 +135,6 @@ struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
-    @State private var hoveredPage: GalleryPage?
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
@@ -145,26 +145,17 @@ struct ComponentGalleryView: View {
         return expandable.allSatisfy { expandedCategories.contains($0) }
     }
 
-    private func isExpanded(_ category: ComponentGalleryCategory) -> Binding<Bool> {
-        Binding(
-            get: { isSearching || expandedCategories.contains(category) },
-            set: { newValue in
-                if newValue {
-                    expandedCategories.insert(category)
-                } else {
-                    expandedCategories.remove(category)
-                }
-            }
-        )
-    }
-
-    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
+    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])])] {
         let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
         if query.isEmpty {
             return ComponentGalleryCategory.allCases.map { ($0, $0.components) }
         }
         return ComponentGalleryCategory.allCases.compactMap { category in
-            let matchingComponents = category.components.filter { $0.title.lowercased().contains(query) }
+            let matchingComponents = category.components.filter { component in
+                component.title.lowercased().contains(query)
+                    || component.id.lowercased().contains(query)
+                    || component.keywords.contains { $0.lowercased().contains(query) }
+            }
             let categoryMatches = category.rawValue.lowercased().contains(query)
             if categoryMatches {
                 return (category, category.components)
@@ -182,11 +173,13 @@ struct ComponentGalleryView: View {
                     VSearchBar(placeholder: "Filter components...", text: $searchText)
 
                     Button(action: {
-                        let expandable = Set(ComponentGalleryCategory.allCases.filter { !$0.components.isEmpty })
-                        if allExpanded {
-                            expandedCategories.subtract(expandable)
-                        } else {
-                            expandedCategories.formUnion(expandable)
+                        withAnimation(VAnimation.fast) {
+                            let expandable = Set(ComponentGalleryCategory.allCases.filter { !$0.components.isEmpty })
+                            if allExpanded {
+                                expandedCategories.subtract(expandable)
+                            } else {
+                                expandedCategories.formUnion(expandable)
+                            }
                         }
                     }) {
                         VIconView(allExpanded ? .chevronsDownUp : .chevronsUpDown, size: 14)
@@ -198,41 +191,15 @@ struct ComponentGalleryView: View {
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
 
-                List(selection: $selectedPage) {
-                    ForEach(filteredCategories, id: \.category) { item in
-                        if item.components.isEmpty {
-                            Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
-                                .tag(GalleryPage.overview(item.category))
-                                .foregroundColor(rowForeground(for: .overview(item.category)))
-                                .listRowBackground(rowBackground(for: .overview(item.category)))
-                                .onHover { hovering in hoveredPage = hovering ? .overview(item.category) : nil }
-                        } else {
-                            DisclosureGroup(isExpanded: isExpanded(item.category)) {
-                                Text("Overview")
-                                    .tag(GalleryPage.overview(item.category))
-                                    .foregroundColor(rowForeground(for: .overview(item.category)))
-                                    .listRowBackground(rowBackground(for: .overview(item.category)))
-                                    .onHover { hovering in hoveredPage = hovering ? .overview(item.category) : nil }
-                                ForEach(item.components, id: \.id) { component in
-                                    Text(component.title)
-                                        .tag(GalleryPage.component(item.category, component.id))
-                                        .foregroundColor(rowForeground(for: .component(item.category, component.id)))
-                                        .listRowBackground(rowBackground(for: .component(item.category, component.id)))
-                                        .onHover { hovering in hoveredPage = hovering ? .component(item.category, component.id) : nil }
-                                }
-                                } label: {
-                                    Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            guard !isSearching else { return }
-                                            isExpanded(item.category).wrappedValue.toggle()
-                                        }
-                                }
+                ScrollView {
+                    VStack(spacing: VSpacing.xs) {
+                        ForEach(filteredCategories, id: \.category) { item in
+                            sidebarCategory(item.category, components: item.components)
                         }
                     }
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
                 }
-                .scrollContentBackground(.hidden)
-                .listStyle(.sidebar)
 
                 Divider()
 
@@ -263,19 +230,56 @@ struct ComponentGalleryView: View {
         }
     }
 
-    // MARK: - Sidebar Row Theming
+    // MARK: - Sidebar Components
 
-    private func rowBackground(for page: GalleryPage) -> Color {
-        if selectedPage == page {
-            return VColor.surfaceActive
-        } else if hoveredPage == page {
-            return VColor.surfaceBase
+    @ViewBuilder
+    private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String, keywords: [String])]) -> some View {
+        let isCategoryExpanded = isSearching || expandedCategories.contains(category)
+
+        VStack(spacing: 0) {
+            VSidebarRow(
+                icon: category.vIcon.rawValue,
+                label: category.rawValue,
+                trailingIcon: VIcon.chevronRight.rawValue,
+                trailingIconRotation: .degrees(isCategoryExpanded ? 90 : 0)
+            ) {
+                guard !isSearching else { return }
+                withAnimation(VAnimation.fast) {
+                    if expandedCategories.contains(category) {
+                        expandedCategories.remove(category)
+                    } else {
+                        expandedCategories.insert(category)
+                    }
+                }
+            }
+            .accessibilityValue(isCategoryExpanded ? "expanded" : "collapsed")
+            .accessibilityHint("Double-tap to \(isCategoryExpanded ? "collapse" : "expand")")
+
+            if isCategoryExpanded {
+                VStack(spacing: VSpacing.xs) {
+                    sidebarRow(label: "Overview", page: .overview(category))
+                    ForEach(components, id: \.id) { component in
+                        sidebarRow(
+                            label: component.title,
+                            page: .component(category, component.id)
+                        )
+                    }
+                }
+                .padding(.leading, VSpacing.md)
+            }
         }
-        return Color.clear
     }
 
-    private func rowForeground(for page: GalleryPage) -> Color {
-        selectedPage == page ? VColor.contentEmphasized : VColor.contentDefault
+    private func sidebarRow(label: String, page: GalleryPage) -> some View {
+        let isSelected = selectedPage == page
+
+        return VSidebarRow(
+            label: label,
+            isActive: isSelected
+        ) {
+            selectedPage = page
+        }
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder

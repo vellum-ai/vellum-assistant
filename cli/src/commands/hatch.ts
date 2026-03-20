@@ -758,6 +758,7 @@ async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
+    serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources,
   };
   if (!daemonOnly && !restart) {
