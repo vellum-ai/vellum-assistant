@@ -251,13 +251,16 @@ struct ComponentGalleryView: View {
             .accessibilityHint("Double-tap to \(isCategoryExpanded ? "collapse" : "expand")")
 
             if isCategoryExpanded {
-                sidebarRow(label: "Overview", page: .overview(category))
-                ForEach(components, id: \.id) { component in
-                    sidebarRow(
-                        label: component.title,
-                        page: .component(category, component.id)
-                    )
+                VStack(spacing: VSpacing.xs) {
+                    sidebarRow(label: "Overview", page: .overview(category))
+                    ForEach(components, id: \.id) { component in
+                        sidebarRow(
+                            label: component.title,
+                            page: .component(category, component.id)
+                        )
+                    }
                 }
+                .padding(.leading, VSpacing.md)
             }
         }
     }
