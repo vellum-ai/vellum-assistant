@@ -55,22 +55,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testCreateConversationAssignsLocalConversationId() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createConversationIfNeeded()
-
-        // Bootstrap generates conversation IDs locally — poll for the ID to be set.
         let expectation = XCTestExpectation(description: "conversationId assigned")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if vm.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
+        vm.onConversationCreated = { _ in expectation.fulfill() }
+        vm.createConversationIfNeeded()
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
 
         XCTAssertNotNil(vm.conversationId, "Should have a locally-generated conversation ID")
         XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after ID assignment")
@@ -85,22 +73,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testCreateConversationWithConversationTypeRetainsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createConversationIfNeeded(conversationType: "private")
-
-        // Wait for the local conversation ID to be assigned.
         let expectation = XCTestExpectation(description: "conversationId assigned")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if vm.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
+        vm.onConversationCreated = { _ in expectation.fulfill() }
+        vm.createConversationIfNeeded(conversationType: "private")
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
 
         XCTAssertEqual(vm.conversationType, "private")
     }
@@ -109,22 +85,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testBootstrapAssignsLocalConversationIdAndClearsState() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createConversationIfNeeded()
-
-        // Wait for the local conversation ID to be assigned.
         let expectation = XCTestExpectation(description: "conversationId assigned")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if vm.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
+        vm.onConversationCreated = { _ in expectation.fulfill() }
+        vm.createConversationIfNeeded()
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
 
         XCTAssertNotNil(vm.conversationId)
         XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after local ID assignment")
@@ -133,22 +97,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testConversationInfoDoesNotOverwriteLocallyAssignedId() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createConversationIfNeeded()
-
-        // Wait for the local conversation ID to be assigned.
         let expectation = XCTestExpectation(description: "conversationId assigned")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if vm.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
+        vm.onConversationCreated = { _ in expectation.fulfill() }
+        vm.createConversationIfNeeded()
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
 
         let localId = vm.conversationId
 
@@ -163,26 +115,13 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     func testOnConversationCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
         var capturedConversationId: String?
+        let expectation = XCTestExpectation(description: "onConversationCreated fired")
         vm.onConversationCreated = { conversationId in
             capturedConversationId = conversationId
+            expectation.fulfill()
         }
         vm.createConversationIfNeeded()
-
-        // Bootstrap now generates conversation IDs locally and fires the callback
-        // directly — poll for the callback instead of waiting for a sent message.
-        let expectation = XCTestExpectation(description: "onConversationCreated fired")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if capturedConversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
 
         XCTAssertNotNil(capturedConversationId)
     }
@@ -193,26 +132,14 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         let vm = ChatViewModel(daemonClient: mockClient)
 
         // Step 1: User sends first message (triggers bootstrap)
+        let expectation = XCTestExpectation(description: "conversationId assigned")
+        vm.onConversationCreated = { _ in expectation.fulfill() }
         vm.inputText = "Hello new conversation"
         vm.sendMessage()
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
 
-        // Wait for the locally-generated conversation ID to be assigned.
-        let expectation = XCTestExpectation(description: "conversationId assigned")
-        var cancelled = false
-        func poll() {
-            guard !cancelled else { return }
-            if vm.conversationId != nil {
-                expectation.fulfill()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
-            }
-        }
-        poll()
         wait(for: [expectation], timeout: 10.0)
-        cancelled = true
-
         XCTAssertNotNil(vm.conversationId)
 
         // Step 2: Assistant responds
