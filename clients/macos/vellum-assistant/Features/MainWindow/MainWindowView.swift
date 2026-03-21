@@ -511,6 +511,12 @@ struct MainWindowView: View {
                         conversationTitleFrame = newFrame
                     }
                 })
+                // Shift the title right so it centers above the chat content area
+                // (not the full window). Content starts after outer padding (16) +
+                // sidebar + spacing (16), so its center is offset from the window
+                // center by (sidebarWidth + 16) / 2.
+                .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
+                .animation(VAnimation.panel, value: sidebarExpanded)
             }
         }
         .frame(height: 48)
