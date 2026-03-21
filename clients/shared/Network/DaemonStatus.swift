@@ -134,26 +134,24 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     public convenience init(config: DaemonConfig = .default) {
         let cm = GatewayConnectionManager()
         self.init(connectionManager: cm)
-        self.currentConfig = config
         self.instanceDir = config.instanceDir
+        let conversationKey: String?
+        if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
         cm.reconfigure(
             instanceDir: config.instanceDir,
-            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat,
+            conversationKey: conversationKey
         )
     }
 
     // MARK: - Connection (forwarding)
 
-    /// Current config — stored only so `connect()` can extract the conversation key.
-    private var currentConfig: DaemonConfig?
-
     public func connect() async throws {
-        guard let cm = _connectionManager,
-              case .http(_, _, let conversationKey) = currentConfig?.transport else {
-            log.info("connect: no HTTP transport configured, skipping")
+        guard let cm = _connectionManager else {
+            log.info("connect: no connection manager")
             return
         }
-        try await cm.connectImpl(cancelAutoWake: true, conversationKey: conversationKey)
+        try await cm.connect()
     }
 
     public func disconnect() {
@@ -163,15 +161,9 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         latestMemoryStatus = nil
     }
 
-    /// Reconfigure the transport in place without replacing object identity.
-    public func reconfigure(config newConfig: DaemonConfig) {
-        currentConfig = newConfig
-        instanceDir = newConfig.instanceDir
-        _connectionManager?.reconfigure(
-            instanceDir: newConfig.instanceDir,
-            isRuntimeFlat: newConfig.transportMetadata.routeMode == .runtimeFlat
-        )
-        // Reset connection-specific published state
+    /// Reset connection-specific published state after a reconfigure or disconnect.
+    public func resetConnectionState(instanceDir: String? = nil) {
+        self.instanceDir = instanceDir
         isConnected = false
         httpPort = nil
         daemonVersion = nil

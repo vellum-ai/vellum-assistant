@@ -1137,7 +1137,7 @@ struct MainWindowView: View {
             }
             // Reconnect the daemon client after a successful restart
             if !appDelegate.daemonClient.isConnected && !appDelegate.connectionManager.isConnecting {
-                try? await appDelegate.daemonClient.connect()
+                try? await appDelegate.connectionManager.connect()
             }
         }
     }

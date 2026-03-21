@@ -19,121 +19,44 @@ final class DaemonClientReconfigureTests: XCTestCase {
 
     // MARK: - Object identity preservation
 
-    func testReconfigurePreservesObjectIdentity() {
+    func testResetPreservesObjectIdentity() {
         let originalIdentity = ObjectIdentifier(client!)
-
-        let newConfig = DaemonConfig(transport: .http(
-            baseURL: "http://localhost:9999",
-            bearerToken: "test-token",
-            conversationKey: "test-key"
-        ))
-        client.reconfigure(config: newConfig)
-
+        client.resetConnectionState(instanceDir: "/tmp/test")
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity,
-            "Reconfigure must preserve DaemonClient object identity")
+            "resetConnectionState must preserve object identity")
     }
 
-    func testReconfigureUpdatesInstanceDir() {
-        let newConfig = DaemonConfig(transport: .http(
-            baseURL: "http://localhost:9999",
-            bearerToken: "new-token",
-            conversationKey: "new-key"
-        ), instanceDir: "/tmp/test-instance")
-        client.reconfigure(config: newConfig)
-
-        XCTAssertEqual(client.instanceDir, "/tmp/test-instance",
-            "instanceDir should be updated after reconfigure")
+    func testResetUpdatesInstanceDir() {
+        client.resetConnectionState(instanceDir: "/tmp/test-instance")
+        XCTAssertEqual(client.instanceDir, "/tmp/test-instance")
     }
 
-    func testReconfigureResetsConnectionState() {
-        // Simulate some connection state
+    func testResetClearsConnectionState() {
         client.httpPort = 7821
         client.currentModel = "claude-3"
 
-        let newConfig = DaemonConfig(transport: .http(
-            baseURL: "http://localhost:9999",
-            bearerToken: nil,
-            conversationKey: "key"
-        ))
-        client.reconfigure(config: newConfig)
+        client.resetConnectionState()
 
-        XCTAssertNil(client.httpPort, "httpPort should be reset after reconfigure")
-        XCTAssertNil(client.currentModel, "currentModel should be reset after reconfigure")
-        XCTAssertNil(client.daemonVersion, "daemonVersion should be reset after reconfigure")
-        XCTAssertNil(client.latestMemoryStatus, "latestMemoryStatus should be reset after reconfigure")
-        XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
+        XCTAssertNil(client.httpPort)
+        XCTAssertNil(client.currentModel)
+        XCTAssertNil(client.daemonVersion)
+        XCTAssertNil(client.latestMemoryStatus)
+        XCTAssertFalse(client.isConnected)
     }
 
-    func testReconfigurePreservesIsConnectedAsFalse() {
+    func testResetSetsIsConnectedToFalse() {
         client.isConnected = true
-
-        let newConfig = DaemonConfig(transport: .http(
-            baseURL: "http://localhost:9999",
-            bearerToken: nil,
-            conversationKey: "key"
-        ))
-        client.reconfigure(config: newConfig)
-
-        // After reconfigure, isConnected should be reset to false
-        XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
+        client.resetConnectionState()
+        XCTAssertFalse(client.isConnected)
     }
 
-    func testReconfigureBetweenHTTPEndpoints() {
-        // Start with default config
-        XCTAssertNil(client.instanceDir)
-
-        // Reconfigure to a different HTTP endpoint with instanceDir
-        let httpConfig = DaemonConfig(transport: .http(
-            baseURL: "http://remote-host:8080",
-            bearerToken: "bearer-123",
-            conversationKey: "conv-key"
-        ), instanceDir: "/tmp/remote-instance")
-        client.reconfigure(config: httpConfig)
-
-        XCTAssertEqual(client.instanceDir, "/tmp/remote-instance",
-            "instanceDir should reflect the new config after reconfigure")
-    }
-
-    func testMultipleReconfiguresPreserveIdentity() {
-        let originalIdentity = ObjectIdentifier(client!)
-
-        // First reconfigure
-        client.reconfigure(config: DaemonConfig(transport: .http(
-            baseURL: "http://host-1:8080",
-            bearerToken: nil,
-            conversationKey: "key-1"
-        )))
-        XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
-
-        // Second reconfigure
-        client.reconfigure(config: DaemonConfig(transport: .http(
-            baseURL: "http://host-2:8080",
-            bearerToken: nil,
-            conversationKey: "key-2"
-        )))
-        XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
-
-        // Third reconfigure back to default
-        client.reconfigure(config: .default)
-        XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
-    }
-
-    // MARK: - Weak reference survival
-
-    func testWeakReferencesSurviveReconfigure() {
-        // Simulate what RecordingManager does: hold a weak reference
+    func testWeakReferencesSurviveReset() {
         weak var weakClient = client
-        _ = { weakClient = nil }  // prevent "never mutated" warning; not called
+        _ = { weakClient = nil }
 
-        XCTAssertNotNil(weakClient, "Weak reference should be non-nil before reconfigure")
-
-        client.reconfigure(config: DaemonConfig(transport: .http(
-            baseURL: "http://localhost:9999",
-            bearerToken: nil,
-            conversationKey: "key"
-        )))
-
-        XCTAssertNotNil(weakClient, "Weak reference should survive reconfigure (same object)")
-        XCTAssertTrue(weakClient === client, "Weak reference should point to the same object")
+        XCTAssertNotNil(weakClient)
+        client.resetConnectionState()
+        XCTAssertNotNil(weakClient)
+        XCTAssertTrue(weakClient === client)
     }
 }

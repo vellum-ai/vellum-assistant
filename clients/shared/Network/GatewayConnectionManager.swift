@@ -89,9 +89,7 @@ public final class GatewayConnectionManager {
         try await connectImpl(cancelAutoWake: true)
     }
 
-    /// Connect using a conversation key for host tool filtering.
-    /// Call `reconfigure()` first to set instance directory and route mode.
-    func connectImpl(cancelAutoWake: Bool, conversationKey: String? = nil) async throws {
+    func connectImpl(cancelAutoWake: Bool) async throws {
         disconnectInternal(cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
@@ -171,9 +169,13 @@ public final class GatewayConnectionManager {
 
     // MARK: - Reconfigure
 
+    /// Conversation key for host tool filtering, set during reconfigure.
+    private var conversationKey: String?
+
     /// Reconfigure connection parameters for a new assistant.
     /// Callers must call `connect()` after reconfiguring.
-    public func reconfigure(instanceDir: String?, isRuntimeFlat: Bool) {
+    public func reconfigure(instanceDir: String?, isRuntimeFlat: Bool, conversationKey: String? = nil) {
+        self.conversationKey = conversationKey
         #if os(macOS)
         autoWakeTask?.cancel()
         autoWakeTask = nil
