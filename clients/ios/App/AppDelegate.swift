@@ -82,7 +82,7 @@ final class ClientProvider: ObservableObject {
         guard let daemon = client as? DaemonClient else { return }
         traceSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemon.subscribe() {
+            for await message in daemon.eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 if case .traceEvent(let msg) = message {
                     self.traceStore.ingest(msg)
@@ -312,8 +312,9 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                 if !self.clientProvider.client.isConnected {
                     try? await self.clientProvider.client.connect()
                 }
-                if self.clientProvider.client.isConnected, let sid = conversationId {
-                    self.clientProvider.client.sendUserMessage(
+                if self.clientProvider.client.isConnected, let sid = conversationId,
+                   let daemon = self.clientProvider.client as? DaemonStatus {
+                    daemon.eventStreamClient.sendUserMessage(
                         content: replyText,
                         conversationId: sid,
                         attachments: nil,

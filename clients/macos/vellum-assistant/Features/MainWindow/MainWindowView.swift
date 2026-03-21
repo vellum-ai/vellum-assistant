@@ -735,7 +735,7 @@ struct MainWindowView: View {
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
         }
-        daemonClient.startSSE()
+        daemonClient.eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
     }
 
@@ -752,7 +752,7 @@ struct MainWindowView: View {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
-        daemonClient.stopSSE()
+        daemonClient.eventStreamClient.stopSSE()
     }
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {

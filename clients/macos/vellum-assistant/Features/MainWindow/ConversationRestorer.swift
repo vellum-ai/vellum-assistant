@@ -62,7 +62,7 @@ final class ConversationRestorer {
     func startObserving(skipInitialFetch: Bool = false) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.subscribe() {
+            for await message in self.daemonClient.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationListResponse(let response):
                     self.handleConversationListResponse(response)

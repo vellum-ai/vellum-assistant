@@ -13,11 +13,6 @@ final class MockDaemonClientTests: XCTestCase {
         XCTAssertFalse(client.isConnected, "New client should start disconnected")
     }
 
-    func testInitialSentMessagesIsEmpty() {
-        let client = MockDaemonClient()
-        XCTAssertTrue(client.sentMessages.isEmpty, "No messages should be recorded before any sends")
-    }
-
     // MARK: - Connect / Disconnect
 
     func testConnectSetsIsConnected() async throws {
@@ -39,39 +34,6 @@ final class MockDaemonClientTests: XCTestCase {
         // Should not crash or throw
         client.disconnect()
         XCTAssertFalse(client.isConnected, "disconnect() on an already-disconnected client should be a no-op")
-    }
-
-    // MARK: - Send Recording
-
-    func testSendRecordsSingleMessage() {
-        let client = MockDaemonClient()
-        client.sendUserMessage(content: "Hello", conversationId: "conv-1")
-        XCTAssertEqual(client.sentMessages.count, 1, "One send should record exactly one message")
-        XCTAssertEqual(client.sentMessages[0].content, "Hello")
-        XCTAssertEqual(client.sentMessages[0].conversationId, "conv-1")
-    }
-
-    func testSendRecordsMultipleMessages() {
-        let client = MockDaemonClient()
-        client.sendUserMessage(content: "A", conversationId: "conv-1")
-        client.sendUserMessage(content: "B", conversationId: "conv-2")
-        client.sendUserMessage(content: "C", conversationId: "conv-3")
-        XCTAssertEqual(client.sentMessages.count, 3, "Three sends should record three messages")
-    }
-
-    func testSendRecordsNilContent() {
-        let client = MockDaemonClient()
-        client.sendUserMessage(content: nil, conversationId: "conv-1")
-        XCTAssertEqual(client.sentMessages.count, 1)
-        XCTAssertNil(client.sentMessages[0].content)
-        XCTAssertEqual(client.sentMessages[0].conversationId, "conv-1")
-    }
-
-    func testSendRecordsConversationId() {
-        let client = MockDaemonClient()
-        client.sendUserMessage(content: "Test", conversationId: "sess-abc")
-        XCTAssertEqual(client.sentMessages.count, 1)
-        XCTAssertEqual(client.sentMessages[0].conversationId, "sess-abc")
     }
 
     // MARK: - Subscribe / Emit

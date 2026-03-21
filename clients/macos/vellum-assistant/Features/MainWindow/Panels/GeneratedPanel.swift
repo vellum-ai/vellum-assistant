@@ -606,7 +606,7 @@ struct GeneratedPanel: View {
             if let onOpenApp {
                 onOpenApp(surfaceMsg)
             } else {
-                daemonClient.injectMessage(.uiSurfaceShow(surfaceMsg))
+                daemonClient.eventStreamClient.broadcastMessage(.uiSurfaceShow(surfaceMsg))
             }
         }
     }

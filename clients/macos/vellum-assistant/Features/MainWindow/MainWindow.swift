@@ -286,7 +286,7 @@ public final class MainWindow {
         documentManager.daemonClient = daemonClient
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.subscribe() {
+            for await message in self.daemonClient.eventStreamClient.subscribe() {
                 switch message {
                 case .traceEvent(let msg):
                     self.traceStore.ingest(msg)

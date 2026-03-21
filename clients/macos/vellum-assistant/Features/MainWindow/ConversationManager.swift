@@ -269,7 +269,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.subscribe() {
+            for await message in self.daemonClient.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationIdResolved(let localId, let serverId):
                     self.resolveConversationId(from: localId, to: serverId)

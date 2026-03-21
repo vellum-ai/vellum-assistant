@@ -176,7 +176,7 @@ public final class DirectoryStore: ObservableObject {
         appFilesChangedTask?.cancel()
         appFilesChangedTask = Task { [weak self] in
             guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.subscribe()
+            let stream = daemonClient.eventStreamClient.subscribe()
 
             for await message in stream {
                 guard let self, !Task.isCancelled else { return }

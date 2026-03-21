@@ -124,7 +124,7 @@ public final class ContactsStore: ObservableObject {
         subscriptionTask?.cancel()
         subscriptionTask = Task { [weak self] in
             guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.subscribe()
+            let stream = daemonClient.eventStreamClient.subscribe()
 
             for await message in stream {
                 guard let self, !Task.isCancelled else { return }

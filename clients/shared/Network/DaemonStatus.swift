@@ -7,12 +7,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public protocol DaemonStatusProtocol: AnyObject {
     var isConnected: Bool { get }
-    func subscribe() -> AsyncStream<ServerMessage>
-    func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]?, conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?)
     func connect() async throws
     func disconnect()
-    func startSSE()
-    func stopSSE()
 }
 
 /// Observable status of the assistant daemon connection. Publishes connection state,
@@ -190,43 +186,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         }
     }
 
-    // MARK: - Subscribe (forwarding)
-
-    public func subscribe() -> AsyncStream<ServerMessage> {
-        eventStreamClient.subscribe()
-    }
-
-    // MARK: - Send (forwarding)
-
-    /// Fire-and-forget user message send. Delegates to EventStreamClient.
-    public func sendUserMessage(
-        content: String?,
-        conversationId: String,
-        attachments: [UserMessageAttachment]? = nil,
-        conversationType: String? = nil,
-        automated: Bool? = nil,
-        bypassSecretCheck: Bool? = nil
-    ) {
-        eventStreamClient.sendUserMessage(
-            content: content,
-            conversationId: conversationId,
-            attachments: attachments,
-            conversationType: conversationType,
-            automated: automated,
-            bypassSecretCheck: bypassSecretCheck
-        )
-    }
-
-    // MARK: - SSE (forwarding)
-
-    public func startSSE() {
-        eventStreamClient.startSSE()
-    }
-
-    public func stopSSE() {
-        eventStreamClient.stopSSE()
-    }
-
     // MARK: - Connection (forwarding)
 
     public func connect() async throws {
@@ -293,16 +252,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         if mismatch {
             log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public)")
         }
-    }
-
-    // MARK: - Synthetic Message Injection
-
-    /// Inject a synthetic server message into the event stream. The message
-    /// is processed by the state pre-processor and then broadcast to all
-    /// subscribers, exactly as if it arrived via SSE.
-    public func injectMessage(_ message: ServerMessage) {
-        handleServerMessage(message)
-        eventStreamClient.broadcastMessage(message)
     }
 
     // MARK: - Message Pre-Processing

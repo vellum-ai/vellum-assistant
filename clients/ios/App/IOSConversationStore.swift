@@ -436,7 +436,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask?.cancel()
         subscribeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemon.subscribe() {
+            for await message in daemon.eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 switch message {
                 case .scheduleConversationCreated(let msg):

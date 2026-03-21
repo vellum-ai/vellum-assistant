@@ -299,7 +299,7 @@ extension AppDelegate {
     private func startDaemonEventSubscription() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let stream = self.daemonClient.subscribe()
+            let stream = self.daemonClient.eventStreamClient.subscribe()
             for await message in stream {
                 switch message {
                 case .notificationIntent(let msg):

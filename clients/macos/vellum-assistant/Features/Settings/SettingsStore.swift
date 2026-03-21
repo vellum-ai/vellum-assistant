@@ -545,7 +545,7 @@ public final class SettingsStore: ObservableObject {
         // Subscribe to SSE-pushed config updates
         Task { @MainActor [weak self] in
             guard let self, let daemonClient = self.daemonClient else { return }
-            for await message in daemonClient.subscribe() {
+            for await message in daemonClient.eventStreamClient.subscribe() {
                 switch message {
                 case .ingressConfigResponse(let response):
                     self.handleIngressConfigResponse(response)
