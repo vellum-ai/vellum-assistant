@@ -31,7 +31,7 @@ public struct InteractionClient: InteractionClientProtocol {
             if let selectedPattern { body["selectedPattern"] = selectedPattern }
             if let selectedScope { body["selectedScope"] = selectedScope }
 
-            let response = try await GatewayHTTPClient.post(path: "confirm", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/confirm", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendConfirmationResponse failed (HTTP \(response.statusCode))")
                 return false
@@ -53,10 +53,10 @@ public struct InteractionClient: InteractionClientProtocol {
             var body: [String: Any] = [
                 "requestId": requestId,
             ]
-            body["value"] = value ?? ""
+            if let value { body["value"] = value }
             if let delivery { body["delivery"] = delivery }
 
-            let response = try await GatewayHTTPClient.post(path: "secret", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/secret", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSecretResponse failed (HTTP \(response.statusCode))")
                 return false
