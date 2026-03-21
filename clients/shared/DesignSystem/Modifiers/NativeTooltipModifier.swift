@@ -99,6 +99,12 @@ private final class VTooltipTrackerView: NSView {
     private var showTimer: Timer?
     private var panel: NSPanel?
     private var scrollObserver: NSObjectProtocol?
+    private var scrollEndObserver: NSObjectProtocol?
+
+    /// Suppresses synthetic mouseEntered events during and briefly after scroll.
+    /// Static because the re-entry can hit a different VTooltipTrackerView instance
+    /// than the one that was dismissed.
+    private static var isScrolling = false
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -106,13 +112,14 @@ private final class VTooltipTrackerView: NSView {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp],
             owner: self
         ))
     }
 
     override func mouseEntered(with event: NSEvent) {
+        guard !Self.isScrolling else { return }
         showTimer?.invalidate()
         showTimer = Timer.scheduledTimer(withTimeInterval: showDelay, repeats: false) { [weak self] _ in
             self?.showTooltip()
@@ -134,7 +141,9 @@ private final class VTooltipTrackerView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
+        if window != nil {
+            startObservingScroll()
+        } else {
             showTimer?.invalidate()
             stopObservingScroll()
             hideTooltip()
@@ -148,9 +157,21 @@ private final class VTooltipTrackerView: NSView {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            Self.isScrolling = true
             self?.showTimer?.invalidate()
             self?.showTimer = nil
             self?.hideTooltip()
+        }
+        scrollEndObserver = NotificationCenter.default.addObserver(
+            forName: NSScrollView.didEndLiveScrollNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Brief delay so tracking-area recalculation settles before
+            // we accept mouseEntered again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Self.isScrolling = false
+            }
         }
     }
 
@@ -158,6 +179,10 @@ private final class VTooltipTrackerView: NSView {
         if let observer = scrollObserver {
             NotificationCenter.default.removeObserver(observer)
             scrollObserver = nil
+        }
+        if let observer = scrollEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            scrollEndObserver = nil
         }
     }
 
@@ -200,13 +225,11 @@ private final class VTooltipTrackerView: NSView {
             p.animator().alphaValue = 1
         }
         panel = p
-        startObservingScroll()
     }
 
     private func hideTooltip() {
         guard let p = panel else { return }
         panel = nil
-        stopObservingScroll()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.08
             p.animator().alphaValue = 0
