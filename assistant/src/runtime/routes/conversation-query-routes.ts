@@ -10,6 +10,7 @@
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
+ * PUT    /v1/config/services/initialize — initialize service mode defaults
  * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
  * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
  * GET    /v1/conversations/search       — search conversations
@@ -18,7 +19,12 @@
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
-import { getConfig, loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
@@ -250,6 +256,78 @@ export function conversationQueryRouteDefinitions(
             500,
           );
         }
+      },
+    },
+
+    // ── Service mode initialization ──────────────────────────────────
+    {
+      endpoint: "config/services/initialize",
+      method: "PUT",
+      policyKey: "config/services/initialize",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as {
+          defaultMode?: unknown;
+          force?: unknown;
+        };
+        if (!body.defaultMode || typeof body.defaultMode !== "string") {
+          return httpError(
+            "BAD_REQUEST",
+            "Missing or invalid field: defaultMode (string)",
+            400,
+          );
+        }
+        const force = body.force === true;
+        const raw = loadRawConfig();
+        const services: Record<
+          string,
+          Record<string, unknown>
+        > = raw.services != null &&
+        typeof raw.services === "object" &&
+        !Array.isArray(raw.services)
+          ? (raw.services as Record<string, Record<string, unknown>>)
+          : {};
+
+        const FORCIBLE_KEYS = ["inference", "image-generation", "web-search"];
+        const INIT_ONLY_KEYS = ["google-oauth"];
+        let changed = false;
+
+        for (const key of FORCIBLE_KEYS) {
+          const existing = services[key];
+          const svc: Record<string, unknown> =
+            existing != null &&
+            typeof existing === "object" &&
+            !Array.isArray(existing)
+              ? existing
+              : {};
+          if (force || svc.mode === undefined) {
+            svc.mode = body.defaultMode;
+            services[key] = svc;
+            changed = true;
+          }
+        }
+
+        for (const key of INIT_ONLY_KEYS) {
+          const existing = services[key];
+          const svc: Record<string, unknown> =
+            existing != null &&
+            typeof existing === "object" &&
+            !Array.isArray(existing)
+              ? existing
+              : {};
+          if (svc.mode === undefined) {
+            svc.mode = body.defaultMode;
+            services[key] = svc;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          raw.services = services;
+          saveRawConfig(raw);
+          invalidateConfigCache();
+        }
+
+        return Response.json({ ok: true, changed });
       },
     },
 

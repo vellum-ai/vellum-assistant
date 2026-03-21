@@ -220,15 +220,9 @@ struct APIKeyEntryStepView: View {
         if providerRequiresKey {
             APIKeyManager.setKey(trimmed, for: state.selectedProvider)
         }
-        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true)
-        // Persist provider + model
-        let existingConfig = WorkspaceConfigIO.read()
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["provider"] = state.selectedProvider
-        inference["model"] = state.selectedModel
-        services["inference"] = inference
-        try? WorkspaceConfigIO.merge(["services": services])
+        // Provider/model selection is already stored in state.selectedProvider
+        // and state.selectedModel. The daemon will be configured via its HTTP
+        // API after hatching completes (see HatchingStepView).
         state.advance()
     }
 }

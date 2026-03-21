@@ -192,27 +192,30 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    /// Persist the onboarding-selected inference provider/model into the
-    /// newly hatched assistant workspace config. This ensures first-launch
-    /// selections survive instance-scoped workspaces.
-    private func persistOnboardingInferenceSelectionToHatchedWorkspace() {
+    /// Send the onboarding-selected inference provider/model to the daemon
+    /// via its HTTP API. Called after hatching completes and the daemon is up.
+    private func configureOnboardingInferenceSelectionViaDaemon() async {
         guard !state.selectedProvider.isEmpty, !state.selectedModel.isEmpty else { return }
-        guard let workspaceDir = LockfileAssistant.loadLatest()?.workspaceDir else { return }
-        let configPath = URL(fileURLWithPath: workspaceDir).appendingPathComponent("config.json").path
-        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own", force: true, into: configPath)
 
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["provider"] = state.selectedProvider
-        inference["model"] = state.selectedModel
-        services["inference"] = inference
+        let defaultMode = state.skippedAPIKeyEntry ? "managed" : "your-own"
 
         do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-            log.info("Persisted onboarding inference selection to hatched workspace config at \(configPath, privacy: .public)")
+            let _ = try await GatewayHTTPClient.put(
+                path: "config/services/initialize",
+                json: ["defaultMode": defaultMode, "force": true]
+            )
         } catch {
-            log.error("Failed to persist onboarding inference selection to hatched workspace config: \(error.localizedDescription, privacy: .public)")
+            log.error("Failed to initialize service modes via daemon: \(error.localizedDescription, privacy: .public)")
+        }
+
+        do {
+            let _ = try await GatewayHTTPClient.put(
+                path: "model",
+                json: ["modelId": state.selectedModel, "provider": state.selectedProvider]
+            )
+            log.info("Configured onboarding inference selection via daemon API (provider=\(state.selectedProvider, privacy: .public), model=\(state.selectedModel, privacy: .public))")
+        } catch {
+            log.error("Failed to set inference model via daemon: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -234,12 +237,15 @@ struct HatchingStepView: View {
             AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
         }
 
-        persistOnboardingInferenceSelectionToHatchedWorkspace()
-
         // Brief delay so the user sees the waking animation before transition.
         // Stored as a cancellable Task so it's cleaned up if the view disappears.
         completionTask = Task {
+            // Configure the daemon with the onboarding inference selection while
+            // the waking animation plays. This runs concurrently with the delay
+            // so the user doesn't wait for the API round-trip.
+            async let configureTask: () = configureOnboardingInferenceSelectionViaDaemon()
             try? await Task.sleep(nanoseconds: 1_500_000_000)
+            _ = await configureTask
             guard !Task.isCancelled else { return }
             state.hatchCompleted = true
         }

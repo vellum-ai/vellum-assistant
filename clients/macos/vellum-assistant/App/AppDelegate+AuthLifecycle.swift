@@ -403,7 +403,14 @@ extension AppDelegate {
                 // user-chosen service modes (e.g. "your-own") are preserved.
                 let flagKey = "managedServiceModesInitialized"
                 let alreadyInitialized = UserDefaults.standard.bool(forKey: flagKey)
-                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: !alreadyInitialized)
+                do {
+                    let _ = try await GatewayHTTPClient.put(
+                        path: "config/services/initialize",
+                        json: ["defaultMode": "managed", "force": !alreadyInitialized]
+                    )
+                } catch {
+                    log.error("Failed to initialize managed service modes via daemon: \(error.localizedDescription)")
+                }
                 if !alreadyInitialized {
                     UserDefaults.standard.set(true, forKey: flagKey)
                 }
