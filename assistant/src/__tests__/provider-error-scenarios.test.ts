@@ -572,6 +572,100 @@ describe("RetryProvider — streaming corruption retries", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RetryProvider — overloaded error retries
+// ---------------------------------------------------------------------------
+
+describe("RetryProvider — overloaded error retries", () => {
+  test("retries on ProviderError with status 529 (Anthropic overloaded)", async () => {
+    /** Retries when the AnthropicProvider wraps overloaded_error with status 529. */
+
+    // GIVEN a provider that fails once with status 529
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        "Anthropic API error (529): Overloaded",
+        "anthropic",
+        529,
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    // WHEN we send a message
+    const result = await provider.sendMessage(MESSAGES);
+
+    // THEN the retry succeeds
+    expect(result.stopReason).toBe("end_turn");
+    // AND the inner provider was called twice (1 failure + 1 success)
+    expect(inner.calls).toBe(2);
+  });
+
+  test("retries on overloaded_error in message without status code (streaming path fallback)", async () => {
+    /** Retries when overloaded_error bypasses APIError and has no status code. */
+
+    // GIVEN a provider that fails once with an overloaded error lacking a status code
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: {"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"}}',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    // WHEN we send a message
+    const result = await provider.sendMessage(MESSAGES);
+
+    // THEN the retry succeeds
+    expect(result.stopReason).toBe("end_turn");
+    // AND the inner provider was called twice
+    expect(inner.calls).toBe(2);
+  });
+
+  test("throws after exhausting retries on persistent overloaded error", async () => {
+    /** Exhausts retries on persistent overloaded errors and re-throws. */
+
+    // GIVEN a provider that always fails with overloaded_error
+    const inner = makeFailing(
+      new ProviderError(
+        'Anthropic request failed: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    // WHEN we send a message
+    // THEN it throws after exhausting retries
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "overloaded_error",
+    );
+    // AND the inner provider was called 1 initial + DEFAULT_MAX_RETRIES times
+    expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+
+  test("does not treat overloaded pattern as retryable when ProviderError has a non-retryable status code", async () => {
+    /** A 400 error that happens to contain "overloaded_error" should NOT be retried via the overloaded path. */
+
+    // GIVEN a provider that fails with a 400 status containing overloaded text
+    const inner = makeFailing(
+      new ProviderError(
+        "overloaded_error in request validation",
+        "anthropic",
+        400,
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    // WHEN we send a message
+    // THEN it throws without retrying
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "overloaded_error",
+    );
+    // AND the inner provider was only called once (no retries for 400)
+    expect(inner.calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RetryProvider — streaming + options passthrough
 // ---------------------------------------------------------------------------
 

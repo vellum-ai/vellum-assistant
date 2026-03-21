@@ -26,10 +26,28 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream has ended, this shouldn't happen",
 ];
 
+/** Patterns that indicate a transient server overload (e.g. Anthropic 529). */
+const RETRYABLE_OVERLOADED_PATTERNS = [
+  /overloaded_error/i,
+  /"message"\s*:\s*"Overloaded"/i,
+];
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
+}
+
+/**
+ * Whether the error is a transient server overload (e.g. Anthropic's
+ * overloaded_error) that arrived without a proper HTTP status code.
+ * When the status code IS present (529 >= 500), `isRetryableError`
+ * already handles it via the status-code branch.
+ */
+function isRetryableOverloadedError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  if (error.statusCode !== undefined) return false;
+  return RETRYABLE_OVERLOADED_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -37,6 +55,7 @@ function isRetryableError(error: unknown): boolean {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
   if (isRetryableStreamError(error)) return true;
+  if (isRetryableOverloadedError(error)) return true;
   return isRetryableNetworkError(error);
 }
 
@@ -144,7 +163,9 @@ export class RetryProvider implements Provider {
                 ? `server_error_${error.statusCode}`
                 : isRetryableStreamError(error)
                   ? "stream_corruption"
-                  : "network_error";
+                  : isRetryableOverloadedError(error)
+                    ? "overloaded"
+                    : "network_error";
           log.warn(
             {
               attempt: attempt + 1,

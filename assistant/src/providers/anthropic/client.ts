@@ -996,12 +996,17 @@ export class AnthropicProvider implements Provider {
           retryAfterMs !== undefined ? { retryAfterMs } : undefined,
         );
       }
+      // Detect Anthropic overloaded errors that bypass APIError in the
+      // streaming path (the SDK may throw a raw Error with the JSON body
+      // as the message instead of an APIError with status 529).
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const overloadedStatusCode = /overloaded_error/i.test(rawMessage)
+        ? 529
+        : undefined;
       throw new ProviderError(
-        `Anthropic request failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Anthropic request failed: ${rawMessage}`,
         "anthropic",
-        undefined,
+        overloadedStatusCode,
         { cause: error },
       );
     }
