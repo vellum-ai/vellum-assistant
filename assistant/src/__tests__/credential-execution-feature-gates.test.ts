@@ -8,9 +8,13 @@
  *   behavior or existing feature flags.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  _setOverridesForTesting,
+  clearFeatureFlagOverridesCache,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   CES_GRANT_AUDIT_FLAG_KEY,
@@ -25,15 +29,17 @@ import {
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
 
+afterEach(() => {
+  clearFeatureFlagOverridesCache();
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a minimal AssistantConfig with optional feature flag values. */
-function makeConfig(flagOverrides?: Record<string, boolean>): AssistantConfig {
-  return {
-    ...(flagOverrides ? { assistantFeatureFlagValues: flagOverrides } : {}),
-  } as AssistantConfig;
+/** Create a minimal AssistantConfig (flag overrides are now set via _setOverridesForTesting). */
+function makeConfig(): AssistantConfig {
+  return {} as AssistantConfig;
 }
 
 /** All CES flag keys for iteration. */
@@ -87,16 +93,16 @@ describe("CES flag key format", () => {
 // ---------------------------------------------------------------------------
 
 describe("CES flags default safely (all disabled)", () => {
-  const config = makeConfig();
-
   for (const { name, fn } of ALL_CES_PREDICATES) {
     test(`${name} returns false with no config overrides`, () => {
+      const config = makeConfig();
       expect(fn(config)).toBe(false);
     });
   }
 
   for (const key of ALL_CES_FLAG_KEYS) {
     test(`isAssistantFeatureFlagEnabled('${key}') returns false with no overrides`, () => {
+      const config = makeConfig();
       expect(isAssistantFeatureFlagEnabled(key, config)).toBe(false);
     });
   }
@@ -109,12 +115,14 @@ describe("CES flags default safely (all disabled)", () => {
 describe("CES flags can be enabled independently", () => {
   for (const { name, fn, key } of ALL_CES_PREDICATES) {
     test(`enabling ${key} makes ${name} return true`, () => {
-      const config = makeConfig({ [key]: true });
+      _setOverridesForTesting({ [key]: true });
+      const config = makeConfig();
       expect(fn(config)).toBe(true);
     });
 
     test(`enabling ${key} does not enable other CES flags`, () => {
-      const config = makeConfig({ [key]: true });
+      _setOverridesForTesting({ [key]: true });
+      const config = makeConfig();
       for (const { fn: otherFn, key: otherKey } of ALL_CES_PREDICATES) {
         if (otherKey === key) continue;
         expect(otherFn(config)).toBe(false);
@@ -130,7 +138,8 @@ describe("CES flags can be enabled independently", () => {
 describe("CES flags respect explicit false overrides", () => {
   for (const { name, fn, key } of ALL_CES_PREDICATES) {
     test(`${name} returns false when explicitly set to false`, () => {
-      const config = makeConfig({ [key]: false });
+      _setOverridesForTesting({ [key]: false });
+      const config = makeConfig();
       expect(fn(config)).toBe(false);
     });
   }
@@ -146,7 +155,8 @@ describe("CES flags do not affect unrelated flags", () => {
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
-    const config = makeConfig(overrides);
+    _setOverridesForTesting(overrides);
+    const config = makeConfig();
 
     // browser defaults to true in the registry and should stay true
     expect(
@@ -159,7 +169,8 @@ describe("CES flags do not affect unrelated flags", () => {
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
-    const config = makeConfig(overrides);
+    _setOverridesForTesting(overrides);
+    const config = makeConfig();
 
     // contacts defaults to true in the registry and should stay true
     expect(

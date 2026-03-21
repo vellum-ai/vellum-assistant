@@ -1,9 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  _setOverridesForTesting,
+  clearFeatureFlagOverridesCache,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
+
+afterEach(() => {
+  clearFeatureFlagOverridesCache();
+});
 
 const DECLARED_FLAG_ID = "contacts";
 const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
@@ -92,9 +100,8 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   });
 
   test("returns true when skill key is explicitly true", () => {
-    const config = makeConfig({
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
-    });
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
@@ -104,9 +111,8 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   });
 
   test("returns false when skill key is explicitly false", () => {
-    const config = makeConfig({
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
-    });
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
@@ -128,11 +134,9 @@ describe("isAssistantFeatureFlagEnabled", () => {
     ).toBe(true);
   });
 
-  test("assistantFeatureFlagValues overrides registry default", () => {
-    const config = {
-      ...makeConfig(),
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
-    } as AssistantConfig;
+  test("file-based override overrides registry default", () => {
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    const config = makeConfig();
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
       false,
     );
@@ -145,9 +149,8 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("respects persisted overrides for undeclared keys", () => {
-    const config = makeConfig({
-      assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
-    });
+    _setOverridesForTesting({ "feature_flags.browser.enabled": false });
+    const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
     ).toBe(false);
@@ -168,16 +171,15 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
 describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
+    _setOverridesForTesting({
+      [DECLARED_FLAG_KEY]: false,
+      "feature_flags.browser.enabled": true,
+    });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill("browser", "bundled", "browser"),
     ];
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        [DECLARED_FLAG_KEY]: false,
-        "feature_flags.browser.enabled": true,
-      },
-    });
+    const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
@@ -187,16 +189,15 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("flag ON skill appears normally", () => {
+    _setOverridesForTesting({
+      [DECLARED_FLAG_KEY]: true,
+      "feature_flags.browser.enabled": true,
+    });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill("browser", "bundled", "browser"),
     ];
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        [DECLARED_FLAG_KEY]: true,
-        "feature_flags.browser.enabled": true,
-      },
-    });
+    const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
@@ -227,9 +228,9 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig({
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
       skills: {
         entries: { [DECLARED_SKILL_ID]: { enabled: true } },
         load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
@@ -253,18 +254,17 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("multiple skills with mixed flags — persisted overrides respected", () => {
+    _setOverridesForTesting({
+      [DECLARED_FLAG_KEY]: false,
+      "feature_flags.browser.enabled": true,
+      "feature_flags.deploy.enabled": false,
+    });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill("browser", "bundled", "browser"),
       makeSkill("deploy", "bundled", "deploy"),
     ];
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        [DECLARED_FLAG_KEY]: false,
-        "feature_flags.browser.enabled": true,
-        "feature_flags.deploy.enabled": false,
-      },
-    });
+    const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
@@ -290,11 +290,10 @@ describe("resolveSkillStates with frontmatter featureFlag", () => {
     expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
   });
 
-  test("skill with featureFlag is included when config override enables it", () => {
+  test("skill with featureFlag is included when override enables it", () => {
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
-    const config = makeConfig({
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
-    });
+    const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
@@ -316,12 +315,11 @@ describe("resolveSkillStates with frontmatter featureFlag", () => {
     // This proves the implicit skillId→flag mapping is gone:
     // setting feature_flags.my-skill.enabled = false has no effect
     // when the skill itself does not declare a featureFlag.
-    const catalog = [makeSkill("my-skill")];
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        "feature_flags.my-skill.enabled": false,
-      },
+    _setOverridesForTesting({
+      "feature_flags.my-skill.enabled": false,
     });
+    const catalog = [makeSkill("my-skill")];
+    const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);

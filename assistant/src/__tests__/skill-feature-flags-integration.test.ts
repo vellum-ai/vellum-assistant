@@ -5,9 +5,17 @@
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  _setOverridesForTesting,
+  clearFeatureFlagOverridesCache,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
+
+afterEach(() => {
+  clearFeatureFlagOverridesCache();
+});
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
@@ -150,12 +158,11 @@ describe("frontmatter feature-flag integration", () => {
   });
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
-    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        "feature_flags.contacts.enabled": true,
-      },
+    _setOverridesForTesting({
+      "feature_flags.contacts.enabled": true,
     });
+    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
+    const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
     expect(resolved.length).toBe(1);
@@ -165,11 +172,10 @@ describe("frontmatter feature-flag integration", () => {
   test("resolveSkillStates never gates skill without featureFlag", () => {
     const skill = buildSkillSummary("plain-skill", SKILL_MD_WITHOUT_FLAG)!;
     // Even with an explicit false override for this skill ID, it should pass through
-    const config = makeConfig({
-      assistantFeatureFlagValues: {
-        "feature_flags.plain-skill.enabled": false,
-      },
+    _setOverridesForTesting({
+      "feature_flags.plain-skill.enabled": false,
     });
+    const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
     expect(resolved.length).toBe(1);
@@ -203,9 +209,8 @@ describe("frontmatter feature-flag integration", () => {
     expect(resolvedDefault[0].summary.id).toBe("contacts");
 
     // Step 6: With override disabled, skill is filtered out
-    const configOff = makeConfig({
-      assistantFeatureFlagValues: { [key!]: false },
-    });
+    _setOverridesForTesting({ [key!]: false });
+    const configOff = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configOff)).toBe(false);
 
     const resolvedOff = resolveSkillStates([skill], configOff);
