@@ -58,7 +58,7 @@ final class HealthCheckClientTests: XCTestCase {
             instanceId: nil,
             hatchedAt: nil,
             baseDataDir: nil,
-            daemonPort: nil,
+
             gatewayPort: gatewayPort,
             instanceDir: nil
         )
@@ -188,7 +188,7 @@ final class HealthCheckClientTests: XCTestCase {
             instanceId: nil,
             hatchedAt: nil,
             baseDataDir: nil,
-            daemonPort: nil,
+
             gatewayPort: nil,
             instanceDir: nil
         )
@@ -207,7 +207,7 @@ final class HealthCheckClientTests: XCTestCase {
             instanceId: nil,
             hatchedAt: nil,
             baseDataDir: nil,
-            daemonPort: nil,
+
             gatewayPort: nil,
             instanceDir: nil
         )
@@ -226,7 +226,7 @@ final class HealthCheckClientTests: XCTestCase {
             instanceId: nil,
             hatchedAt: nil,
             baseDataDir: nil,
-            daemonPort: nil,
+
             gatewayPort: nil,
             instanceDir: nil
         )
