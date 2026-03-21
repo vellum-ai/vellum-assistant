@@ -293,7 +293,7 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Toggle sidebar")
                         .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingSidebarToggle, let display = recordingDisplayString, !display.isEmpty {
                         VShortcutTag(display)
