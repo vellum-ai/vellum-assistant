@@ -6,6 +6,7 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
+    var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
@@ -19,16 +20,11 @@ struct IdentityPanel: View {
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
+    @State private var isBootstrapActive: Bool = true
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
     private let sidebarFraction: CGFloat = 0.3
-
-    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
-    private var isBootstrapActive: Bool {
-        let base = LockfileAssistant.connectedInstanceDir() ?? NSHomeDirectory()
-        return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
-    }
 
     private let panelPadding: CGFloat = VSpacing.xl
 
@@ -174,12 +170,16 @@ struct IdentityPanel: View {
                     }
                 }
 
-                if !isBootstrapActive && introText == nil {
-                    // Prefer SOUL.md intro; fall back to daemon generation
-                    if let soulIntro = IdentityInfo.loadIdentityIntro() {
-                        introText = soulIntro
-                    } else {
-                        generateIntro()
+                Task {
+                    let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "BOOTSTRAP.md", showHidden: false)
+                    isBootstrapActive = fileResponse != nil
+
+                    if !isBootstrapActive && introText == nil {
+                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                            introText = soulIntro
+                        } else {
+                            generateIntro()
+                        }
                     }
                 }
             }
