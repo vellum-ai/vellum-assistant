@@ -252,6 +252,16 @@ extension AppDelegate {
                     }
                 }
             }
+            // Import guardian token from CLI file before connecting, so the
+            // health check has valid credentials in the Keychain. On first
+            // launch ensureActorCredentials() runs later in proceedToApp()
+            // as a separate Task — this ensures the token is available in
+            // time for connect()'s health check.
+            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+               !ActorTokenManager.hasToken {
+                _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
+            }
+
             // Skip connect if the bootstrap retry coordinator already connected
             // or has a connect in flight (hatch can take a long time; the
             // coordinator connects independently). Checking isConnecting
