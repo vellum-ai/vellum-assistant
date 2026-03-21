@@ -13,7 +13,7 @@ enum AssistantTopology {
     case remote      // GCP, custom, SSH — no automatic upgrade mechanism
 }
 
-/// Upgrade and rollback section shown for all assistant topologies.
+/// Upgrade and roll-back section shown for all assistant topologies.
 ///
 /// Shows the current version, available releases via a version picker,
 /// and topology-appropriate actions (CLI upgrade for Docker, platform API
