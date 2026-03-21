@@ -156,7 +156,7 @@ struct AssistantUpgradeSection: View {
             if isVersionIncompatible && topology != .local {
                 if isServiceGroupBehind {
                     VInlineMessage(
-                        "Your assistant is on an older version and may not work correctly with this app. Upgrade to match.",
+                        "Your assistant is on an older version and may not work correctly with this app. Update to match.",
                         tone: .warning
                     )
                 } else {
@@ -204,7 +204,7 @@ struct AssistantUpgradeSection: View {
 
                 if !availableReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
-                        Text(isRollback ? "Roll back to:" : "Upgrade to:")
+                        Text(isRollback ? "Roll back to:" : "Update to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                         Picker("", selection: Binding<String>(
@@ -244,7 +244,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemMidStrong)
-                    Text("Automatic upgrades are not available for this deployment. Upgrade your infrastructure manually.")
+                    Text("Automatic updates are not available for this deployment. Update your infrastructure manually.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -271,8 +271,8 @@ struct AssistantUpgradeSection: View {
                     // Docker and managed get the upgrade button
                     VButton(
                         label: isUpgrading
-                            ? (isRollback ? "Rolling back..." : "Upgrading...")
-                            : (isRollback ? "Roll Back" : "Upgrade Now"),
+                            ? (isRollback ? "Rolling back..." : "Updating...")
+                            : (isRollback ? "Roll Back" : "Update Now"),
                         style: isRollback ? .outlined : .primary
                     ) {
                         showingUpgradeConfirmation = true
@@ -295,7 +295,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
+                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Updating assistant...") : "Checking for updates...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -317,16 +317,16 @@ struct AssistantUpgradeSection: View {
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
         }
-        .alert(isRollback ? "Roll Back Assistant" : "Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
+        .alert(isRollback ? "Roll Back Assistant" : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button(isRollback ? "Roll Back" : "Upgrade") {
+            Button(isRollback ? "Roll Back" : "Update") {
                 Task { await performUpgrade() }
             }
         } message: {
             if isRollback {
                 Text("Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
             } else {
-                Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
+                Text("Update to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the update.")
             }
         }
     }
@@ -406,16 +406,16 @@ struct AssistantUpgradeSection: View {
         }
         let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
         let version = selectedVersion ?? latestRelease?.version
-        dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Upgrading assistant..."
+        dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Updating assistant..."
         isDockerOperationInProgress = true
         defer { isDockerOperationInProgress = false }
         do {
             try await cli.upgrade(name: name, version: version)
-            successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
+            successMessage = isRollback ? "Rollback complete." : "Update complete."
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
         } catch {
-            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
         }
     }
 
@@ -427,18 +427,18 @@ struct AssistantUpgradeSection: View {
             if response.isSuccess {
                 successMessage = isRollback
                     ? "Rollback initiated. The assistant may be briefly unavailable."
-                    : "Upgrade initiated. The assistant may be briefly unavailable."
+                    : "Update initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
                 if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed (HTTP \(response.statusCode))"
+                errorMessage = "\(isRollback ? "Rollback" : "Update") failed (HTTP \(response.statusCode))"
             }
         } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = "Unable to start \(isRollback ? "rollback" : "upgrade"): \(error.localizedDescription)"
+            errorMessage = "Unable to start \(isRollback ? "rollback" : "update"): \(error.localizedDescription)"
         } catch {
-            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
         }
     }
 
