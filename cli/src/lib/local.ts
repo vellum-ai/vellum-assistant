@@ -933,6 +933,7 @@ export async function startLocalDaemon(
         "USER",
         "LANG",
         "VELLUM_DEBUG",
+        "VELLUM_DESKTOP_APP",
       ]) {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;
