@@ -477,9 +477,10 @@ struct InlineVideoAttachmentView: View {
                     } catch {
                         log.error("Failed to save video: \(error)")
                     }
+                    let didSucceed = succeeded
                     await MainActor.run {
                         self.isSaving = false
-                        if succeeded { Self.showSaveSuccessToast(destURL) }
+                        if didSucceed { Self.showSaveSuccessToast(destURL) }
                     }
                 }
             } else if isLazy, let attachmentId {
