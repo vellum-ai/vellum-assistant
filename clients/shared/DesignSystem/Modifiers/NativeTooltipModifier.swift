@@ -98,6 +98,7 @@ private final class VTooltipTrackerView: NSView {
     var showDelay: TimeInterval = 0.2
     private var showTimer: Timer?
     private var panel: NSPanel?
+    private var scrollObserver: NSObjectProtocol?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -105,8 +106,8 @@ private final class VTooltipTrackerView: NSView {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp],
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self
         ))
     }
@@ -126,6 +127,7 @@ private final class VTooltipTrackerView: NSView {
 
     override func removeFromSuperview() {
         showTimer?.invalidate()
+        stopObservingScroll()
         hideTooltip()
         super.removeFromSuperview()
     }
@@ -134,7 +136,28 @@ private final class VTooltipTrackerView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             showTimer?.invalidate()
+            stopObservingScroll()
             hideTooltip()
+        }
+    }
+
+    private func startObservingScroll() {
+        guard scrollObserver == nil else { return }
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+    }
+
+    private func stopObservingScroll() {
+        if let observer = scrollObserver {
+            NotificationCenter.default.removeObserver(observer)
+            scrollObserver = nil
         }
     }
 
@@ -177,11 +200,13 @@ private final class VTooltipTrackerView: NSView {
             p.animator().alphaValue = 1
         }
         panel = p
+        startObservingScroll()
     }
 
     private func hideTooltip() {
         guard let p = panel else { return }
         panel = nil
+        stopObservingScroll()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.08
             p.animator().alphaValue = 0
