@@ -475,6 +475,45 @@ function saveWorkspaceConfig(
 }
 
 /**
+ * Write arbitrary key-value pairs into the workspace config file before
+ * the daemon starts. The daemon reads config.json on first loadConfig()
+ * call, so values written here are available immediately.
+ *
+ * Keys use dot-notation to address nested fields. For example:
+ *   "services.inference.provider" → config.services.inference.provider
+ *   "services.inference.model"    → config.services.inference.model
+ */
+export function writeInitialConfig(
+  configValues: Record<string, string>,
+  instanceDir?: string,
+): void {
+  if (Object.keys(configValues).length === 0) return;
+
+  const config = loadWorkspaceConfig(instanceDir);
+
+  for (const [dotKey, value] of Object.entries(configValues)) {
+    const parts = dotKey.split(".");
+    // Walk/create nested objects for all parts except the last
+    let target: Record<string, unknown> = config;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      const existing = target[part];
+      if (
+        existing == null ||
+        typeof existing !== "object" ||
+        Array.isArray(existing)
+      ) {
+        target[part] = {};
+      }
+      target = target[part] as Record<string, unknown>;
+    }
+    target[parts[parts.length - 1]] = value;
+  }
+
+  saveWorkspaceConfig(config, instanceDir);
+}
+
+/**
  * Write gateway operational settings to the workspace config file so the
  * gateway reads them at startup via its config.ts readWorkspaceConfig().
  */

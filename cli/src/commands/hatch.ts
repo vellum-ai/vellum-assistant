@@ -43,6 +43,7 @@ import {
   startLocalDaemon,
   startGateway,
   stopLocalProcesses,
+  writeInitialConfig,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { getPlatformUrl } from "../lib/platform-client";
@@ -100,6 +101,7 @@ export async function buildStartupScript(
   providerApiKeys: Record<string, string>,
   instanceName: string,
   cloud: RemoteHost,
+  configValues: Record<string, string> = {},
 ): Promise<string> {
   const platformUrl = getPlatformUrl();
   const logPath =
@@ -131,6 +133,40 @@ export async function buildStartupScript(
     .map((envVar) => `${envVar}=\$${envVar}`)
     .join("\n");
 
+  // Build a bash snippet that writes --config key=value pairs into
+  // config.json before the daemon starts. Uses Python3 (available on
+  // Debian) for reliable nested JSON manipulation.
+  let configWriteBlock = "";
+  if (Object.keys(configValues).length > 0) {
+    const pairs = Object.entries(configValues)
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n");
+    configWriteBlock = `
+echo "Writing initial workspace config..."
+mkdir -p "\$HOME/.vellum/workspace"
+python3 -c "
+import json, os, sys
+config_path = os.path.expanduser('~/.vellum/workspace/config.json')
+config = {}
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        config = json.load(f)
+for line in '''${pairs}'''.strip().splitlines():
+    key, val = line.split('=', 1)
+    parts = key.split('.')
+    target = config
+    for p in parts[:-1]:
+        if p not in target or not isinstance(target[p], dict):
+            target[p] = {}
+        target = target[p]
+    target[parts[-1]] = val
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
+"
+echo "Workspace config written."
+`;
+  }
+
   return `#!/bin/bash
 set -e
 
@@ -147,7 +183,7 @@ RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
 
 ${ownershipFixup}
-
+${configWriteBlock}
 export VELLUM_SSH_USER="\$SSH_USER"
 export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
 echo "Downloading install script from ${platformUrl}/install.sh..."
@@ -170,6 +206,7 @@ interface HatchArgs {
   daemonOnly: boolean;
   restart: boolean;
   watch: boolean;
+  configValues: Record<string, string>;
 }
 
 function parseArgs(): HatchArgs {
@@ -182,6 +219,7 @@ function parseArgs(): HatchArgs {
   let daemonOnly = false;
   let restart = false;
   let watch = false;
+  const configValues: Record<string, string> = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -211,6 +249,9 @@ function parseArgs(): HatchArgs {
       );
       console.log(
         "  --keep-alive              Stay alive after hatch, exit when gateway stops",
+      );
+      console.log(
+        "  --config <key=value>      Set a workspace config value (repeatable)",
       );
       process.exit(0);
     } else if (arg === "-d") {
@@ -249,11 +290,28 @@ function parseArgs(): HatchArgs {
       }
       remote = next as RemoteHost;
       i++;
+    } else if (arg === "--config") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --config requires a key=value argument");
+        process.exit(1);
+      }
+      const eqIndex = next.indexOf("=");
+      if (eqIndex <= 0) {
+        console.error(
+          `Error: --config value must be in key=value format, got '${next}'`,
+        );
+        process.exit(1);
+      }
+      const key = next.slice(0, eqIndex);
+      const value = next.slice(eqIndex + 1);
+      configValues[key] = value;
+      i++;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -268,6 +326,7 @@ function parseArgs(): HatchArgs {
     daemonOnly,
     restart,
     watch,
+    configValues,
   };
 }
 
@@ -579,6 +638,7 @@ async function hatchLocal(
   restart: boolean = false,
   watch: boolean = false,
   keepAlive: boolean = false,
+  configValues: Record<string, string> = {},
 ): Promise<void> {
   if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
     console.error(
@@ -709,6 +769,10 @@ async function hatchLocal(
   if (!process.env.APP_VERSION) {
     process.env.APP_VERSION = cliPkg.version;
   }
+
+  // Write --config key=value pairs to config.json before starting the daemon
+  // so the daemon sees them on first loadConfig() call.
+  writeInitialConfig(configValues, resources.instanceDir);
 
   await startLocalDaemon(watch, resources);
 
@@ -843,6 +907,7 @@ export async function hatch(): Promise<void> {
     daemonOnly,
     restart,
     watch,
+    configValues,
   } = parseArgs();
 
   if (restart && remote !== "local") {
@@ -860,22 +925,37 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, daemonOnly, restart, watch, keepAlive);
+    await hatchLocal(
+      species,
+      name,
+      daemonOnly,
+      restart,
+      watch,
+      keepAlive,
+      configValues,
+    );
     return;
   }
 
   if (remote === "gcp") {
-    await hatchGcp(species, detached, name, buildStartupScript, watchHatching);
+    await hatchGcp(
+      species,
+      detached,
+      name,
+      buildStartupScript,
+      watchHatching,
+      configValues,
+    );
     return;
   }
 
   if (remote === "aws") {
-    await hatchAws(species, detached, name);
+    await hatchAws(species, detached, name, configValues);
     return;
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch);
+    await hatchDocker(species, detached, name, watch, configValues);
     return;
   }
 

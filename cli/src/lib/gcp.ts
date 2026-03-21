@@ -456,6 +456,7 @@ export async function hatchGcp(
     providerApiKeys: Record<string, string>,
     instanceName: string,
     cloud: "gcp",
+    configValues?: Record<string, string>,
   ) => Promise<string>,
   watchHatching: (
     pollFn: () => Promise<PollResult>,
@@ -463,6 +464,7 @@ export async function hatchGcp(
     startTime: number,
     species: Species,
   ) => Promise<WatchHatchingResult>,
+  configValues: Record<string, string> = {},
 ): Promise<void> {
   const startTime = Date.now();
   const account = process.env.GCP_ACCOUNT_EMAIL;
@@ -526,6 +528,7 @@ export async function hatchGcp(
       providerApiKeys,
       instanceName,
       "gcp",
+      configValues,
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);

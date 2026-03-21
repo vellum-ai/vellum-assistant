@@ -192,33 +192,6 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    /// Send the onboarding-selected inference provider/model to the daemon
-    /// via its HTTP API. Called after hatching completes and the daemon is up.
-    private func configureOnboardingInferenceSelectionViaDaemon() async {
-        guard !state.selectedProvider.isEmpty, !state.selectedModel.isEmpty else { return }
-
-        let defaultMode = state.skippedAPIKeyEntry ? "managed" : "your-own"
-
-        do {
-            let _ = try await GatewayHTTPClient.put(
-                path: "config/services/initialize",
-                json: ["defaultMode": defaultMode, "force": true]
-            )
-        } catch {
-            log.error("Failed to initialize service modes via daemon: \(error.localizedDescription, privacy: .public)")
-        }
-
-        do {
-            let _ = try await GatewayHTTPClient.put(
-                path: "model",
-                json: ["modelId": state.selectedModel, "provider": state.selectedProvider]
-            )
-            log.info("Configured onboarding inference selection via daemon API (provider=\(state.selectedProvider, privacy: .public), model=\(state.selectedModel, privacy: .public))")
-        } catch {
-            log.error("Failed to set inference model via daemon: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     /// Called when the CLI process finishes successfully or when the success
     /// sentinel is detected in CLI output. Saves the random avatar (for
     /// non-pairing flows) then signals completion after a brief delay.
@@ -240,12 +213,7 @@ struct HatchingStepView: View {
         // Brief delay so the user sees the waking animation before transition.
         // Stored as a cancellable Task so it's cleaned up if the view disappears.
         completionTask = Task {
-            // Configure the daemon with the onboarding inference selection while
-            // the waking animation plays. This runs concurrently with the delay
-            // so the user doesn't wait for the API round-trip.
-            async let configureTask: () = configureOnboardingInferenceSelectionViaDaemon()
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            _ = await configureTask
             guard !Task.isCancelled else { return }
             state.hatchCompleted = true
         }
@@ -269,6 +237,18 @@ struct HatchingStepView: View {
     /// CLI process stays alive (e.g. `--watch` mode in DEBUG builds).
     private static let dockerReadySentinel = "Docker containers are up and running"
 
+    /// Build the --config key=value pairs for the onboarding inference selection.
+    private func buildOnboardingConfigValues() -> [String: String] {
+        var configValues: [String: String] = [:]
+        if !state.selectedProvider.isEmpty {
+            configValues["services.inference.provider"] = state.selectedProvider
+        }
+        if !state.selectedModel.isEmpty {
+            configValues["services.inference.model"] = state.selectedModel
+        }
+        return configValues
+    }
+
     private func startRemoteHatch() {
         var providerApiKeys: [String: String] = [:]
         if let envVar = VellumCli.providerEnvVars[state.selectedProvider],
@@ -286,7 +266,8 @@ struct HatchingStepView: View {
             sshHost: state.sshHost,
             sshUser: state.sshUser,
             sshPrivateKey: state.sshPrivateKey,
-            providerApiKeys: providerApiKeys
+            providerApiKeys: providerApiKeys,
+            configValues: buildOnboardingConfigValues()
         )
 
         Task {
