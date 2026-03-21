@@ -841,6 +841,7 @@ struct MainWindowView: View {
     private func handleUpdateOutcome(_ outcome: UpdateOutcome) {
         switch outcome.result {
         case .succeeded(let version):
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             windowState.showToast(
                 message: "Assistant updated to \(version)",
                 style: .success,
