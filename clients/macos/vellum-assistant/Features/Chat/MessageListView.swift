@@ -1355,8 +1355,8 @@ struct MessageListView: View {
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
-                snapshotDebounceTask?.cancel()
-                snapshotDebounceTask = nil
+                scrollTracking.snapshotDebounceTask?.cancel()
+                scrollTracking.snapshotDebounceTask = nil
                 highlightedMessageId = nil
                 // Cancel any active pin session to prevent the coordinator's
                 // sessionTask from calling scrollTo on a stale ScrollViewProxy.
@@ -1521,8 +1521,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
-                snapshotDebounceTask?.cancel()
-                snapshotDebounceTask = nil
+                scrollTracking.snapshotDebounceTask?.cancel()
+                scrollTracking.snapshotDebounceTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
                 isPaginationInFlight = false
