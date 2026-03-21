@@ -365,14 +365,6 @@ extension AppDelegate {
             self?.mainWindow?.windowState.showMemory(id: memoryId)
         }
 
-        // Wire runtime HTTP resolver for server search
-        window.runtimeHTTPResolver = {
-            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-                .flatMap(Int.init) ?? 7821
-            guard let jwt = ActorTokenManager.getToken(), !jwt.isEmpty else { return nil }
-            return ("http://localhost:\(port)", jwt)
-        }
-
         window.show()
         commandPaletteWindow = window
     }

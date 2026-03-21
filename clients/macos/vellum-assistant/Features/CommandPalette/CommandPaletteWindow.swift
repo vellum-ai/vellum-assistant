@@ -34,9 +34,6 @@ final class CommandPaletteWindow {
     /// Recent conversations to show in the palette.
     var recentItems: [CommandPaletteRecentItem] = []
 
-    /// Resolver for runtime HTTP base URL and bearer token.
-    var runtimeHTTPResolver: (() -> (baseURL: String, token: String)?)?
-
     func show() {
         let panel = makePanel()
         centerOnScreen(panel)
@@ -55,8 +52,6 @@ final class CommandPaletteWindow {
         viewModel.reset()
         viewModel.actions = actions
         viewModel.recentItems = recentItems
-        viewModel.runtimeHTTPResolver = runtimeHTTPResolver
-
         let view = CommandPaletteView(
             viewModel: viewModel,
             onDismiss: { [weak self] in
