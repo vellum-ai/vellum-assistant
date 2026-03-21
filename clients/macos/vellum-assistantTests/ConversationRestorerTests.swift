@@ -16,10 +16,10 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var activatedConversationId: UUID?
     var createConversationCallCount = 0
     var archivedConversationIds: Set<String> = []
-    private let daemonClient: DaemonClient
+    private let daemonClient: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
 
-    init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient) {
+    init(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         self.daemonClient = daemonClient
         self.eventStreamClient = eventStreamClient
     }
@@ -164,7 +164,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func historyResponseRoutesToCorrectConversation() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
 
@@ -206,7 +206,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func staleHistoryResponseIsDropped() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -229,7 +229,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func rapidTabSwitchDoesNotCrossContaminate() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -268,7 +268,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationTitleUpdatedUpdatesMatchingConversation() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -284,7 +284,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationTitleUpdatedIgnoresUnknownConversationId() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -300,7 +300,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func cachedForkParentIsClearedWhenServerOmitsIt() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -332,7 +332,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationListCreatesRestoredConversations() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -368,7 +368,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationListPreservesAssistantAttentionTimestamps() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -403,7 +403,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationListSkipsWhenRestoreDisabled() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         delegate.restoreRecentConversations = false
@@ -425,7 +425,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationListPreservesNonEmptyDefaultConversation() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -450,7 +450,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func conversationListRestoresAllAndSetsOffset() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -473,7 +473,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func allArchivedConversationsCreatesNewConversation() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -503,7 +503,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func allArchivedWithNonEmptyDefaultDoesNotCreateConversation() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -532,7 +532,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func privateConversationTypeIsExcludedFromRestore() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -554,7 +554,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func nilConversationTypeRestoresAsStandardKind() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -574,7 +574,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func standardConversationTypeRestoresAsStandardKind() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -596,7 +596,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func telegramBoundConversationIsExcludedFromRestore() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -620,7 +620,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func voiceBoundConversationIsExcludedFromRestore() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -644,7 +644,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func mixedDesktopVoiceAndTelegramRestoresOnlyDesktop() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -674,7 +674,7 @@ struct ConversationRestorerTests {
 
     @Test @MainActor
     func mixedDesktopAndTelegramRestoresOnlyDesktop() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate

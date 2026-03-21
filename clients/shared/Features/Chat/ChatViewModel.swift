@@ -448,7 +448,7 @@ public final class ChatViewModel: ObservableObject {
     static let maxImageSize = ChatAttachmentManager.maxImageSize
 
     public let subagentDetailStore = SubagentDetailStore()
-    let daemonClient: any DaemonClientProtocol
+    let daemonClient: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
@@ -654,9 +654,9 @@ public final class ChatViewModel: ObservableObject {
     public var shouldAcceptConfirmation: (() -> Bool)?
 
     /// Called when the daemon sends a `watch_started` message to begin a watch session.
-    /// The closure receives the WatchStartedMessage and the DaemonClient so the macOS
+    /// The closure receives the WatchStartedMessage and the GatewayConnectionManager so the macOS
     /// layer can create and start a WatchSession.
-    public var onWatchStarted: ((WatchStartedMessage, any DaemonClientProtocol) -> Void)?
+    public var onWatchStarted: ((WatchStartedMessage, GatewayConnectionManager) -> Void)?
 
     /// Called when the daemon sends a `watch_complete_request` to stop the active watch session.
     public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
@@ -1009,7 +1009,7 @@ public final class ChatViewModel: ObservableObject {
     public var currentPage: String?
 
     public init(
-        daemonClient: any DaemonClientProtocol,
+        daemonClient: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),

@@ -85,7 +85,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     // MARK: - Dependencies
 
-    private let daemonClient: DaemonClientProtocol
+    private let daemonClient: GatewayConnectionManager
     private let toolClient: ToolClientProtocol
     private let trustRuleClient: TrustRuleClientProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -96,7 +96,7 @@ final class ToolPermissionTesterModel: ObservableObject {
     private var pendingSnapshotToolName: String = ""
     private var pendingSnapshotInputJSON: String = ""
 
-    init(daemonClient: DaemonClientProtocol, toolClient: ToolClientProtocol = ToolClient(), trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()) {
+    init(daemonClient: GatewayConnectionManager, toolClient: ToolClientProtocol = ToolClient(), trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()) {
         self.daemonClient = daemonClient
         self.toolClient = toolClient
         self.trustRuleClient = trustRuleClient
@@ -110,7 +110,7 @@ final class ToolPermissionTesterModel: ObservableObject {
             .store(in: &cancellables)
 
         // Re-fetch tool names whenever the daemon (re)connects.
-        if let dc = daemonClient as? DaemonClient {
+        if let dc = daemonClient as? GatewayConnectionManager {
             dc.$isConnected
                 .removeDuplicates()
                 .filter { $0 }

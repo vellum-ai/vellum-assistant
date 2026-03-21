@@ -4,12 +4,12 @@ import XCTest
 @MainActor
 final class ChatViewModelForkCommandTests: XCTestCase {
 
-    private var daemonClient: MockDaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = MockDaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         viewModel.conversationId = "sess-1"

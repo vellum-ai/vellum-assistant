@@ -11,7 +11,7 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
     func testIdentityPanelOnCloseCallback() {
         let state = MainWindowState(hasAPIKey: false)
         state.selection = .panel(.intelligence)
-        let daemonClient = DaemonClient()
+        let daemonClient = GatewayConnectionManager()
 
         let panel = IdentityPanel(
             onClose: { state.selection = nil },

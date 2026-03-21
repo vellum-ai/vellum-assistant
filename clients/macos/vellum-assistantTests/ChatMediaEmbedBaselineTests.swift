@@ -12,7 +12,7 @@ import XCTest
 @MainActor
 final class ChatMediaEmbedBaselineTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {

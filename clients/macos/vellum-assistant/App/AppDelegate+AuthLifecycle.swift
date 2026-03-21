@@ -463,7 +463,7 @@ extension AppDelegate {
 
         // 4. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
-        setupDaemonClient()
+        setupGatewayConnectionManager()
 
         // 5. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {

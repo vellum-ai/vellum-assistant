@@ -46,7 +46,7 @@ final class ConversationRestorer {
     /// Exposed as internal for `@testable` test access.
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
-    private let daemonClient: DaemonClient
+    private let daemonClient: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
@@ -55,7 +55,7 @@ final class ConversationRestorer {
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
+    init(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient

@@ -22,7 +22,7 @@ final class ContactsViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init(daemonClient: DaemonClient?, eventStreamClient: EventStreamClient? = nil) {
+    init(daemonClient: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil) {
         if let daemonClient, let eventStreamClient {
             let store = ContactsStore(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
             self.contactsStore = store

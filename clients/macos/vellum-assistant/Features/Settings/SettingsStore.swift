@@ -272,7 +272,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
-    /// Sourced from `DaemonClient.isTrustRulesSheetOpen` so each view can
+    /// Sourced from `GatewayConnectionManager.isTrustRulesSheetOpen` so each view can
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
 
@@ -291,7 +291,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Private
 
-    private weak var daemonClient: DaemonClient?
+    private weak var daemonClient: GatewayConnectionManager?
     private let eventStreamClient: EventStreamClient?
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
@@ -352,7 +352,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     init(
-        daemonClient: DaemonClient? = nil,
+        daemonClient: GatewayConnectionManager? = nil,
         eventStreamClient: EventStreamClient? = nil,
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
@@ -529,7 +529,7 @@ public final class SettingsStore: ObservableObject {
             .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
             .store(in: &cancellables)
 
-        // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
+        // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
         daemonClient?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)

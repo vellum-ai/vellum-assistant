@@ -7,12 +7,12 @@ import XCTest
 @MainActor
 final class ChatViewModelIOSTests: XCTestCase {
 
-    private var mockClient: MockDaemonClient!
+    private var mockClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        mockClient = MockDaemonClient()
+        mockClient = GatewayConnectionManager()
         mockClient.isConnected = true
         viewModel = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient)
     }
@@ -125,7 +125,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.suggestion, "Summarize the last response")
     }
 
-    // Note: testSendMessageRecordsInMockClient was removed because MockDaemonClient
+    // Note: testSendMessageRecordsInMockClient was removed because GatewayConnectionManager
     // no longer has sentMessages. Verifying that messages are dispatched upstream
     // requires a mock EventStreamClient.
 

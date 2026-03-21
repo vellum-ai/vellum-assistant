@@ -3,9 +3,9 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class AppServicesDaemonClientReconfigureTests: XCTestCase {
+final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
 
-    func testReconfigurePreservesDaemonClientIdentity() {
+    func testReconfigurePreservesGatewayConnectionManagerIdentity() {
         let services = AppServices()
         let originalClient = services.daemonClient
         let originalIdentity = ObjectIdentifier(originalClient)
@@ -15,11 +15,11 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
             bearerToken: "token",
             conversationKey: "key"
         ))
-        services.reconfigureDaemonClient(config: newConfig)
+        services.reconfigureGatewayConnectionManager(config: newConfig)
 
         XCTAssertEqual(
             ObjectIdentifier(services.daemonClient), originalIdentity,
-            "AppServices.reconfigureDaemonClient must preserve DaemonClient object identity"
+            "AppServices.reconfigureGatewayConnectionManager must preserve GatewayConnectionManager object identity"
         )
         XCTAssertTrue(
             services.daemonClient === originalClient,
@@ -35,13 +35,13 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
             bearerToken: "new-token",
             conversationKey: "new-key"
         ), instanceDir: "/tmp/test-instance")
-        services.reconfigureDaemonClient(config: httpConfig)
+        services.reconfigureGatewayConnectionManager(config: httpConfig)
 
         XCTAssertEqual(services.daemonClient.instanceDir, "/tmp/test-instance",
             "instanceDir should be updated after reconfigure via AppServices")
     }
 
-    func testSettingsStoreRetainsWorkingDaemonClientAfterReconfigure() {
+    func testSettingsStoreRetainsWorkingGatewayConnectionManagerAfterReconfigure() {
         let services = AppServices()
         // Force lazy init of settingsStore so it captures the daemon client
         let settingsStore = services.settingsStore
@@ -49,7 +49,7 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
 
         let originalClient = services.daemonClient
 
-        services.reconfigureDaemonClient(config: DaemonConfig(transport: .http(
+        services.reconfigureGatewayConnectionManager(config: DaemonConfig(transport: .http(
             baseURL: "http://new-host:8080",
             bearerToken: nil,
             conversationKey: "key"

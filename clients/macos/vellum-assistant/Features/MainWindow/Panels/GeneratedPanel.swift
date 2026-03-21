@@ -25,7 +25,7 @@ private struct DisplayAppItem: Identifiable {
 struct GeneratedPanel: View {
     var onClose: () -> Void
     @Binding var isExpanded: Bool
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     let gatewayBaseURL: String
     /// When set, app opens route to the workspace instead of a floating NSPanel.
@@ -54,7 +54,7 @@ struct GeneratedPanel: View {
     /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, eventStreamClient: EventStreamClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient

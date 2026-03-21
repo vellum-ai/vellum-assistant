@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class SettingsStoreChannelVerificationTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
     private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
@@ -16,7 +16,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         super.setUp()
         previousConnectedAssistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey)
         UserDefaults.standard.set(testAssistantId, forKey: connectedAssistantIdDefaultsKey)
-        daemonClient = DaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         mockSettingsClient = MockSettingsClient()
         store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
@@ -383,7 +383,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - No daemon client doesn't crash
 
-    func testNoDaemonClientDoesNotCrash() {
+    func testNoGatewayConnectionManagerDoesNotCrash() {
         let orphanStore = SettingsStore()
 
         // None of these should crash

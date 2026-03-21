@@ -88,7 +88,7 @@ extension AppDelegate {
 
     /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
     /// tracks the current daemon client. Called from `setupMenuBar()` and
-    /// again from `setupDaemonClient()` after transport reconfiguration.
+    /// again from `setupGatewayConnectionManager()` after transport reconfiguration.
     func rebindConnectionStatusObserver() {
         connectionStatusCancellable?.cancel()
         connectionStatusCancellable = daemonClient.$isConnected

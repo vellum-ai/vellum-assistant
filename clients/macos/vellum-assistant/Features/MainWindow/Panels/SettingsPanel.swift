@@ -32,7 +32,7 @@ enum SettingsTab: String {
 struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
@@ -44,7 +44,7 @@ struct SettingsPanel: View {
     init(
         onClose: @escaping () -> Void,
         store: SettingsStore,
-        daemonClient: DaemonClient? = nil,
+        daemonClient: GatewayConnectionManager? = nil,
         conversationManager: ConversationManager,
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,

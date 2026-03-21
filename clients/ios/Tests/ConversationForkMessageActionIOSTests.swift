@@ -44,7 +44,7 @@ final class ConversationForkMessageActionIOSTests: XCTestCase {
     }
 
     func testPrivateConversationDoesNotExposeMessageForkAction() {
-        let store = IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true)
+        let store = IOSConversationStore(daemonClient: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true)
         let privateConversation = IOSConversation(
             title: "Private",
             conversationId: "conv-private",
@@ -63,7 +63,7 @@ final class ConversationForkMessageActionIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-branch")

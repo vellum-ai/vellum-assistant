@@ -6,7 +6,7 @@ import VellumAssistantShared
 @MainActor
 struct ContactDetailView: View {
     let contact: ContactPayload
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var contactClient: ContactClientProtocol = ContactClient()
     var store: SettingsStore?
     var onDelete: (() -> Void)?

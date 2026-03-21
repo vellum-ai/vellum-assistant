@@ -3,7 +3,7 @@ import SwiftUI
 
 struct DebugPanel: View {
     @ObservedObject var traceStore: TraceStore
-    @ObservedObject var daemonClient: DaemonClient
+    @ObservedObject var daemonClient: GatewayConnectionManager
     let activeSessionId: String?
     var onClose: () -> Void
 

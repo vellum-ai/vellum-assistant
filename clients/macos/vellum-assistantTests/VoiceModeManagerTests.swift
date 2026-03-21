@@ -8,13 +8,13 @@ final class VoiceModeManagerTests: XCTestCase {
     private var mockVoiceService: MockVoiceService!
     private var manager: VoiceModeManager!
     private var chatViewModel: ChatViewModel!
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
 
     override func setUp() {
         super.setUp()
         mockVoiceService = MockVoiceService()
         manager = VoiceModeManager(voiceService: mockVoiceService)
-        daemonClient = DaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         chatViewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
     }

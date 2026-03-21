@@ -7,13 +7,13 @@ final class OnboardingWindow {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
     let state = OnboardingState()
-    let daemonClient: DaemonClientProtocol
+    let daemonClient: GatewayConnectionManager
     let authManager: AuthManager
     var onComplete: ((OnboardingState) -> Void)?
     /// Called when the user closes the window before completing onboarding.
     var onDismiss: (() -> Void)?
 
-    init(daemonClient: DaemonClientProtocol, authManager: AuthManager) {
+    init(daemonClient: GatewayConnectionManager, authManager: AuthManager) {
         self.daemonClient = daemonClient
         self.authManager = authManager
     }

@@ -16,7 +16,7 @@ struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
     let gatewayUrl: String
-    let daemonClient: DaemonClient?
+    let daemonClient: GatewayConnectionManager?
 
     @State private var hostId: String = ""
     @State private var pairingRequestId: String = UUID().uuidString

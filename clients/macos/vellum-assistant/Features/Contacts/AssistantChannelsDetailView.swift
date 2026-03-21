@@ -8,7 +8,7 @@ import VellumAssistantShared
 @MainActor
 struct AssistantChannelsDetailView: View {
     @ObservedObject var store: SettingsStore
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var conversationManager: ConversationManager?
     var assistantName: String = "your assistant"
     var isEmailEnabled: Bool = false

@@ -11,7 +11,7 @@ struct GuardianChannelsDetailView: View {
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     let contact: ContactPayload
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var contactClient: ContactClientProtocol = ContactClient()
     var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?

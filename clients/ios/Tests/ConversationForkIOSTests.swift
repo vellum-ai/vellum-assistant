@@ -13,7 +13,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-root")
@@ -87,7 +87,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let data = try JSONEncoder().encode([legacyConversation])
         userDefaults.set(data, forKey: connectedCacheKey)
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let store = IOSConversationStore(
             daemonClient: daemonClient,
@@ -106,7 +106,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = DaemonClient()
+        let daemonClient = GatewayConnectionManager()
         let store = IOSConversationStore(
             daemonClient: daemonClient,
             eventStreamClient: daemonClient.eventStreamClient,
@@ -147,7 +147,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-tip")

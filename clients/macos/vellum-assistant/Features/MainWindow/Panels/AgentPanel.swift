@@ -8,7 +8,7 @@ import VellumAssistantShared
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onSkillsChanged: (() -> Void)?
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
 
     @StateObject private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
@@ -17,7 +17,7 @@ struct AgentPanelContent: View {
     @State private var globalSkillSearchQuery = ""
     @State private var showFilterPopover = false
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
         self.onSkillsChanged = onSkillsChanged
         self.daemonClient = daemonClient

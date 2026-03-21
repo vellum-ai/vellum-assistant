@@ -112,7 +112,7 @@ final class WorkspaceBrowserState {
 // MARK: - Workspace Panel
 
 struct WorkspacePanel: View {
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     @State private var state = WorkspaceBrowserState()
     let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
@@ -712,7 +712,7 @@ private struct WorkspaceTreeRow: View {
 
 private struct WorkspaceFileViewer: View {
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     let workspaceClient: WorkspaceClient
 
     var body: some View {
@@ -930,7 +930,7 @@ private func isHiddenPath(_ path: String) -> Bool {
 
 private struct AuthenticatedImageView: View {
     let url: URL
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     @State private var image: NSImage?
     @State private var failed = false
 
@@ -1008,7 +1008,7 @@ private struct AuthenticatedImageView: View {
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false

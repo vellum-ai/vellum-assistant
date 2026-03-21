@@ -48,7 +48,7 @@ extension AppDelegate {
 
     /// Polls daemon connection state at ~0.5s intervals. Does NOT call
     /// `connect()` itself — that is the sole responsibility of
-    /// `setupDaemonClient()`. This avoids a dual-connect race where two
+    /// `setupGatewayConnectionManager()`. This avoids a dual-connect race where two
     /// concurrent Tasks both attempt `daemonClient.connect()`, with the
     /// second caller's `disconnectInternal()` tearing down the first
     /// caller's in-flight HTTP connection.

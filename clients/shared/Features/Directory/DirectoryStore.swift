@@ -23,7 +23,7 @@ public final class DirectoryStore: ObservableObject {
     private let documentClient: DocumentClientProtocol
     /// Daemon client retained for push event subscriptions (appFilesChanged)
     /// which use message transport.
-    private weak var daemonClient: DaemonClient?
+    private weak var daemonClient: GatewayConnectionManager?
     private let eventStreamClient: EventStreamClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
@@ -31,7 +31,7 @@ public final class DirectoryStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, documentClient: DocumentClientProtocol = DocumentClient()) {
+    public init(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, documentClient: DocumentClientProtocol = DocumentClient()) {
         self.appsClient = AppsClient()
         self.documentClient = documentClient
         self.daemonClient = daemonClient

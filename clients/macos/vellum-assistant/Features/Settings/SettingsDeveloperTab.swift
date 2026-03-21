@@ -22,7 +22,7 @@ private struct UnifiedFeatureFlag: Identifiable {
 struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject private var devModeManager = DevModeManager.shared
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var identityClient: IdentityClientProtocol = IdentityClient()
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     var authManager: AuthManager
@@ -1191,7 +1191,7 @@ struct SettingsDeveloperTab: View {
 // MARK: - Daemon Status Rows (Developer Tab)
 
 private struct DeveloperDaemonStatusRows: View {
-    @ObservedObject var daemonClient: DaemonClient
+    @ObservedObject var daemonClient: GatewayConnectionManager
 
     var body: some View {
         statusRow(

@@ -23,7 +23,7 @@ final class IdentityViewModel {
 
     private var cancellables: Set<AnyCancellable> = []
 
-    func setUp(daemonClient: DaemonClient, eventStreamClient: EventStreamClient) {
+    func setUp(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         cancellables.removeAll()
 
         let skills = SkillsStore()
@@ -134,7 +134,7 @@ struct IdentityView: View {
                 viewModel.tearDown()
                 return
             }
-            if let daemonClient = clientProvider.client as? DaemonClient {
+            if let daemonClient = clientProvider.client as? GatewayConnectionManager {
                 viewModel.setUp(daemonClient: daemonClient, eventStreamClient: clientProvider.eventStreamClient)
             }
             await viewModel.fetchIdentity()
@@ -257,7 +257,7 @@ struct IdentityView: View {
             // Workspace section
             Section {
                 NavigationLink {
-                    WorkspaceBrowserView(client: clientProvider.client as? DaemonClient)
+                    WorkspaceBrowserView(client: clientProvider.client as? GatewayConnectionManager)
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.folder, size: 16)

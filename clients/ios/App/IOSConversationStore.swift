@@ -163,7 +163,7 @@ class IOSConversationStore: ObservableObject {
 
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
-    private var daemonClient: any DaemonClientProtocol
+    private var daemonClient: GatewayConnectionManager
     private var eventStreamClient: EventStreamClient
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
@@ -190,7 +190,7 @@ class IOSConversationStore: ObservableObject {
     /// Current offset used for the next page fetch; advances by `conversationPageSize` on each load.
     private var conversationListOffset: Int = 0
     /// Reconnect-generation counter. Incremented only when pagination is reset due to a
-    /// reconnect (or a `rebindDaemonClient` call). Never incremented on ordinary
+    /// reconnect (or a `rebindGatewayConnectionManager` call). Never incremented on ordinary
     /// `loadMoreConversations` calls.
     ///
     /// Because the daemon does not echo a request ID back in conversation-list responses, we
@@ -378,7 +378,7 @@ class IOSConversationStore: ObservableObject {
     }
 
     init(
-        daemonClient: any DaemonClientProtocol,
+        daemonClient: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         connectedModeOverride: Bool? = nil,
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
@@ -398,7 +398,7 @@ class IOSConversationStore: ObservableObject {
         self.userDefaults = userDefaults
         Self.migrateKeysIfNeeded(userDefaults: userDefaults)
 
-        if let daemon = daemonClient as? DaemonClient, connectedModeOverride != false {
+        if let daemon = daemonClient as? GatewayConnectionManager, connectedModeOverride != false {
             // Connected mode — show cached conversations instantly or spinner on first launch
             isConnectedMode = true
             let cached = Self.loadConnectedCache(from: userDefaults)
@@ -435,7 +435,7 @@ class IOSConversationStore: ObservableObject {
 
     // MARK: - Daemon Conversation Sync
 
-    private func setupDaemonCallbacks(_ daemon: DaemonClient) {
+    private func setupDaemonCallbacks(_ daemon: GatewayConnectionManager) {
         subscribeTask?.cancel()
         subscribeTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -509,7 +509,7 @@ class IOSConversationStore: ObservableObject {
     /// the guard window (conversationListGeneration != expectedConversationListGeneration) remains open
     /// for any response that arrives between the generation bump and this send.  If the send
     /// throws, the expected generation is not advanced and the guard stays closed.
-    private func sendPageOneConversationList(daemon: DaemonClient) {
+    private func sendPageOneConversationList(daemon: GatewayConnectionManager) {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
@@ -524,7 +524,7 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    /// Re-point the store at a freshly constructed DaemonClient after `rebuildClient()`.
+    /// Re-point the store at a freshly constructed GatewayConnectionManager after `rebuildClient()`.
     ///
     /// `@StateObject` is initialised once by SwiftUI and never replaced when `ContentView`
     /// re-initialises, so when the connection is rebuilt (QR pairing, settings change) the
@@ -533,8 +533,8 @@ class IOSConversationStore: ObservableObject {
     /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
     /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
     /// client so the conversation list is refreshed from the new connection.
-    func rebindDaemonClient(_ newClient: any DaemonClientProtocol, eventStreamClient newEventStreamClient: EventStreamClient) {
-        // Drop Combine subscriptions tied to the old DaemonClient so the reconnect
+    func rebindGatewayConnectionManager(_ newClient: GatewayConnectionManager, eventStreamClient newEventStreamClient: EventStreamClient) {
+        // Drop Combine subscriptions tied to the old GatewayConnectionManager so the reconnect
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
         cancellables.removeAll()
 
@@ -556,7 +556,7 @@ class IOSConversationStore: ObservableObject {
         selectionRequest = nil
         pendingConversationAnchorRequest = nil
 
-        if let daemon = newClient as? DaemonClient {
+        if let daemon = newClient as? GatewayConnectionManager {
             // Connected mode — show cached conversations instantly or spinner on first launch.
             isConnectedMode = true
             locallyEditedConversationIds.removeAll()

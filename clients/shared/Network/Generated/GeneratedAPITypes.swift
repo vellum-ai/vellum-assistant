@@ -2754,7 +2754,7 @@ public struct NotificationIntentResult: Codable, Sendable {
 ///
 /// Wire format uses camelCase keys (matching the daemon TypeScript definition
 /// in `assistant/src/daemon/message-types/upgrades.ts`). The `JSONDecoder` in
-/// `HTTPDaemonClient` uses default key decoding (no `.convertFromSnakeCase`),
+/// `HTTPGatewayConnectionManager` uses default key decoding (no `.convertFromSnakeCase`),
 /// so property names here must match the camelCase wire keys exactly.
 public struct ServiceGroupUpdateStarting: Codable, Sendable {
     public let type: String
@@ -2774,7 +2774,7 @@ public struct ServiceGroupUpdateStarting: Codable, Sendable {
 ///
 /// Wire format uses camelCase keys (matching the daemon TypeScript definition
 /// in `assistant/src/daemon/message-types/upgrades.ts`). The `JSONDecoder` in
-/// `HTTPDaemonClient` uses default key decoding (no `.convertFromSnakeCase`),
+/// `HTTPGatewayConnectionManager` uses default key decoding (no `.convertFromSnakeCase`),
 /// so property names here must match the camelCase wire keys exactly.
 public struct ServiceGroupUpdateComplete: Codable, Sendable {
     public let type: String

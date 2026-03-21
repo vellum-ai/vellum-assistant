@@ -4,12 +4,12 @@ import XCTest
 
 @MainActor
 final class ConversationManagerConversationLoopTests: XCTestCase {
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var conversationManager: ConversationManager!
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         conversationManager = ConversationManager(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
     }

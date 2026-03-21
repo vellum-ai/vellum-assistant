@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class ConversationManagerUnseenStateTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var conversationManager: ConversationManager!
     private var sentMessages: [Any] = []
 
@@ -26,7 +26,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         conversationManager = ConversationManager(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         conversationManager.createConversation()

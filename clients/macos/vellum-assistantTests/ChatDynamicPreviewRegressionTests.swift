@@ -13,7 +13,7 @@ import XCTest
 @MainActor
 final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {

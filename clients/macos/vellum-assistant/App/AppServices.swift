@@ -22,7 +22,7 @@ public final class AppServices {
     )
 
     /// Reconfigure the connection for a new assistant.
-    func reconfigureDaemonClient(config: DaemonConfig) {
+    func reconfigureGatewayConnectionManager(config: DaemonConfig) {
         let conversationKey: String?
         if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
         connectionManager.reconfigure(

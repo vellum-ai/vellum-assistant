@@ -73,7 +73,7 @@ extension AppDelegate {
                 ),
                 transportMetadata: metadata
             )
-            services.reconfigureDaemonClient(config: config)
+            services.reconfigureGatewayConnectionManager(config: config)
             log.info("Configured managed transport for assistant \(assistant.assistantId, privacy: .public) via platform at \(platformBaseURL, privacy: .public)")
             return
         }
@@ -90,7 +90,7 @@ extension AppDelegate {
                 bearerToken: nil,
                 conversationKey: conversationKey
             ), instanceDir: instanceDir)
-            services.reconfigureDaemonClient(config: config)
+            services.reconfigureGatewayConnectionManager(config: config)
             log.info("Configured local HTTP transport on port \(port)")
             return
         }
@@ -103,14 +103,14 @@ extension AppDelegate {
 
         // Reconfigure the daemon client's transport in place. This preserves
         // object identity so all long-lived holders keep a valid reference.
-        services.reconfigureDaemonClient(config: config)
+        services.reconfigureGatewayConnectionManager(config: config)
 
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId, privacy: .public) at \(runtimeUrl, privacy: .public)")
     }
 
     // MARK: - Daemon Client Setup
 
-    func setupDaemonClient(isFirstLaunch: Bool = false) {
+    func setupGatewayConnectionManager(isFirstLaunch: Bool = false) {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
@@ -258,15 +258,15 @@ extension AppDelegate {
             // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
             if !daemonClient.isConnected && !connectionManager.isConnecting {
-                log.info("setupDaemonClient: calling connect()")
+                log.info("setupGatewayConnectionManager: calling connect()")
                 do {
                     try await connectionManager.connect()
-                    log.info("setupDaemonClient: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
+                    log.info("setupGatewayConnectionManager: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
             } else {
-                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
+                log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
@@ -285,7 +285,7 @@ extension AppDelegate {
 
     /// Subscribe to the daemon event stream and dispatch events to their handlers.
     /// Replaces the ~20 individual onX callback assignments that were previously set
-    /// on DaemonClient. Each event type is handled in a single switch statement.
+    /// on GatewayConnectionManager. Each event type is handled in a single switch statement.
     private func startDaemonEventSubscription() {
         Task { @MainActor [weak self] in
             guard let self else { return }

@@ -13,7 +13,7 @@ enum ContactSelection: Hashable {
 /// selected contact, the assistant channel configuration, or a placeholder.
 @MainActor
 struct ContactsContainerView: View {
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var isEmailEnabled: Bool = false
@@ -24,7 +24,7 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+    init(daemonClient: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
         self.conversationManager = conversationManager

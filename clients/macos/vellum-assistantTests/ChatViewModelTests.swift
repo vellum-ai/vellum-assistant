@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class ChatViewModelTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
@@ -325,7 +325,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testErrorResetsProcessingMessagesToSent() {
-        // Set up state directly because DaemonClient.send() throws in tests
+        // Set up state directly because GatewayConnectionManager.send() throws in tests
         // (no real socket), which prevents sendMessage() from establishing
         // queue bookkeeping.
         viewModel.bootstrapCorrelationId = "test-correlation-id"
@@ -351,7 +351,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testErrorDuringCancellationClearsQueueState() {
-        // Set up state directly because DaemonClient.send() throws in tests.
+        // Set up state directly because GatewayConnectionManager.send() throws in tests.
         // Simulate the state after a successful cancel send: isCancelling is
         // true, isSending stays true, isThinking is false.
         viewModel.bootstrapCorrelationId = "test-correlation-id"
@@ -389,7 +389,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testErrorWithPendingQueuePreservesQueueBookkeeping() {
-        // Set up state directly because DaemonClient.send() throws in tests.
+        // Set up state directly because GatewayConnectionManager.send() throws in tests.
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
@@ -411,7 +411,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testErrorWithEmptyQueueClearsAllBookkeeping() {
-        // Set up state directly because DaemonClient.send() throws in tests.
+        // Set up state directly because GatewayConnectionManager.send() throws in tests.
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
@@ -529,7 +529,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testStopGeneratingWhenDisconnectedResetsAllState() {
         // Set up state directly to establish meaningful queue state, since
-        // DaemonClient.send() throws when connection is nil.
+        // GatewayConnectionManager.send() throws when connection is nil.
         viewModel.conversationId = "test-conversation"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -1462,7 +1462,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testConversationErrorResetsProcessingMessagesToSent() {
-        // Set up state directly because DaemonClient.send() throws in tests.
+        // Set up state directly because GatewayConnectionManager.send() throws in tests.
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
@@ -1659,7 +1659,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testConversationErrorDeliveredViaStreamNotCallback() {
         // Regression: conversation errors arrive through handleServerMessage (stream),
-        // not through a singleton callback on DaemonClient.
+        // not through a singleton callback on GatewayConnectionManager.
         viewModel.conversationId = "sess-1"
 
         let errorMsg = ConversationErrorMessage(

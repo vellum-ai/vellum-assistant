@@ -269,7 +269,7 @@ extension AppDelegate {
 
         // Ensure daemon connectivity for the interview step
         if !daemonClient.isConnected {
-            setupDaemonClient()
+            setupGatewayConnectionManager()
         }
 
         // Track whether the main window was visible so we can restore it
@@ -316,7 +316,7 @@ extension AppDelegate {
         guard onboardingWindow == nil else { return }
 
         if !daemonClient.isConnected {
-            setupDaemonClient()
+            setupGatewayConnectionManager()
         }
 
         // Snapshot existing assistant IDs so we can detect the new one after hatch

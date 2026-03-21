@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     @State private var appearance = AvatarAppearanceManager.shared

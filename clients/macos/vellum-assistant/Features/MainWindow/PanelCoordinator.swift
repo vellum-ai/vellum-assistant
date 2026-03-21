@@ -592,7 +592,7 @@ struct ActiveChatViewWrapper: View {
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
@@ -789,7 +789,7 @@ struct DynamicWorkspaceWrapper: View {
     let data: DynamicPageSurfaceData
     @ObservedObject var windowState: MainWindowState
     let surfaceManager: SurfaceManager
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
     var sharing: SharingState

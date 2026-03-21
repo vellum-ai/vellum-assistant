@@ -62,13 +62,13 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
     }
 
-    private var daemonClient: MockDaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var settingsClient: StubSettingsClient!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = MockDaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         settingsClient = StubSettingsClient()
         viewModel = ChatViewModel(

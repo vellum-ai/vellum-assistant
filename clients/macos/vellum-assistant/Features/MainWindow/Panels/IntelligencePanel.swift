@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
-    let daemonClient: DaemonClient
+    let daemonClient: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
@@ -20,7 +20,7 @@ struct IntelligencePanel: View {
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient

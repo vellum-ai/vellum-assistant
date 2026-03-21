@@ -62,7 +62,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
-    var daemonClient: DaemonClient { services.daemonClient }
+    var daemonClient: GatewayConnectionManager { services.daemonClient }
     var connectionManager: GatewayConnectionManager { services.connectionManager }
     var eventStreamClient: EventStreamClient { services.connectionManager.eventStreamClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
@@ -141,7 +141,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var lastNotificationPermissionToastAtMs: Double = 0
 
     /// Structured error from the most recent daemon startup failure.
-    /// Populated by `setupDaemonClient()` when `hatch()` throws a
+    /// Populated by `setupGatewayConnectionManager()` when `hatch()` throws a
     /// `CLIError.daemonStartupFailed`. Read by the UI to show a
     /// contextual error view instead of a generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
@@ -457,14 +457,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         hasSetupApp = true
 
         // On first launch (post-onboarding), the lockfile now has the
-        // hatched assistant. Reset hasSetupDaemon so setupDaemonClient()
+        // hatched assistant. Reset hasSetupDaemon so setupGatewayConnectionManager()
         // re-reads the lockfile, configures the correct transport (HTTP
-        // for remote), and wires all callbacks to the right DaemonClient.
+        // for remote), and wires all callbacks to the right GatewayConnectionManager.
         if isFirstLaunch {
             hasSetupDaemon = false
         }
 
-        setupDaemonClient(isFirstLaunch: isFirstLaunch)
+        setupGatewayConnectionManager(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
         patchAppMenuTitles()

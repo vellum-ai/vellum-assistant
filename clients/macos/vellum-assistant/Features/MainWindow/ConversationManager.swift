@@ -13,7 +13,7 @@ private let archivedConversationsNewKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
-/// Abstraction for direct conversation mutations, decoupled from DaemonClient.
+/// Abstraction for direct conversation mutations, decoupled from GatewayConnectionManager.
 @MainActor
 protocol ConversationClientProtocol {
     func deleteConversation(_ conversationId: String) async
@@ -108,7 +108,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let maxCachedViewModels = 10
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
-    private let daemonClient: DaemonClient
+    private let daemonClient: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
@@ -246,7 +246,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     init(
-        daemonClient: DaemonClient,
+        daemonClient: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),

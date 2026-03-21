@@ -11,7 +11,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let detailClient = MockConversationDetailClient()
         detailClient.response = ConversationListResponseItem(
@@ -138,7 +138,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
+        let daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-tip")
@@ -199,16 +199,16 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true), for: privateConversation))
+        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true), for: privateConversation))
         XCTAssertNil(
             makeCurrentTipForkToolbarAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
+                store: IOSConversationStore(daemonClient: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )
         XCTAssertNil(
             makeOpenForkParentAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
+                store: IOSConversationStore(daemonClient: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )

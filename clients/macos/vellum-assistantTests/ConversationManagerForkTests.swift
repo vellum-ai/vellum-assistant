@@ -31,14 +31,14 @@ private final class MockConversationDetailClient: ConversationDetailClientProtoc
 @MainActor
 final class ConversationManagerForkTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var daemonClient: GatewayConnectionManager!
     private var conversationManager: ConversationManager!
     private var forkClient: MockConversationForkClient!
     private var detailClient: MockConversationDetailClient!
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        daemonClient = GatewayConnectionManager()
         daemonClient.isConnected = true
         forkClient = MockConversationForkClient()
         detailClient = MockConversationDetailClient()

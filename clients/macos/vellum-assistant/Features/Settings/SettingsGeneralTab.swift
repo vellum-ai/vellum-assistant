@@ -5,7 +5,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsGeneralTab: View {
     @ObservedObject var store: SettingsStore
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var authManager: AuthManager
     var onClose: () -> Void
     var showToast: (String, ToastInfo.Style) -> Void

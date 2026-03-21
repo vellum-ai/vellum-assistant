@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// and optional notes.
 @MainActor
 struct ContactCreateView: View {
-    var daemonClient: DaemonClient?
+    var daemonClient: GatewayConnectionManager?
     var contactClient: ContactClientProtocol = ContactClient()
     @Binding var isPresented: Bool
     var onCreated: ((ContactPayload) -> Void)?
