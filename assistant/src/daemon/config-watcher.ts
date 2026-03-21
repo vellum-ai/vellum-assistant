@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
@@ -152,6 +153,9 @@ export class ConfigWatcher {
     const protectedHandlers: Record<string, () => void> = {
       "trust.json": () => {
         clearTrustCache();
+      },
+      "feature-flags.json": () => {
+        clearFeatureFlagOverridesCache();
       },
       "secret-allowlist.json": () => {
         resetAllowlist();
