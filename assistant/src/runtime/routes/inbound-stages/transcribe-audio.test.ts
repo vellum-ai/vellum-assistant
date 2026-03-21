@@ -24,7 +24,7 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ assistantFeatureFlagValues: {} }),
+  getConfig: () => ({}),
 }));
 
 mock.module("../../../memory/attachments-store.js", () => ({

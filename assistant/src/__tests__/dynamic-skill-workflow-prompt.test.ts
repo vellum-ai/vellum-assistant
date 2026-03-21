@@ -53,9 +53,6 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    assistantFeatureFlagValues: {
-      "feature_flags.browser.enabled": true,
-    },
     services: {
       inference: {
         mode: "your-own",
@@ -81,13 +78,19 @@ mock.module("../config/loader.js", () => ({
 }));
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
+const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+  await import("../config/assistant-feature-flags.js");
 
 describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+    _setOverridesForTesting({
+      "feature_flags.browser.enabled": true,
+    });
   });
 
   afterEach(() => {
+    clearFeatureFlagOverridesCache();
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

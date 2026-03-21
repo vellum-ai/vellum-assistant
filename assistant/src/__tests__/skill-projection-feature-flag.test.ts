@@ -3,7 +3,7 @@
  * tools, even when conversation history contains old markers for those skills.
  */
 import * as realFs from "node:fs";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
@@ -36,23 +36,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
   loadConfig: () => currentConfig,
   invalidateConfigCache: () => {},
-}));
-
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (
-    key: string,
-    config: Record<string, unknown>,
-  ) => {
-    const vals = (
-      config as {
-        assistantFeatureFlagValues?: Record<string, boolean>;
-      }
-    ).assistantFeatureFlagValues;
-    if (vals && typeof vals[key] === "boolean") return vals[key];
-    return true; // default enabled
-  },
-  loadDefaultsRegistry: () => ({}),
-  getAssistantFeatureFlagDefaults: () => ({}),
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -216,6 +199,8 @@ mock.module("../util/logger.js", () => ({
 
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
+const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+  await import("../config/assistant-feature-flags.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,7 +274,12 @@ describe("projectSkillTools feature flag enforcement", () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     currentConfig = {};
+    clearFeatureFlagOverridesCache();
     resetSkillToolProjection();
+  });
+
+  afterEach(() => {
+    clearFeatureFlagOverridesCache();
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
@@ -302,10 +292,8 @@ describe("projectSkillTools feature flag enforcement", () => {
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
-    // Feature flag is OFF
-    currentConfig = {
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
-    };
+    // Feature flag is OFF — use protected directory override
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -325,10 +313,8 @@ describe("projectSkillTools feature flag enforcement", () => {
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
-    // Feature flag is ON
-    currentConfig = {
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
-    };
+    // Feature flag is ON — use protected directory override
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -419,9 +405,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Declared skill is OFF, plain-skill is undeclared with no persisted override so remains ON.
-    currentConfig = {
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
-    };
+    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
