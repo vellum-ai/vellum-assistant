@@ -183,11 +183,6 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = AssistantFeatureFlagResolver.isEnabled(Self.schedulesFeatureFlagKey)
-            store.refreshAPIKeyState()
-            store.loadProviderRoutingSources()
-            store.refreshTelegramStatus()
-            store.refreshTwilioStatus()
-            store.refreshIngressConfig()
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -487,6 +482,13 @@ struct SettingsPanel: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            store.refreshAPIKeyState()
+            store.refreshVercelKeyState()
+            store.refreshModelInfo()
+            store.loadProviderRoutingSources()
+            store.refreshEmbeddingConfig()
+        }
     }
 
     // MARK: - Permissions & Privacy Tab

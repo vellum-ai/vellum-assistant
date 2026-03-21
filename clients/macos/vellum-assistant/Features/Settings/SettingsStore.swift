@@ -466,34 +466,6 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Re-sync all API keys and refresh remote state when the daemon reconnects.
-        // This also covers the first-launch case where SettingsStore is initialized
-        // before onboarding sets connectedAssistantId.
-        NotificationCenter.default.publisher(for: .daemonDidReconnect)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.syncAllKeysToDaemon()
-                self?.refreshVercelKeyState()
-                self?.refreshModelInfo()
-                self?.refreshTelegramStatus()
-                self?.refreshTwilioStatus()
-                self?.refreshChannelVerificationStatus(channel: "telegram")
-                self?.refreshChannelVerificationStatus(channel: "phone")
-                self?.refreshChannelVerificationStatus(channel: "slack")
-                self?.loadProviderRoutingSources()
-                self?.refreshEmbeddingConfig()
-                self?.refreshDangerouslySkipPermissions()
-            }
-            .store(in: &cancellables)
-
-        // Refresh routing sources when local assistant bootstrap completes
-        // (e.g. after sign-in provisions an API key into the daemon)
-        NotificationCenter.default.publisher(for: .localBootstrapCompleted)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.loadProviderRoutingSources()
-            }
-            .store(in: &cancellables)
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
@@ -584,28 +556,6 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
-        // Only fetch remote state when an assistant is already connected.
-        // During initial setup there is no assistant yet, so these calls
-        // would all fail with "No connected assistant" errors.
-        let hasConnectedAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") != nil
-        if hasConnectedAssistant {
-            refreshVercelKeyState()
-            refreshModelInfo()
-            refreshTelegramStatus()
-            refreshTwilioStatus()
-            refreshChannelVerificationStatus(channel: "telegram")
-            refreshChannelVerificationStatus(channel: "phone")
-            refreshChannelVerificationStatus(channel: "slack")
-
-            // Fetch provider routing sources (managed vs BYO) on init
-            loadProviderRoutingSources()
-
-            // Fetch embedding config on init
-            refreshEmbeddingConfig()
-
-            // Fetch skip-permissions state for Docker assistants on init
-            refreshDangerouslySkipPermissions()
-        }
     }
 
     // MARK: - API Key Actions
