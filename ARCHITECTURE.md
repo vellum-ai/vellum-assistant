@@ -522,7 +522,7 @@ All feature flags (assistant-scoped and macOS-scoped) are declared in the unifie
 
 | Flag Type | Scope | Storage | Managed By |
 |-----------|-------|---------|------------|
-| Assistant feature flags (`scope: "assistant"`) | Gateway-managed, workspace config | `~/.vellum/workspace/config.json` under `assistantFeatureFlagValues` | Gateway `/v1/feature-flags` API |
+| Assistant feature flags (`scope: "assistant"`) | Gateway-managed, protected file | `~/.vellum/protected/feature-flags.json` (local) or `GATEWAY_SECURITY_DIR/feature-flags.json` (Docker) | Gateway `/v1/feature-flags` API |
 | macOS client feature flags (`scope: "macos"`) | Local-only, per-device | UserDefaults (plist) | macOS app directly |
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Flags not declared in the registry default to enabled (open by default).
@@ -530,7 +530,7 @@ All feature flags (assistant-scoped and macOS-scoped) are declared in the unifie
 **Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`). The legacy `skills.<id>.enabled` format is no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
-1. `config.assistantFeatureFlagValues[key]` (canonical config section)
+1. `~/.vellum/protected/feature-flags.json` overrides (local) or gateway HTTP API (Docker)
 2. Defaults registry `defaultEnabled`
 3. `true` (unknown flags are open by default)
 
