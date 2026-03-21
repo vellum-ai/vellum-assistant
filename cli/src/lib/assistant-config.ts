@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { randomBytes } from "crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -124,7 +132,16 @@ function readLockfile(): LockfileData {
 
 function writeLockfile(data: LockfileData): void {
   const lockfilePath = join(getLockfileDir(), ".vellum.lock.json");
-  writeFileSync(lockfilePath, JSON.stringify(data, null, 2) + "\n");
+  const tmpPath = `${lockfilePath}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n");
+    renameSync(tmpPath, lockfilePath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
 }
 
 /**
