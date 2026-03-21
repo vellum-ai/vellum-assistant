@@ -457,7 +457,7 @@ struct AssistantUpgradeSection: View {
         defer { isDockerOperationInProgress = false }
         do {
             try await cli.upgrade(name: name, version: version)
-            successMessage = isRollback ? "Rollback complete." : "Update complete."
+            successMessage = isRollback ? "Roll back complete." : "Update complete."
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             await loadReleasesQuietly()
@@ -468,13 +468,13 @@ struct AssistantUpgradeSection: View {
                 errorMessage = guidanceForError(cliError)
                 showFeedbackOption = true
             case .executionFailed(let stderr):
-                errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(stderr)"
+                errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(stderr)"
                 showFeedbackOption = true
             default:
-                errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
+                errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(error.localizedDescription)"
             }
         } catch {
-            errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(error.localizedDescription)"
         }
     }
 
@@ -543,7 +543,7 @@ struct AssistantUpgradeSection: View {
         case "READINESS_TIMEOUT":
             return "The assistant didn't start up in time. Check Docker Desktop for container status, or try rolling back."
         case "ROLLBACK_FAILED":
-            return "Rollback failed. Check Docker Desktop for container status."
+            return "Roll back failed. Check Docker Desktop for container status."
         case "ROLLBACK_NO_STATE":
             return "No previous version available to roll back to."
         case "AUTH_FAILED":
