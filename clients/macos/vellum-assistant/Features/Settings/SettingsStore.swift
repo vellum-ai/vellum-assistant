@@ -2180,7 +2180,6 @@ public final class SettingsStore: ObservableObject {
 
     func setInferenceMode(_ mode: String) {
         inferenceMode = mode
-        guard !isCurrentAssistantRemote else { return }
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["inference": ["mode": mode]]
@@ -2195,7 +2194,6 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenMode(_ mode: String) {
         imageGenMode = mode
-        guard !isCurrentAssistantRemote else { return }
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["image-generation": ["mode": mode]]
@@ -2209,7 +2207,6 @@ public final class SettingsStore: ObservableObject {
 
     func setWebSearchMode(_ mode: String) {
         webSearchMode = mode
-        guard !isCurrentAssistantRemote else { return }
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["web-search": ["mode": mode]]
@@ -2223,7 +2220,6 @@ public final class SettingsStore: ObservableObject {
 
     func setManagedOAuthMode(_ mode: String, providerKey: String) {
         managedOAuthMode[providerKey] = mode
-        guard !isCurrentAssistantRemote else { return }
         // Derive the config service key deterministically from providerKey so it
         // matches the key that loadServiceModes() reads on startup. Previously
         // this depended on provider metadata being loaded, which caused a race:
@@ -2653,7 +2649,6 @@ public final class SettingsStore: ObservableObject {
 
     func setWebSearchProvider(_ provider: String) {
         webSearchProvider = provider
-        guard !isCurrentAssistantRemote else { return }
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["web-search": ["provider": provider]]
@@ -2667,7 +2662,6 @@ public final class SettingsStore: ObservableObject {
 
     func setInferenceProvider(_ provider: String) {
         selectedInferenceProvider = provider
-        guard !isCurrentAssistantRemote else { return }
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["inference": ["provider": provider]]
@@ -2967,11 +2961,6 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
-        // Truly remote (managed/cloud) assistants: not supported.
-        // Docker assistants are "remote" for filesystem purposes but do
-        // support config changes via the daemon HTTP API.
-        guard !isCurrentAssistantRemote || isCurrentAssistantDocker else { return }
-        // Both Docker and local assistants: route through the daemon HTTP API.
         skipPermissionsToggleGeneration &+= 1
         let requestGeneration = skipPermissionsToggleGeneration
         dangerouslySkipPermissions = enabled
@@ -2990,8 +2979,6 @@ public final class SettingsStore: ObservableObject {
         let normalized = MediaEmbedSettings.normalizeDomains(domains)
         mediaEmbedVideoAllowlistDomains = normalized
 
-        guard !isCurrentAssistantRemote else { return }
-
         Task {
             let success = await settingsClient.patchConfig([
                 "ui": ["mediaEmbeds": ["videoAllowlistDomains": normalized]]
@@ -3005,8 +2992,6 @@ public final class SettingsStore: ObservableObject {
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
     /// the workspace config under `ui.mediaEmbeds`.
     private func persistMediaEmbedState() {
-        guard !isCurrentAssistantRemote else { return }
-
         var mediaEmbedsDict: [String: Any] = [
             "enabled": mediaEmbedsEnabled,
         ]
@@ -3099,8 +3084,6 @@ public final class SettingsStore: ObservableObject {
     // MARK: - User Timezone Loading/Persistence
 
     private func persistUserTimezone() {
-        guard !isCurrentAssistantRemote else { return }
-
         // Send the timezone string, or "" to clear it. An empty string avoids
         // sending JSON null (which would fail Zod's string().optional()
         // validation) while loadUserTimezone() already treats "" as nil via
