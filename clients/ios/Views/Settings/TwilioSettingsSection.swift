@@ -242,10 +242,9 @@ struct TwilioSettingsSection: View {
     /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
     private func resolveHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
         guard let daemon = clientProvider.client as? DaemonClient else { return nil }
-        if let httpTransport = daemon.httpTransport {
-            return (httpTransport.baseURL, httpTransport.bearerToken)
+        if case .http(let baseURL, let bearerToken, _) = daemon.config.transport {
+            return (baseURL, bearerToken)
         }
-        // Local mode is not available on iOS — httpTransport is required
         return nil
     }
 

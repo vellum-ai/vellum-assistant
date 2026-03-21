@@ -397,9 +397,9 @@ extension AppDelegate {
                     AvatarAppearanceManager.shared.reloadAvatar()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
-                    self.daemonClient.httpTransport?.executeHostBashRequest(msg)
+                    HostToolExecutor.executeHostBashRequest(msg)
                 case .hostFileRequest(let msg):
-                    self.daemonClient.httpTransport?.executeHostFileRequest(msg)
+                    HostToolExecutor.executeHostFileRequest(msg)
                 case .hostCuRequest(let msg):
                     let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
                     Task { @MainActor in

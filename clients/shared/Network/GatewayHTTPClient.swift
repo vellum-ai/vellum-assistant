@@ -520,8 +520,6 @@ public enum GatewayHTTPClient {
         #endif
 
         let result = await ActorCredentialRefresher.refresh(
-            baseURL: connection.baseURL,
-            bearerToken: ActorTokenManager.getToken(),
             platform: platform,
             deviceId: deviceId
         )

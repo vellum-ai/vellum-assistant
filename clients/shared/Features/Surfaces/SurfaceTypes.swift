@@ -576,7 +576,7 @@ public extension Surface {
     // MARK: - Private Helpers
 
     /// Parse a `SurfaceData` from a JSON HTTP response containing `surfaceType` and `data` keys.
-    /// Shared by `DaemonClient` and `HTTPTransport` to avoid duplicating the extraction logic.
+    /// Shared by surface consumers to avoid duplicating the extraction logic.
     static func parseSurfaceDataFromResponse(_ responseData: Data) -> SurfaceData? {
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let surfaceTypeRaw = json["surfaceType"] as? String,

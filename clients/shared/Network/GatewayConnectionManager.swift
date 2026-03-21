@@ -3,21 +3,23 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
 
+/// Minimal decode of the healthz response to extract the version field.
+private struct HealthzVersionResponse: Decodable {
+    let version: String?
+}
+
 /// Manages the gateway connection lifecycle: connect, disconnect,
-/// reconfigure, auto-wake, and bearer token updates.
+/// reconfigure, auto-wake, and health checks.
 ///
-/// Owns `HTTPTransport` (health checks) and coordinates with `EventStreamClient`
-/// (SSE start/stop). Does NOT own published state — `DaemonStatus` observes
-/// this manager's callbacks to update its `@Published` properties.
+/// Uses `GatewayHTTPClient` for authenticated health checks (no manual URL
+/// construction or auth handling). Coordinates with `EventStreamClient`
+/// for SSE start/stop.
 @MainActor
 public final class GatewayConnectionManager {
 
-    // MARK: - Transport
+    // MARK: - Connection State
 
-    /// HTTP transport for health checks and host tool execution.
-    public var httpTransport: HTTPTransport?
-
-    /// Current daemon connection configuration.
+    /// Current connection configuration.
     public private(set) var config: DaemonConfig
 
     /// Whether a connection attempt is in flight.
@@ -25,6 +27,42 @@ public final class GatewayConnectionManager {
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
+
+    // MARK: - Health Check
+
+    /// Periodic health check task.
+    private var healthCheckTask: Task<Void, Never>?
+
+    /// Health check interval in seconds.
+    private let healthCheckInterval: TimeInterval = 15.0
+
+    /// Whether the gateway is reachable (health check passes).
+    private(set) var isConnected: Bool = false
+
+    /// The daemon's self-reported version from the most recent health check.
+    private(set) var daemonVersion: String?
+
+    /// Whether we should attempt to reconnect on disconnect.
+    private var shouldReconnect = true
+
+    /// Whether a planned service group update is in progress.
+    /// Accelerates health check polling for faster reconnection.
+    var isUpdateInProgress: Bool = false
+
+    /// Update the in-progress flag and restart the health-check loop when
+    /// transitioning to `true`.
+    func setUpdateInProgress(_ value: Bool) {
+        let wasInProgress = isUpdateInProgress
+        isUpdateInProgress = value
+        if value && !wasInProgress && healthCheckTask != nil {
+            startHealthCheckLoop()
+        }
+    }
+
+    // MARK: - 401 Recovery
+
+    /// In-flight refresh task for coalescing concurrent 401 handlers.
+    private var refreshTask: Task<Void, Never>?
 
     // MARK: - Auto-Wake
 
@@ -39,9 +77,7 @@ public final class GatewayConnectionManager {
     public var recoveryDeviceId: String?
 
     #if os(macOS)
-    /// Timestamp of the last auto-wake attempt.
     var lastAutoWakeAttempt: Date?
-    /// The in-flight auto-wake task.
     var autoWakeTask: Task<Void, Never>?
     #endif
 
@@ -58,7 +94,7 @@ public final class GatewayConnectionManager {
 
     // MARK: - Dependencies
 
-    /// Event stream client — ConnectionManager starts/stops SSE and registers conversation IDs.
+    /// Event stream client — starts/stops SSE and registers conversation IDs.
     private let eventStreamClient: EventStreamClient
 
     // MARK: - Init
@@ -79,63 +115,32 @@ public final class GatewayConnectionManager {
 
         isConnecting = true
 
-        guard case .http(let baseURL, let bearerToken, let conversationKey) = config.transport else {
+        guard case .http(_, _, let conversationKey) = config.transport else {
             isConnecting = false
             log.info("connect: non-HTTP transport, skipping")
             return
         }
-
-        log.info("connect: establishing HTTP transport to \(baseURL, privacy: .public)")
-
-        let transport = HTTPTransport(
-            baseURL: baseURL,
-            bearerToken: bearerToken,
-            conversationKey: conversationKey,
-            transportMetadata: config.transportMetadata
-        )
-
-        // Bridge HTTP transport connection state to DaemonStatus via callback.
-        transport.onConnectionStateChanged = { [weak self] connected in
-            guard let self else { return }
-            self.isConnecting = false
-            self.onConnectionStateChanged?(connected)
-            #if os(macOS)
-            if !connected {
-                self.autoWakeIfDaemonDied()
-            }
-            #endif
-        }
-
-        // Sync daemon version from health checks.
-        transport.onDaemonVersionChanged = { [weak self] newVersion in
-            self?.onDaemonVersionChanged?(newVersion)
-        }
-
-        // Broadcast auth errors from health check 401 handling.
-        transport.onAuthError = { [weak self] message in
-            self?.onAuthError?(message)
-        }
-
-        self.httpTransport = transport
 
         // Register the conversation key for host tool filtering
         if !conversationKey.isEmpty {
             eventStreamClient.registerConversationId(conversationKey)
         }
 
+        shouldReconnect = true
+
         do {
-            try await transport.connect()
+            try await performHealthCheck()
+            startHealthCheckLoop()
+
             isAuthenticated = true
             isConnecting = false
-            log.info("connect: transport connected successfully to \(baseURL, privacy: .public)")
+            log.info("connect: connected successfully")
 
-            // Auto-start SSE now that health check passed
             eventStreamClient.startSSE()
         } catch {
             #if os(macOS)
             guard !Task.isCancelled else {
                 isConnecting = false
-                httpTransport = nil
                 log.info("connect: task cancelled — skipping auto-wake")
                 throw error
             }
@@ -146,23 +151,22 @@ public final class GatewayConnectionManager {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
                     do {
                         try await wakeHandler()
-                        log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
-                        try await transport.connect()
+                        try await performHealthCheck()
+                        startHealthCheckLoop()
                         isAuthenticated = true
                         isConnecting = false
-                        log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
+                        log.info("connect: retry after auto-wake succeeded")
                         eventStreamClient.startSSE()
                         return
                     } catch {
-                        log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+                        log.error("connect: auto-wake or retry failed: \(error)")
                     }
                 }
             }
             #endif
 
             isConnecting = false
-            httpTransport = nil
-            log.error("connect: transport connection failed for \(baseURL, privacy: .public): \(error)")
+            log.error("connect: connection failed: \(error)")
             throw error
         }
     }
@@ -183,18 +187,16 @@ public final class GatewayConnectionManager {
         }
         #endif
 
-        httpTransport?.disconnect()
-        httpTransport = nil
-        // Stop SSE but preserve subscriber streams — consumers start one-shot
-        // for-await loops that must survive reconnects and assistant switches.
+        shouldReconnect = false
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+        setConnected(false)
+
         eventStreamClient.stopSSE()
     }
 
     // MARK: - Reconfigure
 
-    /// Reconfigure the transport in place without replacing object identity.
-    /// Preserves subscriber references across assistant switches.
-    /// Callers must call `connect()` after reconfiguring.
     public func reconfigure(config newConfig: DaemonConfig) {
         #if os(macOS)
         autoWakeTask?.cancel()
@@ -203,16 +205,136 @@ public final class GatewayConnectionManager {
         disconnect()
         self.config = newConfig
         isAuthenticated = false
+        refreshTask?.cancel()
+        refreshTask = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
     }
 
-    // MARK: - Token Update
+    // MARK: - Health Check (via GatewayHTTPClient)
 
-    /// Push a new bearer token to the active HTTP transport.
-    public func updateBearerToken(_ token: String) {
-        httpTransport?.updateBearerToken(token)
+    /// Run a single health check via GatewayHTTPClient.
+    private func performHealthCheck() async throws {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/healthz",
+                timeout: 10
+            )
+
+            guard response.isSuccess else {
+                if response.statusCode == 401 {
+                    handleAuthenticationFailure()
+                    if config.transportMetadata.routeMode == .platformAssistantProxy {
+                        shouldReconnect = false
+                    }
+                }
+                throw ConnectionError.healthCheckFailed
+            }
+
+            // Extract daemon version from response body
+            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
+                if let newVersion = decoded.version, newVersion != daemonVersion {
+                    daemonVersion = newVersion
+                    if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
+                        LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
+                    }
+                    onDaemonVersionChanged?(newVersion)
+                } else if let newVersion = decoded.version {
+                    daemonVersion = newVersion
+                }
+            }
+
+            log.info("Health check passed")
+            setConnected(true)
+        } catch let error as GatewayHTTPClient.ClientError {
+            log.error("Health check client error: \(error.localizedDescription)")
+            setConnected(false)
+            throw ConnectionError.healthCheckFailed
+        } catch let error as ConnectionError {
+            setConnected(false)
+            throw error
+        } catch {
+            log.error("Health check failed: \(error.localizedDescription)")
+            setConnected(false)
+            throw ConnectionError.healthCheckFailed
+        }
+    }
+
+    /// Periodically poll healthz to maintain connection status.
+    private func startHealthCheckLoop() {
+        healthCheckTask?.cancel()
+
+        healthCheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
+                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                } catch {
+                    return
+                }
+
+                guard let self, self.shouldReconnect else { return }
+
+                do {
+                    try await self.performHealthCheck()
+                } catch {
+                    log.warning("Periodic health check failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    // MARK: - 401 Recovery
+
+    private func handleAuthenticationFailure() {
+        if config.transportMetadata.routeMode == .platformAssistantProxy {
+            log.warning("401 in managed mode — session token may be expired")
+            onAuthError?(.conversationError(ConversationErrorMessage(
+                conversationId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please sign in again.",
+                retryable: false
+            )))
+            disconnect()
+            return
+        }
+
+        // Coalesce concurrent 401 handlers
+        guard refreshTask == nil else { return }
+
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.refreshTask = nil }
+
+            #if os(macOS)
+            let platform = "macos"
+            let deviceId = HostIdComputer.computeHostId()
+            #else
+            let platform = "ios"
+            let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
+            #endif
+
+            let result = await ActorCredentialRefresher.refresh(
+                platform: platform,
+                deviceId: deviceId
+            )
+
+            switch result {
+            case .success:
+                log.info("Token refresh succeeded")
+            case .terminalError(let reason):
+                log.error("Token refresh failed terminally: \(reason) — re-pair required")
+                self.onAuthError?(.conversationError(ConversationErrorMessage(
+                    conversationId: "",
+                    code: .authenticationRequired,
+                    userMessage: "Session expired. Please re-pair your device.",
+                    retryable: false
+                )))
+            case .transientError:
+                log.warning("Token refresh encountered transient error — will retry on next 401")
+            }
+        }
     }
 
     // MARK: - Auto-Wake
@@ -263,6 +385,36 @@ public final class GatewayConnectionManager {
         }
     }
     #endif
+
+    // MARK: - Helpers
+
+    private func setConnected(_ connected: Bool) {
+        guard isConnected != connected else { return }
+        isConnected = connected
+        isConnecting = false
+        onConnectionStateChanged?(connected)
+        #if os(macOS)
+        if !connected {
+            autoWakeIfDaemonDied()
+        }
+        #endif
+    }
+
+    // MARK: - Errors
+
+    public enum ConnectionError: Error, LocalizedError {
+        case healthCheckFailed
+        case invalidURL
+
+        public var errorDescription: String? {
+            switch self {
+            case .healthCheckFailed:
+                return "Gateway health check failed"
+            case .invalidURL:
+                return "Invalid gateway URL"
+            }
+        }
+    }
 
     deinit {
         #if os(macOS)

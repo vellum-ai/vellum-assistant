@@ -253,13 +253,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 guard !Task.isCancelled else { return }
 
                 if ActorTokenManager.needsProactiveRefresh {
-                    guard let daemon = self.clientProvider.client as? DaemonClient,
-                          daemon.isConnected,
-                          let httpTransport = daemon.httpTransport else { continue }
+                    guard self.clientProvider.client.isConnected else { continue }
 
                     let result = await ActorCredentialRefresher.refresh(
-                        baseURL: httpTransport.baseURL,
-                        bearerToken: httpTransport.bearerToken,
                         platform: "ios",
                         deviceId: Self.getOrCreateDeviceId()
                     )
