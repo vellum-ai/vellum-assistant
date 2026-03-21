@@ -31,7 +31,10 @@ struct AboutVellumView: View {
             : .remote
     }
 
-    /// Whether the client and service group versions match.
+    /// Whether the client and service-group versions are semantically equal
+    /// (major.minor.patch). Pre-release suffixes (e.g., `-beta.1`) are
+    /// intentionally ignored — only the release triple matters for the
+    /// "versions match" checkmark in the About window.
     private var versionsMatch: Bool {
         guard let sgVersion = healthz?.version, !sgVersion.isEmpty,
               let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
