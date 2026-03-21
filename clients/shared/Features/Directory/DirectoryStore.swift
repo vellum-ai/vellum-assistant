@@ -24,6 +24,7 @@ public final class DirectoryStore: ObservableObject {
     /// Daemon client retained for push event subscriptions (appFilesChanged)
     /// which use message transport.
     private weak var daemonClient: DaemonClient?
+    private let eventStreamClient: EventStreamClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
     private var reconnectObserver: NSObjectProtocol?
@@ -34,6 +35,7 @@ public final class DirectoryStore: ObservableObject {
         self.appsClient = AppsClient()
         self.documentClient = documentClient
         self.daemonClient = daemonClient
+        self.eventStreamClient = daemonClient.eventStreamClient
         subscribeToAppFilesChanged()
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,
@@ -175,8 +177,8 @@ public final class DirectoryStore: ObservableObject {
     private func subscribeToAppFilesChanged() {
         appFilesChangedTask?.cancel()
         appFilesChangedTask = Task { [weak self] in
-            guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.eventStreamClient.subscribe()
+            guard let eventStreamClient = self?.eventStreamClient else { return }
+            let stream = eventStreamClient.subscribe()
 
             for await message in stream {
                 guard let self, !Task.isCancelled else { return }

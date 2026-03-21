@@ -41,6 +41,7 @@ struct MainWindowView: View {
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let daemonClient: DaemonClient
+    let eventStreamClient: EventStreamClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
@@ -73,6 +74,7 @@ struct MainWindowView: View {
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
+        self.eventStreamClient = daemonClient.eventStreamClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
@@ -735,7 +737,7 @@ struct MainWindowView: View {
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
         }
-        daemonClient.eventStreamClient.startSSE()
+        eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
     }
 
@@ -752,7 +754,7 @@ struct MainWindowView: View {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
-        daemonClient.eventStreamClient.stopSSE()
+        eventStreamClient.stopSSE()
     }
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {

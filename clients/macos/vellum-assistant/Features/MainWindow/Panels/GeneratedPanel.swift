@@ -26,6 +26,7 @@ struct GeneratedPanel: View {
     var onClose: () -> Void
     @Binding var isExpanded: Bool
     let daemonClient: DaemonClient
+    let eventStreamClient: EventStreamClient
     let gatewayBaseURL: String
     /// When set, app opens route to the workspace instead of a floating NSPanel.
     var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
@@ -57,6 +58,7 @@ struct GeneratedPanel: View {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
+        self.eventStreamClient = daemonClient.eventStreamClient
         self.gatewayBaseURL = gatewayBaseURL
         self.onOpenApp = onOpenApp
         self.onRecordAppOpen = onRecordAppOpen
@@ -606,7 +608,7 @@ struct GeneratedPanel: View {
             if let onOpenApp {
                 onOpenApp(surfaceMsg)
             } else {
-                daemonClient.eventStreamClient.broadcastMessage(.uiSurfaceShow(surfaceMsg))
+                eventStreamClient.broadcastMessage(.uiSurfaceShow(surfaceMsg))
             }
         }
     }

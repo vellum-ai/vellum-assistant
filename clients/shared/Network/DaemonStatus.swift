@@ -7,7 +7,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public protocol DaemonStatusProtocol: AnyObject {
     var isConnected: Bool { get }
-    var eventStreamClient: EventStreamClient { get }
     func connect() async throws
     func disconnect()
 }

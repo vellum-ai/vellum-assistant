@@ -254,6 +254,7 @@ public final class MainWindow {
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
     private var daemonClient: DaemonClient { services.daemonClient }
+    private var eventStreamClient: EventStreamClient { services.daemonClient.eventStreamClient }
     private var surfaceManager: SurfaceManager { services.surfaceManager }
     private var ambientAgent: AmbientAgent { services.ambientAgent }
     private var zoomManager: ZoomManager { services.zoomManager }
@@ -286,7 +287,7 @@ public final class MainWindow {
         documentManager.daemonClient = daemonClient
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .traceEvent(let msg):
                     self.traceStore.ingest(msg)

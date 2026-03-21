@@ -31,11 +31,15 @@ final class ClientProvider: ObservableObject {
     /// Task running the SSE subscribe loop that ingests trace events.
     private var traceSubscriptionTask: Task<Void, Never>?
 
+    /// Direct reference to the event stream client, resolved from the daemon client.
+    private(set) var eventStreamClient: EventStreamClient
+
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
     init(client: any DaemonClientProtocol) {
         self.client = client
+        self.eventStreamClient = (client as? DaemonStatus)?.eventStreamClient ?? EventStreamClient()
         self.traceStore = TraceStore()
         bindCombineBridge()
         bindTraceEvents()
@@ -55,6 +59,7 @@ final class ClientProvider: ObservableObject {
         newClient.recoveryPlatform = prevPlatform
         newClient.recoveryDeviceId = prevDeviceId
         self.client = newClient
+        self.eventStreamClient = newClient.eventStreamClient
         self.clientGeneration &+= 1
         self.isConnected = false
         bindCombineBridge()
@@ -81,7 +86,7 @@ final class ClientProvider: ObservableObject {
         traceSubscriptionTask = nil
         traceSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in client.eventStreamClient.subscribe() {
+            for await message in eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 if case .traceEvent(let msg) = message {
                     self.traceStore.ingest(msg)
@@ -312,7 +317,7 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                     try? await self.clientProvider.client.connect()
                 }
                 if self.clientProvider.client.isConnected, let sid = conversationId {
-                    self.clientProvider.client.eventStreamClient.sendUserMessage(
+                    self.clientProvider.eventStreamClient.sendUserMessage(
                         content: replyText,
                         conversationId: sid,
                         attachments: nil,

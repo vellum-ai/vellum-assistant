@@ -109,6 +109,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
+    private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
@@ -253,6 +254,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
+        self.eventStreamClient = daemonClient.eventStreamClient
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
@@ -269,7 +271,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationIdResolved(let localId, let serverId):
                     self.resolveConversationId(from: localId, to: serverId)
@@ -1888,7 +1890,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         // Clean up the SSE remapping entry now that the VM uses the server ID.
         // This prevents stale remapping and updates host-tool-request filtering.
-        daemonClient.eventStreamClient.cleanupAfterConversationIdResolution(localId: syntheticId, serverId: serverId)
+        eventStreamClient.cleanupAfterConversationIdResolution(localId: syntheticId, serverId: serverId)
 
         log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")
     }

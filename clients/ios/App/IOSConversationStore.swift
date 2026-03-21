@@ -164,6 +164,7 @@ class IOSConversationStore: ObservableObject {
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
+    private var eventStreamClient: EventStreamClient
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
@@ -387,6 +388,7 @@ class IOSConversationStore: ObservableObject {
         userDefaults: UserDefaults = .standard
     ) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = (daemonClient as? DaemonStatus)?.eventStreamClient ?? EventStreamClient()
         self.conversationDetailClient = conversationDetailClient
         self.conversationForkClient = conversationForkClient
         self.conversationHistoryClient = conversationHistoryClient
@@ -436,7 +438,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask?.cancel()
         subscribeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemon.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 switch message {
                 case .scheduleConversationCreated(let msg):
@@ -541,6 +543,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask = nil
 
         daemonClient = newClient
+        eventStreamClient = (newClient as? DaemonStatus)?.eventStreamClient ?? EventStreamClient()
 
         // Existing ViewModels hold a reference to the old, disconnected client inside
         // ChatViewModel.  Discard them so new ones are created with the new client.

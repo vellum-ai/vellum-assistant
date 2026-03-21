@@ -1015,7 +1015,7 @@ public final class ChatViewModel: ObservableObject {
         onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
     ) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = (daemonClient as? DaemonStatus)?.eventStreamClient ?? EventStreamClient()
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
