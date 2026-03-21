@@ -76,6 +76,32 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         updaterController.updater.canCheckForUpdates
     }
 
+    /// Trigger a background update check and wait for Sparkle's delegate to
+    /// report a result, returning as soon as `didFindValidUpdate` or
+    /// `updaterDidNotFindUpdate` fires.  Falls back to the current
+    /// `isUpdateAvailable` state after `timeout` seconds so callers never hang.
+    func checkForUpdatesAsync(timeout: TimeInterval = 5.0) async -> Bool {
+        updaterController.checkForUpdates(nil)
+
+        return await withTaskGroup(of: Bool.self) { group in
+            // Race: delegate callback vs timeout
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                for await value in self.$isUpdateAvailable.values.dropFirst() {
+                    return value
+                }
+                return false
+            }
+            group.addTask { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return self?.isUpdateAvailable ?? false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
     // MARK: - Menu Item Helpers
 
     /// Context-aware title for the update menu item.
