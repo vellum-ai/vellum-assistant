@@ -317,6 +317,13 @@ extension ChatBubble {
                 }
             }
         }
+        if !partitioned.audios.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(partitioned.audios) { attachment in
+                    fileAttachmentChip(attachment)
+                }
+            }
+        }
         if !partitioned.files.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(partitioned.files) { attachment in
