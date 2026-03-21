@@ -415,50 +415,52 @@ struct InlineAudioAttachmentView: View {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let destURL = panel.url else { return }
-
-        isSaving = true
-        if let sourceURL = localFileURL ?? cachedFileURL {
-            Task.detached {
-                do {
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(UUID().uuidString)
-                        .appendingPathExtension(destURL.pathExtension)
-                    try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-                    if FileManager.default.fileExists(atPath: destURL.path) {
-                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
-                    } else {
-                        try FileManager.default.moveItem(at: tempURL, to: destURL)
+        // Use begin() instead of runModal() — runModal() fails on macOS Tahoe
+        // with "failed to connect to the open and save panel service".
+        let sourceURL = localFileURL ?? cachedFileURL
+        let isLazy = attachment.isLazyLoad
+        let attachmentId = attachment.id.isEmpty ? nil : attachment.id
+        let gatewayBaseUrl = isLazy ? resolveAudioGatewayBaseUrl() : ""
+        let base64 = attachment.data
+        panel.begin { response in
+            guard response == .OK, let destURL = panel.url else { return }
+            self.isSaving = true
+            if let sourceURL {
+                Task.detached {
+                    do {
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                            .appendingPathExtension(destURL.pathExtension)
+                        try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                        if FileManager.default.fileExists(atPath: destURL.path) {
+                            _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                        } else {
+                            try FileManager.default.moveItem(at: tempURL, to: destURL)
+                        }
+                    } catch {
+                        log.error("Failed to save audio: \(error)")
                     }
-                } catch {
-                    log.error("Failed to save audio: \(error)")
+                    await MainActor.run { self.isSaving = false }
                 }
-                await MainActor.run { isSaving = false }
-            }
-        } else if attachment.isLazyLoad {
-            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
-                isSaving = false
-                return
-            }
-            let gatewayBaseUrl = resolveAudioGatewayBaseUrl()
-            Task {
-                do {
-                    let data = try await fetchAudioAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
-                    try data.write(to: destURL)
-                    await MainActor.run { isSaving = false }
-                } catch {
-                    await MainActor.run { isSaving = false }
+            } else if isLazy, let attachmentId {
+                Task {
+                    do {
+                        let data = try await fetchAudioAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
+                        try data.write(to: destURL)
+                        await MainActor.run { self.isSaving = false }
+                    } catch {
+                        await MainActor.run { self.isSaving = false }
+                    }
                 }
-            }
-        } else {
-            let base64 = attachment.data
-            Task.detached {
-                guard let data = Data(base64Encoded: base64) else {
-                    await MainActor.run { isSaving = false }
-                    return
+            } else {
+                Task.detached {
+                    guard let data = Data(base64Encoded: base64) else {
+                        await MainActor.run { self.isSaving = false }
+                        return
+                    }
+                    try? data.write(to: destURL)
+                    await MainActor.run { self.isSaving = false }
                 }
-                try? data.write(to: destURL)
-                await MainActor.run { isSaving = false }
             }
         }
     }
