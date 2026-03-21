@@ -303,7 +303,7 @@ extension AppDelegate {
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
-            let current = UserDefaults.standard.bool(forKey: "sidebarExpanded")
+            let current = (UserDefaults.standard.object(forKey: "sidebarExpanded") as? Bool) ?? true
             UserDefaults.standard.set(!current, forKey: "sidebarExpanded")
             return nil
         }
