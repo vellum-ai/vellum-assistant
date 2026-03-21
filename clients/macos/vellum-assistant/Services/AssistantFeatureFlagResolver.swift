@@ -47,6 +47,7 @@ enum AssistantFeatureFlagResolver {
 
         guard let json = try? JSONSerialization.jsonObject(with: data, options: []),
               let dict = json as? [String: Any],
+              dict["version"] as? Int == 1,
               let values = dict["values"] as? [String: Bool] else {
             return [:]
         }
