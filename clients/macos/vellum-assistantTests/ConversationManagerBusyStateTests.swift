@@ -5,19 +5,19 @@ import XCTest
 @MainActor
 final class ConversationManagerBusyStateTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var connectionManager: GatewayConnectionManager!
     private var conversationManager: ConversationManager!
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
-        daemonClient.isConnected = true
-        conversationManager = ConversationManager(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
+        conversationManager = ConversationManager(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
     }
 
     override func tearDown() {
         conversationManager = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 

@@ -11,8 +11,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
-        daemonClient.isConnected = true
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let detailClient = MockConversationDetailClient()
         detailClient.response = ConversationListResponseItem(
             id: "conv-parent",
@@ -22,8 +22,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
 
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             conversationDetailClient: detailClient,
             userDefaults: userDefaults
@@ -138,14 +138,14 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
-        daemonClient.isConnected = true
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-tip")
 
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -199,16 +199,16 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true), for: privateConversation))
+        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true), for: privateConversation))
         XCTAssertNil(
             makeCurrentTipForkToolbarAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
+                store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )
         XCTAssertNil(
             makeOpenForkParentAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
+                store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )

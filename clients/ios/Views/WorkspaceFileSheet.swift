@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct WorkspaceFileSheet: View {
     let filePath: String
     let mimeType: String?
-    let client: DaemonClient?
+    let client: GatewayConnectionManager?
     let workspaceClient: WorkspaceClient
     @Environment(\.dismiss) private var dismiss
     @State private var fileResponse: WorkspaceFileResponse?
@@ -190,7 +190,7 @@ struct WorkspaceFileSheet: View {
 
 private struct AuthenticatedImageView: View {
     let url: URL
-    let client: DaemonClient?
+    let client: GatewayConnectionManager?
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -282,7 +282,7 @@ private struct AuthenticatedImageView: View {
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
-    let client: DaemonClient?
+    let client: GatewayConnectionManager?
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false

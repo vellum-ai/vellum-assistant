@@ -22,7 +22,7 @@ private struct UnifiedFeatureFlag: Identifiable {
 struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject private var devModeManager = DevModeManager.shared
-    var daemonClient: DaemonClient?
+    var connectionManager: GatewayConnectionManager?
     var identityClient: IdentityClientProtocol = IdentityClient()
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     var authManager: AuthManager
@@ -108,7 +108,7 @@ struct SettingsDeveloperTab: View {
             // Gateway Settings
             GatewaySettingsCard(
                 store: store,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
             )
             // Hatch New Assistant
@@ -177,8 +177,8 @@ struct SettingsDeveloperTab: View {
 
             // Advanced dev setup
             macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
-            if testerModel == nil, let dc = daemonClient {
-                testerModel = ToolPermissionTesterModel(daemonClient: dc)
+            if testerModel == nil, let dc = connectionManager {
+                testerModel = ToolPermissionTesterModel(connectionManager: dc)
             }
             Task { await loadAssistantFlags() }
 
@@ -325,8 +325,8 @@ struct SettingsDeveloperTab: View {
                     .transition(.opacity)
             }
 
-            if let daemonClient {
-                DeveloperDaemonStatusRows(daemonClient: daemonClient)
+            if let connectionManager {
+                DeveloperDaemonStatusRows(connectionManager: connectionManager)
             }
 
             healthzInfoRows
@@ -836,7 +836,7 @@ struct SettingsDeveloperTab: View {
     // MARK: - Feature Flags
 
     private func loadAssistantFlags() async {
-        guard daemonClient != nil else { return }
+        guard connectionManager != nil else { return }
         isLoadingAssistantFlags = true
         assistantFlagsError = nil
         do {
@@ -1043,7 +1043,7 @@ struct SettingsDeveloperTab: View {
 
     @ViewBuilder
     private var environmentVariablesSection: some View {
-        if daemonClient != nil {
+        if connectionManager != nil {
             SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and assistant processes") {
                 VButton(label: "View", style: .outlined) {
                         appEnvVars = ProcessInfo.processInfo.environment
@@ -1191,18 +1191,18 @@ struct SettingsDeveloperTab: View {
 // MARK: - Daemon Status Rows (Developer Tab)
 
 private struct DeveloperDaemonStatusRows: View {
-    @ObservedObject var daemonClient: DaemonClient
+    @ObservedObject var connectionManager: GatewayConnectionManager
 
     var body: some View {
         statusRow(
             label: "Assistant",
-            isHealthy: daemonClient.isConnected,
-            detail: daemonClient.isConnected
-                ? "Connected" + (daemonClient.assistantVersion.map { " (v\($0))" } ?? "")
+            isHealthy: connectionManager.isConnected,
+            detail: connectionManager.isConnected
+                ? "Connected" + (connectionManager.assistantVersion.map { " (v\($0))" } ?? "")
                 : "Disconnected"
         )
 
-        if let memoryStatus = daemonClient.latestMemoryStatus {
+        if let memoryStatus = connectionManager.latestMemoryStatus {
             statusRow(
                 label: "Memory",
                 isHealthy: memoryStatus.enabled && !memoryStatus.degraded,

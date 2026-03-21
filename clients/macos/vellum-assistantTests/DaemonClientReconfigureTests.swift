@@ -2,13 +2,13 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class DaemonClientReconfigureTests: XCTestCase {
+final class GatewayConnectionManagerReconfigureTests: XCTestCase {
 
-    private var client: DaemonClient!
+    private var client: GatewayConnectionManager!
 
     override func setUp() {
         super.setUp()
-        client = DaemonClient()
+        client = GatewayConnectionManager()
     }
 
     override func tearDown() {

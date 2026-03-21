@@ -545,21 +545,3 @@ public final class GatewayConnectionManager: ObservableObject {
     }
 }
 
-// MARK: - Backward Compatibility
-
-/// Temporary typealiases — will be removed when consumers are fully migrated.
-public typealias DaemonClient = GatewayConnectionManager
-public typealias DaemonStatus = GatewayConnectionManager
-
-/// Protocol consumers used for dependency injection. Now points to the concrete class.
-/// Consumers should migrate to using `GatewayConnectionManager` directly.
-@MainActor
-public protocol DaemonClientProtocol: AnyObject {
-    var isConnected: Bool { get }
-    func connect() async throws
-    func disconnect()
-}
-
-extension GatewayConnectionManager: DaemonClientProtocol {}
-
-public typealias DaemonStatusProtocol = DaemonClientProtocol

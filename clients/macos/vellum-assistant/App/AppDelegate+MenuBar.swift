@@ -86,12 +86,12 @@ extension AppDelegate {
         }
     }
 
-    /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
+    /// (Re-)subscribe to `connectionManager.$isConnected` so the menu bar icon
     /// tracks the current daemon client. Called from `setupMenuBar()` and
-    /// again from `setupDaemonClient()` after transport reconfiguration.
+    /// again from `setupGatewayConnectionManager()` after transport reconfiguration.
     func rebindConnectionStatusObserver() {
         connectionStatusCancellable?.cancel()
-        connectionStatusCancellable = daemonClient.$isConnected
+        connectionStatusCancellable = connectionManager.$isConnected
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
@@ -241,7 +241,7 @@ extension AppDelegate {
     }
 
     var currentAssistantStatus: AssistantStatus {
-        if !daemonClient.isConnected { return .disconnected }
+        if !connectionManager.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
         if let error = viewModel.errorText { return .error(error) }
         if viewModel.isThinking { return .thinking }
@@ -416,7 +416,7 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+        Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {

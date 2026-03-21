@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// parsed `ServerMessage` values to multiple independent subscribers.
 ///
 /// Replaces the SSE portion of `HTTPTransport` and the broadcast portion of
-/// `DaemonClient`. Backed by `GatewayHTTPClient.stream()` for authenticated
+/// `GatewayConnectionManager`. Backed by `GatewayHTTPClient.stream()` for authenticated
 /// SSE connections.
 @MainActor
 public final class EventStreamClient {

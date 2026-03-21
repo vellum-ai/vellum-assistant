@@ -23,7 +23,7 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
         // @MainActor ensures isConnected assignment runs on the main actor,
         // which is required for @Published properties on @MainActor types.
         // The Combine bridge in ClientProvider auto-syncs isConnected from
-        // DaemonClient, so no manual state management is needed here.
+        // GatewayConnectionManager, so no manual state management is needed here.
         Task { @MainActor in
             try? await provider.client.connect()
         }

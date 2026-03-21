@@ -7,7 +7,7 @@ import VellumAssistantShared
 @MainActor
 struct GatewaySettingsCard: View {
     @ObservedObject var store: SettingsStore
-    var daemonClient: DaemonClient?
+    var connectionManager: GatewayConnectionManager?
     var isManaged: Bool = false
 
     @State private var gatewayUrlText: String = ""

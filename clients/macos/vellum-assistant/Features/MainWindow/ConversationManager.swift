@@ -13,7 +13,7 @@ private let archivedConversationsNewKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
-/// Abstraction for direct conversation mutations, decoupled from DaemonClient.
+/// Abstraction for direct conversation mutations, decoupled from GatewayConnectionManager.
 @MainActor
 protocol ConversationClientProtocol {
     func deleteConversation(_ conversationId: String) async
@@ -108,7 +108,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let maxCachedViewModels = 10
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
-    private let daemonClient: DaemonClient
+    private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
@@ -246,7 +246,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     init(
-        daemonClient: DaemonClient,
+        connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
@@ -254,12 +254,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         isFirstLaunch: Bool = false
     ) {
         Self.migrateStorageKeysIfNeeded()
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
-        self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
+        self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
         // the wake-up conversation's UUID is persisted.
@@ -1393,7 +1393,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
+        let viewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
@@ -1418,7 +1418,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 intervalSeconds: Int(msg.intervalSeconds)
             )
             self.ambientAgent?.activeWatchSession = session
-            session.start(daemonClient: client)
+            session.start(connectionManager: client)
         }
         viewModel.onWatchCompleteRequest = { [weak self] _ in
             self?.ambientAgent?.activeWatchSession?.stop()

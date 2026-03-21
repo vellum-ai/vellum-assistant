@@ -112,7 +112,7 @@ final class WorkspaceBrowserState {
 // MARK: - Workspace Panel
 
 struct WorkspacePanel: View {
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     @State private var state = WorkspaceBrowserState()
     let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
@@ -165,7 +165,7 @@ struct WorkspacePanel: View {
                         }
                 )
 
-            WorkspaceFileViewer(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
+            WorkspaceFileViewer(state: state, connectionManager: connectionManager, workspaceClient: workspaceClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .coordinateSpace(name: dragCoordinateSpace)
@@ -712,7 +712,7 @@ private struct WorkspaceTreeRow: View {
 
 private struct WorkspaceFileViewer: View {
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let workspaceClient: WorkspaceClient
 
     var body: some View {
@@ -872,7 +872,7 @@ private struct WorkspaceFileViewer: View {
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
             if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
-                AuthenticatedImageView(url: url, daemonClient: daemonClient)
+                AuthenticatedImageView(url: url, connectionManager: connectionManager)
             } else {
                 Text("Unable to load image URL")
                     .font(VFont.body)
@@ -885,7 +885,7 @@ private struct WorkspaceFileViewer: View {
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
             if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
-                WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
+                WorkspaceVideoPlayer(url: url, connectionManager: connectionManager)
             } else {
                 Text("Unable to load video URL")
                     .font(VFont.body)
@@ -930,7 +930,7 @@ private func isHiddenPath(_ path: String) -> Bool {
 
 private struct AuthenticatedImageView: View {
     let url: URL
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     @State private var image: NSImage?
     @State private var failed = false
 
@@ -1008,7 +1008,7 @@ private struct AuthenticatedImageView: View {
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false

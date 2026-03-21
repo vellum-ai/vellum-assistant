@@ -3,11 +3,11 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class AppServicesDaemonClientReconfigureTests: XCTestCase {
+final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
 
-    func testReconfigurePreservesDaemonClientIdentity() {
+    func testReconfigurePreservesGatewayConnectionManagerIdentity() {
         let services = AppServices()
-        let originalClient = services.daemonClient
+        let originalClient = services.connectionManager
         let originalIdentity = ObjectIdentifier(originalClient)
 
         let newConfig = DaemonConfig(transport: .http(
@@ -15,15 +15,15 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
             bearerToken: "token",
             conversationKey: "key"
         ))
-        services.reconfigureDaemonClient(config: newConfig)
+        services.reconfigureGatewayConnectionManager(config: newConfig)
 
         XCTAssertEqual(
-            ObjectIdentifier(services.daemonClient), originalIdentity,
-            "AppServices.reconfigureDaemonClient must preserve DaemonClient object identity"
+            ObjectIdentifier(services.connectionManager), originalIdentity,
+            "AppServices.reconfigureGatewayConnectionManager must preserve GatewayConnectionManager object identity"
         )
         XCTAssertTrue(
-            services.daemonClient === originalClient,
-            "daemonClient should be the same object after reconfigure"
+            services.connectionManager === originalClient,
+            "connectionManager should be the same object after reconfigure"
         )
     }
 
@@ -35,30 +35,30 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
             bearerToken: "new-token",
             conversationKey: "new-key"
         ), instanceDir: "/tmp/test-instance")
-        services.reconfigureDaemonClient(config: httpConfig)
+        services.reconfigureGatewayConnectionManager(config: httpConfig)
 
-        XCTAssertEqual(services.daemonClient.instanceDir, "/tmp/test-instance",
+        XCTAssertEqual(services.connectionManager.instanceDir, "/tmp/test-instance",
             "instanceDir should be updated after reconfigure via AppServices")
     }
 
-    func testSettingsStoreRetainsWorkingDaemonClientAfterReconfigure() {
+    func testSettingsStoreRetainsWorkingGatewayConnectionManagerAfterReconfigure() {
         let services = AppServices()
         // Force lazy init of settingsStore so it captures the daemon client
         let settingsStore = services.settingsStore
         _ = settingsStore
 
-        let originalClient = services.daemonClient
+        let originalClient = services.connectionManager
 
-        services.reconfigureDaemonClient(config: DaemonConfig(transport: .http(
+        services.reconfigureGatewayConnectionManager(config: DaemonConfig(transport: .http(
             baseURL: "http://new-host:8080",
             bearerToken: nil,
             conversationKey: "key"
         )))
 
         // Since reconfigure is in-place, the settings store's reference
-        // to daemonClient is still the same object
+        // to connectionManager is still the same object
         XCTAssertTrue(
-            services.daemonClient === originalClient,
+            services.connectionManager === originalClient,
             "SettingsStore's daemon client reference should remain valid after reconfigure"
         )
     }

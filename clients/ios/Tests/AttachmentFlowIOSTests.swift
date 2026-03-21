@@ -13,14 +13,14 @@ import UIKit
 @MainActor
 final class AttachmentFlowIOSTests: XCTestCase {
 
-    private var mockClient: MockDaemonClient!
+    private var mockClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        mockClient = MockDaemonClient()
+        mockClient = GatewayConnectionManager()
         mockClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient)
+        viewModel = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
     }
 
     override func tearDown() {

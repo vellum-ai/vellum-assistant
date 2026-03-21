@@ -1878,7 +1878,7 @@ extension ChatViewModel {
         case .watchStarted(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
             isWatchSessionActive = true
-            onWatchStarted?(msg, daemonClient)
+            onWatchStarted?(msg, connectionManager)
 
         case .watchCompleteRequest(let msg):
             guard belongsToConversation(msg.conversationId) else { return }

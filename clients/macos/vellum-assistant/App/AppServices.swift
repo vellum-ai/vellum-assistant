@@ -6,9 +6,6 @@ import VellumAssistantShared
 public final class AppServices {
     public let connectionManager = GatewayConnectionManager()
 
-    /// Backward-compat accessor — daemonClient IS connectionManager now.
-    public var daemonClient: GatewayConnectionManager { connectionManager }
-
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
@@ -17,12 +14,12 @@ public final class AppServices {
 
     /// Shared settings state consumed by SettingsPanel and its tab views.
     public lazy var settingsStore: SettingsStore = SettingsStore(
-        daemonClient: connectionManager,
+        connectionManager: connectionManager,
         eventStreamClient: connectionManager.eventStreamClient
     )
 
     /// Reconfigure the connection for a new assistant.
-    func reconfigureDaemonClient(config: DaemonConfig) {
+    func reconfigureGatewayConnectionManager(config: DaemonConfig) {
         let conversationKey: String?
         if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
         connectionManager.reconfigure(

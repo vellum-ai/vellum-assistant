@@ -10,7 +10,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public final class AmbientAgent: ObservableObject {
     let knowledgeStore = KnowledgeStore()
-    var daemonClient: DaemonClient?
+    var connectionManager: GatewayConnectionManager?
     weak var appDelegate: AppDelegate?
 
     /// When a WatchSession is active (from chat-initiated watch), capture is skipped.

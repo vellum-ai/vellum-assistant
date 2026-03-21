@@ -46,7 +46,7 @@ final class ConversationRestorer {
     /// Exposed as internal for `@testable` test access.
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
-    private let daemonClient: DaemonClient
+    private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
@@ -55,8 +55,8 @@ final class ConversationRestorer {
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
-        self.daemonClient = daemonClient
+    init(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
     }
@@ -84,14 +84,14 @@ final class ConversationRestorer {
 
         // Reset loading state when the daemon disconnects so the Load More
         // button doesn't stay permanently disabled after a dropped connection.
-        disconnectCancellable = daemonClient.$isConnected
+        disconnectCancellable = connectionManager.$isConnected
             .removeDuplicates()
             .filter { !$0 }
             .sink { [weak self] _ in
                 self?.delegate?.isLoadingMoreConversations = false
             }
 
-        connectionCancellable = daemonClient.$isConnected
+        connectionCancellable = connectionManager.$isConnected
             .removeDuplicates()
             .filter { $0 }
             .first()

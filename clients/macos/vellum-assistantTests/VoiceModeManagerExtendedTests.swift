@@ -11,15 +11,15 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
     private var mockVoiceService: MockVoiceService!
     private var manager: VoiceModeManager!
     private var chatViewModel: ChatViewModel!
-    private var daemonClient: DaemonClient!
+    private var connectionManager: GatewayConnectionManager!
 
     override func setUp() {
         super.setUp()
         mockVoiceService = MockVoiceService()
         manager = VoiceModeManager(voiceService: mockVoiceService)
-        daemonClient = DaemonClient()
-        daemonClient.isConnected = true
-        chatViewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
+        chatViewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
     }
 
     override func tearDown() {
@@ -27,7 +27,7 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
         manager = nil
         mockVoiceService = nil
         chatViewModel = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 

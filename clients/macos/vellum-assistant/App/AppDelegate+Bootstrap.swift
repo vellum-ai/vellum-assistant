@@ -48,8 +48,8 @@ extension AppDelegate {
 
     /// Polls daemon connection state at ~0.5s intervals. Does NOT call
     /// `connect()` itself — that is the sole responsibility of
-    /// `setupDaemonClient()`. This avoids a dual-connect race where two
-    /// concurrent Tasks both attempt `daemonClient.connect()`, with the
+    /// `setupGatewayConnectionManager()`. This avoids a dual-connect race where two
+    /// concurrent Tasks both attempt `connectionManager.connect()`, with the
     /// second caller's `disconnectInternal()` tearing down the first
     /// caller's in-flight HTTP connection.
     func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
@@ -57,7 +57,7 @@ extension AppDelegate {
         let start = CFAbsoluteTimeGetCurrent()
 
         while CFAbsoluteTimeGetCurrent() - start < timeout {
-            if daemonClient.isConnected {
+            if connectionManager.isConnected {
                 log.info("Daemon is connected")
                 return true
             }
@@ -65,7 +65,7 @@ extension AppDelegate {
         }
 
         log.warning("awaitDaemonReady timed out after \(timeout)s")
-        return daemonClient.isConnected
+        return connectionManager.isConnected
     }
 
     /// Waits for the local bootstrap to complete (`.localBootstrapCompleted` notification)
@@ -100,7 +100,7 @@ extension AppDelegate {
         guard !Task.isCancelled else { return }
 
         // If daemon disconnected, wait for reconnection before trying
-        if !daemonClient.isConnected {
+        if !connectionManager.isConnected {
             log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
@@ -178,7 +178,7 @@ extension AppDelegate {
                 guard !Task.isCancelled else { return }
 
                 if ActorTokenManager.needsProactiveRefresh {
-                    guard self.daemonClient.isConnected else { continue }
+                    guard self.connectionManager.isConnected else { continue }
 
                     let result = await ActorCredentialRefresher.refresh(
                         platform: "macos",
@@ -221,7 +221,7 @@ extension AppDelegate {
         let connectionMaxDelay: UInt64 = 10_000_000_000
 
         while !Task.isCancelled {
-            guard daemonClient.isConnected else {
+            guard connectionManager.isConnected else {
                 try? await Task.sleep(nanoseconds: connectionDelay)
                 connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
                 continue

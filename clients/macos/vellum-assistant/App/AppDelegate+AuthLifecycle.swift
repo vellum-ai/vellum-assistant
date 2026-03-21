@@ -65,7 +65,7 @@ extension AppDelegate {
             state.shouldPersist = false
             authView = AnyView(OnboardingFlowView(
                 state: state,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 authManager: authManager,
                 managedBootstrapEnabled: true,
                 onComplete: { [weak self] in
@@ -368,10 +368,10 @@ extension AppDelegate {
             // injects credentials via GatewayHTTPClient which connects to the
             // local gateway — if we proceed before it's listening we get
             // "Could not connect to the server."
-            if !self.daemonClient.isConnected {
+            if !self.connectionManager.isConnected {
                 log.info("Waiting for daemon connection before credential bootstrap...")
                 for attempt in 1...20 {
-                    if self.daemonClient.isConnected { break }
+                    if self.connectionManager.isConnected { break }
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     if attempt == 20 {
                         log.warning("Daemon not connected after 10s — proceeding with credential bootstrap anyway")
@@ -463,7 +463,7 @@ extension AppDelegate {
 
         // 4. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
-        setupDaemonClient()
+        setupGatewayConnectionManager()
 
         // 5. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {

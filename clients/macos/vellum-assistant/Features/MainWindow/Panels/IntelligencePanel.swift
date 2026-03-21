@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
@@ -20,10 +20,10 @@ struct IntelligencePanel: View {
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
@@ -162,7 +162,7 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                daemonClient: daemonClient
+                connectionManager: connectionManager
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -171,19 +171,19 @@ struct IntelligencePanel: View {
         case .installedSkills:
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient
+                connectionManager: connectionManager
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
-            WorkspacePanel(daemonClient: daemonClient)
+            WorkspacePanel(connectionManager: connectionManager)
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .contacts:
             ContactsContainerView(
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: store,
                 conversationManager: conversationManager,
@@ -193,7 +193,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(daemonClient: daemonClient, focusedMemoryId: $pendingMemoryId)
+            MemoriesPanel(connectionManager: connectionManager, focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }

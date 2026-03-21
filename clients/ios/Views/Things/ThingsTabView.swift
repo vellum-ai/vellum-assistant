@@ -12,7 +12,7 @@ struct ThingsTabView: View {
     @StateObject private var directoryStore = LazyDirectoryStore()
 
     var body: some View {
-        if let daemon = clientProvider.client as? DaemonClient, clientProvider.isConnected {
+        if let daemon = clientProvider.client as? GatewayConnectionManager, clientProvider.isConnected {
             ThingsView(directoryStore: directoryStore.resolve(daemon: daemon, eventStreamClient: clientProvider.eventStreamClient))
                 .environmentObject(clientProvider)
         } else {
@@ -26,11 +26,11 @@ struct ThingsTabView: View {
 @MainActor
 private final class LazyDirectoryStore: ObservableObject {
     private var store: DirectoryStore?
-    private weak var lastDaemon: DaemonClient?
+    private weak var lastDaemon: GatewayConnectionManager?
 
-    func resolve(daemon: DaemonClient, eventStreamClient: EventStreamClient) -> DirectoryStore {
+    func resolve(daemon: GatewayConnectionManager, eventStreamClient: EventStreamClient) -> DirectoryStore {
         if let store, lastDaemon === daemon { return store }
-        let newStore = DirectoryStore(daemonClient: daemon, eventStreamClient: eventStreamClient)
+        let newStore = DirectoryStore(connectionManager: daemon, eventStreamClient: eventStreamClient)
         self.store = newStore
         self.lastDaemon = daemon
         return newStore

@@ -5,19 +5,19 @@ import XCTest
 @MainActor
 final class ToolPermissionTesterModelTests: XCTestCase {
 
-    private var daemonClient: DaemonClient!
+    private var connectionManager: GatewayConnectionManager!
     private var mockToolClient: MockToolClient!
     private var mockTrustRuleClient: MockTrustRuleClient!
     private var model: ToolPermissionTesterModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
-        daemonClient.isConnected = true
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         mockToolClient = MockToolClient()
         mockTrustRuleClient = MockTrustRuleClient()
         model = ToolPermissionTesterModel(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             toolClient: mockToolClient,
             trustRuleClient: mockTrustRuleClient
         )
@@ -27,7 +27,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model = nil
         mockToolClient = nil
         mockTrustRuleClient = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 

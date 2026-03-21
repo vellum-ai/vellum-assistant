@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Host CU Proxy Execution (macOS)
 
-/// Registers the host CU request handler on a `DaemonClient`.
+/// Registers the host CU request handler on a `GatewayConnectionManager`.
 ///
 /// Call this once at setup time so that incoming `host_cu_request` messages
 /// from the daemon are handled by the local verify -> execute -> observe cycle.
@@ -19,7 +19,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Usage:
 /// ```swift
-/// HostCuExecutor.register(on: daemonClient) { conversationId, request in
+/// HostCuExecutor.register(on: connectionManager) { conversationId, request in
 ///     return getOrCreateOverlayProxy(for: conversationId, request: request)
 /// }
 /// ```
@@ -29,7 +29,7 @@ enum HostCuExecutor {
     /// This method is retained as a no-op for source compatibility.
     @MainActor
     static func register(
-        on client: DaemonClient,
+        on client: GatewayConnectionManager,
         overlayProvider: @escaping @MainActor (_ conversationId: String, _ request: HostCuRequest) -> HostCuSessionProxy? = { _, _ in nil }
     ) {
         // No-op: host CU requests are handled via DaemonStatus.subscribe() in AppDelegate.

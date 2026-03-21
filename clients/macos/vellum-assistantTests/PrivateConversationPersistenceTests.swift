@@ -15,10 +15,10 @@ struct PrivateConversationPersistenceTests {
     /// restorer reconstructs it as a private conversation.
     @Test @MainActor
     func privateConversationCreatedAndRestoredAsPrivate() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
 
         // ConversationManager.init enters draft mode — conversations array is empty,
         // the initial chat lives as a draftViewModel.
@@ -50,8 +50,8 @@ struct PrivateConversationPersistenceTests {
         // Now simulate a fresh restore: build a conversation list response
         // that includes this conversation with conversationType "private", and verify
         // the restorer creates it with .private kind.
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -85,16 +85,16 @@ struct PrivateConversationPersistenceTests {
     /// create and restore (control case for the private conversation test above).
     @Test @MainActor
     func standardConversationCreatedAndRestoredAsStandard() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         // ConversationManager.init enters draft mode — no conversations in the array yet
         #expect(manager.conversations.isEmpty)
 
         // Restore a conversation list with a standard conversation
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -128,9 +128,9 @@ struct PrivateConversationPersistenceTests {
     /// restores each with the correct kind.
     @Test @MainActor
     func mixedConversationTypesRestoreCorrectly() {
-        let dc = DaemonClient()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -161,9 +161,9 @@ struct PrivateConversationPersistenceTests {
     /// list responses. Verify that these conversations default to .standard.
     @Test @MainActor
     func legacyPayloadWithoutConversationTypeDefaultsToStandard() {
-        let dc = DaemonClient()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -190,9 +190,9 @@ struct PrivateConversationPersistenceTests {
     /// (with conversationType) conversations restores correctly.
     @Test @MainActor
     func mixedLegacyAndModernPayloadsRestoreCorrectly() {
-        let dc = DaemonClient()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -222,10 +222,10 @@ struct PrivateConversationPersistenceTests {
     /// before the user sends any messages.
     @Test @MainActor
     func privateConversationPersistsImmediatelyViaConversationCreate() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         manager.createPrivateConversation()
 
         let vm = manager.activeViewModel!
@@ -242,10 +242,10 @@ struct PrivateConversationPersistenceTests {
     /// callback — the kind should remain .private after the daemon responds.
     @Test @MainActor
     func privateConversationKindSurvivesIdBackfill() {
-        let dc = DaemonClient()
+        let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         manager.createPrivateConversation()
 
         let privateConversation = manager.conversations.first!

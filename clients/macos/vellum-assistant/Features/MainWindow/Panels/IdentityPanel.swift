@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     @State private var appearance = AvatarAppearanceManager.shared
@@ -26,7 +26,7 @@ struct IdentityPanel: View {
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapActive: Bool {
-        let base = daemonClient.instanceDir ?? NSHomeDirectory()
+        let base = connectionManager.instanceDir ?? NSHomeDirectory()
         return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
     }
 
@@ -260,7 +260,7 @@ struct IdentityPanel: View {
             }
 
             // Version: remote > daemon > metadata
-            let version = remoteIdentity?.version ?? daemonClient.assistantVersion ?? metadata?.version
+            let version = remoteIdentity?.version ?? connectionManager.assistantVersion ?? metadata?.version
             idRow(label: "Version", value: version ?? "—")
 
             if let date = metadata?.createdAt {

@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 /// Panel showing the version history of an app, with diff viewing and restore.
 struct AppVersionHistoryPanel: View {
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let appId: String
     let appName: String
     let onClose: () -> Void

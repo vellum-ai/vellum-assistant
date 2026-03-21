@@ -4,7 +4,7 @@ import Foundation
 /// Cross-platform store for guardian state, channel trust/policy management,
 /// and pending guardian actions.
 ///
-/// Composes `ContactsStore` for guardian contact state and `DaemonClient`
+/// Composes `ContactsStore` for guardian contact state and `GatewayConnectionManager`
 /// for pending guardian action operations.
 @MainActor
 public final class ChannelTrustStore: ObservableObject {
@@ -25,7 +25,7 @@ public final class ChannelTrustStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let daemonClient: DaemonClient
+    private let connectionManager: GatewayConnectionManager
     private let contactsStore: ContactsStore
     private let guardianClient: GuardianClientProtocol
     private var fetchTask: Task<Void, Never>?
@@ -33,8 +33,8 @@ public final class ChannelTrustStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient, contactsStore: ContactsStore, guardianClient: GuardianClientProtocol = GuardianClient()) {
-        self.daemonClient = daemonClient
+    public init(connectionManager: GatewayConnectionManager, contactsStore: ContactsStore, guardianClient: GuardianClientProtocol = GuardianClient()) {
+        self.connectionManager = connectionManager
         self.contactsStore = contactsStore
         self.guardianClient = guardianClient
 

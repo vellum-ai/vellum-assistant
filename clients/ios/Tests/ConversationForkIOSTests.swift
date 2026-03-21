@@ -13,14 +13,14 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
-        daemonClient.isConnected = true
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-root")
 
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -51,8 +51,8 @@ final class ConversationForkIOSTests: XCTestCase {
         XCTAssertEqual(store.conversations.first?.id, unwrappedForkedLocalId)
 
         let restoredStore = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -87,11 +87,11 @@ final class ConversationForkIOSTests: XCTestCase {
         let data = try JSONEncoder().encode([legacyConversation])
         userDefaults.set(data, forKey: connectedCacheKey)
 
-        let daemonClient = MockDaemonClient()
-        daemonClient.isConnected = true
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )
@@ -106,10 +106,10 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = DaemonClient()
+        let connectionManager = GatewayConnectionManager()
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )
@@ -147,14 +147,14 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = MockDaemonClient()
-        daemonClient.isConnected = true
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let forkClient = MockConversationForkClient()
         forkClient.response = makeForkedConversationItem(messageId: "msg-tip")
 
         let store = IOSConversationStore(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults

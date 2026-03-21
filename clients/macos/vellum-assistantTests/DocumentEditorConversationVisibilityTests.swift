@@ -58,7 +58,7 @@ final class DocumentEditorConversationVisibilityTests: XCTestCase {
         let conversation = ConversationModel(title: "Doc Session Conversation", conversationId: "doc-session-1")
         let vm = {
             let dc = GatewayConnectionManager()
-            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+            return ChatViewModel(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         }()
         let presentation = ConversationHeaderPresentation(
             activeConversation: conversation,

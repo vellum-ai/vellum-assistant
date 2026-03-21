@@ -98,7 +98,7 @@ func makeOpenForkParentAction(
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
-/// states so ConversationListView only mounts when a live DaemonClient is available.
+/// states so ConversationListView only mounts when a live GatewayConnectionManager is available.
 struct ChatsTabView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @ObservedObject var store: IOSConversationStore

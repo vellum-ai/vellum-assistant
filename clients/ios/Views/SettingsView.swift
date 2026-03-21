@@ -144,10 +144,10 @@ struct SettingsView: View {
                     channelTrustStore = nil
                     return
                 }
-                if let daemon = clientProvider.client as? DaemonClient {
-                    let contacts = ContactsStore(daemonClient: daemon, eventStreamClient: clientProvider.eventStreamClient)
+                if let daemon = clientProvider.client as? GatewayConnectionManager {
+                    let contacts = ContactsStore(connectionManager: daemon, eventStreamClient: clientProvider.eventStreamClient)
                     contactsStore = contacts
-                    channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
+                    channelTrustStore = ChannelTrustStore(connectionManager: daemon, contactsStore: contacts)
                 }
             }
         }

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import VellumAssistantShared
 
 struct WorkspaceBrowserView: View {
-    let client: DaemonClient?
+    let client: GatewayConnectionManager?
     var initialPath: String = ""
     private let workspaceClient = WorkspaceClient()
 

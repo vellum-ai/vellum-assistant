@@ -1,28 +1,28 @@
 import XCTest
 @testable import VellumAssistantShared
 
-/// Unit tests for MockDaemonClient — verifies initial state, connect/disconnect lifecycle,
+/// Unit tests for GatewayConnectionManager — verifies initial state, connect/disconnect lifecycle,
 /// send recording, and emit-to-subscriber delivery.
 @MainActor
-final class MockDaemonClientTests: XCTestCase {
+final class GatewayConnectionManagerTests: XCTestCase {
 
     // MARK: - Initial State
 
     func testInitialStateIsDisconnected() {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         XCTAssertFalse(client.isConnected, "New client should start disconnected")
     }
 
     // MARK: - Connect / Disconnect
 
     func testConnectSetsIsConnected() async throws {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         try await client.connect()
         XCTAssertTrue(client.isConnected, "connect() should set isConnected to true")
     }
 
     func testDisconnectClearsIsConnected() async throws {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         try await client.connect()
         XCTAssertTrue(client.isConnected)
         client.disconnect()
@@ -30,7 +30,7 @@ final class MockDaemonClientTests: XCTestCase {
     }
 
     func testDisconnectWithoutConnectIsNoOp() {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         // Should not crash or throw
         client.disconnect()
         XCTAssertFalse(client.isConnected, "disconnect() on an already-disconnected client should be a no-op")
@@ -39,14 +39,14 @@ final class MockDaemonClientTests: XCTestCase {
     // MARK: - Subscribe / Emit
 
     func testSubscribeReturnsStream() {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         let stream = client.eventStreamClient.subscribe()
         // Simply verify subscribe() returns without crashing; stream is non-nil (value type)
         _ = stream
     }
 
     func testEmitDeliversToSubscriber() async {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
         let stream = client.eventStreamClient.subscribe()
 
         // Collect one message from the stream
@@ -66,7 +66,7 @@ final class MockDaemonClientTests: XCTestCase {
 
         // Emit a message
         let delta = AssistantTextDeltaMessage(text: "Hello from emit")
-        client.emit(.assistantTextDelta(delta))
+        client.eventStreamClient.broadcastMessage(.assistantTextDelta(delta))
 
         await fulfillment(of: [expectation], timeout: 2.0)
         task.cancel()
@@ -79,7 +79,7 @@ final class MockDaemonClientTests: XCTestCase {
     }
 
     func testEmitDeliversToMultipleSubscribers() async {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
 
         let stream1 = client.eventStreamClient.subscribe()
         let stream2 = client.eventStreamClient.subscribe()
@@ -108,7 +108,7 @@ final class MockDaemonClientTests: XCTestCase {
 
         await Task.yield()
 
-        client.emit(.messageComplete(MessageCompleteMessage()))
+        client.eventStreamClient.broadcastMessage(.messageComplete(MessageCompleteMessage()))
 
         await fulfillment(of: [exp1, exp2], timeout: 2.0)
         task1.cancel()
@@ -125,7 +125,7 @@ final class MockDaemonClientTests: XCTestCase {
     // MARK: - Multiple Connect/Disconnect Cycles
 
     func testMultipleConnectDisconnectCycles() async throws {
-        let client = MockDaemonClient()
+        let client = GatewayConnectionManager()
 
         try await client.connect()
         XCTAssertTrue(client.isConnected)

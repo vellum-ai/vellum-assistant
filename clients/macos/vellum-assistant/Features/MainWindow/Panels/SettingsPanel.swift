@@ -32,7 +32,7 @@ enum SettingsTab: String {
 struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
-    var daemonClient: DaemonClient?
+    var connectionManager: GatewayConnectionManager?
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
@@ -44,7 +44,7 @@ struct SettingsPanel: View {
     init(
         onClose: @escaping () -> Void,
         store: SettingsStore,
-        daemonClient: DaemonClient? = nil,
+        connectionManager: GatewayConnectionManager? = nil,
         conversationManager: ConversationManager,
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
@@ -53,7 +53,7 @@ struct SettingsPanel: View {
     ) {
         self.onClose = onClose
         self._store = ObservedObject(wrappedValue: store)
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self._conversationManager = ObservedObject(wrappedValue: conversationManager)
         self.authManager = authManager
         self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
@@ -273,7 +273,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
-        .sheet(isPresented: $showingTrustRules, onDismiss: { daemonClient?.isTrustRulesSheetOpen = false }) {
+        .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
         }
         .onAppear {
@@ -309,7 +309,7 @@ struct SettingsPanel: View {
                             // Persist the flag so it survives relaunch
                             Task {
                                 do {
-                                    if daemonClient != nil {
+                                    if connectionManager != nil {
                                         try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                                     } else {
                                         try WorkspaceConfigIO.merge([
@@ -375,7 +375,7 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .general:
-            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, showToast: showToast, onSignIn: {
+            SettingsGeneralTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose, showToast: showToast, onSignIn: {
                 // Re-bootstrap actor credentials first so the actor token is
                 // available when ensureLocalAssistantApiKey() waits for it.
                 // This mirrors the pattern in proceedToApp() and
@@ -405,7 +405,7 @@ struct SettingsPanel: View {
         case .schedules:
             SettingsSchedulesTab()
         case .developer:
-            SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            SettingsDeveloperTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose)
         }
     }
 
@@ -564,7 +564,7 @@ struct SettingsPanel: View {
             .vCard(background: VColor.surfaceOverlay)
 
             // TRUST RULES section
-            if daemonClient != nil {
+            if connectionManager != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trust Rules")
@@ -575,7 +575,7 @@ struct SettingsPanel: View {
                             .foregroundColor(VColor.contentTertiary)
                     }
                     VButton(label: "Manage", style: .outlined) {
-                        daemonClient?.isTrustRulesSheetOpen = true
+                        connectionManager?.isTrustRulesSheetOpen = true
                         showingTrustRules = true
                     }
                     .disabled(store.isAnyTrustRulesSheetOpen)
@@ -615,7 +615,7 @@ struct SettingsPanel: View {
     // MARK: - Feature Flag Loading
 
     private func loadFeatureFlags() async {
-        if daemonClient != nil {
+        if connectionManager != nil {
             do {
                 let flags = try await featureFlagClient.getFeatureFlags()
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {

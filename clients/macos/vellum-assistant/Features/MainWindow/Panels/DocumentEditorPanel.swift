@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct DocumentEditorPanelView: View {
     @ObservedObject var documentManager: DocumentManager
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let onClose: () -> Void
 
     var body: some View {

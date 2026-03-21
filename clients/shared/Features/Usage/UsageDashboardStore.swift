@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Usage Client Protocol
 
-/// Abstraction for fetching usage data, decoupled from the full DaemonClientProtocol.
+/// Abstraction for fetching usage data, decoupled from the full GatewayConnectionManager.
 @MainActor
 public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?

@@ -74,7 +74,7 @@ public final class ChatErrorManager: ObservableObject {
                 return nwErr.localizedDescription
             }
         }
-        if let authErr = error as? DaemonClient.AuthError {
+        if let authErr = error as? GatewayConnectionManager.AuthError {
             switch authErr {
             case .missingToken:
                 return "Session token not found — try restarting the assistant."

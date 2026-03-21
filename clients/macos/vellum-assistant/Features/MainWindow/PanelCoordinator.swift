@@ -25,11 +25,11 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.selection = nil }
             )
@@ -40,7 +40,7 @@ extension MainWindowView {
                     get: { windowState.isDynamicExpanded },
                     set: { windowState.isDynamicExpanded = $0 }
                 ),
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { surfaceMsg in
@@ -58,10 +58,10 @@ extension MainWindowView {
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -94,7 +94,7 @@ extension MainWindowView {
                     vm?.pendingSkillInvocation = nil
                     windowState.selection = nil
                 },
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
@@ -250,7 +250,7 @@ extension MainWindowView {
                 AppLoadingView(
                     appId: appId,
                     onRetry: { appId in
-                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
                     },
                     onClose: {
                         windowState.closeDynamicPanel()
@@ -262,10 +262,10 @@ extension MainWindowView {
             if panelType == .apps {
                 AppsGridView(
                     appListManager: appListManager,
-                    daemonClient: daemonClient,
+                    connectionManager: connectionManager,
                     gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
-                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
@@ -295,7 +295,7 @@ extension MainWindowView {
                     panel: {
                         DocumentEditorPanelView(
                             documentManager: documentManager,
-                            daemonClient: daemonClient,
+                            connectionManager: connectionManager,
                             onClose: { windowState.selection = nil; documentManager.closeDocument() }
                         )
                     }
@@ -390,7 +390,7 @@ extension MainWindowView {
                 conversationStartersEnabled: conversationStartersEnabled,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
@@ -418,11 +418,11 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.dismissOverlay() }
             )
@@ -442,10 +442,10 @@ extension MainWindowView {
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -480,7 +480,7 @@ extension MainWindowView {
                     vm?.pendingSkillInvocation = nil
                     windowState.dismissOverlay()
                 },
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
@@ -526,7 +526,7 @@ extension MainWindowView {
                 data: data,
                 windowState: windowState,
                 surfaceManager: surfaceManager,
-                daemonClient: daemonClient,
+                connectionManager: connectionManager,
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
                 sharing: sharing,
@@ -592,7 +592,7 @@ struct ActiveChatViewWrapper: View {
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
@@ -789,7 +789,7 @@ struct DynamicWorkspaceWrapper: View {
     let data: DynamicPageSurfaceData
     @ObservedObject var windowState: MainWindowState
     let surfaceManager: SurfaceManager
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
     var sharing: SharingState
@@ -931,7 +931,7 @@ struct DynamicWorkspaceWrapper: View {
             ZStack {
                 if showVersionHistory, let appId = data.appId {
                     AppVersionHistoryPanel(
-                        daemonClient: daemonClient,
+                        connectionManager: connectionManager,
                         appId: appId,
                         appName: data.preview?.title ?? "App",
                         onClose: { showVersionHistory = false }

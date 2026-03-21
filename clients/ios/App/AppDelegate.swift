@@ -7,24 +7,24 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppDelegate")
 
-/// Observable wrapper that holds the active DaemonClientProtocol implementation.
+/// Observable wrapper that holds the active GatewayConnectionManager implementation.
 /// Allows SwiftUI views to receive the client via @EnvironmentObject without
-/// requiring DaemonClient to be the concrete type.
+/// requiring GatewayConnectionManager to be the concrete type.
 @MainActor
 final class ClientProvider: ObservableObject {
-    @Published var client: any DaemonClientProtocol
+    @Published var client: GatewayConnectionManager
     /// Monotonically increasing counter bumped on each `rebuildClient()` call.
     /// Views that cache the client can observe this to detect when the client
     /// has been replaced.
     @Published var clientGeneration: UInt = 0
     /// Mirrors the daemon client's `isConnected` state so views can observe a
     /// single source of truth. Automatically synced via Combine when the
-    /// underlying client is a `DaemonClient`.
+    /// underlying client is a `GatewayConnectionManager`.
     @Published var isConnected: Bool = false
 
     /// Cancellable subscription for the Combine bridge. Stored so we can
     /// cancel it before creating a new one in `rebuildClient()` — prevents
-    /// old DaemonClient subscriptions from accumulating and writing stale
+    /// old GatewayConnectionManager subscriptions from accumulating and writing stale
     /// state to `isConnected`.
     private var isConnectedSubscription: AnyCancellable?
 
@@ -40,7 +40,7 @@ final class ClientProvider: ObservableObject {
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
-    init(connectionManager: GatewayConnectionManager, client: DaemonStatus) {
+    init(connectionManager: GatewayConnectionManager, client: GatewayConnectionManager) {
         self.connectionManager = connectionManager
         self.client = client
         self.traceStore = TraceStore()
@@ -48,7 +48,7 @@ final class ClientProvider: ObservableObject {
         bindTraceEvents()
     }
 
-    /// Recreate the DaemonClient from current UserDefaults/Keychain settings.
+    /// Recreate the GatewayConnectionManager from current UserDefaults/Keychain settings.
     /// Call this after QR pairing, cloud provisioning, or Settings changes so the
     /// new transport configuration takes effect without an app restart.
     func rebuildClient() {
@@ -60,9 +60,7 @@ final class ClientProvider: ObservableObject {
         client.disconnect()
         let newCM = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
-        newCM.reconfigure(
-            instanceDir: config.instanceDir
-        )
+        newCM.reconfigure(instanceDir: config.instanceDir)
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
         newCM.instanceDir = config.instanceDir
@@ -77,8 +75,8 @@ final class ClientProvider: ObservableObject {
     private func bindCombineBridge() {
         isConnectedSubscription?.cancel()
         isConnectedSubscription = nil
-        if let daemon = client as? DaemonClient {
-            // Bridge DaemonClient's @Published isConnected to our own.
+        if let daemon = client as? GatewayConnectionManager {
+            // Bridge GatewayConnectionManager's @Published isConnected to our own.
             // Both types are @MainActor so the publisher already emits on the
             // main actor — no receive(on:) needed. Using sink with [weak self]
             // to avoid a retain cycle (assign(to:on:) holds a strong ref).
@@ -118,9 +116,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let cm = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
         cm.instanceDir = config.instanceDir
-        cm.reconfigure(
-            instanceDir: config.instanceDir
-        )
+        cm.reconfigure(instanceDir: config.instanceDir)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
     }
@@ -134,7 +130,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         migrateToPairingV4IfNeeded()
 
         // Set recovery credentials for automatic 401 re-bootstrap
-        if let daemon = clientProvider.client as? DaemonClient {
+        if let daemon = clientProvider.client as? GatewayConnectionManager {
             daemon.recoveryPlatform = "ios"
             daemon.recoveryDeviceId = Self.getOrCreateDeviceId()
         }

@@ -7,14 +7,14 @@ import XCTest
 @MainActor
 final class ChatViewModelIOSTests: XCTestCase {
 
-    private var mockClient: MockDaemonClient!
+    private var mockClient: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        mockClient = MockDaemonClient()
+        mockClient = GatewayConnectionManager()
         mockClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient)
+        viewModel = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
     }
 
     override func tearDown() {
@@ -125,7 +125,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.suggestion, "Summarize the last response")
     }
 
-    // Note: testSendMessageRecordsInMockClient was removed because MockDaemonClient
+    // Note: testSendMessageRecordsInMockClient was removed because GatewayConnectionManager
     // no longer has sentMessages. Verifying that messages are dispatched upstream
     // requires a mock EventStreamClient.
 
@@ -377,7 +377,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "interaction call")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-hr"
 
         vm.respondToAlwaysAllow(
@@ -402,7 +402,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "interaction call")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-default"
 
         vm.respondToAlwaysAllow(
@@ -425,7 +425,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "both calls complete")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fallback"
 
         // Seed a confirmation message so revertConfirmationInFlight can find it
@@ -467,7 +467,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "both calls complete")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fail-once"
 
         // Seed a confirmation message so the fallback path can update its state

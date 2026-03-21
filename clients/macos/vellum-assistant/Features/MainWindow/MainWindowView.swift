@@ -40,7 +40,7 @@ struct MainWindowView: View {
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
-    let daemonClient: DaemonClient
+    let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -67,13 +67,13 @@ struct MainWindowView: View {
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
@@ -584,7 +584,7 @@ struct MainWindowView: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                 .padding(.top, VSpacing.sm)
                 .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
-            } else if daemonClient.versionMismatch {
+            } else if connectionManager.versionMismatch {
                 ChatConversationErrorToast(
                     message: versionMismatchMessage,
                     icon: .triangleAlert,
@@ -597,7 +597,7 @@ struct MainWindowView: View {
                 )
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                 .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: daemonClient.versionMismatch)
+                .animation(VAnimation.fast, value: connectionManager.versionMismatch)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -605,7 +605,7 @@ struct MainWindowView: View {
 
     /// Contextual message for version mismatch: tells user which side is behind.
     private var versionMismatchMessage: String {
-        guard let daemonVersion = daemonClient.assistantVersion,
+        guard let daemonVersion = connectionManager.assistantVersion,
               let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               let daemonParsed = VersionCompat.parse(daemonVersion),
               let clientParsed = VersionCompat.parse(clientVersion) else {
@@ -645,16 +645,16 @@ struct MainWindowView: View {
             .task { await observeDaemonStartupErrors() }
             .onDisappear { handleCoreLayoutDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-                refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
             }
             .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
                 windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
             }
-            .onReceive(daemonClient.$isConnected) { connected in
+            .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
             }
             .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-                refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: isAuthenticated)
+                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: isAuthenticated)
             }
             .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
                 if !isEmpty && showDaemonLoading {
@@ -732,7 +732,7 @@ struct MainWindowView: View {
         // Without this, isAppChatOpen could remain persisted as true with
         // no UI to disable it, leaving panels stuck in split mode.
         isAppChatOpen = false
-        refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+        refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
@@ -806,7 +806,7 @@ struct MainWindowView: View {
             if let path = notification.userInfo?["userAppsDirectoryPath"] as? String, !path.isEmpty {
                 windowState.activeDynamicUserAppsDirectory = URL(fileURLWithPath: path, isDirectory: true)
             } else {
-                let env = daemonClient.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
                 windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
             }
             if let surface = windowState.activeDynamicParsedSurface,
@@ -821,9 +821,9 @@ struct MainWindowView: View {
             // send a fresh ui_surface_show via SSE with the full payload.
             let reopenId = ref.appId ?? ref.surfaceId
             windowState.selection = .app(reopenId)
-            let env = daemonClient.instanceDir.map { ["BASE_DATA_DIR": $0] }
+            let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
             windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
         }
     }
 
@@ -1136,7 +1136,7 @@ struct MainWindowView: View {
                 return
             }
             // Reconnect the daemon client after a successful restart
-            if !appDelegate.daemonClient.isConnected && !appDelegate.connectionManager.isConnecting {
+            if !appDelegate.connectionManager.isConnected && !appDelegate.connectionManager.isConnecting {
                 try? await appDelegate.connectionManager.connect()
             }
         }
