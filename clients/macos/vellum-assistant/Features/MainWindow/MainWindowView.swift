@@ -603,19 +603,34 @@ struct MainWindowView: View {
         if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {
             // Suppress when the "Update" pill already covers it (daemon behind + update available)
             if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
-                ChatConversationErrorToast(
-                    message: versionMismatchMessage,
-                    icon: .triangleAlert,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Update in Settings",
-                    onAction: {
-                        settingsStore.pendingSettingsTab = .general
-                        windowState.selection = .panel(.settings)
-                    }
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                if isDaemonBehind {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Update in Settings",
+                        onAction: {
+                            settingsStore.pendingSettingsTab = .general
+                            windowState.selection = .panel(.settings)
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                } else {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Check for App Update",
+                        onAction: {
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                }
             }
         }
     }
