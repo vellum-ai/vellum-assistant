@@ -18,7 +18,7 @@ struct PrivateConversationPersistenceTests {
         let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
 
         // ConversationManager.init enters draft mode — conversations array is empty,
         // the initial chat lives as a draftViewModel.
@@ -50,8 +50,8 @@ struct PrivateConversationPersistenceTests {
         // Now simulate a fresh restore: build a conversation list response
         // that includes this conversation with conversationType "private", and verify
         // the restorer creates it with .private kind.
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -88,13 +88,13 @@ struct PrivateConversationPersistenceTests {
         let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         // ConversationManager.init enters draft mode — no conversations in the array yet
         #expect(manager.conversations.isEmpty)
 
         // Restore a conversation list with a standard conversation
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -129,8 +129,8 @@ struct PrivateConversationPersistenceTests {
     @Test @MainActor
     func mixedConversationTypesRestoreCorrectly() {
         let dc = GatewayConnectionManager()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -162,8 +162,8 @@ struct PrivateConversationPersistenceTests {
     @Test @MainActor
     func legacyPayloadWithoutConversationTypeDefaultsToStandard() {
         let dc = GatewayConnectionManager()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -191,8 +191,8 @@ struct PrivateConversationPersistenceTests {
     @Test @MainActor
     func mixedLegacyAndModernPayloadsRestoreCorrectly() {
         let dc = GatewayConnectionManager()
-        let restorer = ConversationRestorer(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
         let defaultConversation = ConversationModel()
@@ -225,7 +225,7 @@ struct PrivateConversationPersistenceTests {
         let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         manager.createPrivateConversation()
 
         let vm = manager.activeViewModel!
@@ -245,7 +245,7 @@ struct PrivateConversationPersistenceTests {
         let dc = GatewayConnectionManager()
         dc.isConnected = true
 
-        let manager = ConversationManager(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+        let manager = ConversationManager(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         manager.createPrivateConversation()
 
         let privateConversation = manager.conversations.first!

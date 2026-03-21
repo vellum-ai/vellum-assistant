@@ -573,6 +573,6 @@ extension MainWindowView {
             previewBase64: app.previewBase64,
             appType: app.appType
         )
-        Task { await AppsClient.openAppAndDispatchSurface(id: app.id, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+        Task { await AppsClient.openAppAndDispatchSurface(id: app.id, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
     }
 }

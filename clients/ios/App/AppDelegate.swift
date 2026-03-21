@@ -40,7 +40,7 @@ final class ClientProvider: ObservableObject {
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
-    init(connectionManager: GatewayConnectionManager, client: DaemonStatus) {
+    init(connectionManager: GatewayConnectionManager, client: GatewayConnectionManager) {
         self.connectionManager = connectionManager
         self.client = client
         self.traceStore = TraceStore()
@@ -60,9 +60,7 @@ final class ClientProvider: ObservableObject {
         client.disconnect()
         let newCM = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
-        newCM.reconfigure(
-            instanceDir: config.instanceDir
-        )
+        newCM.reconfigure(instanceDir: config.instanceDir)
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
         newCM.instanceDir = config.instanceDir
@@ -118,9 +116,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let cm = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
         cm.instanceDir = config.instanceDir
-        cm.reconfigure(
-            instanceDir: config.instanceDir
-        )
+        cm.reconfigure(instanceDir: config.instanceDir)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
     }

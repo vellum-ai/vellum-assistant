@@ -20,7 +20,7 @@ final class AttachmentFlowIOSTests: XCTestCase {
         super.setUp()
         mockClient = GatewayConnectionManager()
         mockClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient)
+        viewModel = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
     }
 
     override func tearDown() {

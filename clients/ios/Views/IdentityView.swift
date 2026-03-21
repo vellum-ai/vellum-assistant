@@ -23,12 +23,12 @@ final class IdentityViewModel {
 
     private var cancellables: Set<AnyCancellable> = []
 
-    func setUp(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
+    func setUp(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         cancellables.removeAll()
 
         let skills = SkillsStore()
         skillsStore = skills
-        let contacts = ContactsStore(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
+        let contacts = ContactsStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         contactsStore = contacts
 
         skills.$skills
@@ -134,8 +134,8 @@ struct IdentityView: View {
                 viewModel.tearDown()
                 return
             }
-            if let daemonClient = clientProvider.client as? GatewayConnectionManager {
-                viewModel.setUp(daemonClient: daemonClient, eventStreamClient: clientProvider.eventStreamClient)
+            if let connectionManager = clientProvider.client as? GatewayConnectionManager {
+                viewModel.setUp(connectionManager: connectionManager, eventStreamClient: clientProvider.eventStreamClient)
             }
             await viewModel.fetchIdentity()
         }

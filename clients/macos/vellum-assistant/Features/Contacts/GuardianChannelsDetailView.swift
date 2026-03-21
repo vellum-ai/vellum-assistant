@@ -11,7 +11,7 @@ struct GuardianChannelsDetailView: View {
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     let contact: ContactPayload
-    var daemonClient: GatewayConnectionManager?
+    var connectionManager: GatewayConnectionManager?
     var contactClient: ContactClientProtocol = ContactClient()
     var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
@@ -203,7 +203,7 @@ struct GuardianChannelsDetailView: View {
 
                     if isVerified {
                         VButton(label: "Verified", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                        if let channel = activeChannel, daemonClient != nil {
+                        if let channel = activeChannel, connectionManager != nil {
                             VButton(label: "Revoke", style: .danger) {
                                 channelToRevoke = (id: channel.id, type: type)
                             }
@@ -262,7 +262,7 @@ struct GuardianChannelsDetailView: View {
                     .lineLimit(1)
             }
 
-            if daemonClient != nil {
+            if connectionManager != nil {
                 VButton(label: "Disconnect", style: .dangerGhost, isDisabled: actionInProgress != nil) {
                     disconnectChannel(channelId: channel.id, type: type)
                 }

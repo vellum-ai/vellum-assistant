@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// Full-screen apps grid view showing all apps as a flat card grid with search.
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     let gatewayBaseURL: String
     let onOpenApp: (String) -> Void
     /// Called when the user opens a shared app (needs surface-based navigation).

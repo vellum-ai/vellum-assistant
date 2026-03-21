@@ -39,7 +39,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = {
             let dc = GatewayConnectionManager()
-            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+            return ChatViewModel(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         }()
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
@@ -56,7 +56,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = {
             let dc = GatewayConnectionManager()
-            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+            return ChatViewModel(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         }()
         var message = ChatMessage(role: .assistant, text: "Persisted reply")
         message.daemonMessageId = "msg-tip"
@@ -114,7 +114,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         let conversation = ConversationModel(title: "New Conversation")
         let vm = {
             let dc = GatewayConnectionManager()
-            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
+            return ChatViewModel(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         }()
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,

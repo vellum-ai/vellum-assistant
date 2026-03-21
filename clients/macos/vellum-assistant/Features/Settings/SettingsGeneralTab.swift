@@ -5,7 +5,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsGeneralTab: View {
     @ObservedObject var store: SettingsStore
-    var daemonClient: GatewayConnectionManager?
+    var connectionManager: GatewayConnectionManager?
     var authManager: AuthManager
     var onClose: () -> Void
     var showToast: (String, ToastInfo.Style) -> Void
@@ -67,7 +67,7 @@ struct SettingsGeneralTab: View {
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
                 gatewayUrl: store.resolvedIosGatewayUrl,
-                daemonClient: daemonClient
+                connectionManager: connectionManager
             )
         }
         .sheet(isPresented: $isDockerOperationInProgress) {

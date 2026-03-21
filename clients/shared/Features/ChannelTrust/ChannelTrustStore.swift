@@ -25,7 +25,7 @@ public final class ChannelTrustStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let daemonClient: GatewayConnectionManager
+    private let connectionManager: GatewayConnectionManager
     private let contactsStore: ContactsStore
     private let guardianClient: GuardianClientProtocol
     private var fetchTask: Task<Void, Never>?
@@ -33,8 +33,8 @@ public final class ChannelTrustStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: GatewayConnectionManager, contactsStore: ContactsStore, guardianClient: GuardianClientProtocol = GuardianClient()) {
-        self.daemonClient = daemonClient
+    public init(connectionManager: GatewayConnectionManager, contactsStore: ContactsStore, guardianClient: GuardianClientProtocol = GuardianClient()) {
+        self.connectionManager = connectionManager
         self.contactsStore = contactsStore
         self.guardianClient = guardianClient
 

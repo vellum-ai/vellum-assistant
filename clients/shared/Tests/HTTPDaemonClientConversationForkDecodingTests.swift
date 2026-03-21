@@ -2,7 +2,7 @@ import XCTest
 
 @testable import VellumAssistantShared
 
-final class HTTPGatewayConnectionManagerConversationForkDecodingTests: XCTestCase {
+final class GatewayConnectionManagerConversationForkDecodingTests: XCTestCase {
     private let decoder = JSONDecoder()
 
     func testHTTPConversationsListResponseDecodesForkParent() throws {

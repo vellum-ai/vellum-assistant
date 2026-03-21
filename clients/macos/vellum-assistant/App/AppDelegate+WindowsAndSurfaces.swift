@@ -53,7 +53,7 @@ extension NSApplication {
 extension AppDelegate {
 
     func currentUserAppsDirectory() -> URL {
-        let env = daemonClient.instanceDir.map { ["BASE_DATA_DIR": $0] }
+        let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
         return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
     }
 
@@ -268,7 +268,7 @@ extension AppDelegate {
         guard onboardingWindow == nil else { return }
 
         // Ensure daemon connectivity for the interview step
-        if !daemonClient.isConnected {
+        if !connectionManager.isConnected {
             setupGatewayConnectionManager()
         }
 
@@ -284,7 +284,7 @@ extension AppDelegate {
         OnboardingState.clearPersistedState()
 
         let onboarding = OnboardingWindow(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             authManager: authManager
         )
         onboarding.onComplete = { [weak self] state in
@@ -315,7 +315,7 @@ extension AppDelegate {
     func hatchNewAssistant() {
         guard onboardingWindow == nil else { return }
 
-        if !daemonClient.isConnected {
+        if !connectionManager.isConnected {
             setupGatewayConnectionManager()
         }
 
@@ -330,7 +330,7 @@ extension AppDelegate {
 
         OnboardingState.clearPersistedState()
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        let onboarding = OnboardingWindow(connectionManager: connectionManager, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
@@ -429,7 +429,7 @@ extension AppDelegate {
     }
 
     func showOnboarding() {
-        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        let onboarding = OnboardingWindow(connectionManager: connectionManager, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")

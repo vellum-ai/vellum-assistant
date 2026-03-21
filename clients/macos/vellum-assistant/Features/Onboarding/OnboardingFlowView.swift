@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     @Bindable var authManager: AuthManager
     let managedBootstrapEnabled: Bool
     var onComplete: () -> Void

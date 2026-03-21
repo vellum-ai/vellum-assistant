@@ -65,13 +65,13 @@ final class DebugStateWriter {
     // MARK: - Snapshot Capture
 
     func captureSnapshot(from appDelegate: AppDelegate) -> DebugSnapshot {
-        let daemonClient = appDelegate.services.daemonClient
+        let connectionManager = appDelegate.services.connectionManager
         let conversationManager = appDelegate.mainWindow?.conversationManager
 
         let daemonState = DebugSnapshot.DaemonState(
-            isConnected: daemonClient.isConnected,
-            isConnecting: daemonClient.isConnecting,
-            assistantVersion: daemonClient.assistantVersion
+            isConnected: connectionManager.isConnected,
+            isConnecting: connectionManager.isConnecting,
+            assistantVersion: connectionManager.assistantVersion
         )
 
         let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { conversation in

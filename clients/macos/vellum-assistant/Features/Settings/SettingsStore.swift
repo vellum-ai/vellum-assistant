@@ -291,7 +291,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Private
 
-    private weak var daemonClient: GatewayConnectionManager?
+    private weak var connectionManager: GatewayConnectionManager?
     private let eventStreamClient: EventStreamClient?
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
@@ -352,7 +352,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     init(
-        daemonClient: GatewayConnectionManager? = nil,
+        connectionManager: GatewayConnectionManager? = nil,
         eventStreamClient: EventStreamClient? = nil,
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
@@ -363,7 +363,7 @@ public final class SettingsStore: ObservableObject {
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
     ) {
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.channelClient = channelClient
         self.integrationClient = integrationClient
@@ -530,13 +530,13 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
-        daemonClient?.$isTrustRulesSheetOpen
+        connectionManager?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
 
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
-        daemonClient?.$latestModelInfo
+        connectionManager?.$latestModelInfo
             .compactMap { $0 }
             .receive(on: RunLoop.main)
             .sink { [weak self] info in

@@ -16,7 +16,7 @@ struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
     let gatewayUrl: String
-    let daemonClient: GatewayConnectionManager?
+    let connectionManager: GatewayConnectionManager?
 
     @State private var hostId: String = ""
     @State private var pairingRequestId: String = UUID().uuidString
@@ -49,7 +49,7 @@ struct PairingQRCodeSheet: View {
     var body: some View {
         VModal(title: "Pair iOS Device") {
             VStack(spacing: VSpacing.lg) {
-                if daemonClient == nil {
+                if connectionManager == nil {
                     errorContent("Cannot generate QR code \u{2014} assistant not connected. Please wait for the assistant to start and try again.")
                 } else {
                     switch registrationState {
@@ -108,7 +108,7 @@ struct PairingQRCodeSheet: View {
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
 
-                if registrationState == .failed && daemonClient != nil {
+                if registrationState == .failed && connectionManager != nil {
                     Button("Retry") {
                         consecutiveRefreshFailures = 0
                         pairingRequestId = UUID().uuidString
@@ -131,7 +131,7 @@ struct PairingQRCodeSheet: View {
         .onAppear {
             hostId = Self.computeHostId()
             localLanUrl = shouldAdvertiseLocalLanUrl ? computeLocalLanUrl() : nil
-            guard daemonClient != nil else { return }
+            guard connectionManager != nil else { return }
             registerWithDaemon()
             startRefreshTimer()
         }

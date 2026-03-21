@@ -20,7 +20,7 @@ final class SkillsManager: ObservableObject {
     // Kept for source compatibility with existing macOS views.
     typealias UninstallResult = SkillsStore.UninstallResult
 
-    init(daemonClient: GatewayConnectionManager) {
+    init(connectionManager: GatewayConnectionManager) {
         self.skillsStore = SkillsStore()
         bindStore()
     }

@@ -12,19 +12,19 @@ import XCTest
 @MainActor
 final class ChatMediaEmbedBaselineTests: XCTestCase {
 
-    private var daemonClient: GatewayConnectionManager!
+    private var connectionManager: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = GatewayConnectionManager()
-        daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
+        viewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
     }
 
     override func tearDown() {
         viewModel = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 

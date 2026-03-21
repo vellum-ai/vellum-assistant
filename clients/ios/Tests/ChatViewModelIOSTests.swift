@@ -14,7 +14,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         super.setUp()
         mockClient = GatewayConnectionManager()
         mockClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient)
+        viewModel = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
     }
 
     override func tearDown() {
@@ -377,7 +377,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "interaction call")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-hr"
 
         vm.respondToAlwaysAllow(
@@ -402,7 +402,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "interaction call")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-default"
 
         vm.respondToAlwaysAllow(
@@ -425,7 +425,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "both calls complete")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fallback"
 
         // Seed a confirmation message so revertConfirmationInFlight can find it
@@ -467,7 +467,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let exp = expectation(description: "both calls complete")
         mockInteraction.expectation = exp
 
-        let vm = ChatViewModel(daemonClient: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
+        let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fail-once"
 
         // Seed a confirmation message so the fallback path can update its state

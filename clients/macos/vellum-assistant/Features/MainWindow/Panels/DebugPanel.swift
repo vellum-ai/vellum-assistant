@@ -3,7 +3,7 @@ import SwiftUI
 
 struct DebugPanel: View {
     @ObservedObject var traceStore: TraceStore
-    @ObservedObject var daemonClient: GatewayConnectionManager
+    @ObservedObject var connectionManager: GatewayConnectionManager
     let activeSessionId: String?
     var onClose: () -> Void
 
@@ -141,7 +141,7 @@ struct DebugPanel: View {
                     )
                 }
 
-                if let memory = daemonClient.latestMemoryStatus {
+                if let memory = connectionManager.latestMemoryStatus {
                     let memoryDegraded = memory.enabled && memory.degraded
                     metric(
                         icon: memoryDegraded ? "memorychip.fill" : "memorychip",

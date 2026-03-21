@@ -448,7 +448,7 @@ public final class ChatViewModel: ObservableObject {
     static let maxImageSize = ChatAttachmentManager.maxImageSize
 
     public let subagentDetailStore = SubagentDetailStore()
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
@@ -854,7 +854,7 @@ public final class ChatViewModel: ObservableObject {
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
-        guard daemonClient.isConnected else { return }
+        guard connectionManager.isConnected else { return }
         rehydratingMessageIds.insert(id)
         Task { [weak self] in
             guard let self else { return }
@@ -1009,13 +1009,13 @@ public final class ChatViewModel: ObservableObject {
     public var currentPage: String?
 
     public init(
-        daemonClient: GatewayConnectionManager,
+        connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),
         onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
     ) {
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
@@ -1581,9 +1581,9 @@ public final class ChatViewModel: ObservableObject {
 
         Task { @MainActor in
             // Ensure daemon connection
-            if !daemonClient.isConnected {
+            if !connectionManager.isConnected {
                 do {
-                    try await daemonClient.connect()
+                    try await connectionManager.connect()
                 } catch {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")
                     self.isThinking = false
@@ -1645,7 +1645,7 @@ public final class ChatViewModel: ObservableObject {
         // Check connectivity before entering sending state so the UI
         // doesn't get stuck with isSending/isThinking = true when the
         // daemon has disconnected between turns.
-        guard daemonClient.isConnected else {
+        guard connectionManager.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
 
             // Buffer the primary (non-queued-retry) send in the offline queue
@@ -1972,7 +1972,7 @@ public final class ChatViewModel: ObservableObject {
         // and no acknowledgment (generation_cancelled / message_complete) will
         // arrive.  Reset all transient state immediately to avoid a permanently
         // stuck isCancelling flag that would suppress future assistant deltas.
-        guard daemonClient.isConnected else {
+        guard connectionManager.isConnected else {
             log.warning("Cannot send cancel: daemon not connected")
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
@@ -2130,7 +2130,7 @@ public final class ChatViewModel: ObservableObject {
     /// all memory systems (including Qdrant) and re-runs the agent loop.
     public func regenerateLastMessage() {
         guard let conversationId, !isSending else { return }
-        guard daemonClient.isConnected else {
+        guard connectionManager.isConnected else {
             errorText = "Failed to connect to the assistant."
             return
         }
@@ -2459,7 +2459,7 @@ public final class ChatViewModel: ObservableObject {
     public func sendAnyway() {
         guard let text = secretBlockedMessageText, let _ = conversationId else { return }
 
-        guard daemonClient.isConnected else {
+        guard connectionManager.isConnected else {
             errorText = "Cannot connect to assistant. Please ensure it's running."
             return
         }
@@ -2725,7 +2725,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
-        guard let conversationId, daemonClient.isConnected else { return }
+        guard let conversationId, connectionManager.isConnected else { return }
 
         let requestId = UUID().uuidString
         pendingSuggestionRequestId = requestId

@@ -60,9 +60,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
     private var metricKitManager: MetricKitManager?
 
-    // Forwarding accessors — ownership lives in `services`, these keep
-    // existing internal references working without a mass-rename.
-    var daemonClient: GatewayConnectionManager { services.daemonClient }
+    // Forwarding accessors — ownership lives in `services`.
     var connectionManager: GatewayConnectionManager { services.connectionManager }
     var eventStreamClient: EventStreamClient { services.connectionManager.eventStreamClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
@@ -74,7 +72,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
-    lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
+    lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
     var e2eStatusOverlayWindow: E2EStatusOverlayWindow?

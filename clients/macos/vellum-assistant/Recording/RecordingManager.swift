@@ -42,7 +42,7 @@ final class RecordingManager: ObservableObject {
     // MARK: - Dependencies
 
     private let recorder = ScreenRecorder()
-    private weak var daemonClient: GatewayConnectionManager?
+    private weak var connectionManager: GatewayConnectionManager?
     private let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
 
     /// Callback invoked when source validation fails with `.noMatchingDisplay`
@@ -50,8 +50,8 @@ final class RecordingManager: ObservableObject {
     /// (AppDelegate) can use this to re-show the source picker.
     var onSourceValidationFailed: ((_ sessionId: String, _ attachToConversationId: String?) -> Void)?
 
-    init(daemonClient: GatewayConnectionManager? = nil) {
-        self.daemonClient = daemonClient
+    init(connectionManager: GatewayConnectionManager? = nil) {
+        self.connectionManager = connectionManager
     }
 
     // MARK: - Start

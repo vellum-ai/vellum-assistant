@@ -145,9 +145,9 @@ struct SettingsView: View {
                     return
                 }
                 if let daemon = clientProvider.client as? GatewayConnectionManager {
-                    let contacts = ContactsStore(daemonClient: daemon, eventStreamClient: clientProvider.eventStreamClient)
+                    let contacts = ContactsStore(connectionManager: daemon, eventStreamClient: clientProvider.eventStreamClient)
                     contactsStore = contacts
-                    channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
+                    channelTrustStore = ChannelTrustStore(connectionManager: daemon, contactsStore: contacts)
                 }
             }
         }

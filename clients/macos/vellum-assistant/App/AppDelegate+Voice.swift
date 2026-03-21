@@ -134,7 +134,7 @@ extension AppDelegate {
 
     func setupAmbientAgent() {
         ambientAgent.appDelegate = self
-        ambientAgent.daemonClient = daemonClient
+        ambientAgent.connectionManager = connectionManager
     }
 
     func updateMenuBarIcon() {

@@ -23,7 +23,7 @@ public final class DirectoryStore: ObservableObject {
     private let documentClient: DocumentClientProtocol
     /// Daemon client retained for push event subscriptions (appFilesChanged)
     /// which use message transport.
-    private weak var daemonClient: GatewayConnectionManager?
+    private weak var connectionManager: GatewayConnectionManager?
     private let eventStreamClient: EventStreamClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
@@ -31,10 +31,10 @@ public final class DirectoryStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, documentClient: DocumentClientProtocol = DocumentClient()) {
+    public init(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, documentClient: DocumentClientProtocol = DocumentClient()) {
         self.appsClient = AppsClient()
         self.documentClient = documentClient
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         subscribeToAppFilesChanged()
         reconnectObserver = NotificationCenter.default.addObserver(
@@ -73,8 +73,8 @@ public final class DirectoryStore: ObservableObject {
 
     /// Open a local app by ID (fire-and-forget).
     public func openApp(id: String) {
-        guard let daemonClient, let eventStreamClient else { return }
-        Task { await AppsClient.openAppAndDispatchSurface(id: id, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+        guard let connectionManager, let eventStreamClient else { return }
+        Task { await AppsClient.openAppAndDispatchSurface(id: id, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
     }
 
     /// Open a local app by ID, returning the result for callers that need to

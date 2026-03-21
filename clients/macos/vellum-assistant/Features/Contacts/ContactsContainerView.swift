@@ -13,7 +13,7 @@ enum ContactSelection: Hashable {
 /// selected contact, the assistant channel configuration, or a placeholder.
 @MainActor
 struct ContactsContainerView: View {
-    var daemonClient: GatewayConnectionManager?
+    var connectionManager: GatewayConnectionManager?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var isEmailEnabled: Bool = false
@@ -24,13 +24,13 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
-        self.daemonClient = daemonClient
+    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+        self.connectionManager = connectionManager
         self.store = store
         self.conversationManager = conversationManager
         self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
-        _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient))
+        _viewModel = StateObject(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
     var body: some View {
@@ -121,7 +121,7 @@ struct ContactsContainerView: View {
                         } else {
                             ContactDetailView(
                                 contact: contact,
-                                daemonClient: daemonClient,
+                                connectionManager: connectionManager,
                                 store: store,
                                 onDelete: {
                                     selection = .assistant
@@ -239,7 +239,7 @@ struct ContactsContainerView: View {
 
                 GuardianChannelsDetailView(
                     contact: contact,
-                    daemonClient: daemonClient,
+                    connectionManager: connectionManager,
                     store: store,
                     onSelectAssistant: { selection = .assistant },
                     showCardBorders: false
@@ -316,7 +316,7 @@ struct ContactsContainerView: View {
                 .padding(.horizontal, VSpacing.lg)
 
                 if let store {
-                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(.horizontal, VSpacing.lg)
                         .padding(.bottom, VSpacing.lg)
                 }

@@ -62,18 +62,18 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
     }
 
-    private var daemonClient: GatewayConnectionManager!
+    private var connectionManager: GatewayConnectionManager!
     private var settingsClient: StubSettingsClient!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = GatewayConnectionManager()
-        daemonClient.isConnected = true
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         settingsClient = StubSettingsClient()
         viewModel = ChatViewModel(
-            daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
             settingsClient: settingsClient
         )
         viewModel.conversationId = "sess-1"
@@ -82,7 +82,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
     override func tearDown() {
         viewModel = nil
         settingsClient = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 

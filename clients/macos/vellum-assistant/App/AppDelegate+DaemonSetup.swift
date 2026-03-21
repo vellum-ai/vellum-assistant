@@ -257,19 +257,19 @@ extension AppDelegate {
             // coordinator connects independently). Checking isConnecting
             // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
-            if !daemonClient.isConnected && !connectionManager.isConnecting {
+            if !connectionManager.isConnected && !connectionManager.isConnecting {
                 log.info("setupGatewayConnectionManager: calling connect()")
                 do {
                     try await connectionManager.connect()
-                    log.info("setupGatewayConnectionManager: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
+                    log.info("setupGatewayConnectionManager: connect() succeeded, isConnected=\(self.connectionManager.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
             } else {
-                log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
+                log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
-            if daemonClient.isConnected {
+            if connectionManager.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()

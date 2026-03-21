@@ -7,7 +7,7 @@ final class RecordingManagerSwitchBindingTests: XCTestCase {
 
     func testRecordingManagerRetainsGatewayConnectionManagerAfterReconfigure() {
         let client = GatewayConnectionManager()
-        let recordingManager = RecordingManager(daemonClient: client)
+        let recordingManager = RecordingManager(connectionManager: client)
 
         // Reset published state (simulating assistant switch)
         client.reconfigure(instanceDir: nil)
@@ -22,7 +22,7 @@ final class RecordingManagerSwitchBindingTests: XCTestCase {
 
     func testForceStopClearsStateBeforeSwitch() {
         let client = GatewayConnectionManager()
-        let recordingManager = RecordingManager(daemonClient: client)
+        let recordingManager = RecordingManager(connectionManager: client)
 
         // Force stop should safely clear all state even when not recording
         recordingManager.forceStop()

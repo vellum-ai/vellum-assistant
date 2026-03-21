@@ -32,7 +32,7 @@ final class DocumentManager: ObservableObject {
     private var autoSaveTask: Task<Void, Never>?
 
     /// Reference to daemon client for saving documents
-    weak var daemonClient: GatewayConnectionManager?
+    weak var connectionManager: GatewayConnectionManager?
     private let documentClient: DocumentClientProtocol = DocumentClient()
 
     /// Reference to the document editor coordinator for sending content updates.

@@ -29,7 +29,7 @@ public final class ContactsStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let daemonClient: GatewayConnectionManager
+    private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let contactClient: ContactClientProtocol
     private var contactsChangedTask: Task<Void, Never>?
@@ -38,8 +38,8 @@ public final class ContactsStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, contactClient: ContactClientProtocol = ContactClient()) {
-        self.daemonClient = daemonClient
+    public init(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, contactClient: ContactClientProtocol = ContactClient()) {
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.contactClient = contactClient
         subscribeToContactsChanged()

@@ -5,21 +5,21 @@ import XCTest
 @MainActor
 final class ChatViewModelTests: XCTestCase {
 
-    private var daemonClient: GatewayConnectionManager!
+    private var connectionManager: GatewayConnectionManager!
     private var viewModel: ChatViewModel!
 
     override func setUp() {
         super.setUp()
-        daemonClient = GatewayConnectionManager()
+        connectionManager = GatewayConnectionManager()
         // Mark as connected so send-path tests don't hit the disconnected guard.
         // Tests that verify disconnected behaviour explicitly set isConnected = false.
-        daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        connectionManager.isConnected = true
+        viewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
     }
 
     override func tearDown() {
         viewModel = nil
-        daemonClient = nil
+        connectionManager = nil
         super.tearDown()
     }
 
@@ -334,7 +334,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
 
         // Add user messages directly — tests don't have a real socket, so
-        // sendMessage() throws on daemonClient.send() and clears isSending,
+        // sendMessage() throws on connectionManager.send() and clears isSending,
         // preventing the FIFO mapping that messageQueued/messageDequeued need.
         let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
         let messageB = ChatMessage(role: .user, text: "Message B", status: .processing)
@@ -462,7 +462,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSendUserMessageWhenDisconnectedShowsErrorAndClearsState() {
         // Baseline: existing behavior when daemon disconnects between turns
         viewModel.conversationId = "test-conversation"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
@@ -483,7 +483,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testRegenerateWhenDisconnectedShowsError() {
         viewModel.conversationId = "test-conversation"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         viewModel.regenerateLastMessage()
 
@@ -505,7 +505,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testRegenerateClearsStaleConversationError() {
         viewModel.conversationId = "sess-1"
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
 
         // Simulate a stale conversation error from a previous failure
         let errorMsg = ConversationErrorMessage(
@@ -544,7 +544,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.pendingQueuedCount = 1
 
         // Disconnect and stop
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.stopGenerating()
 
         // Everything should be reset since cancel can't reach daemon
@@ -1247,7 +1247,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSendUserMessageWhenDisconnectedShowsError() {
         // Set up a conversation but daemon is disconnected
         viewModel.conversationId = "test-conversation"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
@@ -2012,7 +2012,7 @@ final class ChatViewModelTests: XCTestCase {
         // Simulate a prior connection-error send failure that cached the message.
         // Connection errors show a Retry button via isConnectionError, not isRetryableError.
         viewModel.inputText = "Hello"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isConnectionError,
                        "Send failure while disconnected should be a connection error")
@@ -2025,7 +2025,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isConnectionError)
 
         // Now a non-send error occurs (e.g. confirmation response failure)
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         viewModel.errorText = "Failed to send confirmation response."
         XCTAssertFalse(viewModel.isRetryableError,
                         "Non-send error should not show retry button")
@@ -2033,7 +2033,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testRetryButtonAppearsOnlySendFailures() {
         viewModel.conversationId = "sess-1"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         viewModel.inputText = "Test message"
         viewModel.sendMessage()
@@ -2048,7 +2048,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testRetryButtonAppearsForNonConnectionSendFailure() {
         viewModel.conversationId = "sess-1"
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         // TODO: sendUserMessage is now fire-and-forget; this test needs rework
         // to simulate a non-connection send failure via the HTTP transport layer.
 
@@ -2065,7 +2065,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testRetryButtonNotShownForRegenerateFailure() {
         viewModel.conversationId = "sess-1"
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         // First, simulate a send failure to cache a message
         viewModel.inputText = "Hello"
@@ -2074,7 +2074,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // Now dismiss and reconnect
         viewModel.dismissError()
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
 
         // Regenerate failure sets errorText but should not trigger retry
         // for the old cached message
@@ -2096,7 +2096,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending)
 
         // Simulate a send failure for message B (disconnect, then reconnect)
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
         // Message B is in messages[1] but failed to send
@@ -2104,7 +2104,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 2)
 
         // Reconnect and retry while A is still in progress
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         viewModel.isSending = true  // A is still in progress
         viewModel.retryLastMessage()
 
@@ -2131,17 +2131,17 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending)
 
         // Send message B which fails (disconnect)
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
         XCTAssertEqual(viewModel.messages.count, 2)
 
         // Reconnect and retry while A is still in progress
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         viewModel.isSending = true
 
         // Now disconnect again so the retry fails at the connectivity check
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.retryLastMessage()
 
         // The message status should be reverted from .queued back to .sent
@@ -2161,13 +2161,13 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending)
 
         // Send message B which fails (disconnect)
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
         XCTAssertEqual(viewModel.messages.count, 2)
 
         // Reconnect and retry while A is still in progress, but make send throw
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         viewModel.isSending = true
         // TODO: sendUserMessage is now fire-and-forget; retry-send-failure path needs rework
         viewModel.retryLastMessage()
@@ -2184,13 +2184,13 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "sess-1"
 
         // Send a message that fails
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
         XCTAssertNotNil(viewModel.lastFailedMessageText)
 
         // Reconnect and retry when NOT sending (no active turn)
-        daemonClient.isConnected = true
+        connectionManager.isConnected = true
         viewModel.isSending = false
         viewModel.retryLastMessage()
 
@@ -2675,7 +2675,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.messages.append(ChatMessage(id: queuedId, role: .user, text: "Urgent", status: .queued(position: 1)))
 
         // Disconnect daemon
-        daemonClient.isConnected = false
+        connectionManager.isConnected = false
 
         viewModel.sendDirectQueuedMessage(messageId: queuedId)
 

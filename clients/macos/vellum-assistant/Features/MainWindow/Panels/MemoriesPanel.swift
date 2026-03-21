@@ -63,7 +63,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 // MARK: - Memories Panel
 
 struct MemoriesPanel: View {
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     @Binding var focusedMemoryId: String?
     @StateObject private var store: MemoryItemsStore
     @State private var showCreateSheet = false
@@ -76,8 +76,8 @@ struct MemoriesPanel: View {
     @State private var showStatusFilterPopover = false
     @State private var showSortPopover = false
 
-    init(daemonClient: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
-        self.daemonClient = daemonClient
+    init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
+        self.connectionManager = connectionManager
         _focusedMemoryId = focusedMemoryId
         _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }

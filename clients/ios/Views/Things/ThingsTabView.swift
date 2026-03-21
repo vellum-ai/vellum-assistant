@@ -30,7 +30,7 @@ private final class LazyDirectoryStore: ObservableObject {
 
     func resolve(daemon: GatewayConnectionManager, eventStreamClient: EventStreamClient) -> DirectoryStore {
         if let store, lastDaemon === daemon { return store }
-        let newStore = DirectoryStore(daemonClient: daemon, eventStreamClient: eventStreamClient)
+        let newStore = DirectoryStore(connectionManager: daemon, eventStreamClient: eventStreamClient)
         self.store = newStore
         self.lastDaemon = daemon
         return newStore

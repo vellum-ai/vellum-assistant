@@ -15,10 +15,10 @@ struct ContentView: View {
     /// overwrite the other's UserDefaults writes in standalone mode.
     @StateObject private var conversationStore: IOSConversationStore
 
-    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
+    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         self.authManager = authManager
         self.ambientAgent = ambientAgent
-        _conversationStore = StateObject(wrappedValue: IOSConversationStore(daemonClient: daemonClient, eventStreamClient: eventStreamClient))
+        _conversationStore = StateObject(wrappedValue: IOSConversationStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
     private enum Tab { case chats, things, intelligence, settings }

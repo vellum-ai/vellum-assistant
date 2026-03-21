@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class SettingsStoreChannelVerificationTests: XCTestCase {
 
-    private var daemonClient: GatewayConnectionManager!
+    private var connectionManager: GatewayConnectionManager!
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
     private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
@@ -16,15 +16,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         super.setUp()
         previousConnectedAssistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey)
         UserDefaults.standard.set(testAssistantId, forKey: connectedAssistantIdDefaultsKey)
-        daemonClient = GatewayConnectionManager()
-        daemonClient.isConnected = true
+        connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         mockSettingsClient = MockSettingsClient()
-        store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
+        store = SettingsStore(connectionManager: connectionManager, settingsClient: mockSettingsClient)
     }
 
     override func tearDown() {
         store = nil
-        daemonClient = nil
+        connectionManager = nil
         mockSettingsClient = nil
         if let previousConnectedAssistantId {
             UserDefaults.standard.set(previousConnectedAssistantId, forKey: connectedAssistantIdDefaultsKey)
@@ -286,7 +286,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         )
         let pollingStore = SettingsStore(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             settingsClient: pollingMock,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
@@ -321,7 +321,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         )
         let pollingStore = SettingsStore(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             settingsClient: pollingMock,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
@@ -501,7 +501,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testTimeoutClearsTelegramInstruction() {
         let shortTimeoutStore = SettingsStore(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
@@ -530,7 +530,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testResponseForChannelADoesNotCancelTimeoutForChannelB() {
         // Use a short timeout so the test completes quickly
         let shortTimeoutStore = SettingsStore(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.3,
             verificationStatusPollInterval: 0.05,
@@ -658,7 +658,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testTimeoutClearsVoiceInstruction() {
         let shortTimeoutStore = SettingsStore(
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,

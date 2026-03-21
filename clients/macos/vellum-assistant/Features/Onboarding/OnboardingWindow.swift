@@ -7,21 +7,21 @@ final class OnboardingWindow {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
     let state = OnboardingState()
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     let authManager: AuthManager
     var onComplete: ((OnboardingState) -> Void)?
     /// Called when the user closes the window before completing onboarding.
     var onDismiss: (() -> Void)?
 
-    init(daemonClient: GatewayConnectionManager, authManager: AuthManager) {
-        self.daemonClient = daemonClient
+    init(connectionManager: GatewayConnectionManager, authManager: AuthManager) {
+        self.connectionManager = connectionManager
         self.authManager = authManager
     }
 
     func show() {
         let flowView = OnboardingFlowView(
             state: state,
-            daemonClient: daemonClient,
+            connectionManager: connectionManager,
             authManager: authManager,
             managedBootstrapEnabled: true,
             onComplete: { [weak self] in

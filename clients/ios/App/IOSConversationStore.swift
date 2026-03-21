@@ -163,7 +163,7 @@ class IOSConversationStore: ObservableObject {
 
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
-    private var daemonClient: GatewayConnectionManager
+    private var connectionManager: GatewayConnectionManager
     private var eventStreamClient: EventStreamClient
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
@@ -378,7 +378,7 @@ class IOSConversationStore: ObservableObject {
     }
 
     init(
-        daemonClient: GatewayConnectionManager,
+        connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         connectedModeOverride: Bool? = nil,
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
@@ -388,7 +388,7 @@ class IOSConversationStore: ObservableObject {
         conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient(),
         userDefaults: UserDefaults = .standard
     ) {
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationForkClient = conversationForkClient
@@ -398,7 +398,7 @@ class IOSConversationStore: ObservableObject {
         self.userDefaults = userDefaults
         Self.migrateKeysIfNeeded(userDefaults: userDefaults)
 
-        if let daemon = daemonClient as? GatewayConnectionManager, connectedModeOverride != false {
+        if let daemon = connectionManager as? GatewayConnectionManager, connectedModeOverride != false {
             // Connected mode — show cached conversations instantly or spinner on first launch
             isConnectedMode = true
             let cached = Self.loadConnectedCache(from: userDefaults)
@@ -543,7 +543,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask?.cancel()
         subscribeTask = nil
 
-        daemonClient = newClient
+        connectionManager = newClient
         eventStreamClient = newEventStreamClient
 
         // Existing ViewModels hold a reference to the old, disconnected client inside
@@ -642,7 +642,7 @@ class IOSConversationStore: ObservableObject {
         var restoredConversations: [IOSConversation] = []
         for item in filteredConversations {
             let conversation = conversationFromListItem(item)
-            let vm = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
+            let vm = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
             vm.conversationId = item.id
             viewModels[conversation.id] = vm
             restoredConversations.append(conversation)
@@ -893,7 +893,7 @@ class IOSConversationStore: ObservableObject {
             updateForkCommandHandler(vm: existing, conversationLocalId: conversationLocalId)
             return existing
         }
-        let vm = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
+        let vm = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         viewModels[conversationLocalId] = vm
 
         // Copy conversationId from the conversation so the VM joins the existing

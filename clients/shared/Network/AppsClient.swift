@@ -146,7 +146,7 @@ public struct AppsClient: AppsClientProtocol {
 
     /// Open an app and dispatch the resulting surface through the daemon's
     /// message router so the workspace pipeline is triggered.
-    public static func openAppAndDispatchSurface(id: String, daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient) async {
+    public static func openAppAndDispatchSurface(id: String, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) async {
         let result = await AppsClient().openApp(id: id)
         guard let result else { return }
         let surfaceMsg = UiSurfaceShowMessage(

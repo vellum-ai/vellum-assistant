@@ -19,7 +19,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Usage:
 /// ```swift
-/// HostCuExecutor.register(on: daemonClient) { conversationId, request in
+/// HostCuExecutor.register(on: connectionManager) { conversationId, request in
 ///     return getOrCreateOverlayProxy(for: conversationId, request: request)
 /// }
 /// ```

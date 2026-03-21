@@ -24,7 +24,7 @@ extension AppDelegate {
         startSessionTask = Task { @MainActor in
             defer { self.isStartingSession = false; self.startSessionTask = nil }
 
-            if !daemonClient.isConnected {
+            if !connectionManager.isConnected {
                 log.info("Daemon not connected, attempting to connect before session start")
                 do {
                     try await connectionManager.connect()

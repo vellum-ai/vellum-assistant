@@ -25,7 +25,7 @@ private struct DisplayAppItem: Identifiable {
 struct GeneratedPanel: View {
     var onClose: () -> Void
     @Binding var isExpanded: Bool
-    let daemonClient: GatewayConnectionManager
+    let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     let gatewayBaseURL: String
     /// When set, app opens route to the workspace instead of a floating NSPanel.
@@ -54,10 +54,10 @@ struct GeneratedPanel: View {
     /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: GatewayConnectionManager, eventStreamClient: EventStreamClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
-        self.daemonClient = daemonClient
+        self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.gatewayBaseURL = gatewayBaseURL
         self.onOpenApp = onOpenApp
@@ -579,7 +579,7 @@ struct GeneratedPanel: View {
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            Task { await AppsClient.openAppAndDispatchSurface(id: localId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
+            Task { await AppsClient.openAppAndDispatchSurface(id: localId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata

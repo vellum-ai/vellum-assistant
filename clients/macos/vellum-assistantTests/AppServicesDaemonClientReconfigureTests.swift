@@ -7,7 +7,7 @@ final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
 
     func testReconfigurePreservesGatewayConnectionManagerIdentity() {
         let services = AppServices()
-        let originalClient = services.daemonClient
+        let originalClient = services.connectionManager
         let originalIdentity = ObjectIdentifier(originalClient)
 
         let newConfig = DaemonConfig(transport: .http(
@@ -18,12 +18,12 @@ final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
         services.reconfigureGatewayConnectionManager(config: newConfig)
 
         XCTAssertEqual(
-            ObjectIdentifier(services.daemonClient), originalIdentity,
+            ObjectIdentifier(services.connectionManager), originalIdentity,
             "AppServices.reconfigureGatewayConnectionManager must preserve GatewayConnectionManager object identity"
         )
         XCTAssertTrue(
-            services.daemonClient === originalClient,
-            "daemonClient should be the same object after reconfigure"
+            services.connectionManager === originalClient,
+            "connectionManager should be the same object after reconfigure"
         )
     }
 
@@ -37,7 +37,7 @@ final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
         ), instanceDir: "/tmp/test-instance")
         services.reconfigureGatewayConnectionManager(config: httpConfig)
 
-        XCTAssertEqual(services.daemonClient.instanceDir, "/tmp/test-instance",
+        XCTAssertEqual(services.connectionManager.instanceDir, "/tmp/test-instance",
             "instanceDir should be updated after reconfigure via AppServices")
     }
 
@@ -47,7 +47,7 @@ final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
         let settingsStore = services.settingsStore
         _ = settingsStore
 
-        let originalClient = services.daemonClient
+        let originalClient = services.connectionManager
 
         services.reconfigureGatewayConnectionManager(config: DaemonConfig(transport: .http(
             baseURL: "http://new-host:8080",
@@ -56,9 +56,9 @@ final class AppServicesGatewayConnectionManagerReconfigureTests: XCTestCase {
         )))
 
         // Since reconfigure is in-place, the settings store's reference
-        // to daemonClient is still the same object
+        // to connectionManager is still the same object
         XCTAssertTrue(
-            services.daemonClient === originalClient,
+            services.connectionManager === originalClient,
             "SettingsStore's daemon client reference should remain valid after reconfigure"
         )
     }
