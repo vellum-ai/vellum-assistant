@@ -126,10 +126,18 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
     // MARK: - Init
 
-    public init() {
+    public init(config: DaemonConfig = .default) {
         let esc = EventStreamClient()
         self.eventStreamClient = esc
         self.connectionManager = GatewayConnectionManager(eventStreamClient: esc)
+
+        // Extract fields from initial config
+        self.currentConfig = config
+        self.instanceDir = config.instanceDir
+        self.connectionManager.reconfigure(
+            instanceDir: config.instanceDir,
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+        )
 
         // Wire the pre-processor so state is updated before subscribers see messages
         esc.messagePreProcessor = { [weak self] message in

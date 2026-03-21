@@ -54,9 +54,7 @@ struct DebugStateWriterTests {
             daemon: DebugSnapshot.DaemonState(
                 isConnected: true,
                 isConnecting: false,
-                daemonVersion: "1.0.0",
-                transport: "http"
-            ),
+                daemonVersion: "1.0.0"            ),
             conversations: DebugSnapshot.ConversationsState(
                 activeConversationId: conversationId,
                 count: 1,
@@ -176,9 +174,7 @@ struct DebugStateWriterTests {
             daemon: DebugSnapshot.DaemonState(
                 isConnected: true,
                 isConnecting: false,
-                daemonVersion: "1.0.0",
-                transport: "http"
-            ),
+                daemonVersion: "1.0.0"            ),
             conversations: DebugSnapshot.ConversationsState(
                 activeConversationId: UUID().uuidString,
                 count: 0,
@@ -262,9 +258,7 @@ struct DebugStateWriterTests {
             daemon: DebugSnapshot.DaemonState(
                 isConnected: true,
                 isConnecting: false,
-                daemonVersion: nil,
-                transport: "http"
-            ),
+                daemonVersion: nil            ),
             conversations: DebugSnapshot.ConversationsState(
                 activeConversationId: conversationId,
                 count: 1,
@@ -418,9 +412,7 @@ struct DebugStateWriterTests {
             daemon: DebugSnapshot.DaemonState(
                 isConnected: true,
                 isConnecting: false,
-                daemonVersion: "2.0.0",
-                transport: "http"
-            ),
+                daemonVersion: "2.0.0"            ),
             conversations: DebugSnapshot.ConversationsState(
                 activeConversationId: conversationId,
                 count: 1,
@@ -552,9 +544,7 @@ struct DebugStateWriterTests {
             daemon: DebugSnapshot.DaemonState(
                 isConnected: true,
                 isConnecting: false,
-                daemonVersion: "1.0.0",
-                transport: "http"
-            ),
+                daemonVersion: "1.0.0"            ),
             conversations: DebugSnapshot.ConversationsState(
                 activeConversationId: conversationId,
                 count: 1,

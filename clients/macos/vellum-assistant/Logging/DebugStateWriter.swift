@@ -68,13 +68,10 @@ final class DebugStateWriter {
         let daemonClient = appDelegate.services.daemonClient
         let conversationManager = appDelegate.mainWindow?.conversationManager
 
-        let transport = daemonClient.isConnected ? "connected" : "disconnected"
-
         let daemonState = DebugSnapshot.DaemonState(
             isConnected: daemonClient.isConnected,
             isConnecting: daemonClient.isConnecting,
-            daemonVersion: daemonClient.daemonVersion,
-            transport: transport
+            daemonVersion: daemonClient.daemonVersion
         )
 
         let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { conversation in
@@ -156,7 +153,6 @@ struct DebugSnapshot: Codable {
         let isConnected: Bool
         let isConnecting: Bool
         let daemonVersion: String?
-        let transport: String
     }
 
     struct ConversationsState: Codable {

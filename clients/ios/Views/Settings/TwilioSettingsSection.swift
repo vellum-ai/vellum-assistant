@@ -245,14 +245,10 @@ struct TwilioSettingsSection: View {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async -> Bool {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
-            errorMessage = "No connected assistant"
-            return false
-        }
-
         // Strip leading "/v1/" if present — GatewayHTTPClient prepends /v1/ automatically.
+        // Use {assistantId} placeholder — GatewayHTTPClient resolves it for all connection modes.
         let trimmedPath = path.hasPrefix("/v1/") ? String(path.dropFirst(4)) : path
-        let gatewayPath = "assistants/\(assistantId)/\(trimmedPath)"
+        let gatewayPath = "assistants/{assistantId}/\(trimmedPath)"
 
         let bodyData: Data?
         if let body {
