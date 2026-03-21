@@ -654,11 +654,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var hasCapturedSnapshot = false
         var morphGeneration: Int = 0
         var lastReloadGeneration: Int = 0
-        /// True when the app directory is missing and content is loaded inline via data.html.
+        /// True when app content is loaded inline via loadHTMLString rather than a scheme URL.
         var isInlineFallback: Bool = false
-        /// True while the "Building app…" placeholder is displayed, before the real dist page loads.
-        /// Prevents the placeholder's didFinish from counting as a snapshot capture.
-        var isShowingBuildPlaceholder: Bool = false
         var lastStatus: String?
         /// Status message to inject after the next page reload completes.
         var pendingStatus: String?
@@ -1057,13 +1054,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.info("[WebView] Page detected from URL: \(pageName, privacy: .public)")
                     onPageChanged?(pageName)
                 }
-            }
-
-            // When the build placeholder finishes loading, clear the flag but skip
-            // snapshot capture so the real dist page load triggers it instead.
-            if isShowingBuildPlaceholder {
-                isShowingBuildPlaceholder = false
-                return
             }
 
             // Capture a preview screenshot after the page has rendered (once per load).
