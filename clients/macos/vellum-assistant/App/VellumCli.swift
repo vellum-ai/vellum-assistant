@@ -59,10 +59,22 @@ struct DaemonStartupError {
 @MainActor
 final class VellumCli {
 
+    /// Structured error emitted by the CLI for upgrade/rollback failures.
+    ///
+    /// The CLI writes a `CLI_ERROR:{...}` JSON line to stderr when a command
+    /// fails with a categorised error. This struct captures the parsed fields
+    /// so the UI can display actionable guidance instead of raw stderr.
+    struct CliError {
+        let category: String
+        let message: String
+        let detail: String?
+    }
+
     enum CLIError: LocalizedError {
         case binaryNotFound
         case executionFailed(String)
         case daemonStartupFailed(DaemonStartupError)
+        case structuredError(CliError)
 
         var errorDescription: String? {
             switch self {
@@ -72,6 +84,8 @@ final class VellumCli {
                 return "CLI command failed: \(message)"
             case .daemonStartupFailed(let error):
                 return "Assistant startup failed: \(error.message)"
+            case .structuredError(let cliError):
+                return "CLI command failed: \(cliError.message)"
             }
         }
     }
@@ -371,6 +385,9 @@ final class VellumCli {
 
         if status != 0 {
             log.error("CLI upgrade failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            if let cliError = Self.parseCliError(from: stderr) {
+                throw CLIError.structuredError(cliError)
+            }
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI upgrade completed successfully for '\(name, privacy: .public)'")
@@ -388,6 +405,9 @@ final class VellumCli {
 
         if status != 0 {
             log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            if let cliError = Self.parseCliError(from: stderr) {
+                throw CLIError.structuredError(cliError)
+            }
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI rollback completed successfully for '\(name, privacy: .public)'")
@@ -694,6 +714,25 @@ final class VellumCli {
         let message = json["message"] as? String ?? "Unknown startup error"
         let detail = json["detail"] as? String
         return DaemonStartupError(category: category, message: message, detail: detail)
+    }
+
+    /// Parse a `CliError` from the CLI's stderr output.
+    ///
+    /// Scans for the last line starting with `CLI_ERROR:` and decodes the
+    /// trailing JSON payload. Returns `nil` when no marker is found.
+    static func parseCliError(from stderr: String) -> CliError? {
+        let lines = stderr.components(separatedBy: "\n")
+        guard let errorLine = lines.last(where: { $0.hasPrefix("CLI_ERROR:") }) else { return nil }
+        let json = String(errorLine.dropFirst("CLI_ERROR:".count))
+        guard let data = json.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(CliErrorPayload.self, from: data) else { return nil }
+        return CliError(category: parsed.error, message: parsed.message, detail: parsed.detail)
+    }
+
+    private struct CliErrorPayload: Decodable {
+        let error: String
+        let message: String
+        let detail: String?
     }
 
     /// Send SIGTERM to a process identified by a PID file. Does not wait for
