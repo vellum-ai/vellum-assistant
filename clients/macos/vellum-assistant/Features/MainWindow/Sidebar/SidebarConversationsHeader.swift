@@ -7,6 +7,15 @@ struct SidebarConversationsHeader: View {
     let onMarkAllSeen: () -> Void
     let onNewConversation: () -> Void
 
+    @AppStorage("newChatShortcut") private var newChatShortcut: String = "cmd+n"
+
+    private var newChatTooltip: String {
+        let label = "New conversation"
+        guard !newChatShortcut.isEmpty else { return label }
+        let display = ShortcutHelper.displayString(for: newChatShortcut)
+        return "\(label) (\(display))"
+    }
+
     var body: some View {
         HStack {
             Text("Conversations")
@@ -23,7 +32,7 @@ struct SidebarConversationsHeader: View {
                 )
                 .disabled(isLoading)
             }
-            VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
+            VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, tooltip: newChatTooltip, action: onNewConversation)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }

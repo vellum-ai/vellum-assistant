@@ -95,6 +95,7 @@ extension AppDelegate {
             self?.registerQuickInputMonitor()
             self?.registerSidebarToggleMonitor()
             self?.registerNewChatMonitor()
+            self?.updateNewChatMenuItemShortcut()
         }
     }
 
