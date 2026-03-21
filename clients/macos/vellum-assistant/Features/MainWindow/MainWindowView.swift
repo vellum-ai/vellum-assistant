@@ -617,9 +617,9 @@ struct MainWindowView: View {
             return daemonParsed.patch < clientParsed.patch
         }()
         if daemonBehind {
-            return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Upgrade to avoid issues."
+            return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Update your assistant to match."
         } else {
-            return "Your app (\(clientVersion)) is older than the assistant (\(daemonVersion)). Update the app."
+            return "Your app (\(clientVersion)) is behind the assistant (\(daemonVersion)). Update the app to match."
         }
     }
 
