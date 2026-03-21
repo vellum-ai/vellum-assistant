@@ -651,8 +651,10 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
         coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
-        // Wait for retries to process.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Wait for retries to process. Use a generous timeout because
+        // @MainActor Task scheduling on CI runners can be much slower than
+        // the 50ms retry interval would suggest.
+        try await Task.sleep(nanoseconds: 1_000_000_000)
 
         // Session should have completed successfully once geometry appeared.
         XCTAssertNil(coordinator.activeSession,
