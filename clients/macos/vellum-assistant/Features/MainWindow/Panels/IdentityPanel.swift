@@ -260,7 +260,7 @@ struct IdentityPanel: View {
             }
 
             // Version: remote > daemon > metadata
-            let version = remoteIdentity?.version ?? daemonClient.daemonVersion ?? metadata?.version
+            let version = remoteIdentity?.version ?? daemonClient.assistantVersion ?? metadata?.version
             idRow(label: "Version", value: version ?? "—")
 
             if let date = metadata?.createdAt {

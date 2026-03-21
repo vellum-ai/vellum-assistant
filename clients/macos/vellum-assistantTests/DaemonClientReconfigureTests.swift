@@ -32,14 +32,12 @@ final class DaemonClientReconfigureTests: XCTestCase {
     }
 
     func testResetClearsConnectionState() {
-        client.httpPort = 7821
         client.currentModel = "claude-3"
 
         client.reconfigure(instanceDir: nil)
 
-        XCTAssertNil(client.httpPort)
         XCTAssertNil(client.currentModel)
-        XCTAssertNil(client.daemonVersion)
+        XCTAssertNil(client.assistantVersion)
         XCTAssertNil(client.latestMemoryStatus)
         XCTAssertFalse(client.isConnected)
     }

@@ -20,8 +20,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
     @Published public var isConnected: Bool = false
     @Published public var isConnecting: Bool = false
-    @Published public var httpPort: Int?
-    @Published public internal(set) var daemonVersion: String?
+    @Published public internal(set) var assistantVersion: String?
     @Published public internal(set) var versionMismatch: Bool = false
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
@@ -34,11 +33,6 @@ public final class GatewayConnectionManager: ObservableObject {
 
     /// Instance directory for the connected assistant.
     public var instanceDir: String?
-
-    /// Returns a closure that resolves the current HTTP port at call time.
-    public var httpPortResolver: () -> Int? {
-        { [weak self] in self?.httpPort }
-    }
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
@@ -219,8 +213,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
         // Reset published state
         isConnected = false
-        httpPort = nil
-        daemonVersion = nil
+        assistantVersion = nil
         versionMismatch = false
         isUpdateInProgress = false
         updateTargetVersion = nil
@@ -253,14 +246,14 @@ public final class GatewayConnectionManager: ObservableObject {
             }
 
             if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
-                if let newVersion = decoded.version, newVersion != daemonVersion {
-                    daemonVersion = newVersion
+                if let newVersion = decoded.version, newVersion != assistantVersion {
+                    assistantVersion = newVersion
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
                         LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
                     handleDaemonVersionChanged(newVersion)
                 } else if let newVersion = decoded.version {
-                    daemonVersion = newVersion
+                    assistantVersion = newVersion
                 }
             }
 
@@ -306,7 +299,7 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Version Change Handling
 
     private func handleDaemonVersionChanged(_ newVersion: String) {
-        checkVersionCompatibility(daemonVersion: newVersion)
+        checkVersionCompatibility(assistantVersion: newVersion)
         if isUpdateInProgress {
             if newVersion == updateTargetVersion {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
@@ -329,11 +322,11 @@ public final class GatewayConnectionManager: ObservableObject {
         return (components[0], components[1])
     }
 
-    func checkVersionCompatibility(daemonVersion: String) {
+    func checkVersionCompatibility(assistantVersion: String) {
         guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
             return
         }
-        guard let (daemonMajor, daemonMinor) = parseMajorMinor(daemonVersion),
+        guard let (daemonMajor, daemonMinor) = parseMajorMinor(assistantVersion),
               let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
             return
         }
@@ -342,7 +335,7 @@ public final class GatewayConnectionManager: ObservableObject {
             versionMismatch = mismatch
         }
         if mismatch {
-            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public)")
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(assistantVersion, privacy: .public)")
         }
     }
 
@@ -350,10 +343,9 @@ public final class GatewayConnectionManager: ObservableObject {
 
     private func handleServerMessage(_ message: ServerMessage) {
         if case .daemonStatus(let status) = message {
-            httpPort = status.httpPort.flatMap { Int(exactly: $0) }
             if let version = status.version {
-                daemonVersion = version
-                checkVersionCompatibility(daemonVersion: version)
+                assistantVersion = version
+                checkVersionCompatibility(assistantVersion: version)
                 if self.isUpdateInProgress {
                     if version == self.updateTargetVersion {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
