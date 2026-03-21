@@ -1,21 +1,7 @@
 /**
  * Tests for getExternalAssistantId resolution order.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-// Controllable mock for readLockfile — defaults to null (no lockfile data)
-const mockReadLockfile = mock(() => null as Record<string, unknown> | null);
-
-mock.module("../../../util/platform.js", () => ({
-  readLockfile: mockReadLockfile,
-}));
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   getExternalAssistantId,
@@ -24,32 +10,23 @@ import {
 
 afterEach(() => {
   resetExternalAssistantIdCache();
-  mockReadLockfile.mockReset();
-  mockReadLockfile.mockImplementation(() => null);
+  delete process.env.VELLUM_ASSISTANT_NAME;
   delete process.env.BASE_DATA_DIR;
 });
 
 describe("getExternalAssistantId", () => {
-  test("resolves from lockfile assistants array (most recently hatched)", () => {
-    mockReadLockfile.mockImplementation(() => ({
-      assistants: [
-        { assistantId: "vellum-old-fox", hatchedAt: "2025-01-01T00:00:00Z" },
-        { assistantId: "vellum-new-eel", hatchedAt: "2025-06-15T12:00:00Z" },
-      ],
-    }));
-    expect(getExternalAssistantId()).toBe("vellum-new-eel");
+  test("resolves from VELLUM_ASSISTANT_NAME env var", () => {
+    process.env.VELLUM_ASSISTANT_NAME = "vellum-cool-eel";
+    expect(getExternalAssistantId()).toBe("vellum-cool-eel");
   });
 
-  test("resolves from lockfile with single assistant entry", () => {
-    mockReadLockfile.mockImplementation(() => ({
-      assistants: [
-        { assistantId: "vellum-solo-cat", hatchedAt: "2025-03-01T00:00:00Z" },
-      ],
-    }));
-    expect(getExternalAssistantId()).toBe("vellum-solo-cat");
+  test("VELLUM_ASSISTANT_NAME takes priority over BASE_DATA_DIR", () => {
+    process.env.VELLUM_ASSISTANT_NAME = "vellum-env-eel";
+    process.env.BASE_DATA_DIR = "/tmp/vellum/assistants/vellum-path-fox";
+    expect(getExternalAssistantId()).toBe("vellum-env-eel");
   });
 
-  test("resolves from BASE_DATA_DIR when lockfile has no data", () => {
+  test("resolves from BASE_DATA_DIR when env var is not set", () => {
     process.env.BASE_DATA_DIR = "/tmp/vellum/assistants/vellum-true-eel";
     expect(getExternalAssistantId()).toBe("vellum-true-eel");
   });
@@ -81,8 +58,7 @@ describe("getExternalAssistantId", () => {
     expect(getExternalAssistantId()).toBe(undefined);
   });
 
-  test("falls back to undefined when BASE_DATA_DIR is not set", () => {
-    delete process.env.BASE_DATA_DIR;
+  test("falls back to undefined when nothing is set", () => {
     expect(getExternalAssistantId()).toBe(undefined);
   });
 });
