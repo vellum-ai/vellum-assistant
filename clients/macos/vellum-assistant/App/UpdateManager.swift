@@ -232,7 +232,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     }
 
     /// Resets service group update flags to their default (no update available) state.
-    private func clearServiceGroupFlags() {
+    func clearServiceGroupFlags() {
         isServiceGroupUpdateAvailable = false
         serviceGroupUpdateVersion = nil
     }

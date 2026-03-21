@@ -433,6 +433,7 @@ struct AssistantUpgradeSection: View {
         do {
             try await cli.upgrade(name: name, version: version)
             successMessage = isRollback ? "Rollback complete." : "Update complete."
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
@@ -461,6 +462,7 @@ struct AssistantUpgradeSection: View {
                 successMessage = isRollback
                     ? "Rollback initiated. The assistant may be briefly unavailable."
                     : "Update initiated. The assistant may be briefly unavailable."
+                AppDelegate.shared?.updateManager.clearServiceGroupFlags()
                 showFeedbackOption = false
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
