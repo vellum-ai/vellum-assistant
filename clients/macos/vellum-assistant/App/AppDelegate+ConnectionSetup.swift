@@ -463,10 +463,8 @@ extension AppDelegate {
             installSymlink(commandName: "vellum", target: cliBinary.path)
         }
 
-        let assistantBinary = macosDir.appendingPathComponent("vellum-assistant")
-        if FileManager.default.fileExists(atPath: assistantBinary.path) {
-            installSymlink(commandName: "assistant", target: assistantBinary.path)
-        }
+        // NOTE: The `assistant` symlink is now installed by the daemon itself
+        // on every startup (see assistant/src/daemon/install-symlink.ts).
     }
 
     /// Creates a symlink at /usr/local/bin/<commandName> pointing to the
