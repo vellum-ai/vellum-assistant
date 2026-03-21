@@ -2968,7 +2968,9 @@ public final class SettingsStore: ObservableObject {
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
         // Truly remote (managed/cloud) assistants: not supported.
-        guard !isCurrentAssistantRemote else { return }
+        // Docker assistants are "remote" for filesystem purposes but do
+        // support config changes via the daemon HTTP API.
+        guard !isCurrentAssistantRemote || isCurrentAssistantDocker else { return }
         // Both Docker and local assistants: route through the daemon HTTP API.
         skipPermissionsToggleGeneration &+= 1
         let requestGeneration = skipPermissionsToggleGeneration
@@ -3099,9 +3101,18 @@ public final class SettingsStore: ObservableObject {
     private func persistUserTimezone() {
         guard !isCurrentAssistantRemote else { return }
 
+        // When userTimezone is nil we skip sending the key entirely — sending
+        // JSON null would fail Zod's string().optional() validation on next
+        // config load.
+        var uiPatch: [String: Any] = [:]
+        if let tz = userTimezone {
+            uiPatch["userTimezone"] = tz
+        }
+        guard !uiPatch.isEmpty else { return }
+
         Task {
             let success = await settingsClient.patchConfig([
-                "ui": ["userTimezone": userTimezone as Any]
+                "ui": uiPatch
             ])
             if !success {
                 log.error("Failed to patch config for user timezone")
