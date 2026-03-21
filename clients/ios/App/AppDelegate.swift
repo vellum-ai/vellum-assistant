@@ -255,11 +255,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 if ActorTokenManager.needsProactiveRefresh {
                     guard let daemon = self.clientProvider.client as? DaemonClient,
                           daemon.isConnected,
-                          let httpTransport = daemon.httpTransport else { continue }
+                          case .http(let baseURL, let bearerToken, _) = daemon.config.transport else { continue }
 
                     let result = await ActorCredentialRefresher.refresh(
-                        baseURL: httpTransport.baseURL,
-                        bearerToken: httpTransport.bearerToken,
+                        baseURL: baseURL,
+                        bearerToken: bearerToken,
                         platform: "ios",
                         deviceId: Self.getOrCreateDeviceId()
                     )

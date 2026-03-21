@@ -102,11 +102,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         set { connectionManager.isConnecting = newValue }
     }
 
-    /// HTTP transport for health checks and host tool execution.
-    public var httpTransport: HTTPTransport? {
-        connectionManager.httpTransport
-    }
-
     /// Current daemon connection configuration.
     public var config: DaemonConfig {
         connectionManager.config
@@ -178,7 +173,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                 self.isUpdateInProgress = false
                 self.updateTargetVersion = nil
                 self.updateExpiresAt = nil
-                self.connectionManager.httpTransport?.setUpdateInProgress(false)
+                self.connectionManager.setUpdateInProgress(false)
                 self.eventStreamClient.resetSSEReconnectDelay()
             }
         }
@@ -314,7 +309,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
-                    self.connectionManager.httpTransport?.setUpdateInProgress(false)
+                    self.connectionManager.setUpdateInProgress(false)
                 }
             }
             if let newFingerprint = status.keyFingerprint {
@@ -334,13 +329,13 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             self.isUpdateInProgress = true
             self.updateTargetVersion = msg.targetVersion
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
-            self.connectionManager.httpTransport?.setUpdateInProgress(true)
+            self.connectionManager.setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
         case .serviceGroupUpdateComplete:
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
-            self.connectionManager.httpTransport?.setUpdateInProgress(false)
+            self.connectionManager.setUpdateInProgress(false)
         case .modelInfo(let msg):
             currentModel = msg.model
             latestModelInfo = msg

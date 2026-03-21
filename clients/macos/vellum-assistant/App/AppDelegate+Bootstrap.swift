@@ -182,9 +182,9 @@ extension AppDelegate {
 
                     let baseURL: String
                     let bearerToken: String?
-                    if let httpTransport = self.daemonClient.httpTransport {
-                        baseURL = httpTransport.baseURL
-                        bearerToken = httpTransport.bearerToken
+                    if case .http(let url, let token, _) = self.daemonClient.config.transport {
+                        baseURL = url
+                        bearerToken = token
                     } else if let port = self.daemonClient.httpPort {
                         baseURL = "http://localhost:\(port)"
                         bearerToken = ActorTokenManager.getToken()
