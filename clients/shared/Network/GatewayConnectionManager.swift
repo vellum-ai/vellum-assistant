@@ -8,6 +8,18 @@ private struct HealthzVersionResponse: Decodable {
     let version: String?
 }
 
+/// The outcome of an assistant update attempt.
+public struct UpdateOutcome: Equatable {
+    public enum Result: Equatable {
+        case succeeded(version: String)
+        case rolledBack(from: String, to: String)
+        case timedOut
+        case failed
+    }
+    public let result: Result
+    public let timestamp: Date
+}
+
 /// Manages the gateway connection lifecycle and publishes observable state.
 ///
 /// Owns `EventStreamClient` (SSE + subscribe + send). Handles health checks,
@@ -25,6 +37,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
     var updateExpiresAt: Date?
+    @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
     @Published public internal(set) var keyFingerprint: String?
     @Published public var latestMemoryStatus: MemoryStatusMessage?
     @Published public var isTrustRulesSheetOpen: Bool = false
@@ -214,6 +227,7 @@ public final class GatewayConnectionManager: ObservableObject {
         isUpdateInProgress = false
         updateTargetVersion = nil
         updateExpiresAt = nil
+        lastUpdateOutcome = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
@@ -292,6 +306,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 // Check for update timeout
                 if self.isUpdateInProgress, let expiresAt = self.updateExpiresAt, Date() > expiresAt {
                     log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
+                    self.lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
@@ -308,8 +323,10 @@ public final class GatewayConnectionManager: ObservableObject {
         if isUpdateInProgress {
             if newVersion == updateTargetVersion {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
+                lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: newVersion), timestamp: Date())
             } else {
                 log.warning("Health check detected version \(newVersion, privacy: .public) after update — expected \(self.updateTargetVersion ?? "?", privacy: .public), may have rolled back")
+                lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: newVersion), timestamp: Date())
             }
             isUpdateInProgress = false
             updateTargetVersion = nil
@@ -343,8 +360,10 @@ public final class GatewayConnectionManager: ObservableObject {
                 if self.isUpdateInProgress {
                     if version == self.updateTargetVersion {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
+                        self.lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: version), timestamp: Date())
                     } else {
                         log.warning("Planned update may have rolled back — expected \(self.updateTargetVersion ?? "?", privacy: .public) but running \(version, privacy: .public)")
+                        self.lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: self.updateTargetVersion ?? "unknown", to: version), timestamp: Date())
                     }
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
@@ -370,7 +389,14 @@ public final class GatewayConnectionManager: ObservableObject {
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
             setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
-        case .serviceGroupUpdateComplete:
+        case .serviceGroupUpdateComplete(let msg):
+            if msg.success {
+                lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: msg.installedVersion), timestamp: Date())
+            } else if let rollbackVersion = msg.rolledBackToVersion {
+                lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: rollbackVersion), timestamp: Date())
+            } else {
+                lastUpdateOutcome = UpdateOutcome(result: .failed, timestamp: Date())
+            }
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
