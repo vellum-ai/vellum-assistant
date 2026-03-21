@@ -493,6 +493,7 @@ struct AssistantUpgradeSection: View {
             }
         } catch {
             errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(error.localizedDescription)"
+            showFeedbackOption = true
         }
     }
 
