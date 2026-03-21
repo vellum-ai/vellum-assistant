@@ -279,14 +279,14 @@ public final class GatewayConnectionManager: ObservableObject {
             log.info("Health check passed")
             setConnected(true)
         } catch let error as GatewayHTTPClient.ClientError {
-            log.error("Health check client error: \(error.localizedDescription)")
+            log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
             throw ConnectionError.healthCheckFailed
         } catch let error as ConnectionError {
             setConnected(false)
             throw error
         } catch {
-            log.error("Health check failed: \(error.localizedDescription)")
+            log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
             throw ConnectionError.healthCheckFailed
         }
@@ -309,7 +309,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 do {
                     try await self.performHealthCheck()
                 } catch {
-                    log.warning("Periodic health check failed: \(error.localizedDescription)")
+                    log.warning("Periodic health check failed: \(error.localizedDescription, privacy: .public)")
                 }
 
                 // Check for update timeout
