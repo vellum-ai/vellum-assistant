@@ -618,7 +618,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             context.coordinator.lastStatus = nil
         }
     }
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ containerView: NSView, coordinator: Coordinator) {
+        guard let webView = containerView.subviews.first as? WKWebView else { return }
         // Stop any in-flight loads to release networking resources.
         webView.stopLoading()
         // Remove the message handler to break the strong reference from
