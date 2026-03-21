@@ -6,16 +6,12 @@
  * must identify which assistant the token belongs to, while the daemon
  * internally uses 'self'.
  *
- * Resolution order:
- *   1. Cached in-memory value (populated on first call)
- *   2. VELLUM_ASSISTANT_NAME env var (set by CLI hatch / Docker setup)
- *   3. BASE_DATA_DIR path matching `/assistants/<name>` or `/instances/<name>` suffix
- *   4. `undefined` — callers must handle the missing value
+ * Reads from the VELLUM_ASSISTANT_NAME env var, which is set by CLI
+ * hatch and Docker setup. Returns `undefined` if the env var is not set.
  *
- * The value is cached in memory after the first successful read.
+ * The value is cached in memory after the first read.
  */
 
-import { getBaseDataDir } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("external-assistant-id");
@@ -23,20 +19,14 @@ const log = getLogger("external-assistant-id");
 let cached: string | null | undefined;
 
 /**
- * Get the external assistant ID.
- *
- * Resolution order:
- *   1. Cached in-memory value (populated on first call)
- *   2. VELLUM_ASSISTANT_NAME env var (set by CLI hatch / Docker setup)
- *   3. BASE_DATA_DIR path matching `/assistants/<name>` or `/instances/<name>` suffix
- *   4. `undefined` when resolution fails entirely
+ * Get the external assistant ID from the VELLUM_ASSISTANT_NAME env var.
+ * Returns `undefined` when the env var is not set.
  */
 export function getExternalAssistantId(): string | undefined {
   if (cached !== undefined) {
     return cached ?? undefined;
   }
 
-  // Primary: env var set by CLI hatch / Docker setup
   const envName = process.env.VELLUM_ASSISTANT_NAME;
   if (envName) {
     cached = envName;
@@ -45,21 +35,6 @@ export function getExternalAssistantId(): string | undefined {
       "Resolved external assistant ID from VELLUM_ASSISTANT_NAME",
     );
     return cached;
-  }
-
-  // Fallback: derive from BASE_DATA_DIR path
-  const base = getBaseDataDir();
-  if (base && typeof base === "string") {
-    const normalized = base.replace(/\\/g, "/").replace(/\/+$/, "");
-    const match = normalized.match(/\/(?:assistants|instances)\/([^/]+)$/);
-    if (match) {
-      cached = match[1];
-      log.info(
-        { externalAssistantId: cached },
-        "Resolved external assistant ID from BASE_DATA_DIR",
-      );
-      return cached;
-    }
   }
 
   cached = null;
