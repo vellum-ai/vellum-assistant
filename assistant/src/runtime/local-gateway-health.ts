@@ -1,18 +1,11 @@
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
-import { readLockfile } from "../util/platform.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { sleep } from "../util/retry.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2_000;
 const DEFAULT_RECOVERY_POLL_TIMEOUT_MS = 30_000;
 const DEFAULT_RECOVERY_POLL_INTERVAL_MS = 250;
 const DEFAULT_WAKE_TIMEOUT_MS = 90_000;
-
-interface LockfileAssistantEntry {
-  assistantId?: string;
-  cloud?: string;
-  hatchedAt?: string | number | Date;
-}
 
 export interface WakeCommandResult {
   exitCode: number;
@@ -46,71 +39,21 @@ export interface EnsureLocalGatewayReadyOptions extends ProbeLocalGatewayHealthO
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
-function getLatestAssistantEntry(): LockfileAssistantEntry | null {
-  try {
-    const lockData = readLockfile();
-    const assistants = lockData?.assistants;
-    if (!Array.isArray(assistants) || assistants.length === 0) {
-      return null;
-    }
-
-    const sorted = [...assistants].sort((a, b) => {
-      const dateA = new Date(
-        (a as LockfileAssistantEntry).hatchedAt || 0,
-      ).getTime();
-      const dateB = new Date(
-        (b as LockfileAssistantEntry).hatchedAt || 0,
-      ).getTime();
-      return dateB - dateA;
-    });
-
-    return (sorted[0] as LockfileAssistantEntry) ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function resolveLocalDeployment(): boolean {
   if (getIsContainerized()) {
     return false;
   }
 
-  const latestAssistant = getLatestAssistantEntry();
-  if (typeof latestAssistant?.cloud === "string") {
-    return latestAssistant.cloud === "local";
+  const cloud = process.env.VELLUM_CLOUD;
+  if (cloud) {
+    return cloud === "local";
   }
 
   return true;
 }
 
-/**
- * Derive instance name from BASE_DATA_DIR which follows the multi-instance
- * path pattern (~/.local/share/vellum/assistants/<name>/).
- */
-function resolveInstanceNameFromBaseDataDir(): string | undefined {
-  const base = getBaseDataDir();
-  if (!base || typeof base !== "string") return undefined;
-
-  const normalized = base.replace(/\\/g, "/").replace(/\/+$/, "");
-  const match = normalized.match(/\/assistants\/([^/]+)$/);
-  if (match) return match[1];
-  return undefined;
-}
-
 function resolveLocalAssistantName(): string | undefined {
-  const fromPath = resolveInstanceNameFromBaseDataDir();
-  if (fromPath) return fromPath;
-
-  const latestAssistant = getLatestAssistantEntry();
-  if (
-    latestAssistant &&
-    typeof latestAssistant.assistantId === "string" &&
-    latestAssistant.assistantId.trim().length > 0
-  ) {
-    return latestAssistant.assistantId.trim();
-  }
-
-  return undefined;
+  return process.env.VELLUM_ASSISTANT_NAME;
 }
 
 function formatError(err: unknown): string {
@@ -125,25 +68,13 @@ async function runDefaultWakeCommand(
     ? ["vellum", "wake", assistantName]
     : ["vellum", "wake"];
 
-  // Only when the assistant name came from the instance path (e.g.
-  // ~/.local/share/vellum/assistants/<name>/), unset BASE_DATA_DIR so the
-  // spawned CLI reads the global lockfile. When the name came from the
-  // lockfile, keep BASE_DATA_DIR — vellum wake resolves names through the
-  // lockfile rooted at BASE_DATA_DIR, so clearing it would read the wrong
-  // lockfile (e.g. $HOME) and fail or wake the wrong assistant.
-  const fromInstancePath = resolveInstanceNameFromBaseDataDir();
-  const env =
-    fromInstancePath && getBaseDataDir()
-      ? { ...process.env, BASE_DATA_DIR: undefined }
-      : process.env;
-
   return new Promise((resolve, reject) => {
     const proc = Bun.spawn(command, {
       stdout: "pipe",
       stderr: "pipe",
       env: {
-        ...env,
-        PATH: [env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
+        ...process.env,
+        PATH: [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
           .filter(Boolean)
           .join(":"),
       },

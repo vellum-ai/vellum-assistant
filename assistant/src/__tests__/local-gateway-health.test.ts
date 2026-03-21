@@ -1,9 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockGatewayInternalBaseUrl = "http://127.0.0.1:7830";
 let mockIsContainerized = false;
-let mockLockfile: Record<string, unknown> | null = null;
-let mockBaseDataDir: string | undefined;
 
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => mockGatewayInternalBaseUrl,
@@ -11,11 +9,6 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
-  getBaseDataDir: () => mockBaseDataDir,
-}));
-
-mock.module("../util/platform.js", () => ({
-  readLockfile: () => mockLockfile,
 }));
 
 import {
@@ -24,19 +17,17 @@ import {
 } from "../runtime/local-gateway-health.js";
 
 describe("local gateway health", () => {
+  const originalEnv = { ...process.env };
+
   beforeEach(() => {
     mockGatewayInternalBaseUrl = "http://127.0.0.1:7830";
     mockIsContainerized = false;
-    mockBaseDataDir = undefined;
-    mockLockfile = {
-      assistants: [
-        {
-          assistantId: "local-dev",
-          cloud: "local",
-          hatchedAt: "2026-03-07T00:00:00.000Z",
-        },
-      ],
-    };
+    process.env.VELLUM_CLOUD = "local";
+    process.env.VELLUM_ASSISTANT_NAME = "local-dev";
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
   test("probeLocalGatewayHealth returns healthy result when /healthz succeeds", async () => {
@@ -117,15 +108,7 @@ describe("local gateway health", () => {
   });
 
   test("ensureLocalGatewayReady skips recovery for non-local assistants", async () => {
-    mockLockfile = {
-      assistants: [
-        {
-          assistantId: "remote-prod",
-          cloud: "gcp",
-          hatchedAt: "2026-03-07T00:00:00.000Z",
-        },
-      ],
-    };
+    process.env.VELLUM_CLOUD = "gcp";
 
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
       return new Response("unavailable", { status: 503 });
@@ -153,9 +136,8 @@ describe("local gateway health", () => {
     });
   });
 
-  test("ensureLocalGatewayReady derives assistant name from BASE_DATA_DIR when lockfile lacks assistants", async () => {
-    mockBaseDataDir = "/home/user/.local/share/vellum/assistants/alice";
-    mockLockfile = null;
+  test("ensureLocalGatewayReady uses VELLUM_ASSISTANT_NAME for wake command", async () => {
+    process.env.VELLUM_ASSISTANT_NAME = "alice";
 
     const healthStatuses = [503, 200];
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
@@ -180,30 +162,14 @@ describe("local gateway health", () => {
     expect(result.recovered).toBe(true);
   });
 
-  test("ensureLocalGatewayReady handles BASE_DATA_DIR with trailing slash", async () => {
-    mockBaseDataDir = "/home/user/.local/share/vellum/assistants/alice/";
-    mockLockfile = null;
+  test("resolveLocalDeployment defaults to true when VELLUM_CLOUD is not set", async () => {
+    delete process.env.VELLUM_CLOUD;
 
-    const healthStatuses = [503, 200];
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
-      const status = healthStatuses.shift() ?? 200;
-      return new Response(status === 200 ? "ok" : "unavailable", { status });
+      return new Response("ok", { status: 200 });
     }) as unknown as typeof fetch;
 
-    let wakeCalled = false;
-    const result = await ensureLocalGatewayReady({
-      fetchImpl,
-      timeoutMs: 50,
-      pollTimeoutMs: 100,
-      pollIntervalMs: 0,
-      sleepImpl: async () => {},
-      runWakeCommand: async () => {
-        wakeCalled = true;
-        return { exitCode: 0, stdout: "Wake complete.", stderr: "" };
-      },
-    });
-
-    expect(wakeCalled).toBe(true);
-    expect(result.recovered).toBe(true);
+    const result = await probeLocalGatewayHealth({ fetchImpl, timeoutMs: 50 });
+    expect(result.localDeployment).toBe(true);
   });
 });

@@ -500,6 +500,8 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
+        "VELLUM_CLOUD=docker",
+        "-e",
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "WORKSPACE_DIR=/workspace",

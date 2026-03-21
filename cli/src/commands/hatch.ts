@@ -168,6 +168,7 @@ ${ownershipFixup}
 ${configWriteBlock}
 export VELLUM_SSH_USER="\$SSH_USER"
 export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
+export VELLUM_CLOUD="${cloud}"
 echo "Downloading install script from ${platformUrl}/install.sh..."
 curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
 echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes)"

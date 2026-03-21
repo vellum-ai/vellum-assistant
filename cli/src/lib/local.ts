@@ -265,6 +265,7 @@ async function startDaemonFromSource(
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    VELLUM_CLOUD: "local",
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
