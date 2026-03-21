@@ -7,7 +7,7 @@ const BROKER_WAIT_INTERVAL_MS = 500;
 const BROKER_WAIT_MAX_ATTEMPTS = 10; // 5 seconds total
 
 export const migrateCredentialsToKeychainMigration: WorkspaceMigration = {
-  id: "014-migrate-credentials-to-keychain",
+  id: "015-migrate-credentials-to-keychain",
   description:
     "Copy encrypted store credentials to keychain for single-backend migration",
 
