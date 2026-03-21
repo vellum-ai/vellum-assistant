@@ -72,6 +72,9 @@ extension EnvironmentValues {
     /// comparisons and visibility boundary detection — never read during
     /// body evaluation for rendering, so mutations do not trigger re-renders.
     var avatarTargetY: CGFloat = .infinity
+    /// Debounced task for transcript snapshot updates, coalescing rapid scroll
+    /// events into a single snapshot capture per 150ms window.
+    var snapshotDebounceTask: Task<Void, Never>?
 }
 
 struct MessageListView: View {
@@ -211,9 +214,6 @@ struct MessageListView: View {
     @State private var isAvatarVisible: Bool = false
     @State private var avatarDisplayY: CGFloat = .infinity
     @State private var avatarSmoothingTask: Task<Void, Never>?
-    /// Debounced task for transcript snapshot updates, coalescing rapid scroll
-    /// events into a single snapshot capture per 150ms window.
-    @State private var snapshotDebounceTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
     /// Non-reactive scroll tracking state (dead-zone guards, smoothing).
     /// Stored on a class so mutations never trigger body re-evaluations.
@@ -728,8 +728,8 @@ struct MessageListView: View {
     /// events into a single snapshot per 150ms window, avoiding O(n) tool-call
     /// scans on every scroll tick.
     private func scheduleTranscriptSnapshot() {
-        snapshotDebounceTask?.cancel()
-        snapshotDebounceTask = Task { @MainActor in
+        scrollTracking.snapshotDebounceTask?.cancel()
+        scrollTracking.snapshotDebounceTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
             updateTranscriptSnapshot()
@@ -1355,8 +1355,8 @@ struct MessageListView: View {
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
-                snapshotDebounceTask?.cancel()
-                snapshotDebounceTask = nil
+                scrollTracking.snapshotDebounceTask?.cancel()
+                scrollTracking.snapshotDebounceTask = nil
                 highlightedMessageId = nil
                 // Cancel any active pin session to prevent the coordinator's
                 // sessionTask from calling scrollTo on a stale ScrollViewProxy.
@@ -1521,8 +1521,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
-                snapshotDebounceTask?.cancel()
-                snapshotDebounceTask = nil
+                scrollTracking.snapshotDebounceTask?.cancel()
+                scrollTracking.snapshotDebounceTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
                 isPaginationInFlight = false
