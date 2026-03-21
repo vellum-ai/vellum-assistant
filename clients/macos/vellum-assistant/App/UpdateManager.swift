@@ -102,27 +102,6 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         }
     }
 
-    // MARK: - Menu Item Helpers
-
-    /// Context-aware title for the update menu item.
-    /// Returns "Update Available..." when a Sparkle update is ready,
-    /// "Update Available (vX.Y.Z)" when a service group update is available,
-    /// "Check for Updates..." when a manual check can be triggered,
-    /// or "Up to Date" when neither applies.
-    public var updateMenuItemTitle: String {
-        if isUpdateAvailable { return "Update Available..." }
-        if isServiceGroupUpdateAvailable, let v = serviceGroupUpdateVersion {
-            return "Update Available (\(v))"
-        }
-        if canCheckForUpdates { return "Check for Updates..." }
-        return "Up to Date"
-    }
-
-    /// Whether the update menu item should accept user interaction.
-    public var updateMenuItemIsEnabled: Bool {
-        isUpdateAvailable || isServiceGroupUpdateAvailable || canCheckForUpdates
-    }
-
     /// Whether an update has been downloaded and is waiting to be installed.
     public var hasDeferredUpdate: Bool {
         deferredInstallLock.withLock { $0 != nil }

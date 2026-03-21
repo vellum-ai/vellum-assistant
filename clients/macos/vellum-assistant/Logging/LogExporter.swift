@@ -40,7 +40,8 @@ enum LogExporter {
         AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
-    /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
+    /// Collects logs, archives them, sends a lightweight Sentry event (no archive attachment),
+    /// and uploads the archive to the platform API for storage.
     /// Includes report metadata (reason, message) from the log report form.
     static func sendLogsToSentry(formData: LogReportFormData) {
         Task {
@@ -61,8 +62,8 @@ enum LogExporter {
                 return
             }
 
-            let archiveName = defaultArchiveName()
-            let attachment = Attachment(path: archiveURL.path, filename: archiveName)
+            // --- Phase 1: Lightweight Sentry event (no archive attachment) ---
+
             let event = Event(level: .info)
             let errorTitle: String
             switch formData.scope {
@@ -170,17 +171,31 @@ enum LogExporter {
                 ? MetricKitManager.brainDSN
                 : nil
 
-            await withCheckedContinuation { continuation in
+            // Send lightweight Sentry event (no archive attachment) and capture the event ID
+            // for linking to the platform API upload.
+            let sentryEventId: SentryId? = await withCheckedContinuation { (continuation: CheckedContinuation<SentryId?, Never>) in
                 MetricKitManager.sendManualReport(
                     event,
-                    attachments: [attachment],
+                    attachments: [],
                     userFeedback: feedback,
                     dsn: dsn
-                ) {
-                    try? FileManager.default.removeItem(at: archiveURL)
-                    continuation.resume()
+                ) { eventId in
+                    continuation.resume(returning: eventId)
                 }
             }
+
+            // --- Phase 2: Upload archive to platform API ---
+
+            await uploadFeedbackToPlatform(
+                archiveURL: archiveURL,
+                formData: formData,
+                sentryEventId: sentryEventId,
+                connectedAssistantId: connectedAssistantId,
+                connectedAssistant: connectedAssistantForTags
+            )
+
+            // Clean up the archive temp file after platform upload completes (or fails).
+            try? fileManager.removeItem(at: archiveURL)
 
             // Re-activate before showing the alert in case the app reverted
             // to .accessory policy after the log report window was dismissed.
@@ -191,6 +206,113 @@ enum LogExporter {
             alert.alertStyle = .informational
             alert.runModal()
         }
+    }
+
+    // MARK: - Platform Feedback Upload
+
+    /// Maps `LogReportReason` to the platform API's `FeedbackClassification` values.
+    private static func feedbackClassification(for reason: LogReportReason) -> String {
+        switch reason {
+        case .somethingBroken: return "something_broken"
+        case .appCrash: return "app_crash"
+        case .performanceIssue: return "performance"
+        case .connectionIssue: return "connection"
+        case .featureRequest: return "feature_request"
+        case .other: return "other"
+        }
+    }
+
+    /// Uploads the feedback archive and metadata to the platform API.
+    /// Errors are logged but not surfaced to the user — the Sentry event
+    /// was already captured successfully in Phase 1.
+    private static func uploadFeedbackToPlatform(
+        archiveURL: URL,
+        formData: LogReportFormData,
+        sentryEventId: SentryId?,
+        connectedAssistantId: String?,
+        connectedAssistant: LockfileAssistant?
+    ) async {
+        let baseURL = AuthService.shared.baseURL
+        guard let url = URL(string: "\(baseURL)/v1/feedback/") else {
+            log.warning("Failed to construct platform feedback URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+
+        // Add auth headers if the user is authenticated (managed assistant).
+        if let token = await SessionTokenManager.getTokenAsync() {
+            request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        }
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        // Build multipart/form-data body.
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+
+        // Text fields
+        appendFormField(&body, boundary: boundary, name: "message", value: formData.message)
+        appendFormField(&body, boundary: boundary, name: "classification", value: feedbackClassification(for: formData.reason))
+        appendFormField(&body, boundary: boundary, name: "email", value: formData.email)
+
+        if let eventId = sentryEventId {
+            appendFormField(&body, boundary: boundary, name: "sentry_event_id", value: eventId.sentryIdString)
+        }
+
+        appendFormField(&body, boundary: boundary, name: "device_id", value: SentryDeviceInfo.deviceId)
+
+        if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            appendFormField(&body, boundary: boundary, name: "client_version", value: clientVersion)
+        }
+
+        if let assistantVersion = connectedAssistant?.serviceGroupVersion {
+            appendFormField(&body, boundary: boundary, name: "assistant_version", value: assistantVersion)
+        }
+
+        if let assistantId = connectedAssistantId {
+            appendFormField(&body, boundary: boundary, name: "assistant_id", value: assistantId)
+        }
+
+        // File part — the tar.gz archive
+        if let archiveData = try? Data(contentsOf: archiveURL) {
+            let filename = defaultArchiveName()
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"logs_file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: application/gzip\r\n\r\n".data(using: .utf8)!)
+            body.append(archiveData)
+            body.append("\r\n".data(using: .utf8)!)
+        } else {
+            log.warning("Failed to read archive at \(archiveURL.path) — submitting feedback without logs")
+        }
+
+        // Final boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                log.warning("Platform feedback upload failed with status \(http.statusCode)")
+            } else {
+                log.info("Platform feedback upload succeeded")
+            }
+        } catch {
+            log.warning("Platform feedback upload request failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Appends a simple text field to a multipart/form-data body.
+    private static func appendFormField(_ body: inout Data, boundary: String, name: String, value: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
     }
 
     // MARK: - Private

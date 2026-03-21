@@ -314,6 +314,11 @@ extension AppDelegate {
         settingsItem.image = VIcon.settings.nsImage(size: 16)
         menu.addItem(settingsItem)
 
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.image = VIcon.circleArrowUp.nsImage(size: 16)
+        menu.addItem(updateItem)
+
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
         restartItem.image = VIcon.refreshCw.nsImage(size: 16)

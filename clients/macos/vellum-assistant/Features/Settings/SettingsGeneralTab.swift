@@ -25,6 +25,7 @@ struct SettingsGeneralTab: View {
     @State private var selectedAssistantId: String = ""
     @State private var dockerOperationTimedOut = false
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
+    @State private var healthzLoaded = false
 
     /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
     /// Falls back to a single `false` emission when connectionManager is nil.
@@ -57,7 +58,8 @@ struct SettingsGeneralTab: View {
                     dockerOperationLabel: $dockerOperationLabel,
                     sparkleUpdateAvailable: sparkleUpdateAvailable,
                     sparkleUpdateVersion: sparkleUpdateVersion,
-                    isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress
+                    isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
+                    healthzLoaded: healthzLoaded
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
@@ -91,15 +93,14 @@ struct SettingsGeneralTab: View {
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
                 if dockerOperationTimedOut {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(VColor.systemMidStrong)
+                    VIconView(.triangleAlert, size: 28)
+                        .foregroundStyle(VColor.systemMidStrong)
                     Text("This is taking longer than expected")
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text(dockerOperationLabel)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     VButton(label: "Dismiss", style: .outlined) {
                         isDockerOperationInProgress = false
                     }
@@ -109,10 +110,10 @@ struct SettingsGeneralTab: View {
                         .progressViewStyle(.circular)
                     Text(dockerOperationLabel)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("This may take a minute. The assistant will be briefly unavailable.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.xxl)
@@ -148,6 +149,7 @@ struct SettingsGeneralTab: View {
         } catch {
             healthz = DaemonHealthz()
         }
+        healthzLoaded = true
     }
 
     // MARK: - Mobile Pairing

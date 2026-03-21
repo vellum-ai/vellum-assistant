@@ -253,7 +253,7 @@ The sync secure-key functions (`getSecureKey`, `setSecureKey`, `deleteSecureKey`
 
 ## Migration
 
-A workspace migration (`014-migrate-credentials-to-keychain`) runs on startup in desktop app context (`VELLUM_DESKTOP_APP=1`, non-dev). It copies existing keys from the encrypted store into the keychain via the broker and removes the encrypted store copies. The migration waits up to 5 seconds for the broker to become available and throws if the broker never appears, so it will be retried on the next startup.
+A workspace migration (`015-migrate-credentials-to-keychain`) runs on startup in desktop app context (`VELLUM_DESKTOP_APP=1`, non-dev). It copies existing keys from the encrypted store into the keychain via the broker and removes the encrypted store copies. The migration waits up to 5 seconds for the broker to become available and throws if the broker never appears, so it will be retried on the next startup.
 
 After migration completes, all operations go through the single resolved backend with no cross-store fallbacks.
 

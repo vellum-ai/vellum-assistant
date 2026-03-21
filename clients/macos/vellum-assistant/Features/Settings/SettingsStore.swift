@@ -79,6 +79,7 @@ public final class SettingsStore: ObservableObject {
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
+    @Published var sidebarToggleShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -413,6 +414,11 @@ public final class SettingsStore: ObservableObject {
         }
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
+        if UserDefaults.standard.object(forKey: "sidebarToggleShortcut") == nil {
+            self.sidebarToggleShortcut = "cmd+\\"
+        } else {
+            self.sidebarToggleShortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? ""
+        }
 
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
@@ -527,6 +533,11 @@ public final class SettingsStore: ObservableObject {
         $quickInputHotkeyKeyCode
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
+            .store(in: &cancellables)
+
+        $sidebarToggleShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "sidebarToggleShortcut") }
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons

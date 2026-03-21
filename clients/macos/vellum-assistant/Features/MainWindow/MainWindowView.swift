@@ -29,6 +29,7 @@ struct MainWindowView: View {
     @State private var preTemporaryChatConversationId: UUID?
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
+    @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
     /// True when the sidebar was auto-collapsed by entering an app panel.
     /// Used to distinguish automatic collapse from manual user collapse so
     /// we only re-expand the sidebar on app exit when it was our doing.
@@ -377,6 +378,13 @@ struct MainWindowView: View {
         return false
     }
 
+    private var sidebarTooltip: String {
+        let label = sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
+        guard !sidebarToggleShortcut.isEmpty else { return label }
+        let display = ShortcutHelper.displayString(for: sidebarToggleShortcut)
+        return "\(label) (\(display))"
+    }
+
     /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
     private var assistantLoadingOverlayIfNeeded: some View {
@@ -398,7 +406,7 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarTooltip) {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
@@ -421,48 +429,6 @@ struct MainWindowView: View {
                     .disabled(!windowState.navigationHistory.canGoForward)
                     .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
                 }
-            }
-            WindowDragArea()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if windowState.isConversationVisible {
-                ConversationTitleActionsControl(
-                    presentation: conversationHeaderPresentation,
-                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
-                    onForkConversation: {
-                        Task {
-                            await conversationManager.forkActiveConversation()
-                            await MainActor.run {
-                                dismissConversationDrawer()
-                            }
-                        }
-                    },
-                    onPin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.pinConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onUnpin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.unpinConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onArchive: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.archiveConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                    onOpenForkParent: { openForkParentConversation() },
-                    showDrawer: $showConversationActionsDrawer
-                )
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationTitleFrame = newFrame
-                    }
-                })
             }
             WindowDragArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -506,6 +472,54 @@ struct MainWindowView: View {
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
+        .overlay {
+            if windowState.isConversationVisible {
+                ConversationTitleActionsControl(
+                    presentation: conversationHeaderPresentation,
+                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                    onForkConversation: {
+                        Task {
+                            await conversationManager.forkActiveConversation()
+                            await MainActor.run {
+                                dismissConversationDrawer()
+                            }
+                        }
+                    },
+                    onPin: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.pinConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onUnpin: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.unpinConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onArchive: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.archiveConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                    onOpenForkParent: { openForkParentConversation() },
+                    showDrawer: $showConversationActionsDrawer
+                )
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
+                    }
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        conversationTitleFrame = newFrame
+                    }
+                })
+                // Shift the title right so it centers above the chat content area
+                // (not the full window). Content starts after outer padding (16) +
+                // sidebar + spacing (16), so its center is offset from the window
+                // center by (sidebarWidth + 16) / 2.
+                .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
+                .animation(VAnimation.panel, value: sidebarExpanded)
+            }
+        }
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
     }
@@ -596,19 +610,34 @@ struct MainWindowView: View {
         if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {
             // Suppress when the "Update" pill already covers it (daemon behind + update available)
             if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
-                ChatConversationErrorToast(
-                    message: versionMismatchMessage,
-                    icon: .triangleAlert,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Update in Settings",
-                    onAction: {
-                        settingsStore.pendingSettingsTab = .general
-                        windowState.selection = .panel(.settings)
-                    }
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                if isDaemonBehind {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Update in Settings",
+                        onAction: {
+                            settingsStore.pendingSettingsTab = .general
+                            windowState.selection = .panel(.settings)
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                } else {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Check for App Update",
+                        onAction: {
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                }
             }
         }
     }
@@ -765,6 +794,14 @@ struct MainWindowView: View {
         }
         eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
+
+        // Show toast for update outcomes emitted while the main window was not visible.
+        // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
+        // the view is live; this catches any that were missed in between.
+        if let outcome = connectionManager.lastUpdateOutcome {
+            handleUpdateOutcome(outcome)
+            connectionManager.clearLastUpdateOutcome()
+        }
     }
 
     private func observeDaemonStartupErrors() async {
@@ -817,14 +854,25 @@ struct MainWindowView: View {
     private func handleUpdateOutcome(_ outcome: UpdateOutcome) {
         switch outcome.result {
         case .succeeded(let version):
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             windowState.showToast(
                 message: "Assistant updated to \(version)",
                 style: .success,
                 autoDismissDelay: 8
             )
         case .rolledBack(_, let to):
+            let verb: String = {
+                let assistants = LockfileAssistant.loadAll()
+                let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                if let id = connectedId,
+                   let assistant = assistants.first(where: { $0.assistantId == id }),
+                   assistant.isManaged {
+                    return "downgraded"
+                }
+                return "rolled back"
+            }()
             windowState.showToast(
-                message: "Update failed — rolled back to \(to)",
+                message: "Update failed — \(verb) to \(to)",
                 style: .warning,
                 autoDismissDelay: 10
             )
@@ -840,7 +888,7 @@ struct MainWindowView: View {
             )
         case .failed:
             windowState.showToast(
-                message: "Update failed. Check Settings for details.",
+                message: "Update failed. Try again from Settings.",
                 style: .error,
                 primaryAction: VToastAction(label: "Open Settings") {
                     settingsStore.pendingSettingsTab = .general
