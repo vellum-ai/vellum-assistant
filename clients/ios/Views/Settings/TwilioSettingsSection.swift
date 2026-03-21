@@ -237,18 +237,7 @@ struct TwilioSettingsSection: View {
         .presentationDetents([.medium])
     }
 
-    // MARK: - HTTP Endpoint Resolution
-
-    /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
-    private func resolveHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
-        guard let daemon = clientProvider.client as? DaemonClient else { return nil }
-        if case .http(let baseURL, let bearerToken, _) = daemon.config.transport {
-            return (baseURL, bearerToken)
-        }
-        return nil
-    }
-
-    /// Perform a Twilio HTTP request and apply the response.
+    /// Perform a Twilio HTTP request via GatewayHTTPClient and apply the response.
     private func performHTTPRequest(
         method: String,
         path: String,
@@ -256,36 +245,43 @@ struct TwilioSettingsSection: View {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async -> Bool {
-        guard let endpoint = resolveHTTPEndpoint(),
-              let url = URL(string: "\(endpoint.baseURL)\(path)") else {
-            errorMessage = "No HTTP endpoint available"
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            errorMessage = "No connected assistant"
             return false
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        // Use the JWT access token as the sole Authorization bearer.
-        // Falls back to the legacy runtime bearer token if no JWT is available.
-        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        } else if let token = endpoint.bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        // Strip leading "/v1/" if present — GatewayHTTPClient prepends /v1/ automatically.
+        let trimmedPath = path.hasPrefix("/v1/") ? String(path.dropFirst(4)) : path
+        let gatewayPath = "assistants/\(assistantId)/\(trimmedPath)"
+
+        let bodyData: Data?
         if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            bodyData = try? JSONSerialization.data(withJSONObject: body)
+        } else {
+            bodyData = nil
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                let errorBody = String(data: data, encoding: .utf8) ?? "Request failed"
+            let response: GatewayHTTPClient.Response
+            switch method {
+            case "GET":
+                response = try await GatewayHTTPClient.get(path: gatewayPath)
+            case "POST":
+                response = try await GatewayHTTPClient.post(path: gatewayPath, body: bodyData)
+            case "DELETE":
+                response = try await GatewayHTTPClient.delete(path: gatewayPath, body: bodyData)
+            default:
+                errorMessage = "Unsupported HTTP method"
+                return false
+            }
+
+            guard response.isSuccess else {
+                let errorBody = String(data: response.data, encoding: .utf8) ?? "Request failed"
                 errorMessage = errorBody
                 return false
             }
 
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
                 errorMessage = "Invalid JSON response"
                 return false
             }

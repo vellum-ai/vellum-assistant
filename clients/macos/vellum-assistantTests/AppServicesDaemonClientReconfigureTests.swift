@@ -27,21 +27,18 @@ final class AppServicesDaemonClientReconfigureTests: XCTestCase {
         )
     }
 
-    func testReconfigureUpdatesTransport() {
+    func testReconfigureUpdatesInstanceDir() {
         let services = AppServices()
 
         let httpConfig = DaemonConfig(transport: .http(
             baseURL: "http://remote:8080",
             bearerToken: "new-token",
             conversationKey: "new-key"
-        ))
+        ), instanceDir: "/tmp/test-instance")
         services.reconfigureDaemonClient(config: httpConfig)
 
-        if case .http(let baseURL, _, _) = services.daemonClient.config.transport {
-            XCTAssertEqual(baseURL, "http://remote:8080")
-        } else {
-            XCTFail("Expected HTTP transport after reconfigure")
-        }
+        XCTAssertEqual(services.daemonClient.instanceDir, "/tmp/test-instance",
+            "instanceDir should be updated after reconfigure via AppServices")
     }
 
     func testSettingsStoreRetainsWorkingDaemonClientAfterReconfigure() {

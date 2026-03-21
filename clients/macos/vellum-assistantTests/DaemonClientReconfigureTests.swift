@@ -33,19 +33,16 @@ final class DaemonClientReconfigureTests: XCTestCase {
             "Reconfigure must preserve DaemonClient object identity")
     }
 
-    func testReconfigureUpdatesConfig() {
+    func testReconfigureUpdatesInstanceDir() {
         let newConfig = DaemonConfig(transport: .http(
             baseURL: "http://localhost:9999",
             bearerToken: "new-token",
             conversationKey: "new-key"
-        ))
+        ), instanceDir: "/tmp/test-instance")
         client.reconfigure(config: newConfig)
 
-        if case .http(let baseURL, _, _) = client.config.transport {
-            XCTAssertEqual(baseURL, "http://localhost:9999")
-        } else {
-            XCTFail("Expected HTTP transport after reconfigure")
-        }
+        XCTAssertEqual(client.instanceDir, "/tmp/test-instance",
+            "instanceDir should be updated after reconfigure")
     }
 
     func testReconfigureResetsConnectionState() {
@@ -82,24 +79,19 @@ final class DaemonClientReconfigureTests: XCTestCase {
     }
 
     func testReconfigureBetweenHTTPEndpoints() {
-        // Start with default HTTP config
-        XCTAssertNotNil(client.config)
+        // Start with default config
+        XCTAssertNil(client.instanceDir)
 
-        // Reconfigure to a different HTTP endpoint
+        // Reconfigure to a different HTTP endpoint with instanceDir
         let httpConfig = DaemonConfig(transport: .http(
             baseURL: "http://remote-host:8080",
             bearerToken: "bearer-123",
             conversationKey: "conv-key"
-        ))
+        ), instanceDir: "/tmp/remote-instance")
         client.reconfigure(config: httpConfig)
 
-        if case .http(let baseURL, let token, let key) = client.config.transport {
-            XCTAssertEqual(baseURL, "http://remote-host:8080")
-            XCTAssertEqual(token, "bearer-123")
-            XCTAssertEqual(key, "conv-key")
-        } else {
-            XCTFail("Expected HTTP transport after reconfigure")
-        }
+        XCTAssertEqual(client.instanceDir, "/tmp/remote-instance",
+            "instanceDir should reflect the new config after reconfigure")
     }
 
     func testMultipleReconfiguresPreserveIdentity() {

@@ -68,11 +68,7 @@ final class DebugStateWriter {
         let daemonClient = appDelegate.services.daemonClient
         let conversationManager = appDelegate.mainWindow?.conversationManager
 
-        let transport: String
-        switch daemonClient.config.transport {
-        case .http:
-            transport = "http"
-        }
+        let transport = daemonClient.isConnected ? "connected" : "disconnected"
 
         let daemonState = DebugSnapshot.DaemonState(
             isConnected: daemonClient.isConnected,

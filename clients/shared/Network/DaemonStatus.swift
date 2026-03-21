@@ -102,10 +102,9 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         set { connectionManager.isConnecting = newValue }
     }
 
-    /// Current daemon connection configuration.
-    public var config: DaemonConfig {
-        connectionManager.config
-    }
+    /// Instance directory for the connected assistant. Used by consumers
+    /// that need to resolve file paths (e.g. workspace, identity).
+    public var instanceDir: String?
 
     /// Platform identifier for automatic 401 re-bootstrap.
     public var recoveryPlatform: String? {
@@ -127,10 +126,10 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
     // MARK: - Init
 
-    public init(config: DaemonConfig = .default) {
+    public init() {
         let esc = EventStreamClient()
         self.eventStreamClient = esc
-        self.connectionManager = GatewayConnectionManager(config: config, eventStreamClient: esc)
+        self.connectionManager = GatewayConnectionManager(eventStreamClient: esc)
 
         // Wire the pre-processor so state is updated before subscribers see messages
         esc.messagePreProcessor = { [weak self] message in
@@ -223,7 +222,11 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     // MARK: - Connection (forwarding)
 
     public func connect() async throws {
-        try await connectionManager.connect()
+        guard case .http(_, _, let conversationKey) = currentConfig?.transport else {
+            log.info("connect: no HTTP transport configured, skipping")
+            return
+        }
+        try await connectionManager.connectImpl(cancelAutoWake: true, conversationKey: conversationKey)
     }
 
     public func disconnect() {
@@ -235,7 +238,12 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
     /// Reconfigure the transport in place without replacing object identity.
     public func reconfigure(config newConfig: DaemonConfig) {
-        connectionManager.reconfigure(config: newConfig)
+        currentConfig = newConfig
+        instanceDir = newConfig.instanceDir
+        connectionManager.reconfigure(
+            instanceDir: newConfig.instanceDir,
+            isRuntimeFlat: newConfig.transportMetadata.routeMode == .runtimeFlat
+        )
         // Reset connection-specific published state
         isConnected = false
         httpPort = nil
@@ -248,6 +256,10 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         latestMemoryStatus = nil
         currentModel = nil
     }
+
+    /// Current config — stored only so `connect()` can extract the conversation key.
+    /// Will be removed when DaemonStatus is deleted.
+    private var currentConfig: DaemonConfig?
 
     // MARK: - Version Compatibility
 

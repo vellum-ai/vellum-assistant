@@ -19,38 +19,31 @@ public final class GatewayConnectionManager {
 
     // MARK: - Connection State
 
-    /// Current connection configuration.
-    public private(set) var config: DaemonConfig
-
     /// Whether a connection attempt is in flight.
     public var isConnecting: Bool = false
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
 
+    /// Instance directory for HealthCheckClient reachability checks (auto-wake).
+    /// Set during `reconfigure()`.
+    private var instanceDir: String?
+
+    /// Whether auto-wake should be attempted on disconnect.
+    /// Only applies to runtimeFlat mode (local assistants).
+    private var isRuntimeFlat: Bool = false
+
     // MARK: - Health Check
 
-    /// Periodic health check task.
     private var healthCheckTask: Task<Void, Never>?
-
-    /// Health check interval in seconds.
     private let healthCheckInterval: TimeInterval = 15.0
-
-    /// Whether the gateway is reachable (health check passes).
     private(set) var isConnected: Bool = false
-
-    /// The daemon's self-reported version from the most recent health check.
     private(set) var daemonVersion: String?
-
-    /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
     /// Whether a planned service group update is in progress.
-    /// Accelerates health check polling for faster reconnection.
     var isUpdateInProgress: Bool = false
 
-    /// Update the in-progress flag and restart the health-check loop when
-    /// transitioning to `true`.
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
         isUpdateInProgress = value
@@ -61,19 +54,12 @@ public final class GatewayConnectionManager {
 
     // MARK: - 401 Recovery
 
-    /// In-flight refresh task for coalescing concurrent 401 handlers.
     private var refreshTask: Task<Void, Never>?
 
     // MARK: - Auto-Wake
 
-    /// Optional closure invoked when a connection attempt fails because the daemon process
-    /// is not alive. The macOS app sets this to call `vellumCli.wake(name:)`.
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
-
-    /// Platform identifier for automatic 401 re-bootstrap (e.g. "macos", "ios").
     public var recoveryPlatform: String?
-
-    /// Device identifier for automatic 401 re-bootstrap.
     public var recoveryDeviceId: String?
 
     #if os(macOS)
@@ -83,24 +69,17 @@ public final class GatewayConnectionManager {
 
     // MARK: - Callbacks
 
-    /// Called when health-check-driven connection state changes.
     var onConnectionStateChanged: ((_ connected: Bool) -> Void)?
-
-    /// Called when the daemon version changes during a health check.
     var onDaemonVersionChanged: ((_ newVersion: String) -> Void)?
-
-    /// Called when a health check 401 needs to emit an auth error to the UI.
     var onAuthError: ((_ message: ServerMessage) -> Void)?
 
     // MARK: - Dependencies
 
-    /// Event stream client — starts/stops SSE and registers conversation IDs.
     private let eventStreamClient: EventStreamClient
 
     // MARK: - Init
 
-    init(config: DaemonConfig, eventStreamClient: EventStreamClient) {
-        self.config = config
+    init(eventStreamClient: EventStreamClient) {
         self.eventStreamClient = eventStreamClient
     }
 
@@ -110,19 +89,14 @@ public final class GatewayConnectionManager {
         try await connectImpl(cancelAutoWake: true)
     }
 
-    func connectImpl(cancelAutoWake: Bool) async throws {
+    /// Connect using a conversation key for host tool filtering.
+    /// Call `reconfigure()` first to set instance directory and route mode.
+    func connectImpl(cancelAutoWake: Bool, conversationKey: String? = nil) async throws {
         disconnectInternal(cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
 
-        guard case .http(_, _, let conversationKey) = config.transport else {
-            isConnecting = false
-            log.info("connect: non-HTTP transport, skipping")
-            return
-        }
-
-        // Register the conversation key for host tool filtering
-        if !conversationKey.isEmpty {
+        if let conversationKey, !conversationKey.isEmpty {
             eventStreamClient.registerConversationId(conversationKey)
         }
 
@@ -145,8 +119,8 @@ public final class GatewayConnectionManager {
                 throw error
             }
 
-            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat {
-                let reachable = await HealthCheckClient.isReachable(instanceDir: config.instanceDir)
+            if let wakeHandler, isRuntimeFlat {
+                let reachable = await HealthCheckClient.isReachable(instanceDir: instanceDir)
                 if !reachable {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
                     do {
@@ -197,13 +171,16 @@ public final class GatewayConnectionManager {
 
     // MARK: - Reconfigure
 
-    public func reconfigure(config newConfig: DaemonConfig) {
+    /// Reconfigure connection parameters for a new assistant.
+    /// Callers must call `connect()` after reconfiguring.
+    public func reconfigure(instanceDir: String?, isRuntimeFlat: Bool) {
         #if os(macOS)
         autoWakeTask?.cancel()
         autoWakeTask = nil
         #endif
         disconnect()
-        self.config = newConfig
+        self.instanceDir = instanceDir
+        self.isRuntimeFlat = isRuntimeFlat
         isAuthenticated = false
         refreshTask?.cancel()
         refreshTask = nil
@@ -214,7 +191,6 @@ public final class GatewayConnectionManager {
 
     // MARK: - Health Check (via GatewayHTTPClient)
 
-    /// Run a single health check via GatewayHTTPClient.
     private func performHealthCheck() async throws {
         do {
             let response = try await GatewayHTTPClient.get(
@@ -225,14 +201,14 @@ public final class GatewayConnectionManager {
             guard response.isSuccess else {
                 if response.statusCode == 401 {
                     handleAuthenticationFailure()
-                    if config.transportMetadata.routeMode == .platformAssistantProxy {
+                    let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+                    if isManaged {
                         shouldReconnect = false
                     }
                 }
                 throw ConnectionError.healthCheckFailed
             }
 
-            // Extract daemon version from response body
             if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != daemonVersion {
                     daemonVersion = newVersion
@@ -261,7 +237,6 @@ public final class GatewayConnectionManager {
         }
     }
 
-    /// Periodically poll healthz to maintain connection status.
     private func startHealthCheckLoop() {
         healthCheckTask?.cancel()
 
@@ -288,7 +263,8 @@ public final class GatewayConnectionManager {
     // MARK: - 401 Recovery
 
     private func handleAuthenticationFailure() {
-        if config.transportMetadata.routeMode == .platformAssistantProxy {
+        let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+        if isManaged {
             log.warning("401 in managed mode — session token may be expired")
             onAuthError?(.conversationError(ConversationErrorMessage(
                 conversationId: "",
@@ -300,7 +276,6 @@ public final class GatewayConnectionManager {
             return
         }
 
-        // Coalesce concurrent 401 handlers
         guard refreshTask == nil else { return }
 
         refreshTask = Task { @MainActor [weak self] in
@@ -343,9 +318,7 @@ public final class GatewayConnectionManager {
     private static let autoWakeCooldown: TimeInterval = 60.0
 
     private func autoWakeIfDaemonDied() {
-        guard let wakeHandler,
-              config.transportMetadata.routeMode == .runtimeFlat
-        else { return }
+        guard let wakeHandler, isRuntimeFlat else { return }
 
         if let last = lastAutoWakeAttempt,
            Date().timeIntervalSince(last) < Self.autoWakeCooldown {
@@ -358,7 +331,7 @@ public final class GatewayConnectionManager {
         autoWakeTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let reachable = await HealthCheckClient.isReachable(instanceDir: self.config.instanceDir)
+            let reachable = await HealthCheckClient.isReachable(instanceDir: self.instanceDir)
             guard !reachable else {
                 self.lastAutoWakeAttempt = nil
                 return
@@ -404,14 +377,11 @@ public final class GatewayConnectionManager {
 
     public enum ConnectionError: Error, LocalizedError {
         case healthCheckFailed
-        case invalidURL
 
         public var errorDescription: String? {
             switch self {
             case .healthCheckFailed:
                 return "Gateway health check failed"
-            case .invalidURL:
-                return "Invalid gateway URL"
             }
         }
     }

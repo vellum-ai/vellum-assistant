@@ -53,7 +53,7 @@ extension NSApplication {
 extension AppDelegate {
 
     func currentUserAppsDirectory() -> URL {
-        let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+        let env = daemonClient.instanceDir.map { ["BASE_DATA_DIR": $0] }
         return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
     }
 
