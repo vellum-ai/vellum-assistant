@@ -624,7 +624,7 @@ struct MainWindowView: View {
                         accentColor: VColor.systemMidStrong,
                         actionLabel: "Check for App Update",
                         onAction: {
-                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            AppDelegate.shared?.checkForUpdates()
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
