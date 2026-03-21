@@ -170,15 +170,15 @@ enum LogExporter {
                 ? MetricKitManager.brainDSN
                 : nil
 
-            await withCheckedContinuation { continuation in
+            let _: SentryId? = await withCheckedContinuation { (continuation: CheckedContinuation<SentryId?, Never>) in
                 MetricKitManager.sendManualReport(
                     event,
                     attachments: [attachment],
                     userFeedback: feedback,
                     dsn: dsn
-                ) {
+                ) { eventId in
                     try? FileManager.default.removeItem(at: archiveURL)
-                    continuation.resume()
+                    continuation.resume(returning: eventId)
                 }
             }
 
