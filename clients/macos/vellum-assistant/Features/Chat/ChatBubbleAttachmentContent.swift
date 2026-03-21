@@ -124,6 +124,7 @@ private enum ImageActions {
     }
 
     /// Builds a SwiftUI context menu with Copy, Save As, and Open in Preview actions.
+    @available(macOS, deprecated: 13.0)
     @ViewBuilder
     static func contextMenuItems(
         image: NSImage,
@@ -155,6 +156,7 @@ private enum ImageActions {
         // written at action time when the user picks a service.
         // NSSharingService.sharingServices is deprecated in macOS 13 but has
         // no functional replacement for custom share UI (see AppSharePanelView).
+        // Silenced via @available on this method; see AppSharePanelView for the same pattern.
         if let tempURL = writeTempFile(image, filename: filename) {
             let services = NSSharingService.sharingServices(forItems: [tempURL])
             if !services.isEmpty {
@@ -193,6 +195,7 @@ private struct InlineToolCallImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
 
+    @available(macOS, deprecated: 13.0)
     var body: some View {
         imageContent
             .onTapGesture {
@@ -268,6 +271,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
 
+    @available(macOS, deprecated: 13.0)
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             ForEach(imageAttachments, id: \.id) { attachment in
