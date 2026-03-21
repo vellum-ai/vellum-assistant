@@ -49,8 +49,9 @@ import {
 import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
-import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
+import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
+import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
@@ -277,6 +278,7 @@ async function main() {
     createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
     createTelegramControlPlaneProxyHandler(config);
+  const vercelControlPlaneProxy = createVercelControlPlaneProxyHandler(config);
   const contactsControlPlaneProxy =
     createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
@@ -465,6 +467,26 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => telegramControlPlaneProxy.handleSetupTelegram(req),
+    },
+
+    // ── Vercel control plane ──
+    {
+      path: "/v1/integrations/vercel/config",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => vercelControlPlaneProxy.handleGetVercelConfig(req),
+    },
+    {
+      path: "/v1/integrations/vercel/config",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => vercelControlPlaneProxy.handleSetVercelConfig(req),
+    },
+    {
+      path: "/v1/integrations/vercel/config",
+      method: "DELETE",
+      auth: "edge",
+      handler: (req) => vercelControlPlaneProxy.handleDeleteVercelConfig(req),
     },
 
     // ── Contacts control plane ──

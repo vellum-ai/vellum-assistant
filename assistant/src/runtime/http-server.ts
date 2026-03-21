@@ -151,6 +151,7 @@ import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channe
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
+import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
@@ -1177,6 +1178,7 @@ export class RuntimeHttpServer {
       ...slackChannelRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
+      ...vercelRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
