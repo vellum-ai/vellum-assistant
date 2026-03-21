@@ -18,7 +18,7 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Pending — standard")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ConfirmationSurfaceView(
                             data: ConfirmationSurfaceData(
                                 message: "Send this email to 12 recipients?",
@@ -36,7 +36,7 @@ struct AssistantMessagesGallerySection: View {
 
                         Text("Pending — destructive")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ConfirmationSurfaceView(
                             data: ConfirmationSurfaceData(
                                 message: "Delete all project files?",
@@ -69,21 +69,21 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("With title")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CompletedSurfaceChip(title: "Feedback Form", summary: "Submitted successfully")
 
                         Divider().background(VColor.borderBase)
 
                         Text("Without title")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CompletedSurfaceChip(title: nil, summary: "File uploaded (3 items)")
 
                         Divider().background(VColor.borderBase)
 
                         Text("Long summary")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CompletedSurfaceChip(title: "Configuration", summary: "API key saved, provider set to Anthropic, model updated to Claude Sonnet")
                     }
                 }
@@ -184,7 +184,7 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Multi-step — in progress")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(toolName: "Web Search", inputSummary: "best coffee shops", isComplete: true),
                             ToolCallData(toolName: "Browser Navigate", inputSummary: "https://yelp.com", result: "Page loaded", isComplete: true),
@@ -195,7 +195,7 @@ struct AssistantMessagesGallerySection: View {
 
                         Text("All completed")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(toolName: "file_read", inputSummary: "Config.swift", isComplete: true),
                             ToolCallData(toolName: "file_edit", inputSummary: "Config.swift", result: "Updated", isComplete: true),
@@ -218,7 +218,7 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("In progress")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
                                 ToolCallData(toolName: "Searching", inputSummary: "documentation", isComplete: true),
@@ -232,7 +232,7 @@ struct AssistantMessagesGallerySection: View {
 
                         Text("Completed")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
                                 ToolCallData(toolName: "Done", inputSummary: "", isComplete: true),
@@ -330,7 +330,7 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("With password field (shows security pill)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         FormSurfaceView(
                             data: FormSurfaceData(
                                 description: "Enter your API credentials",
@@ -347,7 +347,7 @@ struct AssistantMessagesGallerySection: View {
 
                         Text("Standard form (no password)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         FormSurfaceView(
                             data: FormSurfaceData(
                                 description: "Configure your project settings",
@@ -412,7 +412,7 @@ struct AssistantMessagesGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Placeholder skeleton (what you see before image loads)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         RoundedRectangle(cornerRadius: 8)
                             .fill(VColor.surfaceOverlay)
