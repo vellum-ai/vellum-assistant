@@ -39,7 +39,10 @@ struct AboutVellumView: View {
         connectionManager?.assistantVersion ?? healthz?.version
     }
 
-    /// Whether the client and service group versions match.
+    /// Whether the client and service-group versions are semantically equal
+    /// (major.minor.patch). Pre-release suffixes (e.g., `-beta.1`) are
+    /// intentionally ignored — only the release triple matters for the
+    /// "versions match" checkmark in the About window.
     private var versionsMatch: Bool {
         guard let sgVersion = serviceVersion, !sgVersion.isEmpty,
               let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
@@ -174,19 +177,19 @@ struct AboutVellumView: View {
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
             case .updateAvailable(let version):
-                VStack(spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Update available:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(version)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    VButton(label: "Update in Settings", style: .outlined) {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                    Text("Version \(version) available")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.primaryBase)
+                    Button("Update in Settings") {
                         AppDelegate.shared?.aboutWindow?.close()
                         AppDelegate.shared?.showSettingsTab("General")
                     }
+                    .buttonStyle(.plain)
+                    .font(VFont.captionMedium)
+                    .foregroundStyle(VColor.primaryBase)
                 }
             case .notAvailable(let message):
                 HStack(spacing: VSpacing.xs) {
@@ -271,7 +274,6 @@ struct AboutVellumView: View {
 
         case .docker, .managed:
             // Docker/managed: check platform API and show result inline
-            isCheckingForUpdates = true
             defer { isCheckingForUpdates = false }
 
             await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()

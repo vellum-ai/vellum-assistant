@@ -111,15 +111,6 @@ import os
                 SentryDeviceInfo.configureSentryScope()
             }
 
-            // Attach files to the scope before capturing the event.
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    for attachment in attachments {
-                        scope.addAttachment(attachment)
-                    }
-                }
-            }
-
             // Set reporter identity on the event so log reports are searchable
             // by email (user.email:foo@example.com) in Sentry. Only set for
             // manual reports where the user explicitly provided their email.
@@ -147,19 +138,11 @@ import os
                 SentrySDK.capture(feedback: feedback)
             }
 
-            // Clean up attachments so they don't leak into subsequent events.
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    scope.clearAttachments()
-                }
-            }
-
-            // Always flush when attachments are present so large files are
-            // delivered before the user quits the app. Use a longer timeout
-            // when attachments are present since companion archives (e.g.
-            // spindump .tar.gz) can be several MB on slow connections.
-            let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
-            SentrySDK.flush(timeout: flushTimeout)
+            // Flush to ensure the lightweight event is delivered before the
+            // app quits. Archives are no longer attached to Sentry events
+            // (they're uploaded to the platform API instead), so a short
+            // timeout is sufficient.
+            SentrySDK.flush(timeout: 5)
 
             // Clear reporter identity so it doesn't leak into subsequent events.
             if userFeedback != nil {
