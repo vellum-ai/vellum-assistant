@@ -184,18 +184,23 @@ enum LogExporter {
                 }
             }
 
-            // --- Phase 2: Upload archive to platform API ---
+            // --- Phase 2: Upload archive to platform API (background) ---
+            // Fire-and-forget so the user sees "Feedback Sent" immediately
+            // after the Sentry event is captured. The archive is cleaned up
+            // after the upload completes (or fails).
+            let archiveURLCopy = archiveURL
+            Task.detached {
+                await uploadFeedbackToPlatform(
+                    archiveURL: archiveURLCopy,
+                    formData: formData,
+                    sentryEventId: sentryEventId,
+                    connectedAssistantId: connectedAssistantId,
+                    connectedAssistant: connectedAssistantForTags
+                )
 
-            await uploadFeedbackToPlatform(
-                archiveURL: archiveURL,
-                formData: formData,
-                sentryEventId: sentryEventId,
-                connectedAssistantId: connectedAssistantId,
-                connectedAssistant: connectedAssistantForTags
-            )
-
-            // Clean up the archive temp file after platform upload completes (or fails).
-            try? fileManager.removeItem(at: archiveURL)
+                // Clean up the archive temp file after platform upload completes (or fails).
+                try? FileManager.default.removeItem(at: archiveURLCopy)
+            }
 
             // Re-activate before showing the alert in case the app reverted
             // to .accessory policy after the log report window was dismissed.
