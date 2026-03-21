@@ -433,6 +433,7 @@ struct AssistantUpgradeSection: View {
         do {
             try await cli.upgrade(name: name, version: version)
             successMessage = isRollback ? "Rollback complete." : "Update complete."
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
         } catch let error as VellumCli.CLIError {
@@ -460,6 +461,7 @@ struct AssistantUpgradeSection: View {
                 successMessage = isRollback
                     ? "Rollback initiated. The assistant may be briefly unavailable."
                     : "Update initiated. The assistant may be briefly unavailable."
+                AppDelegate.shared?.updateManager.clearServiceGroupFlags()
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
