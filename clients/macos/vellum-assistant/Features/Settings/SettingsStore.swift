@@ -80,6 +80,7 @@ public final class SettingsStore: ObservableObject {
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
     @Published var sidebarToggleShortcut: String
+    @Published var newChatShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -419,6 +420,11 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.sidebarToggleShortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "newChatShortcut") == nil {
+            self.newChatShortcut = "cmd+n"
+        } else {
+            self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
+        }
 
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
@@ -538,6 +544,11 @@ public final class SettingsStore: ObservableObject {
         $sidebarToggleShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "sidebarToggleShortcut") }
+            .store(in: &cancellables)
+
+        $newChatShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "newChatShortcut") }
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
