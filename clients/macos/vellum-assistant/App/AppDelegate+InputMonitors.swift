@@ -76,15 +76,17 @@ extension AppDelegate {
         registerCmdKMonitor()
         registerCmdNMonitor()
 
-        globalHotkeyObserver = Publishers.Merge3(
+        globalHotkeyObserver = Publishers.Merge4(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
             UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () },
+            UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }
         )
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
             self?.registerQuickInputMonitor()
+            self?.registerSidebarToggleMonitor()
         }
     }
 
@@ -177,6 +179,10 @@ extension AppDelegate {
         if let monitor = zoomLocalMonitor {
             NSEvent.removeMonitor(monitor)
             zoomLocalMonitor = nil
+        }
+        if let monitor = sidebarToggleLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            sidebarToggleLocalMonitor = nil
         }
     }
 
@@ -272,6 +278,36 @@ extension AppDelegate {
             }
         }
         navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to toggle the sidebar collapsed/expanded
+    /// state when the configured shortcut (default: Cmd+\) is pressed.
+    /// The shortcut is read dynamically from UserDefaults so it can be
+    /// reconfigured without restarting.
+    func registerSidebarToggleMonitor() {
+        if let existing = sidebarToggleLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            sidebarToggleLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? "cmd+\\"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            let current = UserDefaults.standard.bool(forKey: "sidebarExpanded")
+            UserDefaults.standard.set(!current, forKey: "sidebarExpanded")
+            return nil
+        }
+        sidebarToggleLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
