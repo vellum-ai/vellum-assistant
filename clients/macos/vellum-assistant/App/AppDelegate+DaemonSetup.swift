@@ -81,8 +81,7 @@ extension AppDelegate {
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant — use HTTP transport to the local daemon.
             // Bearer token is nil; resolved lazily at connect time.
-            let port = assistant?.resolvedDaemonPort(environment: launchEnvironment)
-                ?? (Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821)
+            let port = Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821
             let baseURL = "http://localhost:\(port)"
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
@@ -119,10 +118,9 @@ extension AppDelegate {
         let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Ensure the daemon starts its runtime HTTP server so the
-        // gateway can proxy iOS traffic to it. When a local assistant has a
-        // lockfile-assigned daemon port, use that instead of the generic default.
+        // gateway can proxy iOS traffic to it.
         if let assistant, !assistant.isRemote {
-            let port = assistant.resolvedDaemonPort(environment: launchEnvironment)
+            let port = Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821
             setenv("RUNTIME_HTTP_PORT", String(port), 1)
         } else {
             setenv("RUNTIME_HTTP_PORT", "7821", 1)

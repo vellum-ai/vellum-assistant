@@ -1117,7 +1117,6 @@ enum LogExporter {
                     "isRemote": entry.isRemote,
                 ]
                 if let hatchedAt = entry.hatchedAt { dict["hatchedAt"] = hatchedAt }
-                if let daemonPort = entry.daemonPort { dict["daemonPort"] = daemonPort }
                 if let gatewayPort = entry.gatewayPort { dict["gatewayPort"] = gatewayPort }
                 // Include runtimeUrl presence (not the value, which may contain tokens)
                 dict["hasRuntimeUrl"] = entry.runtimeUrl != nil

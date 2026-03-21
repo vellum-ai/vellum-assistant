@@ -40,7 +40,6 @@ public struct LockfileAssistant {
     public let instanceId: String?
     public let hatchedAt: String?
     public let baseDataDir: String?
-    public let daemonPort: Int?
     public let gatewayPort: Int?
     public let instanceDir: String?
     public let serviceGroupVersion: String?
@@ -59,7 +58,6 @@ public struct LockfileAssistant {
         instanceId: String?,
         hatchedAt: String?,
         baseDataDir: String?,
-        daemonPort: Int?,
         gatewayPort: Int?,
         instanceDir: String?,
         serviceGroupVersion: String? = nil,
@@ -77,7 +75,6 @@ public struct LockfileAssistant {
         self.instanceId = instanceId
         self.hatchedAt = hatchedAt
         self.baseDataDir = baseDataDir
-        self.daemonPort = daemonPort
         self.gatewayPort = gatewayPort
         self.instanceDir = instanceDir
         self.serviceGroupVersion = serviceGroupVersion
@@ -114,38 +111,6 @@ public struct LockfileAssistant {
             return baseDataDir + "/workspace"
         }
         return nil
-    }
-
-    /// Resolve the assistant's local runtime HTTP port from the lockfile when
-    /// available, otherwise fall back to the current process environment.
-    public func resolvedDaemonPort(environment: [String: String]? = nil) -> Int {
-        if let daemonPort {
-            return daemonPort
-        }
-
-        let rawPort: String?
-        if let environment {
-            rawPort = environment["RUNTIME_HTTP_PORT"]
-        } else {
-            let env = ProcessInfo.processInfo.environment
-            rawPort = env["RUNTIME_HTTP_PORT"]
-                ?? getenv("RUNTIME_HTTP_PORT").map { String(cString: $0) }
-        }
-        return rawPort.flatMap(Int.init) ?? 7821
-    }
-
-    public var localRuntimeBaseURL: String {
-        "http://localhost:\(resolvedDaemonPort())"
-    }
-
-    /// Base URL for HTTP calls to the assistant's runtime.
-    /// Docker assistants route through the gateway; local assistants
-    /// hit the daemon port directly.
-    public var resolvedRuntimeBaseURL: String {
-        if isDocker, let runtimeUrl {
-            return runtimeUrl
-        }
-        return localRuntimeBaseURL
     }
 
     public static func loadLatest() -> LockfileAssistant? {
@@ -214,7 +179,6 @@ public struct LockfileAssistant {
                 instanceId: entry["instanceId"] as? String,
                 hatchedAt: entry["hatchedAt"] as? String,
                 baseDataDir: entry["baseDataDir"] as? String,
-                daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
                 instanceDir: resources?["instanceDir"] as? String,
                 serviceGroupVersion: serviceGroupVersion,

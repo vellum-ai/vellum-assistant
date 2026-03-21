@@ -186,7 +186,10 @@ struct AssistantBackupsSection: View {
         isExporting = true
         defer { isExporting = false }
 
-        let baseURL = assistant.resolvedRuntimeBaseURL
+        guard let baseURL = assistant.runtimeUrl else {
+            errorMessage = "No runtime URL configured for this assistant"
+            return
+        }
         let token = ActorTokenManager.getToken()
 
         guard let url = URL(string: "\(baseURL)/v1/migrations/export") else {
@@ -362,7 +365,10 @@ extension AssistantBackupsSection {
         isImporting = true
         defer { isImporting = false }
 
-        let baseURL = assistant.resolvedRuntimeBaseURL
+        guard let baseURL = assistant.runtimeUrl else {
+            errorMessage = "No runtime URL configured for this assistant"
+            return
+        }
         let token = ActorTokenManager.getToken()
 
         guard let url = URL(string: "\(baseURL)/v1/migrations/import") else {
