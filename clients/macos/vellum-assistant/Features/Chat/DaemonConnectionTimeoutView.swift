@@ -22,7 +22,7 @@ struct DaemonConnectionTimeoutView: View {
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.contentDefault)
 
-                Text("We couldn\u{2019}t connect to your assistant. Check your connection settings in the Developer tab or try again.")
+                Text("We couldn\u{2019}t connect to your assistant. Check your connection settings in the Developer tab.")
                     .font(.system(size: 14))
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)

@@ -82,9 +82,9 @@ struct DaemonStartupErrorView: View {
         case "MIGRATION_FAILED":
             return "A database update failed. Reporting to Vellum will help us fix this."
         case "PORT_IN_USE":
-            return "Another process is using the assistant\u{2019}s port. Try quitting other apps and retrying."
+            return "Another process is using the assistant\u{2019}s port. Try quitting other apps and restarting."
         case "DB_LOCKED":
-            return "The database is locked by another process. Try retrying in a moment."
+            return "The database is locked by another process. Try restarting in a moment."
         case "DB_CORRUPT":
             return "The database appears to be corrupted. Reporting to Vellum will help us fix this."
         case "ENV_VALIDATION":
