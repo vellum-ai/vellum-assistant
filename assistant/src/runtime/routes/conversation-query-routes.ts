@@ -18,7 +18,11 @@
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
-import { getConfig, loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import {
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {

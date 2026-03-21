@@ -172,7 +172,7 @@ final class VellumCli {
     /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, restart: Bool = false) async throws {
+    func hatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -191,6 +191,9 @@ final class VellumCli {
         // #endif
         if let name {
             arguments += ["--name", name]
+        }
+        for (key, value) in configValues {
+            arguments.append(contentsOf: ["--config", "\(key)=\(value)"])
         }
 
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
@@ -423,6 +426,8 @@ final class VellumCli {
         var sshPrivateKey: String = ""
         /// Provider API keys keyed by env var name (e.g. "ANTHROPIC_API_KEY").
         var providerApiKeys: [String: String] = [:]
+        /// Workspace config key-value pairs passed as --config flags.
+        var configValues: [String: String] = [:]
     }
 
     func runRemoteHatch(
@@ -448,6 +453,9 @@ final class VellumCli {
             hatchArgs.append("--watch")
         }
         #endif
+        for (key, value) in config.configValues {
+            hatchArgs.append(contentsOf: ["--config", "\(key)=\(value)"])
+        }
         proc.arguments = hatchArgs
 
         let stdoutPipe = Pipe()

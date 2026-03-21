@@ -374,6 +374,7 @@ export async function hatchAws(
   species: Species,
   detached: boolean,
   name: string | null,
+  configValues: Record<string, string> = {},
 ): Promise<void> {
   const startTime = Date.now();
   try {
@@ -448,6 +449,7 @@ export async function hatchAws(
       providerApiKeys,
       instanceName,
       "aws",
+      configValues,
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);

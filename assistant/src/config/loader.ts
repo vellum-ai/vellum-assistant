@@ -2,10 +2,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -215,6 +216,35 @@ export function deepMergeMissing(
 }
 
 /**
+ * Deep-merge `overrides` into `target`, overwriting leaf values.
+ * Recursively merges nested objects; scalars and arrays from `overrides`
+ * replace corresponding values in `target`.
+ */
+function deepMergeOverwrite(
+  target: Record<string, unknown>,
+  overrides: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(overrides)) {
+    const ov = overrides[key];
+    if (
+      ov != null &&
+      typeof ov === "object" &&
+      !Array.isArray(ov) &&
+      target[key] != null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      deepMergeOverwrite(
+        target[key] as Record<string, unknown>,
+        ov as Record<string, unknown>,
+      );
+    } else {
+      target[key] = ov;
+    }
+  }
+}
+
+/**
  * Read the existing config.json from disk, merge any missing schema-default
  * keys, and rewrite only when there is an effective change.
  */
@@ -245,6 +275,72 @@ function backfillConfigDefaults(
   if (newJson !== existingJson) {
     writeFileSync(configPath, newJson);
     log.info("Backfilled missing config defaults in %s", configPath);
+  }
+}
+
+/**
+ * Merge default workspace config from the file referenced by
+ * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH into the workspace config on disk.
+ *
+ * Called once at daemon startup (before the first loadConfig()) so the
+ * defaults are persisted to the workspace config file alongside any
+ * schema-level defaults that loadConfig() backfills.
+ */
+export function mergeDefaultWorkspaceConfig(): void {
+  const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+  if (!defaultConfigPath || !existsSync(defaultConfigPath)) return;
+
+  let defaults: unknown;
+  try {
+    defaults = JSON.parse(readFileSync(defaultConfigPath, "utf-8"));
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to read default workspace config from %s",
+      defaultConfigPath,
+    );
+    return;
+  }
+
+  if (
+    defaults == null ||
+    typeof defaults !== "object" ||
+    Array.isArray(defaults)
+  ) {
+    return;
+  }
+
+  const configPath = getConfigPath();
+  let existing: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      existing = JSON.parse(readFileSync(configPath, "utf-8"));
+    } catch {
+      // If existing config is corrupt, start fresh
+    }
+  }
+
+  deepMergeOverwrite(existing, defaults as Record<string, unknown>);
+
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+
+  // Move the temp file into the workspace directory as a permanent record.
+  // This prevents re-application on daemon restart (the env var still points
+  // at the old /tmp path which no longer exists).
+  try {
+    const dest = join(dir, "default-config.json");
+    renameSync(defaultConfigPath, dest);
+    log.info(
+      "Merged default workspace config from %s (archived to %s)",
+      defaultConfigPath,
+      dest,
+    );
+  } catch {
+    log.info("Merged default workspace config from %s", defaultConfigPath);
   }
 }
 
