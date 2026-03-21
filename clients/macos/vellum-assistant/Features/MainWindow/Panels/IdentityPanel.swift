@@ -20,6 +20,7 @@ struct IdentityPanel: View {
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
+    @State private var bootstrapCheckTask: Task<Void, Never>? = nil
     @State private var isBootstrapActive: Bool = true
 
     private let sidebarMinWidth: CGFloat = 200
@@ -170,8 +171,9 @@ struct IdentityPanel: View {
                     }
                 }
 
-                Task {
+                bootstrapCheckTask = Task {
                     let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "BOOTSTRAP.md", showHidden: false)
+                    guard !Task.isCancelled else { return }
                     isBootstrapActive = fileResponse != nil
 
                     if !isBootstrapActive && introText == nil {
@@ -183,7 +185,7 @@ struct IdentityPanel: View {
                     }
                 }
             }
-            .onDisappear { introTask?.cancel() }
+            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel() }
         }
     }
 
