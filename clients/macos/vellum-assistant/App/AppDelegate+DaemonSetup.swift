@@ -260,7 +260,7 @@ extension AppDelegate {
             if !daemonClient.isConnected && !connectionManager.isConnecting {
                 log.info("setupDaemonClient: calling connect()")
                 do {
-                    try await daemonClient.connect()
+                    try await connectionManager.connect()
                     log.info("setupDaemonClient: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")

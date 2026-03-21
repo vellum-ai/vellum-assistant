@@ -55,9 +55,6 @@ enum VideoPlaybackFailure: Equatable {
 /// `port_missing` failures.
 struct InlineVideoAttachmentView: View {
     let attachment: ChatAttachment
-    /// Resolves the current daemon HTTP port at call time.
-    /// Returns nil when the daemon is not connected or the port is unavailable.
-    let resolveHttpPort: () -> Int?
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
@@ -71,9 +68,8 @@ struct InlineVideoAttachmentView: View {
     /// tap on the failed tile opens the external player instead of retrying again.
     @State private var hasRetriedOnce = false
 
-    init(attachment: ChatAttachment, resolveHttpPort: @escaping () -> Int?) {
+    init(attachment: ChatAttachment) {
         self.attachment = attachment
-        self.resolveHttpPort = resolveHttpPort
 
         if let img = attachment.thumbnailImage {
             var w: CGFloat = 0

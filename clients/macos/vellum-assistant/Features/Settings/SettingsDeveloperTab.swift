@@ -1198,7 +1198,7 @@ private struct DeveloperDaemonStatusRows: View {
             label: "Assistant",
             isHealthy: daemonClient.isConnected,
             detail: daemonClient.isConnected
-                ? "Connected" + (daemonClient.daemonVersion.map { " (v\($0))" } ?? "")
+                ? "Connected" + (daemonClient.assistantVersion.map { " (v\($0))" } ?? "")
                 : "Disconnected"
         )
 

@@ -251,8 +251,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     #if canImport(UIKit)
     func testConnectedConversationsRetainPinAndAttentionMetadataAcrossCacheReload() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-1",
             "title": "Connected conversation",
@@ -280,7 +280,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(storedConversation.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
         XCTAssertEqual(storedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-1" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -294,8 +294,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelConversationId() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
 
         guard let placeholderConversation = store.conversations.first else {
             XCTFail("Expected placeholder conversation")
@@ -336,10 +336,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationListClient: mockListClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-2",
             "title": "Unread conversation",
@@ -375,7 +375,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(mockListClient.sentSeenSignals[0].source, "ui-navigation")
         XCTAssertEqual(mockListClient.sentSeenSignals[0].evidenceText, "User opened conversation in app")
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-2" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -385,10 +385,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testOpeningAlreadySeenConnectedConversationDoesNotEmitSignal() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationListClient: mockListClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-3",
             "title": "Seen conversation",
@@ -414,10 +414,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testMarkingSeenConnectedConversationUnreadUpdatesLocalStateAndEmitsSignal() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-4",
             "title": "Seen conversation",
@@ -453,7 +453,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(mockUnreadClient.sentSignals[0].source, "ui-navigation")
         XCTAssertEqual(mockUnreadClient.sentSignals[0].evidenceText, "User selected Mark as unread")
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-4" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -463,10 +463,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testMarkingAlreadyUnreadConnectedConversationUnreadDoesNothing() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-5",
             "title": "Unread conversation",
@@ -492,11 +492,11 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testMarkingSeenConnectedConversationUnreadRollsBackWhenSendFails() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockUnreadClient = MockConversationUnreadClient()
         mockUnreadClient.shouldThrow = true
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-unread-failure",
             "title": "Seen conversation",
@@ -528,10 +528,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testMarkingConversationWithoutAssistantReplyUnreadDoesNothing() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-6",
             "title": "No assistant reply yet",
@@ -555,10 +555,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testMarkingConversationWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockUnreadClient = MockConversationUnreadClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-live-assistant",
             "title": "Live assistant reply",
@@ -598,7 +598,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertNotNil(updatedConversation.latestAssistantMessageAt)
         XCTAssertEqual(mockUnreadClient.sentSignals.count, 1)
 
-        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationUnreadClient: mockUnreadClient)
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationUnreadClient: mockUnreadClient)
         guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
             XCTFail("Expected cached connected conversation")
             return
@@ -609,8 +609,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testConversationListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
 
         let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",
@@ -651,8 +651,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testConversationListRefreshPreservesLocalUnreadUntilDaemonCatchesUp() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
 
         let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-unread",
@@ -693,10 +693,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testPinningConnectedConversationUpdatesLocalStateAndEmitsReorder() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationListClient: mockListClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
@@ -742,8 +742,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testPinningConnectedConversationSurvivesStaleConversationListRefresh() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
@@ -780,10 +780,10 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     }
 
     func testUnpinningConnectedConversationRecompactsPinnedOrderAndEmitsReorder() {
-        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
+        let daemonClient = DaemonClient()
         let mockListClient = MockConversationListClient()
 
-        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient, conversationListClient: mockListClient)
+        let store = IOSConversationStore(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient, conversationListClient: mockListClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-first",

@@ -725,7 +725,6 @@ struct ActiveChatViewWrapper: View {
                 viewModel.retryAfterConversationError(messageId: messageId)
             },
             subagentDetailStore: viewModel.subagentDetailStore,
-            resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },

@@ -105,9 +105,6 @@ struct MessageListView: View {
     var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    /// Resolves the daemon HTTP port at call time so lazy-loaded video
-    /// attachments always use the latest port after daemon restarts.
-    var resolveHttpPort: (() -> Int?) = { nil }
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
@@ -974,7 +971,6 @@ struct MessageListView: View {
                             activeSurfaceId: activeSurfaceId,
                             isHighlighted: highlightedMessageId == message.id,
                             mediaEmbedSettings: mediaEmbedSettings,
-                            resolveHttpPort: resolveHttpPort,
                             onConfirmationAllow: onConfirmationAllow,
                             onConfirmationDeny: onConfirmationDeny,
                             onAlwaysAllow: onAlwaysAllow,
@@ -1719,7 +1715,6 @@ private struct MessageCellView: View, Equatable {
     let activeSurfaceId: String?
     let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    let resolveHttpPort: () -> Int?
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
@@ -1774,7 +1769,6 @@ private struct MessageCellView: View, Equatable {
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
-                resolveHttpPort: resolveHttpPort,
                 onConfirmationAllow: onConfirmationAllow,
                 onConfirmationDeny: onConfirmationDeny,
                 onAlwaysAllow: onAlwaysAllow,
@@ -1862,7 +1856,6 @@ private struct MessageCellView: View, Equatable {
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
-                resolveHttpPort: resolveHttpPort,
                 onConfirmationAllow: onConfirmationAllow,
                 onConfirmationDeny: onConfirmationDeny,
                 onAlwaysAllow: onAlwaysAllow,

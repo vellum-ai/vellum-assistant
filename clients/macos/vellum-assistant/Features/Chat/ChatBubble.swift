@@ -19,9 +19,6 @@ struct ChatBubble: View {
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
-    /// Resolves the daemon HTTP port at call time so lazy-loaded video
-    /// attachments always use the latest port after daemon restarts.
-    var resolveHttpPort: (() -> Int?) = { nil }
     // Confirmation action callbacks (threaded to AssistantProgressView for inline bubbles)
     var onConfirmationAllow: ((String) -> Void)? = nil
     var onConfirmationDeny: ((String) -> Void)? = nil
@@ -73,7 +70,6 @@ struct ChatBubble: View {
         onSurfaceRefetch: ((String, String) -> Void)? = nil,
         onRehydrate: (() -> Void)? = nil,
         mediaEmbedSettings: MediaEmbedResolverSettings? = nil,
-        resolveHttpPort: @escaping (() -> Int?) = { nil },
         onConfirmationAllow: ((String) -> Void)? = nil,
         onConfirmationDeny: ((String) -> Void)? = nil,
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
@@ -98,7 +94,6 @@ struct ChatBubble: View {
         self.onSurfaceRefetch = onSurfaceRefetch
         self.onRehydrate = onRehydrate
         self.mediaEmbedSettings = mediaEmbedSettings
-        self.resolveHttpPort = resolveHttpPort
         self.onConfirmationAllow = onConfirmationAllow
         self.onConfirmationDeny = onConfirmationDeny
         self.onAlwaysAllow = onAlwaysAllow
@@ -537,7 +532,7 @@ struct ChatBubble: View {
                 if !partitioned.videos.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(partitioned.videos) { attachment in
-                            InlineVideoAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
+                            InlineVideoAttachmentView(attachment: attachment)
                         }
                     }
                 }
@@ -545,7 +540,7 @@ struct ChatBubble: View {
                 if !partitioned.audios.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(partitioned.audios) { attachment in
-                            InlineAudioAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
+                            InlineAudioAttachmentView(attachment: attachment)
                         }
                     }
                 }

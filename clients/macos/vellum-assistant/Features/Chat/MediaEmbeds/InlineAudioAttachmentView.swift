@@ -54,9 +54,6 @@ enum AudioPlaybackFailure: Equatable {
 /// to auto-retry `port_missing` failures.
 struct InlineAudioAttachmentView: View {
     let attachment: ChatAttachment
-    /// Resolves the current daemon HTTP port at call time.
-    /// Returns nil when the daemon is not connected or the port is unavailable.
-    let resolveHttpPort: () -> Int?
 
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
