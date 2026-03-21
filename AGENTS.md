@@ -174,6 +174,11 @@ When shipping a release with user/assistant-facing changes, update `assistant/sr
 
 - **[`vellum-assistant-platform`](../vellum-assistant-platform)** — Django backend that manages platform-hosted ("managed") assistants. Handles authentication (WorkOS OIDC), organization management, assistant lifecycle, and runtime proxying. The desktop app authenticates against it and proxies all runtime traffic through it. Stack: Python 3.14, Django, DRF, PostgreSQL, Redis/Valkey. See `../vellum-assistant-platform/AGENTS.md` for development instructions.
 
+When making changes that could affect the cloud platform, review the sibling `../vellum-assistant-platform` repo for compatibility and required follow-up updates. High-risk change areas include:
+- HTTP server behavior and API contracts.
+- Stored file and directory structure changes (workspace paths, on-disk formats, exports/imports, migrations).
+- Dockerfile or container runtime/build changes.
+
 ## Sentry & Linear Integration
 
 The Sentry organization is `vellum` (region: `us.sentry.io`, URL: `vellum.sentry.io`). Two projects exist: `vellum-assistant-brain` (daemon/runtime) and `vellum-assistant-macos` (desktop app).
