@@ -5,7 +5,10 @@ import VellumAssistantShared
 @MainActor
 public final class AppServices {
     public let connectionManager = GatewayConnectionManager()
-    public private(set) var daemonClient: DaemonStatus
+
+    /// Backward-compat accessor — daemonClient IS connectionManager now.
+    public var daemonClient: GatewayConnectionManager { connectionManager }
+
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
@@ -13,15 +16,10 @@ public final class AppServices {
     let zoomManager = ZoomManager()
 
     /// Shared settings state consumed by SettingsPanel and its tab views.
-    /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.
     public lazy var settingsStore: SettingsStore = SettingsStore(
-        daemonClient: daemonClient,
+        daemonClient: connectionManager,
         eventStreamClient: connectionManager.eventStreamClient
     )
-
-    init() {
-        self.daemonClient = DaemonStatus(connectionManager: connectionManager)
-    }
 
     /// Reconfigure the connection for a new assistant.
     func reconfigureDaemonClient(config: DaemonConfig) {
@@ -31,6 +29,5 @@ public final class AppServices {
             instanceDir: config.instanceDir,
             conversationKey: conversationKey
         )
-        daemonClient.resetConnectionState(instanceDir: config.instanceDir)
     }
 }

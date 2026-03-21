@@ -38,8 +38,8 @@ final class ConversationHeaderPresentationTests: XCTestCase {
     func testStartedStandardConversationShowsActionsMenu() {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = {
-            let cm = GatewayConnectionManager(); let dc = DaemonClient(connectionManager: cm)
-            return ChatViewModel(daemonClient: dc, eventStreamClient: cm.eventStreamClient)
+            let dc = GatewayConnectionManager()
+            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         }()
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
@@ -55,8 +55,8 @@ final class ConversationHeaderPresentationTests: XCTestCase {
     func testStartedStandardConversationWithPersistedTipShowsForkAction() {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = {
-            let cm = GatewayConnectionManager(); let dc = DaemonClient(connectionManager: cm)
-            return ChatViewModel(daemonClient: dc, eventStreamClient: cm.eventStreamClient)
+            let dc = GatewayConnectionManager()
+            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         }()
         var message = ChatMessage(role: .assistant, text: "Persisted reply")
         message.daemonMessageId = "msg-tip"
@@ -113,8 +113,8 @@ final class ConversationHeaderPresentationTests: XCTestCase {
     func testUnstartedConversationDoesNotShowActions() {
         let conversation = ConversationModel(title: "New Conversation")
         let vm = {
-            let cm = GatewayConnectionManager(); let dc = DaemonClient(connectionManager: cm)
-            return ChatViewModel(daemonClient: dc, eventStreamClient: cm.eventStreamClient)
+            let dc = GatewayConnectionManager()
+            return ChatViewModel(daemonClient: dc, eventStreamClient: dc.eventStreamClient)
         }()
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,

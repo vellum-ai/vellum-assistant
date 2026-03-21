@@ -10,7 +10,7 @@ final class RecordingManagerSwitchBindingTests: XCTestCase {
         let recordingManager = RecordingManager(daemonClient: client)
 
         // Reset published state (simulating assistant switch)
-        client.resetConnectionState()
+        client.reconfigure(instanceDir: nil)
 
         // The recording manager should still be able to send status
         // messages through the (reconfigured) daemon client. We verify

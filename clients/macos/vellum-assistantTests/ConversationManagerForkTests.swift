@@ -31,7 +31,6 @@ private final class MockConversationDetailClient: ConversationDetailClientProtoc
 @MainActor
 final class ConversationManagerForkTests: XCTestCase {
 
-    private var cm: GatewayConnectionManager!
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
     private var forkClient: MockConversationForkClient!
@@ -39,14 +38,13 @@ final class ConversationManagerForkTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        cm = GatewayConnectionManager()
-        daemonClient = DaemonClient(connectionManager: cm)
+        daemonClient = DaemonClient()
         daemonClient.isConnected = true
         forkClient = MockConversationForkClient()
         detailClient = MockConversationDetailClient()
         conversationManager = ConversationManager(
             daemonClient: daemonClient,
-            eventStreamClient: cm.eventStreamClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             conversationForkClient: forkClient,
             conversationDetailClient: detailClient
         )
@@ -57,7 +55,6 @@ final class ConversationManagerForkTests: XCTestCase {
         detailClient = nil
         forkClient = nil
         daemonClient = nil
-        cm = nil
         super.tearDown()
     }
 

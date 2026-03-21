@@ -8,26 +8,42 @@ private struct HealthzVersionResponse: Decodable {
     let version: String?
 }
 
-/// Manages the gateway connection lifecycle: connect, disconnect,
-/// reconfigure, auto-wake, and health checks.
+/// Manages the gateway connection lifecycle and publishes observable state.
 ///
-/// Uses `GatewayHTTPClient` for authenticated health checks (no manual URL
-/// construction or auth handling). Coordinates with `EventStreamClient`
-/// for SSE start/stop.
+/// Owns `EventStreamClient` (SSE + subscribe + send). Handles health checks,
+/// auto-wake, and SSE message pre-processing to update `@Published` properties.
+/// SwiftUI views observe this for connection status and daemon metadata.
 @MainActor
-public final class GatewayConnectionManager {
+public final class GatewayConnectionManager: ObservableObject {
 
-    // MARK: - Connection State
+    // MARK: - Published State (formerly on DaemonStatus)
 
-    /// Whether a connection attempt is in flight.
-    public var isConnecting: Bool = false
+    @Published public var isConnected: Bool = false
+    @Published public var isConnecting: Bool = false
+    @Published public var httpPort: Int?
+    @Published public internal(set) var daemonVersion: String?
+    @Published public internal(set) var versionMismatch: Bool = false
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+    @Published public internal(set) var updateTargetVersion: String?
+    var updateExpiresAt: Date?
+    @Published public internal(set) var keyFingerprint: String?
+    @Published public var latestMemoryStatus: MemoryStatusMessage?
+    @Published public var isTrustRulesSheetOpen: Bool = false
+    @Published public var currentModel: String?
+    @Published public var latestModelInfo: ModelInfoMessage?
+
+    /// Instance directory for the connected assistant.
+    public var instanceDir: String?
+
+    /// Returns a closure that resolves the current HTTP port at call time.
+    public var httpPortResolver: () -> Int? {
+        { [weak self] in self?.httpPort }
+    }
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
 
-    /// Instance directory for HealthCheckClient reachability checks (auto-wake).
-    /// Set during `reconfigure()`.
-    private var instanceDir: String?
+    // MARK: - Connection State (internal)
 
     /// Whether auto-wake should be attempted on disconnect.
     /// Only applies to local assistants (not remote, Docker, or managed).
@@ -47,12 +63,9 @@ public final class GatewayConnectionManager {
 
     private var healthCheckTask: Task<Void, Never>?
     private let healthCheckInterval: TimeInterval = 15.0
-    private(set) var isConnected: Bool = false
-    private(set) var daemonVersion: String?
     private var shouldReconnect = true
-
-    /// Whether a planned service group update is in progress.
-    var isUpdateInProgress: Bool = false
+    private var refreshTask: Task<Void, Never>?
+    private var conversationKey: String?
 
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
@@ -61,10 +74,6 @@ public final class GatewayConnectionManager {
             startHealthCheckLoop()
         }
     }
-
-    // MARK: - 401 Recovery
-
-    private var refreshTask: Task<Void, Never>?
 
     // MARK: - Auto-Wake
 
@@ -77,21 +86,33 @@ public final class GatewayConnectionManager {
     var autoWakeTask: Task<Void, Never>?
     #endif
 
-    // MARK: - Callbacks
-
-    var onConnectionStateChanged: ((_ connected: Bool) -> Void)?
-    var onDaemonVersionChanged: ((_ newVersion: String) -> Void)?
-    var onAuthError: ((_ message: ServerMessage) -> Void)?
-
     // MARK: - Event Stream
 
     /// The event stream client for SSE and message broadcast.
-    /// Consumers should reference this directly for subscribe/send.
     public let eventStreamClient = EventStreamClient()
 
     // MARK: - Init
 
-    public init() {}
+    public init() {
+        // Wire SSE pre-processor to update @Published state before broadcast
+        eventStreamClient.messagePreProcessor = { [weak self] message in
+            self?.handleServerMessage(message)
+        }
+
+        // Wire conversation ID resolution to subscribers.
+        eventStreamClient.onConversationIdResolved = { [weak eventStreamClient] localId, serverId in
+            eventStreamClient?.broadcastMessage(.conversationIdResolved(localId: localId, serverId: serverId))
+        }
+
+        // Persist refreshed bearer tokens so the client survives app restarts.
+        eventStreamClient.onTokenRefreshed = { newToken in
+            #if os(iOS)
+            let _ = APIKeyManager.shared.setAPIKey(newToken, provider: "runtime-bearer-token")
+            #elseif os(macOS)
+            // macOS re-reads from disk on each request; no persistence needed here.
+            #endif
+        }
+    }
 
     // MARK: - Connect
 
@@ -179,9 +200,6 @@ public final class GatewayConnectionManager {
 
     // MARK: - Reconfigure
 
-    /// Conversation key for host tool filtering, set during reconfigure.
-    private var conversationKey: String?
-
     /// Reconfigure connection parameters for a new assistant.
     /// Callers must call `connect()` after reconfiguring.
     public func reconfigure(instanceDir: String?, conversationKey: String? = nil) {
@@ -198,6 +216,18 @@ public final class GatewayConnectionManager {
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
+
+        // Reset published state
+        isConnected = false
+        httpPort = nil
+        daemonVersion = nil
+        versionMismatch = false
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
+        keyFingerprint = nil
+        latestMemoryStatus = nil
+        currentModel = nil
     }
 
     // MARK: - Health Check (via GatewayHTTPClient)
@@ -228,7 +258,7 @@ public final class GatewayConnectionManager {
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
                         LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
-                    onDaemonVersionChanged?(newVersion)
+                    handleDaemonVersionChanged(newVersion)
                 } else if let newVersion = decoded.version {
                     daemonVersion = newVersion
                 }
@@ -273,13 +303,109 @@ public final class GatewayConnectionManager {
         }
     }
 
+    // MARK: - Version Change Handling
+
+    private func handleDaemonVersionChanged(_ newVersion: String) {
+        checkVersionCompatibility(daemonVersion: newVersion)
+        if isUpdateInProgress {
+            if newVersion == updateTargetVersion {
+                log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
+            } else {
+                log.warning("Health check detected version \(newVersion, privacy: .public) after update — expected \(self.updateTargetVersion ?? "?", privacy: .public), may have rolled back")
+            }
+            isUpdateInProgress = false
+            updateTargetVersion = nil
+            updateExpiresAt = nil
+            eventStreamClient.resetSSEReconnectDelay()
+        }
+    }
+
+    // MARK: - Version Compatibility
+
+    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
+        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
+        let components = cleaned.split(separator: ".").compactMap { Int($0) }
+        guard components.count >= 2 else { return nil }
+        return (components[0], components[1])
+    }
+
+    func checkVersionCompatibility(daemonVersion: String) {
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
+            return
+        }
+        guard let (daemonMajor, daemonMinor) = parseMajorMinor(daemonVersion),
+              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
+            return
+        }
+        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        if mismatch != versionMismatch {
+            versionMismatch = mismatch
+        }
+        if mismatch {
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(daemonVersion, privacy: .public)")
+        }
+    }
+
+    // MARK: - SSE Message Pre-Processing
+
+    private func handleServerMessage(_ message: ServerMessage) {
+        if case .daemonStatus(let status) = message {
+            httpPort = status.httpPort.flatMap { Int(exactly: $0) }
+            if let version = status.version {
+                daemonVersion = version
+                checkVersionCompatibility(daemonVersion: version)
+                if self.isUpdateInProgress {
+                    if version == self.updateTargetVersion {
+                        log.info("Planned update completed — now running \(version, privacy: .public)")
+                    } else {
+                        log.warning("Planned update may have rolled back — expected \(self.updateTargetVersion ?? "?", privacy: .public) but running \(version, privacy: .public)")
+                    }
+                    self.isUpdateInProgress = false
+                    self.updateTargetVersion = nil
+                    self.updateExpiresAt = nil
+                }
+            }
+            if let newFingerprint = status.keyFingerprint {
+                let oldFingerprint = keyFingerprint
+                keyFingerprint = newFingerprint
+
+                if let oldFingerprint, oldFingerprint != newFingerprint {
+                    log.info("Daemon key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
+                    ActorTokenManager.deleteAllCredentials()
+                    NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
+                }
+            }
+        }
+
+        switch message {
+        case .serviceGroupUpdateStarting(let msg):
+            self.isUpdateInProgress = true
+            self.updateTargetVersion = msg.targetVersion
+            self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
+            log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
+        case .serviceGroupUpdateComplete:
+            self.isUpdateInProgress = false
+            self.updateTargetVersion = nil
+            self.updateExpiresAt = nil
+        case .modelInfo(let msg):
+            currentModel = msg.model
+            latestModelInfo = msg
+        case .memoryStatus(let msg):
+            latestMemoryStatus = msg
+        case .authResult(let result):
+            isAuthenticated = result.success
+        default:
+            break
+        }
+    }
+
     // MARK: - 401 Recovery
 
     private func handleAuthenticationFailure() {
         let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
         if isManaged {
             log.warning("401 in managed mode — session token may be expired")
-            onAuthError?(.conversationError(ConversationErrorMessage(
+            eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                 conversationId: "",
                 code: .authenticationRequired,
                 userMessage: "Session expired. Please sign in again.",
@@ -313,7 +439,7 @@ public final class GatewayConnectionManager {
                 log.info("Token refresh succeeded")
             case .terminalError(let reason):
                 log.error("Token refresh failed terminally: \(reason) — re-pair required")
-                self.onAuthError?(.conversationError(ConversationErrorMessage(
+                self.eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: "",
                     code: .authenticationRequired,
                     userMessage: "Session expired. Please re-pair your device.",
@@ -378,7 +504,9 @@ public final class GatewayConnectionManager {
         guard isConnected != connected else { return }
         isConnected = connected
         isConnecting = false
-        onConnectionStateChanged?(connected)
+        if connected {
+            NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
+        }
         #if os(macOS)
         if !connected {
             autoWakeIfDaemonDied()
@@ -387,6 +515,25 @@ public final class GatewayConnectionManager {
     }
 
     // MARK: - Errors
+
+    /// Legacy authentication errors — retained for compatibility with
+    /// code that catches `AuthError` (e.g. bootstrap retry coordinator).
+    public enum AuthError: Error, LocalizedError {
+        case missingToken
+        case timeout
+        case rejected(String?)
+
+        public var errorDescription: String? {
+            switch self {
+            case .missingToken:
+                return "Missing daemon session token"
+            case .timeout:
+                return "Daemon authentication timed out"
+            case .rejected(let message):
+                return message ?? "Daemon authentication rejected"
+            }
+        }
+    }
 
     public enum ConnectionError: Error, LocalizedError {
         case healthCheckFailed
@@ -405,3 +552,22 @@ public final class GatewayConnectionManager {
         #endif
     }
 }
+
+// MARK: - Backward Compatibility
+
+/// Temporary typealiases — will be removed when consumers are fully migrated.
+public typealias DaemonClient = GatewayConnectionManager
+public typealias DaemonStatus = GatewayConnectionManager
+
+/// Protocol consumers used for dependency injection. Now points to the concrete class.
+/// Consumers should migrate to using `GatewayConnectionManager` directly.
+@MainActor
+public protocol DaemonClientProtocol: AnyObject {
+    var isConnected: Bool { get }
+    func connect() async throws
+    func disconnect()
+}
+
+extension GatewayConnectionManager: DaemonClientProtocol {}
+
+public typealias DaemonStatusProtocol = DaemonClientProtocol
