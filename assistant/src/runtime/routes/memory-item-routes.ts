@@ -154,7 +154,7 @@ async function searchItemsSemantic(
     const sparse = generateSparseEmbedding(query);
     const sparseVector = { indices: sparse.indices, values: sparse.values };
 
-    // Build Qdrant filter — items only, exclude capability kind and sentinel
+    // Build Qdrant filter — items only, exclude sentinel
     const mustConditions: Array<Record<string, unknown>> = [
       { key: "target_type", match: { value: "item" } },
     ];
@@ -168,7 +168,6 @@ async function searchItemsSemantic(
     const filter = {
       must: mustConditions,
       must_not: [
-        { key: "kind", match: { value: "capability" } },
         { key: "_meta", match: { value: true } },
       ],
     };
@@ -262,7 +261,6 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
       // in-depth against stale Qdrant payloads leaking deleted/mismatched rows.
       const hydrationConditions = [
         inArray(memoryItems.id, pageIds),
-        ne(memoryItems.kind, "capability"),
       ];
       if (statusParam && statusParam !== "all") {
         hydrationConditions.push(eq(memoryItems.status, statusParam));
@@ -300,8 +298,6 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
   // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
-  // Hide system-managed capability memories (skill announcements) from the UI
-  conditions.push(ne(memoryItems.kind, "capability"));
   if (statusParam && statusParam !== "all") {
     conditions.push(eq(memoryItems.status, statusParam));
   }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The six memory kinds with display metadata (label, color, icon).
+/// Memory kinds with display metadata (label, color, icon).
 public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
     case identity
     case preference
@@ -8,11 +8,17 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
     case decision
     case constraint
     case event
+    case capability
 
     public var id: String { rawValue }
 
     /// Capitalised display label for the kind.
-    public var label: String { rawValue.capitalized }
+    public var label: String {
+        switch self {
+        case .capability: return "Skill"
+        default: return rawValue.capitalized
+        }
+    }
 
     /// Distinct fun-palette color for each kind.
     public var color: Color {
@@ -23,6 +29,7 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         case .decision:   return VColor.funYellow
         case .constraint: return VColor.funCoral
         case .event:      return VColor.funPink
+        case .capability: return VColor.funRed
         }
     }
 
@@ -35,6 +42,7 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         case .decision:   return VIcon.gitBranch.rawValue
         case .constraint: return VIcon.shield.rawValue
         case .event:      return VIcon.calendar.rawValue
+        case .capability: return VIcon.zap.rawValue
         }
     }
 }
