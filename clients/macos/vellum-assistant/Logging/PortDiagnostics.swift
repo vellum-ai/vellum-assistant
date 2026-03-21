@@ -1,5 +1,4 @@
 import Foundation
-import VellumAssistantShared
 import os
 
 private let log = Logger(
@@ -11,9 +10,8 @@ private let log = Logger(
 /// TCP ports. Written as a standalone JSON file inside the log export archive.
 enum PortDiagnostics {
 
-    /// Default ports used by the assistant stack.
-    private static let defaultDaemonPort = 7821
-    private static let defaultGatewayPort = 7830
+    /// Default port for the Qdrant vector database (not a Vellum process,
+    /// so it won't be discovered dynamically).
     private static let defaultQdrantPort = 6333
 
     /// Writes a `port-diagnostics.json` file to `directory` containing
@@ -95,27 +93,59 @@ enum PortDiagnostics {
         return ListenerInfo(pid: pid, command: command, user: user)
     }
 
-    /// Collects all ports worth checking: the three default ports plus any
-    /// lockfile-specific ports that differ from the defaults.
+    /// Discovers all listening TCP ports owned by processes whose command
+    /// name contains "vellum", plus the static Qdrant default port.
     private static func collectPorts() -> [(label: String, port: Int)] {
-        var ports: [(label: String, port: Int)] = [
-            ("assistant (default)", defaultDaemonPort),
-            ("gateway (default)", defaultGatewayPort),
-            ("qdrant (default)", defaultQdrantPort),
-        ]
+        var ports = vellumListeningPorts()
+        ports.append(("qdrant (default)", defaultQdrantPort))
+        return ports
+    }
 
-        let seen: Set<Int> = [defaultDaemonPort, defaultGatewayPort, defaultQdrantPort]
+    /// Runs `lsof` to find every listening TCP port whose process name
+    /// contains "vellum" (case-insensitive).
+    private static func vellumListeningPorts() -> [(label: String, port: Int)] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-i", "TCP", "-sTCP:LISTEN", "-n", "-P"]
 
-        let assistants = LockfileAssistant.loadAll()
-        for assistant in assistants {
-            if let dp = assistant.daemonPort, !seen.contains(dp) {
-                ports.append(("assistant (\(assistant.assistantId))", dp))
-            }
-            if let gp = assistant.gatewayPort, !seen.contains(gp) {
-                ports.append(("gateway (\(assistant.assistantId))", gp))
-            }
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
         }
 
-        return ports
+        let data = pipe.fileHandleForReading.availableData
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+
+        // lsof output columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+        // NAME for TCP looks like "*:7821 (LISTEN)" or "127.0.0.1:7830 (LISTEN)"
+        var results: [(label: String, port: Int)] = []
+        var seen = Set<Int>()
+
+        let lines = output.components(separatedBy: "\n").dropFirst() // skip header
+        for line in lines {
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 9 else { continue }
+
+            let command = String(parts[0])
+            guard command.localizedCaseInsensitiveContains("vellum") else { continue }
+
+            // The NAME column is second-to-last (before the state in parens).
+            // Format: "*:PORT" or "host:PORT"
+            let name = String(parts[8])
+            guard let colonIndex = name.lastIndex(of: ":") else { continue }
+            let portString = name[name.index(after: colonIndex)...]
+            guard let port = Int(portString), !seen.contains(port) else { continue }
+
+            seen.insert(port)
+            results.append(("\(command) (pid \(parts[1]))", port))
+        }
+
+        return results
     }
 }
