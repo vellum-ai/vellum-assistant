@@ -61,8 +61,7 @@ final class ClientProvider: ObservableObject {
         let newCM = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
         newCM.reconfigure(
-            instanceDir: config.instanceDir,
-            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+            instanceDir: config.instanceDir
         )
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
@@ -122,8 +121,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let client = DaemonClient(connectionManager: cm)
         client.instanceDir = config.instanceDir
         cm.reconfigure(
-            instanceDir: config.instanceDir,
-            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+            instanceDir: config.instanceDir
         )
         self.clientProvider = ClientProvider(connectionManager: cm, client: client)
         super.init()

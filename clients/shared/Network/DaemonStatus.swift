@@ -139,7 +139,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
         cm.reconfigure(
             instanceDir: config.instanceDir,
-            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat,
             conversationKey: conversationKey
         )
     }
