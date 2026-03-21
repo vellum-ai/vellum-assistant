@@ -237,77 +237,27 @@ struct TwilioSettingsSection: View {
         .presentationDetents([.medium])
     }
 
-    /// Perform a Twilio HTTP request via GatewayHTTPClient and apply the response.
-    private func performHTTPRequest(
-        method: String,
-        path: String,
-        body: [String: Any]? = nil,
-        applyPhoneNumber: Bool = false,
-        applyNumbers: Bool = false
-    ) async -> Bool {
-        // Strip leading "/v1/" if present — GatewayHTTPClient prepends /v1/ automatically.
-        // Use {assistantId} placeholder — GatewayHTTPClient resolves it for all connection modes.
-        let trimmedPath = path.hasPrefix("/v1/") ? String(path.dropFirst(4)) : path
-        let gatewayPath = "assistants/{assistantId}/\(trimmedPath)"
-
-        let bodyData: Data?
-        if let body {
-            bodyData = try? JSONSerialization.data(withJSONObject: body)
-        } else {
-            bodyData = nil
-        }
-
-        do {
-            let response: GatewayHTTPClient.Response
-            switch method {
-            case "GET":
-                response = try await GatewayHTTPClient.get(path: gatewayPath)
-            case "POST":
-                response = try await GatewayHTTPClient.post(path: gatewayPath, body: bodyData)
-            case "DELETE":
-                response = try await GatewayHTTPClient.delete(path: gatewayPath, body: bodyData)
-            default:
-                errorMessage = "Unsupported HTTP method"
-                return false
-            }
-
-            guard response.isSuccess else {
-                let errorBody = String(data: response.data, encoding: .utf8) ?? "Request failed"
-                errorMessage = errorBody
-                return false
-            }
-
-            guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
-                errorMessage = "Invalid JSON response"
-                return false
-            }
-
-            let success = json["success"] as? Bool ?? false
-            if success {
-                hasCredentials = json["hasCredentials"] as? Bool ?? false
-                if !hasCredentials {
-                    phoneNumber = nil
-                    availableNumbers = []
-                } else {
-                    if applyPhoneNumber || json["phoneNumber"] != nil {
-                        phoneNumber = json["phoneNumber"] as? String
-                    }
-                    if applyNumbers {
-                        availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
-                    } else if json["numbers"] != nil {
-                        availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
-                    }
-                }
-                errorMessage = nil
-                return true
-            } else {
-                errorMessage = json["error"] as? String ?? "Unknown error"
-                return false
-            }
-        } catch {
-            errorMessage = error.localizedDescription
+    /// Apply a successful Twilio response JSON to local state.
+    private func applyTwilioResponse(_ json: [String: Any], applyPhoneNumber: Bool = false, applyNumbers: Bool = false) -> Bool {
+        let success = json["success"] as? Bool ?? false
+        guard success else {
+            errorMessage = json["error"] as? String ?? "Unknown error"
             return false
         }
+        hasCredentials = json["hasCredentials"] as? Bool ?? false
+        if !hasCredentials {
+            phoneNumber = nil
+            availableNumbers = []
+        } else {
+            if applyPhoneNumber || json["phoneNumber"] != nil {
+                phoneNumber = json["phoneNumber"] as? String
+            }
+            if applyNumbers || json["numbers"] != nil {
+                availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+            }
+        }
+        errorMessage = nil
+        return true
     }
 
     /// Decode the `numbers` array from the Twilio HTTP response JSON.
@@ -332,11 +282,16 @@ struct TwilioSettingsSection: View {
         isLoading = true
         errorMessage = nil
         Task {
-            await performHTTPRequest(
-                method: "GET",
-                path: "/v1/integrations/twilio/config",
-                applyPhoneNumber: true
-            )
+            do {
+                let response = try await GatewayHTTPClient.get(path: "assistants/{assistantId}/integrations/twilio/config")
+                if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
+                    _ = applyTwilioResponse(json, applyPhoneNumber: true)
+                } else {
+                    errorMessage = String(data: response.data, encoding: .utf8) ?? "Request failed"
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
             isLoading = false
         }
     }
@@ -345,14 +300,18 @@ struct TwilioSettingsSection: View {
         isClearing = true
         errorMessage = nil
         Task {
-            let success = await performHTTPRequest(
-                method: "DELETE",
-                path: "/v1/integrations/twilio/credentials"
-            )
-            isClearing = false
-            if success {
-                availableNumbers = []
+            do {
+                let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/integrations/twilio/credentials")
+                if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
+                    let success = applyTwilioResponse(json)
+                    if success { availableNumbers = [] }
+                } else {
+                    errorMessage = String(data: response.data, encoding: .utf8) ?? "Request failed"
+                }
+            } catch {
+                errorMessage = error.localizedDescription
             }
+            isClearing = false
         }
     }
 
@@ -360,15 +319,20 @@ struct TwilioSettingsSection: View {
         isLoadingNumbers = true
         errorMessage = nil
         Task {
-            let success = await performHTTPRequest(
-                method: "GET",
-                path: "/v1/integrations/twilio/numbers",
-                applyNumbers: true
-            )
-            isLoadingNumbers = false
-            if success && availableNumbers.isEmpty {
-                errorMessage = "No numbers found on this Twilio account."
+            do {
+                let response = try await GatewayHTTPClient.get(path: "assistants/{assistantId}/integrations/twilio/numbers")
+                if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
+                    let success = applyTwilioResponse(json, applyNumbers: true)
+                    if success && availableNumbers.isEmpty {
+                        errorMessage = "No numbers found on this Twilio account."
+                    }
+                } else {
+                    errorMessage = String(data: response.data, encoding: .utf8) ?? "Request failed"
+                }
+            } catch {
+                errorMessage = error.localizedDescription
             }
+            isLoadingNumbers = false
         }
     }
 
@@ -376,24 +340,32 @@ struct TwilioSettingsSection: View {
         isProvisioning = true
         errorMessage = nil
         Task {
-            var body: [String: Any] = [:]
-            if !provisionAreaCode.isEmpty { body["areaCode"] = provisionAreaCode }
-            if !provisionCountry.isEmpty { body["country"] = provisionCountry }
-            let success = await performHTTPRequest(
-                method: "POST",
-                path: "/v1/integrations/twilio/numbers/provision",
-                body: body.isEmpty ? nil : body,
-                applyPhoneNumber: true
-            )
-            isProvisioning = false
-            if success {
-                showProvisionSheet = false
-                provisionAreaCode = ""
-                // Refresh the number list to include the newly provisioned number
-                listNumbers()
-            } else {
+            do {
+                var body: [String: Any] = [:]
+                if !provisionAreaCode.isEmpty { body["areaCode"] = provisionAreaCode }
+                if !provisionCountry.isEmpty { body["country"] = provisionCountry }
+                let response = try await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/integrations/twilio/numbers/provision",
+                    json: body.isEmpty ? nil : body
+                )
+                if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
+                    let success = applyTwilioResponse(json, applyPhoneNumber: true)
+                    if success {
+                        showProvisionSheet = false
+                        provisionAreaCode = ""
+                        listNumbers()
+                    } else {
+                        showProvisionSheet = false
+                    }
+                } else {
+                    errorMessage = String(data: response.data, encoding: .utf8) ?? "Request failed"
+                    showProvisionSheet = false
+                }
+            } catch {
+                errorMessage = error.localizedDescription
                 showProvisionSheet = false
             }
+            isProvisioning = false
         }
     }
 
@@ -402,12 +374,19 @@ struct TwilioSettingsSection: View {
         assigningNumber = number
         errorMessage = nil
         Task {
-            await performHTTPRequest(
-                method: "POST",
-                path: "/v1/integrations/twilio/numbers/assign",
-                body: ["phoneNumber": number],
-                applyPhoneNumber: true
-            )
+            do {
+                let response = try await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/integrations/twilio/numbers/assign",
+                    json: ["phoneNumber": number]
+                )
+                if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
+                    _ = applyTwilioResponse(json, applyPhoneNumber: true)
+                } else {
+                    errorMessage = String(data: response.data, encoding: .utf8) ?? "Request failed"
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
             isAssigning = false
             assigningNumber = nil
         }
