@@ -313,14 +313,14 @@ extension ChatBubble {
         if !partitioned.videos.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(partitioned.videos) { attachment in
-                    InlineVideoAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
+                    InlineVideoAttachmentView(attachment: attachment)
                 }
             }
         }
         if !partitioned.audios.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(partitioned.audios) { attachment in
-                    InlineAudioAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
+                    InlineAudioAttachmentView(attachment: attachment)
                 }
             }
         }

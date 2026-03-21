@@ -60,7 +60,6 @@ final class MessageListForkActionTests: XCTestCase {
             showInspectButton: false,
             onInspectMessage: nil,
             mediaEmbedSettings: nil,
-            resolveHttpPort: { nil },
             onAbortSubagent: nil,
             onSubagentTap: nil,
             onRehydrateMessage: nil,

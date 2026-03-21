@@ -62,9 +62,6 @@ struct ChatView: View {
     /// Receives the error message's ID so the handler can validate the retry target.
     var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
-    /// Resolves the daemon HTTP port at call time so lazy-loaded video
-    /// attachments always use the latest port after daemon restarts.
-    var resolveHttpPort: (() -> Int?) = { nil }
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -246,7 +243,6 @@ struct ChatView: View {
                             isTTSEnabled: isTTSEnabled,
                             onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
-                            resolveHttpPort: resolveHttpPort,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
