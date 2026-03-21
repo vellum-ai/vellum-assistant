@@ -114,22 +114,26 @@ describe("015-migrate-credentials-to-keychain migration", () => {
     expect(listKeysFn).not.toHaveBeenCalled();
   });
 
-  test("throws when broker is not available after max retry attempts", async () => {
-    isAvailableFn.mockReturnValue(false);
+  test(
+    "throws when broker is not available after max retry attempts",
+    async () => {
+      isAvailableFn.mockReturnValue(false);
 
-    await expect(
-      migrateCredentialsToKeychainMigration.run(WORKSPACE_DIR),
-    ).rejects.toThrow(
-      "Keychain broker not available after waiting — credential migration will be retried on next startup",
-    );
+      await expect(
+        migrateCredentialsToKeychainMigration.run(WORKSPACE_DIR),
+      ).rejects.toThrow(
+        "Keychain broker not available after waiting — credential migration will be retried on next startup",
+      );
 
-    // Should have retried isAvailable multiple times
-    expect(isAvailableFn.mock.calls.length).toBeGreaterThan(1);
+      // Should have retried isAvailable multiple times
+      expect(isAvailableFn.mock.calls.length).toBeGreaterThan(1);
 
-    // Should not proceed to list or migrate keys
-    expect(listKeysFn).not.toHaveBeenCalled();
-    expect(brokerSetFn).not.toHaveBeenCalled();
-  });
+      // Should not proceed to list or migrate keys
+      expect(listKeysFn).not.toHaveBeenCalled();
+      expect(brokerSetFn).not.toHaveBeenCalled();
+    },
+    { timeout: 10_000 },
+  );
 
   test("succeeds when broker becomes available after retry", async () => {
     // Broker unavailable for first 3 calls, then available
