@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -322,6 +323,12 @@ export function loadConfig(): AssistantConfig {
         if (initial && typeof initial === "object" && !Array.isArray(initial)) {
           deepMergeOverwrite(fileConfig, initial);
         }
+        // Delete the temp file after first successful read so subsequent
+        // loadConfig() calls (after cache invalidation) do not re-apply
+        // initial values over user-modified config.
+        try {
+          unlinkSync(initialConfigPath);
+        } catch {}
       } catch (err) {
         log.warn(
           { err },
