@@ -431,48 +431,6 @@ struct MainWindowView: View {
             }
             WindowDragArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if windowState.isConversationVisible {
-                ConversationTitleActionsControl(
-                    presentation: conversationHeaderPresentation,
-                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
-                    onForkConversation: {
-                        Task {
-                            await conversationManager.forkActiveConversation()
-                            await MainActor.run {
-                                dismissConversationDrawer()
-                            }
-                        }
-                    },
-                    onPin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.pinConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onUnpin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.unpinConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onArchive: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.archiveConversation(id: id)
-                        dismissConversationDrawer()
-                    },
-                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                    onOpenForkParent: { openForkParentConversation() },
-                    showDrawer: $showConversationActionsDrawer
-                )
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationTitleFrame = newFrame
-                    }
-                })
-            }
-            WindowDragArea()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
                 VButton(
                     label: updateManager.isDeferredUpdateReady
@@ -513,6 +471,48 @@ struct MainWindowView: View {
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
+        .overlay {
+            if windowState.isConversationVisible {
+                ConversationTitleActionsControl(
+                    presentation: conversationHeaderPresentation,
+                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                    onForkConversation: {
+                        Task {
+                            await conversationManager.forkActiveConversation()
+                            await MainActor.run {
+                                dismissConversationDrawer()
+                            }
+                        }
+                    },
+                    onPin: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.pinConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onUnpin: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.unpinConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onArchive: {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.archiveConversation(id: id)
+                        dismissConversationDrawer()
+                    },
+                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                    onOpenForkParent: { openForkParentConversation() },
+                    showDrawer: $showConversationActionsDrawer
+                )
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
+                    }
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        conversationTitleFrame = newFrame
+                    }
+                })
+            }
+        }
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
     }
