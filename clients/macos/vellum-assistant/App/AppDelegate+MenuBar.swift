@@ -111,14 +111,15 @@ extension AppDelegate {
         newChatItem.target = self
         fileMenu.addItem(newChatItem)
 
-        let markAllSeenItem = NSMenuItem(
-            title: "Mark All Conversations as Seen",
-            action: #selector(markAllConversationsSeen),
-            keyEquivalent: "k"
-        )
-        markAllSeenItem.keyEquivalentModifierMask = [.command, .shift]
-        markAllSeenItem.target = self
-        fileMenu.addItem(markAllSeenItem)
+        let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
+        currentConversationItem.target = self
+        fileMenu.addItem(currentConversationItem)
+
+        fileMenu.addItem(NSMenuItem.separator())
+
+        let closeItem = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeItem.keyEquivalentModifierMask = .command
+        fileMenu.addItem(closeItem)
 
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
@@ -127,6 +128,13 @@ extension AppDelegate {
         // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
         if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
             let editMenu = NSMenu(title: "Edit")
+
+            // Standard undo/redo actions
+            editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+            let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+            redoItem.keyEquivalentModifierMask = [.command, .shift]
+            editMenu.addItem(redoItem)
+            editMenu.addItem(NSMenuItem.separator())
 
             // Standard edit actions so Cmd+C/V/X/A work in text fields
             editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
@@ -305,6 +313,11 @@ extension AppDelegate {
         settingsItem.target = self
         settingsItem.image = VIcon.settings.nsImage(size: 16)
         menu.addItem(settingsItem)
+
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.image = VIcon.circleArrowUp.nsImage(size: 16)
+        menu.addItem(updateItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self

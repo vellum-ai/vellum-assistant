@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+DaemonSetup")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+ConnectionSetup")
 
 extension AppDelegate {
 
@@ -16,7 +16,7 @@ extension AppDelegate {
     // MARK: - Lockfile & Transport
 
     /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
-    /// (falling back to the latest entry), and writes its config so the daemon connects
+    /// (falling back to the latest entry), and writes its config so the client connects
     /// to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
@@ -35,7 +35,7 @@ extension AppDelegate {
 
         // If the assistant changed (e.g. user hatched a new one via CLI),
         // clear the stale actor token so ensureActorCredentials() triggers
-        // a fresh bootstrap against the new daemon's JWT secret.
+        // a fresh bootstrap against the new assistant's JWT secret.
         if let storedId, storedId != assistant.assistantId, ActorTokenManager.hasToken {
             log.info("Assistant changed from \(storedId, privacy: .public) to \(assistant.assistantId, privacy: .public) — clearing stale actor token")
             actorTokenBootstrapTask?.cancel()
@@ -48,10 +48,10 @@ extension AppDelegate {
         return assistant
     }
 
-    /// Configure the daemon client's transport based on the lockfile assistant.
+    /// Configure the connection transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
-    /// Local assistants use HTTP+SSE via the daemon's runtime HTTP server.
+    /// Local assistants use HTTP+SSE via the assistant's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
@@ -77,16 +77,16 @@ extension AppDelegate {
         log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
-    // MARK: - Daemon Client Setup
+    // MARK: - Gateway Connection Setup
 
-    func setupGatewayConnectionManager(isFirstLaunch: Bool = false) {
+    func setupGatewayConnectionManager() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
 
-        // Start the keychain broker before the daemon so it is listening
-        // when the daemon process launches and reads the socket path.
+        // Start the keychain broker before the gateway so it is listening
+        // when the process launches and reads the socket path.
         #if !DEBUG
         keychainBroker = KeychainBrokerServer()
         keychainBroker?.start()
@@ -98,7 +98,7 @@ extension AppDelegate {
         connectionManager.recoveryPlatform = "macos"
         connectionManager.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
 
-        // Auto-wake: if a connection attempt finds the daemon process dead,
+        // Auto-wake: if a connection attempt finds the assistant process dead,
         // wake it via the CLI before retrying.
         connectionManager.wakeHandler = { [weak self] in
             guard let self else { return }
@@ -112,139 +112,31 @@ extension AppDelegate {
         rebindConnectionStatusObserver()
 
         // Subscribe to SSE event stream for UI event routing.
-        // Replaces individual onX callbacks — each event type is handled
-        // in a single switch statement.
-        startDaemonEventSubscription()
-
+        startEventSubscription()
 
         Task {
-            if !isCurrentAssistantRemote {
-                // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
-                // skip the CLI hatch to avoid spawning a duplicate gateway process.
-                // Require BOTH lockfile and healthy gateway — a stale lockfile with an unhealthy
-                // gateway falls through to the normal hatch path.
-                let lockfileExists = self.lockfileHasAssistants()
-                var gatewayHealthy = false
-                if lockfileExists {
-                    if isFirstLaunch {
-                        // Retry window: gateway may still be starting from onboarding hatch
-                        for _ in 0..<3 {
-                            if await isGatewayHealthy() { gatewayHealthy = true; break }
-                            try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        }
-                    } else {
-                        // Non-first-launch: single check, no retry delay
-                        gatewayHealthy = await isGatewayHealthy()
-                    }
-                }
-
-                if lockfileExists && gatewayHealthy {
-                    log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
-                } else {
-                    // On first launch post-onboarding, use daemonOnly: false so the CLI
-                    // creates a lockfile entry AND starts the gateway. On subsequent
-                    // launches, daemonOnly: true prevents duplicates — gateway restart
-                    // is handled separately below to avoid tearing down the daemon on
-                    // transient gateway failures.
-                    let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry
-                    // Pass the selected assistant ID so the gateway starts
-                    // with the correct default assistant (not a random name).
-                    let assistantName = assistant?.assistantId
-                    // Clear any stale startup error from a previous hatch attempt
-                    // so a successful hatch doesn't leave a non-nil error in app state.
-                    self.daemonStartupError = nil
-                    do {
-                        try await vellumCli.hatch(name: assistantName, daemonOnly: daemonOnly)
-                    } catch let error as VellumCli.CLIError {
-                        switch error {
-                        case .daemonStartupFailed(let startupError):
-                            log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
-                            self.daemonStartupError = startupError
-                            MetricKitManager.reportDaemonStartupFailure(startupError)
-                        default:
-                            log.error("Failed to hatch assistant during daemon setup: \(error)")
-                        }
-                        if needsLockfileEntry {
-                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                                self.daemonStartupError = nil
-                            } catch {
-                                log.error("Fallback daemon-only hatch also failed: \(error)")
-                            }
-                        }
-                    } catch {
-                        log.error("Failed to hatch assistant during daemon setup: \(error)")
-                        if needsLockfileEntry {
-                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                                self.daemonStartupError = nil
-                            } catch {
-                                log.error("Fallback daemon-only hatch also failed: \(error)")
-                            }
-                        }
-                    }
-                    if needsLockfileEntry {
-                        _ = self.loadAssistantFromLockfile()
-                    }
-
-                    // Gateway died between app launches — attempt to restart it
-                    // separately from the daemon. If gateway startup fails, recover
-                    // the daemon so the user can still interact (just without gateway).
-                    if !needsLockfileEntry && !gatewayHealthy {
-                        log.info("Gateway unhealthy — attempting separate restart")
-                        do {
-                            try await vellumCli.hatch(name: assistantName, daemonOnly: false)
-                        } catch {
-                            log.warning("Gateway restart failed — recovering daemon: \(error)")
-                            // The full hatch may have torn down the daemon during
-                            // cleanup; re-hatch daemon-only so the user isn't left
-                            // with nothing.
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                            } catch {
-                                log.error("Daemon recovery after gateway failure also failed: \(error)")
-                            }
-                        }
-                    }
-                }
-            }
             // Import guardian token from CLI file before connecting, so the
-            // health check has valid credentials in the Keychain. On first
-            // launch ensureActorCredentials() runs later in proceedToApp()
-            // as a separate Task — this ensures the token is available in
-            // time for connect()'s health check.
+            // health check has valid credentials in the Keychain.
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
             }
 
-            // Skip connect if the bootstrap retry coordinator already connected
-            // or has a connect in flight (hatch can take a long time; the
-            // coordinator connects independently). Checking isConnecting
-            // prevents tearing down the coordinator's in-flight HTTP connection
-            // via disconnectInternal().
             if !connectionManager.isConnected && !connectionManager.isConnecting {
                 log.info("setupGatewayConnectionManager: calling connect()")
                 do {
                     try await connectionManager.connect()
                     log.info("setupGatewayConnectionManager: connect() succeeded, isConnected=\(self.connectionManager.isConnected)")
                 } catch {
-                    log.error("Failed to connect to daemon during setup: \(error)")
+                    log.error("Failed to connect during setup: \(error)")
                 }
             } else {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
-            // Once connected, start ambient agent if it was waiting for daemon
             if connectionManager.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
-                // Sync privacy config now that the gateway is reachable:
-                // close Sentry if diagnostics are disabled, and sync both
-                // keys to the daemon.
                 syncPrivacyConfig()
             }
         }
@@ -252,10 +144,9 @@ extension AppDelegate {
 
     // MARK: - SSE Event Subscription
 
-    /// Subscribe to the daemon event stream and dispatch events to their handlers.
-    /// Replaces the ~20 individual onX callback assignments that were previously set
-    /// on GatewayConnectionManager. Each event type is handled in a single switch statement.
-    private func startDaemonEventSubscription() {
+    /// Subscribe to the event stream and dispatch events to their handlers.
+    /// Each event type is handled in a single switch statement.
+    private func startEventSubscription() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()
@@ -422,7 +313,7 @@ extension AppDelegate {
 
     // MARK: - Signing Identity
 
-    /// Handle a sign_bundle_payload request from the daemon.
+    /// Handle a sign_bundle_payload request from the assistant.
     private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
         do {
             let payloadData = Data(msg.payload.utf8)
@@ -446,7 +337,7 @@ extension AppDelegate {
         }
     }
 
-    /// Handle a get_signing_identity request from the daemon.
+    /// Handle a get_signing_identity request from the assistant.
     private func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
         do {
             let keyId = try SigningIdentityManager.shared.getKeyId()
@@ -475,8 +366,8 @@ extension AppDelegate {
     /// master switch are respected from the very first SDK decision.
     ///
     /// This is the local-only (UserDefaults) portion of the migration.
-    /// The daemon-sync portion still happens asynchronously in
-    /// `syncPrivacyConfig()` after the daemon connects.
+    /// The assistant-sync portion still happens asynchronously in
+    /// `syncPrivacyConfig()` after the assistant connects.
     static func migratePrivacyDefaults() {
         let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
@@ -502,14 +393,14 @@ extension AppDelegate {
     }
 
     /// Reads both privacy keys from UserDefaults, applies Sentry state based
-    /// on sendDiagnostics, and syncs both keys to the daemon.
+    /// on sendDiagnostics, and syncs both keys to the assistant.
     ///
     /// Legacy key migration has already been performed by
     /// `migratePrivacyDefaults()` at launch, so this method only reads
     /// canonical keys.
     ///
-    /// Only syncs a key to the daemon when a value is explicitly present in
-    /// UserDefaults. When no local value exists we leave the daemon's
+    /// Only syncs a key to the assistant when a value is explicitly present in
+    /// UserDefaults. When no local value exists we leave the assistant's
     /// persisted config untouched — defaulting to `true` and pushing that
     /// upstream would silently re-enable telemetry for users who previously
     /// opted out on a different machine or after a UserDefaults reset.
@@ -526,7 +417,7 @@ extension AppDelegate {
                 MetricKitManager.closeSentry()
             }
 
-            // Best-effort sync to daemon config — only include keys that the
+            // Best-effort sync to assistant config — only include keys that the
             // user has explicitly set locally to avoid overwriting remote opt-outs.
             let syncCollectUsageData = hasExplicitCollectUsageData ? collectUsageData : nil
             let syncSendDiagnostics = hasExplicitSendDiagnostics ? sendDiagnostics : nil

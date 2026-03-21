@@ -18,7 +18,11 @@ import {
   stopContainers,
 } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
-import { loadBootstrapSecret, saveBootstrapSecret } from "../lib/guardian-token";
+import {
+  loadBootstrapSecret,
+  saveBootstrapSecret,
+} from "../lib/guardian-token";
+import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
@@ -53,6 +57,7 @@ function parseArgs(): { name: string | null } {
       name = arg;
     } else {
       console.error(`Error: Unknown option '${arg}'.`);
+      emitCliError("UNKNOWN", `Unknown option '${arg}'`);
       process.exit(1);
     }
   }
@@ -84,6 +89,10 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
     const entry = findAssistantByName(nameArg);
     if (!entry) {
       console.error(`No assistant found with name '${nameArg}'.`);
+      emitCliError(
+        "ASSISTANT_NOT_FOUND",
+        `No assistant found with name '${nameArg}'.`,
+      );
       process.exit(1);
     }
     return entry;
@@ -99,11 +108,14 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   if (all.length === 1) return all[0];
 
   if (all.length === 0) {
-    console.error("No assistants found. Run 'vellum hatch' first.");
+    const msg = "No assistants found. Run 'vellum hatch' first.";
+    console.error(msg);
+    emitCliError("ASSISTANT_NOT_FOUND", msg);
   } else {
-    console.error(
-      "Multiple assistants found. Specify a name or set an active assistant with 'vellum use <name>'.",
-    );
+    const msg =
+      "Multiple assistants found. Specify a name or set an active assistant with 'vellum use <name>'.";
+    console.error(msg);
+    emitCliError("ASSISTANT_NOT_FOUND", msg);
   }
   process.exit(1);
 }
@@ -115,26 +127,29 @@ export async function rollback(): Promise<void> {
 
   // Only Docker assistants support rollback
   if (cloud !== "docker") {
-    console.error(
-      "Rollback is only supported for Docker assistants. For managed assistants, use the version picker to upgrade to the previous version.",
-    );
+    const msg =
+      "Rollback is only supported for Docker assistants. For managed assistants, use the version picker to upgrade to the previous version.";
+    console.error(msg);
+    emitCliError("UNSUPPORTED_TOPOLOGY", msg);
     process.exit(1);
   }
 
   // Verify rollback state exists
   if (!entry.previousServiceGroupVersion || !entry.previousContainerInfo) {
-    console.error(
-      "No rollback state available. Run `vellum upgrade` first to create a rollback point.",
-    );
+    const msg =
+      "No rollback state available. Run `vellum upgrade` first to create a rollback point.";
+    console.error(msg);
+    emitCliError("ROLLBACK_NO_STATE", msg);
     process.exit(1);
   }
 
   // Verify all three digest fields are present
   const prev = entry.previousContainerInfo;
   if (!prev.assistantDigest || !prev.gatewayDigest || !prev.cesDigest) {
-    console.error(
-      "Incomplete rollback state. Previous container digests are missing.",
-    );
+    const msg =
+      "Incomplete rollback state. Previous container digests are missing.";
+    console.error(msg);
+    emitCliError("ROLLBACK_NO_STATE", msg);
     process.exit(1);
   }
 
@@ -148,136 +163,158 @@ export async function rollback(): Promise<void> {
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
 
-  console.log(
-    `🔄 Rolling back Docker assistant '${instanceName}' to ${entry.previousServiceGroupVersion}...\n`,
-  );
-
-  // Capture current container env
-  console.log("💾 Capturing existing container environment...");
-  const capturedEnv = await captureContainerEnv(res.assistantContainer);
-  console.log(
-    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
-  );
-
-  // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
-  const cesServiceToken =
-    capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-  // Retrieve or generate a bootstrap secret for the gateway.
-  const loadedSecret = loadBootstrapSecret(instanceName);
-  const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-  if (!loadedSecret) {
-    saveBootstrapSecret(instanceName, bootstrapSecret);
-  }
-
-  // Build extra env vars, excluding keys managed by serviceDockerRunArgs
-  const envKeysSetByRunArgs = new Set([
-    "CES_SERVICE_TOKEN",
-    "VELLUM_ASSISTANT_NAME",
-    "RUNTIME_HTTP_HOST",
-    "PATH",
-  ]);
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      envKeysSetByRunArgs.add(envVar);
-    }
-  }
-  const extraAssistantEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(capturedEnv)) {
-    if (!envKeysSetByRunArgs.has(key)) {
-      extraAssistantEnv[key] = value;
-    }
-  }
-
-  // Parse gateway port from entry's runtimeUrl, fall back to default
-  let gatewayPort = GATEWAY_INTERNAL_PORT;
   try {
-    const parsed = new URL(entry.runtimeUrl);
-    const port = parseInt(parsed.port, 10);
-    if (!isNaN(port)) {
-      gatewayPort = port;
-    }
-  } catch {
-    // use default
-  }
-
-  // Notify connected clients that a rollback is about to begin (best-effort)
-  console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "starting",
-    targetVersion: entry.previousServiceGroupVersion,
-    expectedDowntimeSeconds: 60,
-  });
-  // Brief pause to allow SSE delivery before containers stop.
-  await new Promise((r) => setTimeout(r, 500));
-
-  console.log("🛑 Stopping existing containers...");
-  await stopContainers(res);
-  console.log("✅ Containers stopped\n");
-
-  // Run security file migrations and signing key cleanup
-  console.log("🔄 Migrating security files to gateway volume...");
-  await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-
-  console.log("🔄 Migrating credential files to CES security volume...");
-  await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-
-  console.log("🔑 Clearing signing key bootstrap lock...");
-  await clearSigningKeyBootstrapLock(res);
-
-  console.log("🚀 Starting containers with previous version...");
-  await startContainers(
-    {
-      bootstrapSecret,
-      cesServiceToken,
-      extraAssistantEnv,
-      gatewayPort,
-      imageTags: previousImageRefs,
-      instanceName,
-      res,
-    },
-    (msg) => console.log(msg),
-  );
-  console.log("✅ Containers started\n");
-
-  console.log("Waiting for assistant to become ready...");
-  const ready = await waitForReady(entry.runtimeUrl);
-
-  if (ready) {
-    // Capture new digests from the rolled-back containers
-    const newDigests = await captureImageRefs(res);
-
-    // Swap current/previous state to enable "rollback the rollback"
-    const updatedEntry: AssistantEntry = {
-      ...entry,
-      serviceGroupVersion: entry.previousServiceGroupVersion,
-      containerInfo: {
-        assistantImage: prev.assistantImage ?? previousImageRefs.assistant,
-        gatewayImage: prev.gatewayImage ?? previousImageRefs.gateway,
-        cesImage: prev.cesImage ?? previousImageRefs["credential-executor"],
-        assistantDigest: newDigests?.assistant,
-        gatewayDigest: newDigests?.gateway,
-        cesDigest: newDigests?.["credential-executor"],
-        networkName: res.network,
-      },
-      previousServiceGroupVersion: entry.serviceGroupVersion,
-      previousContainerInfo: entry.containerInfo,
-    };
-    saveAssistantEntry(updatedEntry);
-
-    // Notify clients that the rollback succeeded
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: entry.previousServiceGroupVersion,
-      success: true,
-    });
-
     console.log(
-      `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,
+      `🔄 Rolling back Docker assistant '${instanceName}' to ${entry.previousServiceGroupVersion}...\n`,
     );
-  } else {
-    console.error(`\n❌ Containers failed to become ready within the timeout.`);
-    console.log(`   Check logs with: docker logs -f ${res.assistantContainer}`);
+
+    // Capture current container env
+    console.log("💾 Capturing existing container environment...");
+    const capturedEnv = await captureContainerEnv(res.assistantContainer);
+    console.log(
+      `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
+    );
+
+    // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
+    const cesServiceToken =
+      capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
+
+    // Retrieve or generate a bootstrap secret for the gateway.
+    const loadedSecret = loadBootstrapSecret(instanceName);
+    const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
+    if (!loadedSecret) {
+      saveBootstrapSecret(instanceName, bootstrapSecret);
+    }
+
+    // Build extra env vars, excluding keys managed by serviceDockerRunArgs
+    const envKeysSetByRunArgs = new Set([
+      "CES_SERVICE_TOKEN",
+      "VELLUM_ASSISTANT_NAME",
+      "RUNTIME_HTTP_HOST",
+      "PATH",
+    ]);
+    for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+      if (process.env[envVar]) {
+        envKeysSetByRunArgs.add(envVar);
+      }
+    }
+    const extraAssistantEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(capturedEnv)) {
+      if (!envKeysSetByRunArgs.has(key)) {
+        extraAssistantEnv[key] = value;
+      }
+    }
+
+    // Parse gateway port from entry's runtimeUrl, fall back to default
+    let gatewayPort = GATEWAY_INTERNAL_PORT;
+    try {
+      const parsed = new URL(entry.runtimeUrl);
+      const port = parseInt(parsed.port, 10);
+      if (!isNaN(port)) {
+        gatewayPort = port;
+      }
+    } catch {
+      // use default
+    }
+
+    // Notify connected clients that a rollback is about to begin (best-effort)
+    console.log("📢 Notifying connected clients...");
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "starting",
+      targetVersion: entry.previousServiceGroupVersion,
+      expectedDowntimeSeconds: 60,
+    });
+    // Brief pause to allow SSE delivery before containers stop.
+    await new Promise((r) => setTimeout(r, 500));
+
+    console.log("🛑 Stopping existing containers...");
+    await stopContainers(res);
+    console.log("✅ Containers stopped\n");
+
+    // Run security file migrations and signing key cleanup
+    console.log("🔄 Migrating security files to gateway volume...");
+    await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
+
+    console.log("🔄 Migrating credential files to CES security volume...");
+    await migrateCesSecurityFiles(res, (msg) => console.log(msg));
+
+    console.log("🔑 Clearing signing key bootstrap lock...");
+    try {
+      await clearSigningKeyBootstrapLock(res);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
+      );
+    }
+
+    console.log("🚀 Starting containers with previous version...");
+    await startContainers(
+      {
+        bootstrapSecret,
+        cesServiceToken,
+        extraAssistantEnv,
+        gatewayPort,
+        imageTags: previousImageRefs,
+        instanceName,
+        res,
+      },
+      (msg) => console.log(msg),
+    );
+    console.log("✅ Containers started\n");
+
+    console.log("Waiting for assistant to become ready...");
+    const ready = await waitForReady(entry.runtimeUrl);
+
+    if (ready) {
+      // Capture new digests from the rolled-back containers
+      const newDigests = await captureImageRefs(res);
+
+      // Swap current/previous state to enable "rollback the rollback"
+      const updatedEntry: AssistantEntry = {
+        ...entry,
+        serviceGroupVersion: entry.previousServiceGroupVersion,
+        containerInfo: {
+          assistantImage: prev.assistantImage ?? previousImageRefs.assistant,
+          gatewayImage: prev.gatewayImage ?? previousImageRefs.gateway,
+          cesImage: prev.cesImage ?? previousImageRefs["credential-executor"],
+          assistantDigest: newDigests?.assistant,
+          gatewayDigest: newDigests?.gateway,
+          cesDigest: newDigests?.["credential-executor"],
+          networkName: res.network,
+        },
+        previousServiceGroupVersion: entry.serviceGroupVersion,
+        previousContainerInfo: entry.containerInfo,
+      };
+      saveAssistantEntry(updatedEntry);
+
+      // Notify clients that the rollback succeeded
+      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+        type: "complete",
+        installedVersion: entry.previousServiceGroupVersion,
+        success: true,
+      });
+
+      console.log(
+        `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,
+      );
+    } else {
+      console.error(
+        `\n❌ Containers failed to become ready within the timeout.`,
+      );
+      console.log(
+        `   Check logs with: docker logs -f ${res.assistantContainer}`,
+      );
+      emitCliError(
+        "READINESS_TIMEOUT",
+        "Rolled-back containers failed to become ready within the timeout.",
+      );
+      process.exit(1);
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`\n❌ Rollback failed: ${detail}`);
+    emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
     process.exit(1);
   }
 }

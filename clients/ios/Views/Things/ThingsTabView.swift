@@ -2,7 +2,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Entry point for the Things tab — gates on daemon connectivity before
+/// Entry point for the Things tab — gates on assistant connectivity before
 /// showing the main ThingsView with DirectoryStore.
 struct ThingsTabView: View {
     @EnvironmentObject var clientProvider: ClientProvider

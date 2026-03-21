@@ -26,7 +26,7 @@ extension AppDelegate {
 
     /// Transitions to a new bootstrap state, persists it, and emits stage timing logs.
     func transitionBootstrap(to newState: BootstrapState) {
-        log.info("Bootstrap state: \(self.bootstrapState.rawValue) → \(newState.rawValue)")
+        log.info("Bootstrap state: \(self.bootstrapState.rawValue, privacy: .public) → \(newState.rawValue, privacy: .public)")
         bootstrapState = newState
         persistBootstrapState()
 
@@ -46,25 +46,25 @@ extension AppDelegate {
         }
     }
 
-    /// Polls daemon connection state at ~0.5s intervals. Does NOT call
+    /// Polls connection state at ~0.5s intervals. Does NOT call
     /// `connect()` itself — that is the sole responsibility of
     /// `setupGatewayConnectionManager()`. This avoids a dual-connect race where two
     /// concurrent Tasks both attempt `connectionManager.connect()`, with the
     /// second caller's `disconnectInternal()` tearing down the first
     /// caller's in-flight HTTP connection.
     func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
-        log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
+        log.info("Waiting for assistant to become ready (timeout: \(timeout)s)")
         let start = CFAbsoluteTimeGetCurrent()
 
         while CFAbsoluteTimeGetCurrent() - start < timeout {
             if connectionManager.isConnected {
-                log.info("Daemon is connected")
+                log.info("Assistant is connected")
                 return true
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
-        log.warning("awaitDaemonReady timed out after \(timeout)s")
+        log.warning("Assistant connection timed out after \(timeout)s")
         return connectionManager.isConnected
     }
 
@@ -92,19 +92,19 @@ extension AppDelegate {
         }
     }
 
-    /// Sends the wake-up greeting. If the daemon is disconnected, waits for
+    /// Sends the wake-up greeting. If the assistant is disconnected, waits for
     /// reconnection before proceeding. Since `showMainWindow` always creates
     /// the window (via `ensureMainWindowExists`), there is no need for a
     /// retry loop — a simple guard suffices.
     func performRetriableWakeUpSend() async {
         guard !Task.isCancelled else { return }
 
-        // If daemon disconnected, wait for reconnection before trying
+        // If assistant disconnected, wait for reconnection before trying
         if !connectionManager.isConnected {
-            log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
+            log.warning("Assistant disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
-                log.warning("Daemon did not reconnect — showing timeout screen")
+                log.warning("Assistant did not reconnect — showing timeout screen")
                 transitionBootstrap(to: .timedOut)
                 showMainWindow(isFirstLaunch: true)
                 debugStateWriter.start(appDelegate: self)
@@ -132,7 +132,7 @@ extension AppDelegate {
     }
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap
-    /// transitions to `.complete` when the daemon's first reply arrives.
+    /// transitions to `.complete` when the assistant's first reply arrives.
     func wireBootstrapFirstReplyCallback() {
         guard let viewModel = mainWindow?.activeViewModel else {
             log.warning("No active ChatViewModel to wire first-reply callback — completing bootstrap immediately")
@@ -158,7 +158,7 @@ extension AppDelegate {
         }
         instanceChangeObserver = NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            log.info("Daemon instance changed — re-running credential bootstrap")
+            log.info("Assistant instance changed — re-running credential bootstrap")
             Task { @MainActor in
                 self.ensureActorCredentials()
             }

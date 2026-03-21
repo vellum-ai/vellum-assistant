@@ -5,6 +5,7 @@ import VellumAssistantShared
 private enum UpdateCheckResult {
     case upToDate
     case updateAvailable(version: String)
+    case notAvailable(String)
     case error
 }
 
@@ -13,6 +14,8 @@ private enum UpdateCheckResult {
 /// label, commit SHA, architecture, and an in-place "Check for Updates" button.
 @MainActor
 struct AboutVellumView: View {
+    var connectionManager: GatewayConnectionManager?
+
     @State private var healthz: DaemonHealthz?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
@@ -30,9 +33,18 @@ struct AboutVellumView: View {
             : .remote
     }
 
-    /// Whether the client and service group versions match.
+    /// Resolved service group version — prefers the reactive connectionManager value,
+    /// falls back to the one-shot healthz fetch.
+    private var serviceVersion: String? {
+        connectionManager?.assistantVersion ?? healthz?.version
+    }
+
+    /// Whether the client and service-group versions are semantically equal
+    /// (major.minor.patch). Pre-release suffixes (e.g., `-beta.1`) are
+    /// intentionally ignored — only the release triple matters for the
+    /// "versions match" checkmark in the About window.
     private var versionsMatch: Bool {
-        guard let sgVersion = healthz?.version, !sgVersion.isEmpty,
+        guard let sgVersion = serviceVersion, !sgVersion.isEmpty,
               let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               let sgParsed = VersionCompat.parse(sgVersion),
               let appParsed = VersionCompat.parse(appVersion) else {
@@ -120,7 +132,7 @@ struct AboutVellumView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
 
-            if let version = healthz?.version, !version.isEmpty {
+            if let version = serviceVersion, !version.isEmpty {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentDefault)
@@ -165,19 +177,27 @@ struct AboutVellumView: View {
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
             case .updateAvailable(let version):
-                VStack(spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Update available:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(version)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    VButton(label: "Update in Settings", style: .outlined) {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                    Text("Version \(version) available")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.primaryBase)
+                    Button("Update in Settings") {
                         AppDelegate.shared?.aboutWindow?.close()
                         AppDelegate.shared?.showSettingsTab("General")
                     }
+                    .buttonStyle(.plain)
+                    .font(VFont.captionMedium)
+                    .foregroundStyle(VColor.primaryBase)
+                }
+            case .notAvailable(let message):
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(message)
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             case .error:
                 Text("Could not check for updates.")
@@ -239,20 +259,21 @@ struct AboutVellumView: View {
 
         switch topology {
         case .local:
-            // Local: trigger Sparkle and show result inline after a brief wait
-            AppDelegate.shared?.updateManager.checkForUpdates()
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            let sparkleAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-            if sparkleAvailable, let version = AppDelegate.shared?.updateManager.availableUpdateVersion {
-                updateCheckResult = .updateAvailable(version: version)
+            // Local: trigger Sparkle and wait for delegate callback (up to 5s timeout)
+            if let manager = AppDelegate.shared?.updateManager {
+                let sparkleAvailable = await manager.checkForUpdatesAsync()
+                if sparkleAvailable, let version = manager.availableUpdateVersion {
+                    updateCheckResult = .updateAvailable(version: version)
+                } else {
+                    updateCheckResult = .upToDate
+                }
             } else {
-                updateCheckResult = .upToDate
+                updateCheckResult = .error
             }
             isCheckingForUpdates = false
 
         case .docker, .managed:
             // Docker/managed: check platform API and show result inline
-            isCheckingForUpdates = true
             defer { isCheckingForUpdates = false }
 
             await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
@@ -269,8 +290,8 @@ struct AboutVellumView: View {
             }
 
         case .remote:
-            // Remote: no automatic update mechanism
-            break
+            updateCheckResult = .notAvailable("Automatic updates are not available for remote deployments.")
+            isCheckingForUpdates = false
         }
     }
 

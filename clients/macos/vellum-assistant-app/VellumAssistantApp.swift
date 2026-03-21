@@ -26,20 +26,6 @@ struct VellumAssistantApp: App {
                 Button("About \(appName)") {
                     appDelegate.showAboutPanel()
                 }
-                Divider()
-                Button("Share Feedback") {
-                    appDelegate.sendLogsToSentry()
-                }
-                Divider()
-                Button("Uninstall \(appName)...") {
-                    appDelegate.performUninstall()
-                }
-                if appDelegate.authManager.isAuthenticated {
-                    Divider()
-                    Button("Sign Out") {
-                        appDelegate.performLogout()
-                    }
-                }
             }
             // Replace the auto-generated Hide/Quit items so they always
             // say "Vellum" instead of the bundle display name (which may
@@ -70,6 +56,23 @@ struct VellumAssistantApp: App {
                     appDelegate.showSettingsWindow(nil)
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                if appDelegate.authManager.isAuthenticated {
+                    Button("Sign Out") {
+                        appDelegate.performLogout()
+                    }
+                }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Documentation") {
+                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs?utm_source=macos-app&utm_medium=help-menu")!)
+                }
+                Button("Discord Community") {
+                    NSWorkspace.shared.open(URL(string: "https://www.vellum.ai/community?utm_source=macos-app&utm_medium=help-menu")!)
+                }
+                Divider()
+                Button("Share Feedback") {
+                    appDelegate.sendLogsToSentry()
+                }
             }
             // View menu: zoom shortcuts for discoverability.
             // The actual handling is done by event monitors (registerZoomMonitor)
@@ -79,7 +82,7 @@ struct VellumAssistantApp: App {
             // the menu system would consume the event even when the nav stack
             // is empty, breaking the event monitor's intentional pass-through
             // to the responder chain (e.g. text editors).
-            CommandGroup(replacing: .toolbar) {
+            CommandGroup(before: .toolbar) {
                 Button("Zoom In") {
                     appDelegate.performZoomIn()
                 }

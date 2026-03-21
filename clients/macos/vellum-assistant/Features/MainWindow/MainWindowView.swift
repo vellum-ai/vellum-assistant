@@ -29,6 +29,7 @@ struct MainWindowView: View {
     @State private var preTemporaryChatConversationId: UUID?
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
+    @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
     /// True when the sidebar was auto-collapsed by entering an app panel.
     /// Used to distinguish automatic collapse from manual user collapse so
     /// we only re-expand the sidebar on app exit when it was our doing.
@@ -377,13 +378,20 @@ struct MainWindowView: View {
         return false
     }
 
-    /// Daemon loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    private var sidebarTooltip: String {
+        let label = sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
+        guard !sidebarToggleShortcut.isEmpty else { return label }
+        let display = ShortcutHelper.displayString(for: sidebarToggleShortcut)
+        return "\(label) (\(display))"
+    }
+
+    /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
-    private var daemonLoadingOverlayIfNeeded: some View {
+    private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
-            DaemonLoadingOverlayContent(
+            AssistantLoadingOverlayContent(
                 error: daemonStartupError,
-                onRetry: { handleDaemonRetry() },
+                onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -394,18 +402,11 @@ struct MainWindowView: View {
         }
     }
 
-    private func handleDaemonRetry() {
-        daemonStartupError = nil
-        AppDelegate.shared?.daemonStartupError = nil
-        showDaemonLoading = true
-        retryDaemonStartup()
-    }
-
     /// Top bar extracted to break up type-checker complexity.
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarTooltip) {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
@@ -431,6 +432,47 @@ struct MainWindowView: View {
             }
             WindowDragArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
+                VButton(
+                    label: updateManager.isDeferredUpdateReady
+                        ? "Restart to update"
+                        : (connectionManager.versionMismatch ? "Compatibility update" : "Update"),
+                    leftIcon: VIcon.arrowUp.rawValue,
+                    style: updateManager.isDeferredUpdateReady ? .primary : (connectionManager.versionMismatch ? .outlined : .primary),
+                    size: .pill,
+                    tooltip: updateManager.isDeferredUpdateReady
+                        ? "Restart to install the latest version"
+                        : (connectionManager.versionMismatch
+                            ? "Your assistant version doesn't match this app"
+                            : "A new version is available")
+                ) {
+                    if updateManager.isDeferredUpdateReady {
+                        NSApp.terminate(nil)
+                    } else {
+                        AppDelegate.shared?.checkForUpdates()
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
+                .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
+            }
+            if windowState.isConversationVisible {
+                // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
+                // only visible on normal conversations when no messages exist yet
+                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.messages.contains(where: {
+                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }) != true {
+                    TemporaryChatToggle(
+                        isActive: conversationManager.activeConversation?.kind == .private,
+                        tooltip: conversationManager.activeConversation?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                        onToggle: { toggleTemporaryChat() }
+                    )
+                }
+            }
+        }
+        .padding(.leading, trafficLightPadding)
+        .padding(.trailing, VSpacing.lg)
+        .overlay {
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
@@ -470,43 +512,14 @@ struct MainWindowView: View {
                         conversationTitleFrame = newFrame
                     }
                 })
-            }
-            WindowDragArea()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
-                VButton(
-                    label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
-                    leftIcon: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    size: .pill,
-                    tooltip: updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available"
-                ) {
-                    if updateManager.isDeferredUpdateReady {
-                        NSApp.terminate(nil)
-                    } else {
-                        AppDelegate.shared?.checkForUpdates()
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
-                .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
-            }
-            if windowState.isConversationVisible {
-                // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
-                // only visible on normal conversations when no messages exist yet
-                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.messages.contains(where: {
-                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }) != true {
-                    TemporaryChatToggle(
-                        isActive: conversationManager.activeConversation?.kind == .private,
-                        tooltip: conversationManager.activeConversation?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                        onToggle: { toggleTemporaryChat() }
-                    )
-                }
+                // Shift the title right so it centers above the chat content area
+                // (not the full window). Content starts after outer padding (16) +
+                // sidebar + spacing (16), so its center is offset from the window
+                // center by (sidebarWidth + 16) / 2.
+                .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
+                .animation(VAnimation.panel, value: sidebarExpanded)
             }
         }
-        .padding(.leading, trafficLightPadding)
-        .padding(.trailing, VSpacing.lg)
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
     }
@@ -535,6 +548,7 @@ struct MainWindowView: View {
             .frame(minWidth: 800, minHeight: 600)
             .overlay(alignment: .top) { zoomIndicatorOverlay }
             .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+            .overlay(alignment: .top) { versionMismatchBannerOverlay }
             .overlay(alignment: .top) { coreLayoutErrorOverlay }
             .overlay(alignment: .bottom) { windowToastOverlay }
             .animation(VAnimation.standard, value: windowState.toastInfo != nil)
@@ -584,23 +598,59 @@ struct MainWindowView: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                 .padding(.top, VSpacing.sm)
                 .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
-            } else if connectionManager.versionMismatch {
-                ChatConversationErrorToast(
-                    message: versionMismatchMessage,
-                    icon: .triangleAlert,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Update in Settings",
-                    onAction: {
-                        settingsStore.pendingSettingsTab = .general
-                        windowState.selection = .panel(.settings)
-                    }
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: connectionManager.versionMismatch)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Version mismatch banner — renders independently of conversation error overlay
+    /// so it's visible even when a conversation is active.
+    @ViewBuilder
+    private var versionMismatchBannerOverlay: some View {
+        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {
+            // Suppress when the "Update" pill already covers it (daemon behind + update available)
+            if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
+                if isDaemonBehind {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Update in Settings",
+                        onAction: {
+                            settingsStore.pendingSettingsTab = .general
+                            windowState.selection = .panel(.settings)
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                } else {
+                    ChatConversationErrorToast(
+                        message: versionMismatchMessage,
+                        icon: .triangleAlert,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Check for App Update",
+                        onAction: {
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                        }
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: connectionManager.versionMismatch)
+                }
+            }
+        }
+    }
+
+    /// Whether the daemon version is behind the client version.
+    private var isDaemonBehind: Bool {
+        guard let daemonVersion = connectionManager.assistantVersion,
+              let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let daemonParsed = VersionCompat.parse(daemonVersion),
+              let clientParsed = VersionCompat.parse(clientVersion) else { return false }
+        if daemonParsed.major != clientParsed.major { return daemonParsed.major < clientParsed.major }
+        if daemonParsed.minor != clientParsed.minor { return daemonParsed.minor < clientParsed.minor }
+        return daemonParsed.patch < clientParsed.patch
     }
 
     /// Contextual message for version mismatch: tells user which side is behind.
@@ -617,9 +667,9 @@ struct MainWindowView: View {
             return daemonParsed.patch < clientParsed.patch
         }()
         if daemonBehind {
-            return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Upgrade to avoid issues."
+            return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Update your assistant to match."
         } else {
-            return "Your app (\(clientVersion)) is older than the assistant (\(daemonVersion)). Update the app."
+            return "Your app (\(clientVersion)) is behind the assistant (\(daemonVersion)). Update the app to match."
         }
     }
 
@@ -652,6 +702,11 @@ struct MainWindowView: View {
             }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
+            }
+            .onReceive(connectionManager.$lastUpdateOutcome) { outcome in
+                guard let outcome else { return }
+                handleUpdateOutcome(outcome)
+                connectionManager.clearLastUpdateOutcome()
             }
             .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: isAuthenticated)
@@ -739,12 +794,32 @@ struct MainWindowView: View {
         }
         eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
+
+        // Show toast for update outcomes emitted while the main window was not visible.
+        // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
+        // the view is live; this catches any that were missed in between.
+        if let outcome = connectionManager.lastUpdateOutcome {
+            handleUpdateOutcome(outcome)
+            connectionManager.clearLastUpdateOutcome()
+        }
     }
 
     private func observeDaemonStartupErrors() async {
         guard let appDelegate = AppDelegate.shared else { return }
         for await error in appDelegate.$daemonStartupError.values {
             daemonStartupError = error
+        }
+    }
+
+    /// Restarts the current assistant's daemon by sleeping then waking it.
+    private func rewakeAssistant() {
+        Task {
+            guard let appDelegate = AppDelegate.shared,
+                  let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+            daemonStartupError = nil
+            appDelegate.daemonStartupError = nil
+            try? await appDelegate.vellumCli.sleep(name: assistantName)
+            try? await appDelegate.vellumCli.wake(name: assistantName)
         }
     }
 
@@ -773,6 +848,54 @@ struct MainWindowView: View {
             withAnimation(VAnimation.standard) {
                 showDaemonLoading = false
             }
+        }
+    }
+
+    private func handleUpdateOutcome(_ outcome: UpdateOutcome) {
+        switch outcome.result {
+        case .succeeded(let version):
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
+            windowState.showToast(
+                message: "Assistant updated to \(version)",
+                style: .success,
+                autoDismissDelay: 8
+            )
+        case .rolledBack(_, let to):
+            let verb: String = {
+                let assistants = LockfileAssistant.loadAll()
+                let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                if let id = connectedId,
+                   let assistant = assistants.first(where: { $0.assistantId == id }),
+                   assistant.isManaged {
+                    return "downgraded"
+                }
+                return "rolled back"
+            }()
+            windowState.showToast(
+                message: "Update failed — \(verb) to \(to)",
+                style: .warning,
+                autoDismissDelay: 10
+            )
+        case .timedOut:
+            windowState.showToast(
+                message: "Update may not have completed. Check Settings for current version.",
+                style: .warning,
+                primaryAction: VToastAction(label: "Open Settings") {
+                    settingsStore.pendingSettingsTab = .general
+                    windowState.selection = .panel(.settings)
+                },
+                autoDismissDelay: 15
+            )
+        case .failed:
+            windowState.showToast(
+                message: "Update failed. Try again from Settings.",
+                style: .error,
+                primaryAction: VToastAction(label: "Open Settings") {
+                    settingsStore.pendingSettingsTab = .general
+                    windowState.selection = .panel(.settings)
+                },
+                autoDismissDelay: 15
+            )
         }
     }
 
@@ -943,7 +1066,7 @@ struct MainWindowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
-                        daemonLoadingOverlayIfNeeded
+                        assistantLoadingOverlayIfNeeded
                     }
             }
             .padding(16)
@@ -1094,46 +1217,6 @@ struct MainWindowView: View {
             }
         }
     }
-
-    /// Restart the daemon process without re-hatching a new assistant.
-    /// Stops the existing daemon, then re-hatches with daemonOnly + restart
-    /// flags to avoid creating a duplicate assistant entry.
-    private func retryDaemonStartup() {
-        Task {
-            let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.vellumCli.stop(name: assistantName)
-            do {
-                try await appDelegate.vellumCli.hatch(
-                    name: assistantName,
-                    daemonOnly: true,
-                    restart: true
-                )
-            } catch let error as VellumCli.CLIError {
-                let startupError: DaemonStartupError
-                if case .daemonStartupFailed(let parsed) = error {
-                    startupError = parsed
-                } else {
-                    startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                }
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            } catch {
-                let startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            }
-            // Reconnect the daemon client after a successful restart
-            if !appDelegate.connectionManager.isConnected && !appDelegate.connectionManager.isConnecting {
-                try? await appDelegate.connectionManager.connect()
-            }
-        }
-    }
-
 }
 
 // MARK: - Error Toast Overlay
@@ -1198,14 +1281,14 @@ private struct ErrorToastOverlay: View {
     }
 }
 
-// MARK: - Daemon Loading Overlay Content
+// MARK: - Assistant Loading Overlay Content
 
-/// Standalone view for the daemon loading overlay that shows either a
+/// Standalone view for the assistant loading overlay that shows either a
 /// structured error view, a connection timeout error, or the default
 /// skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
-private struct DaemonLoadingOverlayContent: View {
+private struct AssistantLoadingOverlayContent: View {
     let error: DaemonStartupError?
     let onRetry: () -> Void
     let onSendLogs: () -> Void
@@ -1221,7 +1304,7 @@ private struct DaemonLoadingOverlayContent: View {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonStartupErrorView(
+                AssistantStartupErrorView(
                     error: error,
                     onRetry: {
                         timedOut = false
@@ -1234,7 +1317,7 @@ private struct DaemonLoadingOverlayContent: View {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonConnectionTimeoutView(
+                AssistantConnectionTimeoutView(
                     onRetry: {
                         timedOut = false
                         onRetry()

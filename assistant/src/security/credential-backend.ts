@@ -71,10 +71,7 @@ export class KeychainBackend implements CredentialBackend {
       if (result == null) {
         const now = Date.now();
         if (now - lastUnreachableWarnMs >= UNREACHABLE_WARN_COOLDOWN_MS) {
-          log.warn(
-            { account },
-            "Keychain broker unreachable during get — falling back",
-          );
+          log.warn({ account }, "Keychain broker unreachable during get");
           lastUnreachableWarnMs = now;
         }
         return { value: undefined, unreachable: true };

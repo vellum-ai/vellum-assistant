@@ -961,6 +961,65 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/vercel/config": {
+        get: {
+          summary: "Get Vercel integration config",
+          description:
+            "Authenticated gateway endpoint that checks whether a Vercel API token is stored in the credential vault.",
+          operationId: "vercelConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Vercel config returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Set or delete Vercel integration config",
+          description:
+            "Authenticated gateway endpoint that stores or deletes a Vercel API token via the assistant runtime. The action field in the request body determines the operation.",
+          operationId: "vercelConfigPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Vercel config updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Delete Vercel integration config",
+          description:
+            "Authenticated gateway endpoint that deletes the Vercel API token via the assistant runtime.",
+          operationId: "vercelConfigDelete",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Vercel config deleted" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/contacts": {
         get: {
           summary: "List or search contacts",

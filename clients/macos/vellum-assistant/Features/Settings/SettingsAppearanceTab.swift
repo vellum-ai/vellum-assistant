@@ -10,6 +10,7 @@ struct SettingsAppearanceTab: View {
     @State private var isVideoDomainsExpanded: Bool = false
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
+    @State private var isRecordingSidebarToggle = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
@@ -288,6 +289,39 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Toggle sidebar (configurable)
+                HStack {
+                    Text("Toggle sidebar")
+                        .font(VFont.body)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingSidebarToggle, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.sidebarToggleShortcut))
+                    }
+
+                    if isRecordingSidebarToggle {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingSidebarToggle()
+                            }
+                            if !store.sidebarToggleShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.sidebarToggleShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 VToggle(
                     isOn: Binding(
                         get: { store.cmdEnterToSend },
@@ -483,6 +517,13 @@ struct SettingsAppearanceTab: View {
         isRecordingQuickInputHotkey = true
     }
 
+    private func startRecordingSidebarToggle() {
+        startRecordingShortcut { shortcut, _ in
+            store.sidebarToggleShortcut = shortcut
+        }
+        isRecordingSidebarToggle = true
+    }
+
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
@@ -526,6 +567,7 @@ struct SettingsAppearanceTab: View {
     private func stopRecording() {
         isRecordingGlobalHotkey = false
         isRecordingQuickInputHotkey = false
+        isRecordingSidebarToggle = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)

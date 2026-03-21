@@ -31,6 +31,7 @@ import {
   saveBootstrapSecret,
   loadGuardianToken,
 } from "../lib/guardian-token";
+import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
@@ -75,6 +76,7 @@ function parseArgs(): UpgradeArgs {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
         console.error("Error: --version requires a value");
+        emitCliError("UNKNOWN", "--version requires a value");
         process.exit(1);
       }
       version = next;
@@ -83,6 +85,7 @@ function parseArgs(): UpgradeArgs {
       name = arg;
     } else {
       console.error(`Error: Unknown option '${arg}'.`);
+      emitCliError("UNKNOWN", `Unknown option '${arg}'`);
       process.exit(1);
     }
   }
@@ -114,6 +117,10 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
     const entry = findAssistantByName(nameArg);
     if (!entry) {
       console.error(`No assistant found with name '${nameArg}'.`);
+      emitCliError(
+        "ASSISTANT_NOT_FOUND",
+        `No assistant found with name '${nameArg}'.`,
+      );
       process.exit(1);
     }
     return entry;
@@ -129,11 +136,14 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   if (all.length === 1) return all[0];
 
   if (all.length === 0) {
-    console.error("No assistants found. Run 'vellum hatch' first.");
+    const msg = "No assistants found. Run 'vellum hatch' first.";
+    console.error(msg);
+    emitCliError("ASSISTANT_NOT_FOUND", msg);
   } else {
-    console.error(
-      "Multiple assistants found. Specify a name or set an active assistant with 'vellum use <name>'.",
-    );
+    const msg =
+      "Multiple assistants found. Specify a name or set an active assistant with 'vellum use <name>'.";
+    console.error(msg);
+    emitCliError("ASSISTANT_NOT_FOUND", msg);
   }
   process.exit(1);
 }
@@ -284,9 +294,16 @@ async function upgradeDocker(
   );
 
   console.log("📦 Pulling new Docker images...");
-  await exec("docker", ["pull", imageTags.assistant]);
-  await exec("docker", ["pull", imageTags.gateway]);
-  await exec("docker", ["pull", imageTags["credential-executor"]]);
+  try {
+    await exec("docker", ["pull", imageTags.assistant]);
+    await exec("docker", ["pull", imageTags.gateway]);
+    await exec("docker", ["pull", imageTags["credential-executor"]]);
+  } catch (pullErr) {
+    const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);
+    console.error(`\n❌ Failed to pull Docker images: ${detail}`);
+    emitCliError("IMAGE_PULL_FAILED", "Failed to pull Docker images", detail);
+    process.exit(1);
+  }
   console.log("✅ Docker images pulled\n");
 
   // Parse gateway port from entry's runtimeUrl, fall back to default
@@ -494,6 +511,10 @@ async function upgradeDocker(
           console.log(
             `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
           );
+          emitCliError(
+            "READINESS_TIMEOUT",
+            `Upgrade to ${versionTag} failed: containers did not become ready. Rolled back to previous version.`,
+          );
         } else {
           console.error(
             `\n❌ Rollback also failed. Manual intervention required.`,
@@ -501,20 +522,35 @@ async function upgradeDocker(
           console.log(
             `   Check logs with: docker logs -f ${res.assistantContainer}`,
           );
+          emitCliError(
+            "ROLLBACK_FAILED",
+            "Rollback also failed after readiness timeout. Manual intervention required.",
+          );
         }
       } catch (rollbackErr) {
-        console.error(
-          `\n❌ Rollback failed: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
-        );
+        const rollbackDetail =
+          rollbackErr instanceof Error
+            ? rollbackErr.message
+            : String(rollbackErr);
+        console.error(`\n❌ Rollback failed: ${rollbackDetail}`);
         console.error(`   Manual intervention required.`);
         console.log(
           `   Check logs with: docker logs -f ${res.assistantContainer}`,
+        );
+        emitCliError(
+          "ROLLBACK_FAILED",
+          "Auto-rollback failed after readiness timeout. Manual intervention required.",
+          rollbackDetail,
         );
       }
     } else {
       console.log(`   No previous images available for rollback.`);
       console.log(
         `   Check logs with: docker logs -f ${res.assistantContainer}`,
+      );
+      emitCliError(
+        "ROLLBACK_NO_STATE",
+        "Containers failed to become ready and no previous images available for rollback.",
       );
     }
 
@@ -537,9 +573,10 @@ async function upgradePlatform(
 
   const token = readPlatformToken();
   if (!token) {
-    console.error(
-      "Error: Not logged in. Run `vellum login --token <token>` first.",
-    );
+    const msg =
+      "Error: Not logged in. Run `vellum login --token <token>` first.";
+    console.error(msg);
+    emitCliError("AUTH_FAILED", msg);
     process.exit(1);
   }
 
@@ -577,6 +614,11 @@ async function upgradePlatform(
     console.error(
       `Error: Platform upgrade failed (${response.status}): ${text}`,
     );
+    emitCliError(
+      "PLATFORM_API_ERROR",
+      `Platform upgrade failed (${response.status})`,
+      text,
+    );
     await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
       type: "complete",
       installedVersion: entry.serviceGroupVersion ?? "unknown",
@@ -605,18 +647,25 @@ export async function upgrade(): Promise<void> {
   const entry = resolveTargetAssistant(name);
   const cloud = resolveCloud(entry);
 
-  if (cloud === "docker") {
-    await upgradeDocker(entry, version);
-    return;
+  try {
+    if (cloud === "docker") {
+      await upgradeDocker(entry, version);
+      return;
+    }
+
+    if (cloud === "vellum") {
+      await upgradePlatform(entry, version);
+      return;
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`\n❌ Upgrade failed: ${detail}`);
+    emitCliError(categorizeUpgradeError(err), "Upgrade failed", detail);
+    process.exit(1);
   }
 
-  if (cloud === "vellum") {
-    await upgradePlatform(entry, version);
-    return;
-  }
-
-  console.error(
-    `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`,
-  );
+  const msg = `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`;
+  console.error(msg);
+  emitCliError("UNSUPPORTED_TOPOLOGY", msg);
   process.exit(1);
 }

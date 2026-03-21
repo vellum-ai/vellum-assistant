@@ -185,7 +185,6 @@ interface HatchArgs {
   keepAlive: boolean;
   name: string | null;
   remote: RemoteHost;
-  daemonOnly: boolean;
   restart: boolean;
   watch: boolean;
   configValues: Record<string, string>;
@@ -198,7 +197,6 @@ function parseArgs(): HatchArgs {
   let keepAlive = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
-  let daemonOnly = false;
   let restart = false;
   let watch = false;
   const configValues: Record<string, string> = {};
@@ -221,9 +219,6 @@ function parseArgs(): HatchArgs {
         "  --remote <host>           Remote host (local, gcp, aws, docker, custom)",
       );
       console.log(
-        "  --daemon-only             Start assistant only, skip gateway",
-      );
-      console.log(
         "  --restart                 Restart processes without onboarding side effects",
       );
       console.log(
@@ -238,8 +233,6 @@ function parseArgs(): HatchArgs {
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
-    } else if (arg === "--daemon-only") {
-      daemonOnly = true;
     } else if (arg === "--restart") {
       restart = true;
     } else if (arg === "--watch") {
@@ -293,7 +286,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -305,7 +298,6 @@ function parseArgs(): HatchArgs {
     keepAlive,
     name,
     remote,
-    daemonOnly,
     restart,
     watch,
     configValues,
@@ -616,7 +608,6 @@ function installCLISymlink(): void {
 async function hatchLocal(
   species: Species,
   name: string | null,
-  daemonOnly: boolean = false,
   restart: boolean = false,
   watch: boolean = false,
   keepAlive: boolean = false,
@@ -756,44 +747,40 @@ async function hatchLocal(
 
   await startLocalDaemon(watch, resources, { initialConfigPath });
 
-  // When daemonOnly is set, skip gateway and ngrok — the caller only wants
-  // the daemon restarted (e.g. macOS app bootstrap retry).
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-  if (!daemonOnly) {
-    try {
-      runtimeUrl = await startGateway(watch, resources);
-    } catch (error) {
-      // Gateway failed — stop the daemon we just started so we don't leave
-      // orphaned processes with no lock file entry.
-      console.error(
-        `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
-      );
-      await stopLocalProcesses(resources);
-      throw error;
-    }
+  try {
+    runtimeUrl = await startGateway(watch, resources);
+  } catch (error) {
+    // Gateway failed — stop the daemon we just started so we don't leave
+    // orphaned processes with no lock file entry.
+    console.error(
+      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+    );
+    await stopLocalProcesses(resources);
+    throw error;
+  }
 
-    // Lease a guardian token so the desktop app can import it on first launch
-    // instead of hitting /v1/guardian/init itself.
-    try {
-      await leaseGuardianToken(runtimeUrl, instanceName);
-    } catch (err) {
-      console.error(`⚠️  Guardian token lease failed: ${err}`);
-    }
+  // Lease a guardian token so the desktop app can import it on first launch
+  // instead of hitting /v1/guardian/init itself.
+  try {
+    await leaseGuardianToken(runtimeUrl, instanceName);
+  } catch (err) {
+    console.error(`⚠️  Guardian token lease failed: ${err}`);
+  }
 
-    // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
-    // Set BASE_DATA_DIR so ngrok reads the correct instance config.
-    const prevBaseDataDir = process.env.BASE_DATA_DIR;
-    process.env.BASE_DATA_DIR = resources.instanceDir;
-    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-    if (ngrokChild?.pid) {
-      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-    }
-    if (prevBaseDataDir !== undefined) {
-      process.env.BASE_DATA_DIR = prevBaseDataDir;
-    } else {
-      delete process.env.BASE_DATA_DIR;
-    }
+  // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
+  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+  const prevBaseDataDir = process.env.BASE_DATA_DIR;
+  process.env.BASE_DATA_DIR = resources.instanceDir;
+  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+  if (ngrokChild?.pid) {
+    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+  }
+  if (prevBaseDataDir !== undefined) {
+    process.env.BASE_DATA_DIR = prevBaseDataDir;
+  } else {
+    delete process.env.BASE_DATA_DIR;
   }
 
   const localEntry: AssistantEntry = {
@@ -806,7 +793,7 @@ async function hatchLocal(
     serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources,
   };
-  if (!daemonOnly && !restart) {
+  if (!restart) {
     saveAssistantEntry(localEntry);
     setActiveAssistant(instanceName);
     syncConfigToLockfile();
@@ -825,12 +812,8 @@ async function hatchLocal(
   }
 
   if (keepAlive) {
-    // When --daemon-only is set, no gateway is running — poll the daemon
-    // health endpoint instead of the gateway to avoid self-termination.
-    const healthUrl = daemonOnly
-      ? `http://127.0.0.1:${resources.daemonPort}/healthz`
-      : `http://127.0.0.1:${resources.gatewayPort}/healthz`;
-    const healthTarget = daemonOnly ? "Assistant" : "Gateway";
+    const healthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;
+    const healthTarget = "Gateway";
     const POLL_INTERVAL_MS = 5000;
     const MAX_FAILURES = 3;
     let consecutiveFailures = 0;
@@ -884,7 +867,6 @@ export async function hatch(): Promise<void> {
     keepAlive,
     name,
     remote,
-    daemonOnly,
     restart,
     watch,
     configValues,
@@ -905,15 +887,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(
-      species,
-      name,
-      daemonOnly,
-      restart,
-      watch,
-      keepAlive,
-      configValues,
-    );
+    await hatchLocal(species, name, restart, watch, keepAlive, configValues);
     return;
   }
 

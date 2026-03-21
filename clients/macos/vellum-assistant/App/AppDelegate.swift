@@ -53,6 +53,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var cmdNLocalMonitor: Any?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
+    var sidebarToggleLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
     public let updateManager = UpdateManager()
@@ -92,10 +93,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
-    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the assistant-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     var instanceChangeObserver: NSObjectProtocol?
-    /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
+    /// Tracks file paths of .vellum bundles awaiting assistant responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
     var pendingBundleFilePaths: [String] = []
@@ -138,14 +139,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
-    /// Structured error from the most recent daemon startup failure.
-    /// Populated by `setupGatewayConnectionManager()` when `hatch()` throws a
-    /// `CLIError.daemonStartupFailed`. Read by the UI to show a
-    /// contextual error view instead of a generic failure message.
+    /// Structured error from the most recent assistant startup failure.
+    /// Read by the UI to show a contextual error view instead of a
+    /// generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 
     /// Whether the current assistant runs remotely (cloud != "local").
-    /// When true, local daemon hatching is skipped.
+    /// When true, local assistant hatching is skipped.
     var isCurrentAssistantRemote = false
 
     /// Whether the current assistant is platform-managed (cloud == "vellum").
@@ -250,6 +250,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private func applyMenuBarTitlePatch() {
         if let item = NSApp.mainMenu?.items.first, item.title != Self.appName {
             item.title = Self.appName
+        }
+    }
+
+    /// Remove the system-provided search field from the Help menu.
+    /// macOS automatically inserts it for any menu registered as the app's
+    /// helpMenu, but it's non-functional without an Apple Help Book.
+    func stripHelpMenuSearchField() {
+        NSApp.helpMenu = nil
+        // SwiftUI may re-register the help menu after launch; retry on
+        // the next run-loop pass to catch late registration.
+        DispatchQueue.main.async {
+            NSApp.helpMenu = nil
         }
     }
 
@@ -395,6 +407,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
         patchAppMenuTitles()
+        stripHelpMenuSearchField()
         setupHotKey()
 
         // Install CLI symlinks early so they are available before the daemon
@@ -462,12 +475,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             hasSetupDaemon = false
         }
 
-        setupGatewayConnectionManager(isFirstLaunch: isFirstLaunch)
+        setupGatewayConnectionManager()
         setupMenuBar()
         setupFileMenu()
         patchAppMenuTitles()
+        stripHelpMenuSearchField()
         registerNavigationMonitor()
         registerZoomMonitor()
+        registerSidebarToggleMonitor()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -506,7 +521,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
-            // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
+            // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete.
             // Each transition is persisted so a restart resumes correctly.
             bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
@@ -531,19 +546,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     }
 
                     // Push locally-stored LLM provider keys (e.g. Anthropic) to the
-                    // daemon so it can fulfil the first message. Without this the
+                    // assistant so it can fulfil the first message. Without this the
                     // wake-up greeting races with the detached key sync from onboarding
                     // and may hit "No providers available".
                     await self.syncApiKeysViaGateway()
 
-                    // Daemon connected within timeout — proceed directly
+                    // Assistant connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show the main window with a
+                    // Assistant not ready — show the main window with a
                     // timeout screen so the user knows something went wrong.
-                    log.warning("Daemon not ready after timeout — showing timeout screen")
+                    log.warning("Assistant not ready after timeout — showing timeout screen")
                     transitionBootstrap(to: .timedOut)
                     showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
@@ -551,7 +566,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         } else {
             // Record app_open telemetry event (fire-and-forget).
-            // The daemon may not be connected yet, so retry briefly.
+            // The assistant may not be connected yet, so retry briefly.
             Task {
                 let ready = await awaitDaemonReady(timeout: 10)
                 if ready {

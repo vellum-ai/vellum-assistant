@@ -14,14 +14,10 @@ enum SettingsTab: String {
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.general]
-        var middle: [SettingsTab] = [.voice]
-        if soundsEnabled { middle.append(.sounds) }
-        middle.append(contentsOf: [.modelsAndServices, .permissionsAndPrivacy])
-        tabs.append(contentsOf: middle)
-        if billingEnabled {
-            tabs.append(.billing)
-        }
+        var tabs: [SettingsTab] = [.general, .modelsAndServices, .voice]
+        if soundsEnabled { tabs.append(.sounds) }
+        if billingEnabled { tabs.append(.billing) }
+        tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         if schedulesEnabled { tabs.append(.schedules) }
         return tabs
@@ -355,17 +351,19 @@ struct SettingsPanel: View {
                     selectedTab = tab
                 }
             }
-            Spacer()
+            Spacer(minLength: VSpacing.sm)
             if isDeveloperEnabled {
-                Divider()
+                VColor.surfaceBase
+                    .frame(height: 1)
+                    .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
                     .padding(.trailing, VSpacing.md)
                 SettingsNavRow(tab: .developer, isSelected: selectedTab == .developer) {
                     selectedTab = .developer
                 }
-                .padding(.bottom, VSpacing.sm)
             }
         }
         .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.xl)
         .padding(.trailing, VSpacing.sm)
     }
 

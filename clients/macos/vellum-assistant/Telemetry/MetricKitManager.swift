@@ -79,7 +79,7 @@ import os
         attachments: [Attachment] = [],
         userFeedback: UserFeedbackData? = nil,
         dsn: String? = nil,
-        completion: (@Sendable () -> Void)? = nil
+        completion: (@Sendable (SentryId?) -> Void)? = nil
     ) {
         sentrySerialQueue.async {
             let targetDSN = dsn ?? macosDSN
@@ -111,15 +111,6 @@ import os
                 SentryDeviceInfo.configureSentryScope()
             }
 
-            // Attach files to the scope before capturing the event.
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    for attachment in attachments {
-                        scope.addAttachment(attachment)
-                    }
-                }
-            }
-
             // Set reporter identity on the event so log reports are searchable
             // by email (user.email:foo@example.com) in Sentry. Only set for
             // manual reports where the user explicitly provided their email.
@@ -130,7 +121,26 @@ import os
                 SentrySDK.setUser(user)
             }
 
+            // Attach files to the Sentry scope when callers provide them
+            // (e.g. CrashReportView sends crash log files). The feedback/
+            // LogExporter flow passes attachments: [] so this block is skipped
+            // for feedback archives (those are uploaded to the platform API).
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    for attachment in attachments {
+                        scope.addAttachment(attachment)
+                    }
+                }
+            }
+
             let eventId = SentrySDK.capture(event: event)
+
+            // Clear attachments so they don't leak into subsequent events.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    scope.clearAttachments()
+                }
+            }
 
             // Send user feedback linked to the event so it appears in Sentry's
             // User Feedback section. This lets us associate user-provided context
@@ -147,17 +157,10 @@ import os
                 SentrySDK.capture(feedback: feedback)
             }
 
-            // Clean up attachments so they don't leak into subsequent events.
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    scope.clearAttachments()
-                }
-            }
-
-            // Always flush when attachments are present so large files are
-            // delivered before the user quits the app. Use a longer timeout
-            // when attachments are present since companion archives (e.g.
-            // spindump .tar.gz) can be several MB on slow connections.
+            // Flush to ensure the event is delivered before the app quits.
+            // Use a longer timeout when attachments are present (crash log
+            // files can be large); feedback archives are no longer attached
+            // to Sentry events so the short timeout applies to that flow.
             let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
             SentrySDK.flush(timeout: flushTimeout)
 
@@ -178,7 +181,7 @@ import os
                 // SDK was disabled before we started it — close the temp session.
                 SentrySDK.close()
             }
-            completion?()
+            completion?(eventId)
         }
     }
 
@@ -204,10 +207,10 @@ import os
         }
     }
 
-    /// Reports a daemon startup failure to Sentry for automatic triage.
+    /// Reports an assistant startup failure to Sentry for automatic triage.
     ///
-    /// This covers cases where the daemon crashed before its own Sentry
-    /// initialization, so the macOS client reports it on the daemon's behalf.
+    /// This covers cases where the assistant crashed before its own Sentry
+    /// initialization, so the macOS client reports it on the assistant's behalf.
     /// Events are grouped by error category (MIGRATION_FAILED, PORT_IN_USE, etc.)
     /// using a custom fingerprint. Respects the `sendDiagnostics` privacy preference.
     nonisolated static func reportDaemonStartupFailure(_ error: DaemonStartupError) {
@@ -216,7 +219,7 @@ import os
         guard sendDiagnostics else { return }
 
         let event = Event(level: .error)
-        event.message = SentryMessage(formatted: "Daemon startup failed: \(error.category)")
+        event.message = SentryMessage(formatted: "Assistant startup failed: \(error.category)")
         event.tags = [
             "daemon_error_category": error.category,
         ]

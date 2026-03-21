@@ -185,13 +185,13 @@ extension AppDelegate {
                 }
             }
 
-            // Clear platform identity credentials from the running daemon (local assistants only).
-            // Skip when the daemon was never set up (e.g. logout during onboarding) —
-            // there are no credentials to clear and no daemon to stop.
+            // Clear platform identity credentials from the running assistant (local assistants only).
+            // Skip when the assistant was never set up (e.g. logout during onboarding) —
+            // there are no credentials to clear and no assistant to stop.
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
-                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed credential state")
+                    log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
                     connectionManager.disconnect()
                     vellumCli.stop(name: connectedAssistantId)
                 }
@@ -213,10 +213,10 @@ extension AppDelegate {
                 _ = credStorage.delete(account: credentialAccount)
             }
 
-            // Stop all non-current local daemons to clear in-memory platform identity
-            // credentials. Assistant switches intentionally leave old daemons running
-            // for fast switching, but on full logout there's no reason to keep them
-            // alive with potentially stale state.
+            // Stop all non-current local assistant processes to clear in-memory platform
+            // identity credentials. Assistant switches intentionally leave old processes
+            // running for fast switching, but on full logout there's no reason to keep
+            // them alive with potentially stale state.
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
                     guard let instanceDir = assistant.instanceDir else { continue }
@@ -228,7 +228,7 @@ extension AppDelegate {
                        kill(pid, 0) == 0,
                        Self.isVellumProcess(pid: pid) {
                         kill(pid, SIGTERM)
-                        log.info("Stopped daemon for assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
+                        log.info("Stopped assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
                     }
                 }
             }
@@ -364,17 +364,17 @@ extension AppDelegate {
                 }
             }
 
-            // Wait for the daemon (and gateway) to be reachable. The bootstrap
+            // Wait for the assistant (and gateway) to be reachable. The bootstrap
             // injects credentials via GatewayHTTPClient which connects to the
             // local gateway — if we proceed before it's listening we get
             // "Could not connect to the server."
             if !self.connectionManager.isConnected {
-                log.info("Waiting for daemon connection before credential bootstrap...")
+                log.info("Waiting for assistant connection before credential bootstrap...")
                 for attempt in 1...20 {
                     if self.connectionManager.isConnected { break }
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     if attempt == 20 {
-                        log.warning("Daemon not connected after 10s — proceeding with credential bootstrap anyway")
+                        log.warning("Assistant not connected after 10s — proceeding with credential bootstrap anyway")
                     }
                 }
             }
@@ -392,7 +392,7 @@ extension AppDelegate {
                 )
                 switch outcome {
                 case .registeredWithExistingKey(let id):
-                    log.info("Local assistant API key re-synced to daemon: \(id, privacy: .public)")
+                    log.info("Local assistant API key re-synced: \(id, privacy: .public)")
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
@@ -415,22 +415,22 @@ extension AppDelegate {
     }
 
     /// Switches the app to a different lockfile assistant: stops the current
-    /// daemon, resets assistant-scoped state, updates persisted state, and
+    /// assistant, resets assistant-scoped state, updates persisted state, and
     /// restarts with the new assistant.
     ///
     /// The sequence is intentionally ordered to avoid stale references:
     /// 1. Clear assistant-scoped runtime state (recording, windows, callbacks)
-    /// 2. Disconnect transport (leave old daemon running)
+    /// 2. Disconnect transport (leave old assistant running)
     /// 3. Persist the new assistant selection
-    /// 4. Reconfigure daemon transport and reconnect
+    /// 4. Reconfigure transport and reconnect
     /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // 1. Clear assistant-scoped runtime state while the daemon is still
+        // 1. Clear assistant-scoped runtime state while the assistant is still
         // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
 
-        // 2. Disconnect transport — leave the old daemon running so it stays
+        // 2. Disconnect transport — leave the old assistant running so it stays
         //    awake and can be switched back to without a cold start.
         connectionManager.disconnect()
         // Reset dock icon to default before loading the new assistant's avatar
@@ -450,7 +450,7 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 4. Reconfigure daemon transport and reconnect
+        // 4. Reconfigure transport and reconnect
         hasSetupDaemon = false
         setupGatewayConnectionManager()
 
@@ -464,10 +464,10 @@ extension AppDelegate {
         localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
-        // 6. Sync locally-stored API keys to the new daemon. The daemon may
+        // 6. Sync locally-stored API keys to the new assistant. The assistant may
         //    have started without ANTHROPIC_API_KEY in its environment (e.g.
         //    when the app was launched via Finder/open). Push keys from
-        //    UserDefaults so the daemon can initialize its LLM providers.
+        //    UserDefaults so the assistant can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
 
         // Reload avatar for the new assistant (customAvatarURL now resolves
@@ -477,7 +477,7 @@ extension AppDelegate {
         showMainWindow()
     }
 
-    /// Push all locally-stored API keys to the daemon via the gateway.
+    /// Push all locally-stored API keys to the assistant via the gateway.
     /// Launches a fire-and-forget Task; use ``syncApiKeysViaGateway()``
     /// when the caller needs to await completion.
     private func syncApiKeysToAssistant(_ assistant: LockfileAssistant) {
@@ -486,7 +486,7 @@ extension AppDelegate {
         }
     }
 
-    /// Push all locally-stored API keys to the daemon via GatewayHTTPClient.
+    /// Push all locally-stored API keys to the assistant via GatewayHTTPClient.
     /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
     /// LLM provider keys are registered before sending the first message.
     func syncApiKeysViaGateway() async {
@@ -545,18 +545,18 @@ extension AppDelegate {
                 alert.addButton(withTitle: "Force Remove")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
-                    // Daemon is still running — user can continue using the app.
+                    // Assistant is still running — user can continue using the app.
                     return false
                 }
-                // Retire failed but user chose Force Remove — stop the daemon
+                // Retire failed but user chose Force Remove — stop the assistant
                 // before cleaning up local state.
                 connectionManager.disconnect()
                 vellumCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
 
-            // Disconnect the client from the (now-dead) daemon.
-            // The retire CLI already stopped the daemon process; an
+            // Disconnect the client from the (now-stopped) assistant.
+            // The retire CLI already stopped the assistant process; an
             // additional vellumCli.stop() here would block the main
             // thread and always fail because the process is already gone.
             connectionManager.disconnect()
@@ -699,7 +699,7 @@ extension AppDelegate {
             let allAssistants = LockfileAssistant.loadAll()
             let localAssistants = allAssistants.filter { !$0.isRemote }
 
-            // Retire each local assistant so cloud/daemon resources are cleaned up.
+            // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
@@ -709,7 +709,7 @@ extension AppDelegate {
                 }
             }
 
-            // Stop any remaining daemon processes.
+            // Stop any remaining assistant processes.
             connectionManager.disconnect()
             vellumCli.stop()
 

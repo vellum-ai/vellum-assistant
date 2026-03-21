@@ -4,11 +4,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarComponentService")
 
-/// Fetches character component definitions from the runtime's
-/// `avatar/character-components` endpoint via the gateway. The response
-/// provides the canonical set of body shapes, eye styles, colors, and
-/// face-center overrides so the client can validate trait selections
-/// against the runtime's source of truth.
+/// Character component definitions and network fetch for syncing with the
+/// runtime's `avatar/character-components` endpoint. The response provides
+/// the canonical set of body shapes, eye styles, colors, and face-center
+/// overrides. `AvatarComponentStore` also loads a bundled copy at init
+/// time so components are available before the first network fetch.
 @MainActor
 final class AvatarComponentService {
 

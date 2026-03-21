@@ -76,25 +76,30 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         updaterController.updater.canCheckForUpdates
     }
 
-    // MARK: - Menu Item Helpers
+    /// Trigger a background update check and wait for Sparkle's delegate to
+    /// report a result, returning as soon as `didFindValidUpdate` or
+    /// `updaterDidNotFindUpdate` fires.  Falls back to the current
+    /// `isUpdateAvailable` state after `timeout` seconds so callers never hang.
+    func checkForUpdatesAsync(timeout: TimeInterval = 5.0) async -> Bool {
+        updaterController.updater.checkForUpdatesInBackground()
 
-    /// Context-aware title for the update menu item.
-    /// Returns "Update Available..." when a Sparkle update is ready,
-    /// "Update Available (vX.Y.Z)" when a service group update is available,
-    /// "Check for Updates..." when a manual check can be triggered,
-    /// or "Up to Date" when neither applies.
-    public var updateMenuItemTitle: String {
-        if isUpdateAvailable { return "Update Available..." }
-        if isServiceGroupUpdateAvailable, let v = serviceGroupUpdateVersion {
-            return "Update Available (\(v))"
+        return await withTaskGroup(of: Bool.self) { group in
+            // Race: delegate callback vs timeout
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                for await value in self.$isUpdateAvailable.values.dropFirst() {
+                    return value
+                }
+                return false
+            }
+            group.addTask { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return self?.isUpdateAvailable ?? false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        if canCheckForUpdates { return "Check for Updates..." }
-        return "Up to Date"
-    }
-
-    /// Whether the update menu item should accept user interaction.
-    public var updateMenuItemIsEnabled: Bool {
-        isUpdateAvailable || isServiceGroupUpdateAvailable || canCheckForUpdates
     }
 
     /// Whether an update has been downloaded and is waiting to be installed.
@@ -206,7 +211,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     }
 
     /// Resets service group update flags to their default (no update available) state.
-    private func clearServiceGroupFlags() {
+    func clearServiceGroupFlags() {
         isServiceGroupUpdateAvailable = false
         serviceGroupUpdateVersion = nil
     }

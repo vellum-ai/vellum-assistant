@@ -159,9 +159,19 @@ export async function runDaemon(): Promise<void> {
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
+    log.info("Daemon startup: DB initialized");
+
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+    log.info("Daemon startup: workspace migrations complete");
+
     // Backfill oauth_connection rows for manual-token providers (Telegram,
     // Slack channel) that already have keychain credentials from before the
     // oauth_connection migration. Safe to call on every startup.
+    //
+    // Must run AFTER workspace migrations so that migration 015 (which copies
+    // encrypted-store credentials to the keychain) has already executed.
+    // Otherwise syncManualTokenConnection sees no keychain credentials and
+    // incorrectly removes existing connection rows.
     try {
       await backfillManualTokenConnections();
     } catch (err) {
@@ -170,10 +180,6 @@ export async function runDaemon(): Promise<void> {
         "Manual-token connection backfill failed — continuing startup",
       );
     }
-    log.info("Daemon startup: DB initialized");
-
-    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-    log.info("Daemon startup: workspace migrations complete");
 
     // Now that workspace migrations have run (including 003-seed-device-id
     // which may copy the legacy installationId into device.json), it is safe

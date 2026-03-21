@@ -123,7 +123,7 @@ struct CrashReportView: View {
 
             // Await completion so UI confirms delivery only after flush finishes.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                MetricKitManager.sendManualReport(event, attachments: attachments) {
+                MetricKitManager.sendManualReport(event, attachments: attachments) { _ in
                     continuation.resume()
                 }
             }

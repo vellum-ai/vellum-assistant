@@ -10,6 +10,7 @@ import { appDirRenameMigration } from "./010-app-dir-rename.js";
 import { backfillInstallationIdMigration } from "./011-backfill-installation-id.js";
 import { renameConversationDiskViewDirsMigration } from "./012-rename-conversation-disk-view-dirs.js";
 import { repairConversationDiskViewMigration } from "./013-repair-conversation-disk-view.js";
+import { migrateCredentialsToKeychainMigration } from "./015-migrate-credentials-to-keychain.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -31,4 +32,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   renameConversationDiskViewDirsMigration,
   repairConversationDiskViewMigration,
   migrateToWorkspaceVolumeMigration,
+  migrateCredentialsToKeychainMigration,
 ];

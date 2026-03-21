@@ -8,11 +8,23 @@ private struct HealthzVersionResponse: Decodable {
     let version: String?
 }
 
+/// The outcome of an assistant update attempt.
+public struct UpdateOutcome: Equatable {
+    public enum Result: Equatable {
+        case succeeded(version: String)
+        case rolledBack(from: String, to: String)
+        case timedOut
+        case failed
+    }
+    public let result: Result
+    public let timestamp: Date
+}
+
 /// Manages the gateway connection lifecycle and publishes observable state.
 ///
 /// Owns `EventStreamClient` (SSE + subscribe + send). Handles health checks,
 /// auto-wake, and SSE message pre-processing to update `@Published` properties.
-/// SwiftUI views observe this for connection status and daemon metadata.
+/// SwiftUI views observe this for connection status and assistant metadata.
 @MainActor
 public final class GatewayConnectionManager: ObservableObject {
 
@@ -25,6 +37,8 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
     var updateExpiresAt: Date?
+    private var outcomeEmittedForCurrentCycle = false
+    @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
     @Published public internal(set) var keyFingerprint: String?
     @Published public var latestMemoryStatus: MemoryStatusMessage?
     @Published public var isTrustRulesSheetOpen: Bool = false
@@ -61,8 +75,11 @@ public final class GatewayConnectionManager: ObservableObject {
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
         isUpdateInProgress = value
-        if value && !wasInProgress && healthCheckTask != nil {
-            startHealthCheckLoop()
+        if value && !wasInProgress {
+            outcomeEmittedForCurrentCycle = false
+            if healthCheckTask != nil {
+                startHealthCheckLoop()
+            }
         }
     }
 
@@ -214,9 +231,15 @@ public final class GatewayConnectionManager: ObservableObject {
         isUpdateInProgress = false
         updateTargetVersion = nil
         updateExpiresAt = nil
+        lastUpdateOutcome = nil
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+    }
+
+    /// Clears the last update outcome after the UI has consumed it.
+    public func clearLastUpdateOutcome() {
+        lastUpdateOutcome = nil
     }
 
     // MARK: - Health Check (via GatewayHTTPClient)
@@ -288,22 +311,50 @@ public final class GatewayConnectionManager: ObservableObject {
                 } catch {
                     log.warning("Periodic health check failed: \(error.localizedDescription)")
                 }
+
+                // Check for update timeout
+                if self.isUpdateInProgress, let expiresAt = self.updateExpiresAt, Date() > expiresAt {
+                    log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
+                    self.lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
+                    self.isUpdateInProgress = false
+                    self.updateTargetVersion = nil
+                    self.updateExpiresAt = nil
+                    self.eventStreamClient.resetSSEReconnectDelay()
+                }
             }
         }
+    }
+
+    // MARK: - Version Comparison
+
+    /// Compare two version strings using parsed semver components so that
+    /// prefix differences (e.g. "v1.2.3" vs "1.2.3") are ignored.
+    private func versionsMatch(_ a: String, _ b: String) -> Bool {
+        guard let parsedA = VersionCompat.parse(a),
+              let parsedB = VersionCompat.parse(b) else {
+            return a == b
+        }
+        return parsedA.major == parsedB.major
+            && parsedA.minor == parsedB.minor
+            && parsedA.patch == parsedB.patch
     }
 
     // MARK: - Version Change Handling
 
     private func handleDaemonVersionChanged(_ newVersion: String) {
         checkVersionCompatibility(assistantVersion: newVersion)
-        if isUpdateInProgress {
-            if newVersion == updateTargetVersion {
+        if isUpdateInProgress && !outcomeEmittedForCurrentCycle {
+            if let target = updateTargetVersion, versionsMatch(newVersion, target) {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
+                lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: newVersion), timestamp: Date())
             } else {
                 log.warning("Health check detected version \(newVersion, privacy: .public) after update — expected \(self.updateTargetVersion ?? "?", privacy: .public), may have rolled back")
+                lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: newVersion), timestamp: Date())
             }
+            outcomeEmittedForCurrentCycle = true
             isUpdateInProgress = false
-            updateTargetVersion = nil
+            // Preserve updateTargetVersion — only the authoritative
+            // .serviceGroupUpdateComplete SSE event or timeout clears it.
             updateExpiresAt = nil
             eventStreamClient.resetSSEReconnectDelay()
         }
@@ -311,27 +362,16 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - Version Compatibility
 
-    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
-        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
-        let components = cleaned.split(separator: ".").compactMap { Int($0) }
-        guard components.count >= 2 else { return nil }
-        return (components[0], components[1])
-    }
-
     func checkVersionCompatibility(assistantVersion: String) {
-        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
-            return
-        }
-        guard let (daemonMajor, daemonMinor) = parseMajorMinor(assistantVersion),
-              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
-            return
-        }
-        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else { return }
+        guard let assistant = VersionCompat.parseMajorMinor(assistantVersion),
+              let client = VersionCompat.parseMajorMinor(clientVersion) else { return }
+        let mismatch = assistant.major != client.major || assistant.minor != client.minor
         if mismatch != versionMismatch {
             versionMismatch = mismatch
         }
         if mismatch {
-            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(assistantVersion, privacy: .public)")
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs assistant \(assistantVersion, privacy: .public)")
         }
     }
 
@@ -342,15 +382,20 @@ public final class GatewayConnectionManager: ObservableObject {
             if let version = status.version {
                 assistantVersion = version
                 checkVersionCompatibility(assistantVersion: version)
-                if self.isUpdateInProgress {
-                    if version == self.updateTargetVersion {
+                if self.isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
+                    if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
+                        self.lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: version), timestamp: Date())
                     } else {
                         log.warning("Planned update may have rolled back — expected \(self.updateTargetVersion ?? "?", privacy: .public) but running \(version, privacy: .public)")
+                        self.lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: self.updateTargetVersion ?? "unknown", to: version), timestamp: Date())
                     }
+                    self.outcomeEmittedForCurrentCycle = true
                     self.isUpdateInProgress = false
-                    self.updateTargetVersion = nil
+                    // Preserve updateTargetVersion — only the authoritative
+                    // .serviceGroupUpdateComplete SSE event or timeout clears it.
                     self.updateExpiresAt = nil
+                    self.eventStreamClient.resetSSEReconnectDelay()
                 }
             }
             if let newFingerprint = status.keyFingerprint {
@@ -358,7 +403,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 keyFingerprint = newFingerprint
 
                 if let oldFingerprint, oldFingerprint != newFingerprint {
-                    log.info("Daemon key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
+                    log.info("Assistant key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
                     ActorTokenManager.deleteAllCredentials()
                     NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
                 }
@@ -367,14 +412,23 @@ public final class GatewayConnectionManager: ObservableObject {
 
         switch message {
         case .serviceGroupUpdateStarting(let msg):
-            self.isUpdateInProgress = true
             self.updateTargetVersion = msg.targetVersion
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
+            setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
-        case .serviceGroupUpdateComplete:
+        case .serviceGroupUpdateComplete(let msg):
+            outcomeEmittedForCurrentCycle = true
+            if msg.success {
+                lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: msg.installedVersion), timestamp: Date())
+            } else if let rollbackVersion = msg.rolledBackToVersion {
+                lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: rollbackVersion), timestamp: Date())
+            } else {
+                lastUpdateOutcome = UpdateOutcome(result: .failed, timestamp: Date())
+            }
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
+            self.eventStreamClient.resetSSEReconnectDelay()
         case .modelInfo(let msg):
             currentModel = msg.model
             latestModelInfo = msg
@@ -444,7 +498,7 @@ public final class GatewayConnectionManager: ObservableObject {
     #if os(macOS)
     private static let autoWakeCooldown: TimeInterval = 60.0
 
-    private func autoWakeIfDaemonDied() {
+    private func autoWakeIfAssistantDied() {
         guard let wakeHandler, isLocal else { return }
 
         if let last = lastAutoWakeAttempt,
@@ -497,7 +551,7 @@ public final class GatewayConnectionManager: ObservableObject {
         }
         #if os(macOS)
         if !connected {
-            autoWakeIfDaemonDied()
+            autoWakeIfAssistantDied()
         }
         #endif
     }
@@ -514,11 +568,11 @@ public final class GatewayConnectionManager: ObservableObject {
         public var errorDescription: String? {
             switch self {
             case .missingToken:
-                return "Missing daemon session token"
+                return "Missing session token"
             case .timeout:
-                return "Daemon authentication timed out"
+                return "Authentication timed out"
             case .rejected(let message):
-                return message ?? "Daemon authentication rejected"
+                return message ?? "Authentication rejected"
             }
         }
     }

@@ -25,19 +25,19 @@ extension AppDelegate {
             defer { self.isStartingSession = false; self.startSessionTask = nil }
 
             if !connectionManager.isConnected {
-                log.info("Daemon not connected, attempting to connect before session start")
+                log.info("Assistant not connected, attempting to connect before session start")
                 do {
                     try await connectionManager.connect()
                     self.setupAmbientAgent()
                 } catch {
-                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
+                    log.error("Failed to connect to assistant: \(error.localizedDescription)")
                     self.showDaemonConnectionError()
                     return
                 }
             }
 
             // Route the task as a regular message through the main chat flow.
-            // The daemon will classify it and invoke CU tools via host_cu_request
+            // The assistant will classify it and invoke CU tools via host_cu_request
             // if computer use is needed.
             self.ensureMainWindowExists()
             if let viewModel = self.mainWindow?.conversationManager.activeViewModel {
@@ -117,11 +117,11 @@ extension AppDelegate {
             // Switch the main content area to the chat so the user sees it
             // even if they were last viewing a panel, app, or other non-chat view.
             mainWindow?.windowState.selection = nil
-            // Clear unseen state and notify the daemon when deep-linking into a
+            // Clear unseen state and notify the assistant when deep-linking into a
             // conversation. selectConversation's unseen-clear is guarded by
             // id != previousActiveId, which is false when activeConversationId was
             // already set above, so we call markConversationSeen explicitly to
-            // keep both the local flag and the daemon's server-side state in sync.
+            // keep both the local flag and the assistant's server-side state in sync.
             conversationManager.markConversationSeen(conversationId: conversation.id)
             // Set pending anchor message so the message list scrolls to the
             // relevant notification message when the view appears.
@@ -182,7 +182,7 @@ extension AppDelegate {
         let proxy = HostCuSessionProxy(task: taskDescription, conversationId: conversationId)
         proxy.state = .thinking(step: request.stepNumber, maxSteps: 50)
 
-        // Wire cancel to abort the main conversation session on the daemon
+        // Wire cancel to abort the main conversation session on the assistant
         proxy.onCancel = { [weak self] in
             guard let self else { return }
             Task {
