@@ -848,8 +848,18 @@ struct MainWindowView: View {
                 autoDismissDelay: 8
             )
         case .rolledBack(_, let to):
+            let verb: String = {
+                let assistants = LockfileAssistant.loadAll()
+                let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                if let id = connectedId,
+                   let assistant = assistants.first(where: { $0.assistantId == id }),
+                   assistant.isManaged {
+                    return "downgraded"
+                }
+                return "rolled back"
+            }()
             windowState.showToast(
-                message: "Update failed — rolled back to \(to)",
+                message: "Update failed — \(verb) to \(to)",
                 style: .warning,
                 autoDismissDelay: 10
             )
