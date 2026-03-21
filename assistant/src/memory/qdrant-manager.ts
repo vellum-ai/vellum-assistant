@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -95,13 +96,15 @@ export class QdrantManager {
       await this.installBinary(binaryPath);
     }
 
+    const spawnPath = this.ensureVellumSymlink(binaryPath);
+
     log.info(
-      { binaryPath, storagePath: this.storagePath, port: this.port },
+      { binaryPath: spawnPath, storagePath: this.storagePath, port: this.port },
       "Starting Qdrant",
     );
 
     const proc = Bun.spawn({
-      cmd: [binaryPath],
+      cmd: [spawnPath],
       env: {
         ...process.env,
         QDRANT__SERVICE__HOST: this.host,
@@ -349,5 +352,23 @@ export class QdrantManager {
         // Ignore cleanup errors
       }
     }
+  }
+
+  /**
+   * Ensures a `vellum-qdrant` symlink exists next to the real binary so that
+   * `lsof` reports "vellum-qdrant" in the COMMAND column, making the process
+   * discoverable by tools that scan for "vellum" in process names.
+   */
+  private ensureVellumSymlink(binaryPath: string): string {
+    const symlinkPath = join(dirname(binaryPath), "vellum-qdrant");
+    if (!existsSync(symlinkPath)) {
+      try {
+        symlinkSync(binaryPath, symlinkPath);
+      } catch {
+        // Fall back to the real binary if symlink creation fails
+        return binaryPath;
+      }
+    }
+    return symlinkPath;
   }
 }
