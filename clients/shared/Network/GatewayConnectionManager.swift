@@ -193,8 +193,10 @@ public final class GatewayConnectionManager {
 
     private func performHealthCheck() async throws {
         do {
+            let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+            let healthPath = isManaged ? "assistants/{assistantId}/health" : "health"
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: healthPath,
                 timeout: 10
             )
 
