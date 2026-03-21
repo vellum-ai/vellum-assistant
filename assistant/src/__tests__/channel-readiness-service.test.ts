@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockTwilioPhoneNumber: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
@@ -51,7 +51,6 @@ mock.module("../runtime/channel-invite-transports/whatsapp.js", () => ({
 import type { ChannelId } from "../channels/types.js";
 import {
   ChannelReadinessService,
-  createReadinessService,
   REMOTE_TTL_MS,
 } from "../runtime/channel-readiness-service.js";
 import type {
