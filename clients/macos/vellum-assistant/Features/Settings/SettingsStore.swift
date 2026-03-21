@@ -1076,18 +1076,18 @@ public final class SettingsStore: ObservableObject {
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/{assistantId}/secrets", body: bodyData)
         }
     }
 
     /// Sync an API key to the daemon with server-side validation.
     /// Returns a result indicating success or a validation error message.
     private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else {
             return (false, "No connected assistant. Please restart the app.", true)
         }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
@@ -1095,7 +1095,7 @@ public final class SettingsStore: ObservableObject {
             return (false, "Failed to encode request.", false)
         }
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/secrets", body: bodyData)
             if response.isSuccess {
                 return (true, nil, false)
             }
@@ -1170,22 +1170,22 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return false }
         let body: [String: String] = ["type": "api_key", "name": provider]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/{assistantId}/secrets", body: bodyData)
         }
         return true
     }
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return }
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/{assistantId}/secrets", body: bodyData)
         }
     }
 
@@ -1193,11 +1193,11 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return false }
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/{assistantId}/secrets", body: bodyData)
         }
         return true
     }
@@ -1230,11 +1230,11 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return }
         Task {
             do {
                 let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/{assistantId}/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.statusCode == 200, let config {
@@ -1267,7 +1267,7 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1279,7 +1279,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/{assistantId}/integrations/slack/channel/config",
                     body: bodyData,
                     timeout: 10
                 )
@@ -1319,14 +1319,14 @@ public final class SettingsStore: ObservableObject {
     func clearSlackChannelConfig() {
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else {
             slackChannelSaveInProgress = false
             return
         }
         Task {
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/{assistantId}/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.isSuccess {
@@ -1363,12 +1363,12 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else {
             twilioError = "No connected assistant"
             return
         }
 
-        let gatewayPath = "assistants/\(assistantId)/\(path)"
+        let gatewayPath = "assistants/{assistantId}/\(path)"
         let bodyData: Data?
         if let body {
             bodyData = try? JSONSerialization.data(withJSONObject: body)
@@ -2099,14 +2099,14 @@ public final class SettingsStore: ObservableObject {
     /// Fetches provider routing sources from the daemon debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else {
             providerRoutingSources = [:]
             return
         }
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/debug",
+                    path: "assistants/{assistantId}/debug",
                     timeout: 10
                 )
                 guard response.isSuccess else { return }

@@ -454,7 +454,7 @@ struct SettingsDeveloperTab: View {
     private func fetchHealthz() async {
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(selectedAssistantId)/healthz",
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
@@ -698,7 +698,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "assistants/restart")
+        _ = try? await GatewayHTTPClient.post(path: "assistants/{assistantId}/restart")
     }
 
     private func performLocalRestart() async {

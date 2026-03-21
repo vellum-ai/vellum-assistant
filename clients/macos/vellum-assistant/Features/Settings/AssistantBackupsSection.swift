@@ -287,7 +287,7 @@ struct AssistantBackupsSection: View {
 
         do {
             let (decoded, _): (ManagedBackupsResponse?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(assistant.assistantId)/backups"
+                path: "assistants/{assistantId}/backups"
             )
             guard let decoded else {
                 errorMessage = "Failed to load backups"
@@ -307,7 +307,7 @@ struct AssistantBackupsSection: View {
         defer { isCreatingBackup = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/\(assistant.assistantId)/backups")
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/backups")
             if response.isSuccess {
                 successMessage = "Backup created successfully"
                 await loadManagedBackupsQuietly()
@@ -333,7 +333,7 @@ struct AssistantBackupsSection: View {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/\(assistant.assistantId)/backups/\(backup.snapshotName)/restore"
+                path: "assistants/{assistantId}/backups/\(backup.snapshotName)/restore"
             )
             if response.isSuccess {
                 successMessage = "Restore initiated. The assistant may be briefly unavailable."

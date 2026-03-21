@@ -349,7 +349,7 @@ struct OnboardingFlowView: View {
         while CFAbsoluteTimeGetCurrent() - start < timeout {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/healthz",
+                    path: "assistants/{assistantId}/healthz",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {

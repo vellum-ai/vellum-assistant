@@ -5,8 +5,8 @@ import Foundation
 /// Consolidates URL construction, auth headers, org-id injection, and
 /// request execution so callers can simply write:
 ///
-///     let response = try await GatewayHTTPClient.get(path: "assistants/\(id)/healthz")
-///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+///     let response = try await GatewayHTTPClient.get(path: "assistants/{assistantId}/healthz")
+///     let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/upgrade")
 @MainActor
 public enum GatewayHTTPClient {
 
@@ -38,7 +38,7 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated GET request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/healthz"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/healthz"`).
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
@@ -54,7 +54,7 @@ public enum GatewayHTTPClient {
     /// inspect status codes or error bodies alongside the typed result.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/usage/totals"`).
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
@@ -81,7 +81,7 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated POST request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/upgrade"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/upgrade"`).
     ///   - body: Optional HTTP body data.
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
@@ -172,7 +172,7 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/secrets"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/secrets"`).
     ///   - body: Optional HTTP body data.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.

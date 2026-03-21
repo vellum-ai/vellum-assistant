@@ -521,7 +521,7 @@ extension AppDelegate {
         for name in APIKeyManager.allSyncableProviders {
             guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
             let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/{assistantId}/secrets", json: body, timeout: 5)
         }
 
         log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")

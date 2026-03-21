@@ -280,7 +280,7 @@ struct AboutVellumView: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(selectedAssistantId)/healthz",
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
