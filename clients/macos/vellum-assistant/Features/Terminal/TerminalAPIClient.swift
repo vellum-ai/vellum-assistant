@@ -12,12 +12,18 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 final class TerminalAPIClient {
 
+    private let assistantId: String
+
+    init(assistantId: String) {
+        self.assistantId = assistantId
+    }
+
     // MARK: - Session Lifecycle
 
     /// Creates a new terminal session and returns the session ID.
     func createSession() async throws -> String {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/terminal/sessions",
+            path: "assistants/\(assistantId)/terminal/sessions",
             timeout: 30
         )
         guard response.isSuccess else {
@@ -37,7 +43,7 @@ final class TerminalAPIClient {
     /// Destroys an existing terminal session. Errors are swallowed (best-effort).
     func destroySession(sessionId: String) async {
         _ = try? await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/terminal/sessions/\(sessionId)",
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)",
             timeout: 10
         )
     }
@@ -48,7 +54,7 @@ final class TerminalAPIClient {
     func sendInput(sessionId: String, data: String) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["data": data])
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/terminal/sessions/\(sessionId)/input",
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/input",
             body: body,
             timeout: 10
         )
@@ -61,7 +67,7 @@ final class TerminalAPIClient {
     func resize(sessionId: String, cols: Int, rows: Int) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["cols": cols, "rows": rows] as [String: Any])
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/terminal/sessions/\(sessionId)/resize",
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/resize",
             body: body,
             timeout: 10
         )
@@ -82,11 +88,12 @@ final class TerminalAPIClient {
     ) -> (stream: AsyncThrowingStream<TerminalOutputEvent, Error>, cancel: () -> Void) {
         let task = UncheckedSendableBox<Task<Void, Never>?>(nil)
 
+        let assistantId = self.assistantId
         let stream = AsyncThrowingStream<TerminalOutputEvent, Error> { continuation in
             let sseTask = Task { @MainActor in
                 do {
                     let (bytes, urlResponse) = try await GatewayHTTPClient.stream(
-                        path: "assistants/{assistantId}/terminal/sessions/\(sessionId)/events",
+                        path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/events",
                         timeout: .infinity
                     )
 

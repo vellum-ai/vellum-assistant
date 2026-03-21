@@ -24,7 +24,7 @@ final class SSHTerminalWindow {
             return
         }
 
-        let apiClient = TerminalAPIClient()
+        let apiClient = TerminalAPIClient(assistantId: assistant.assistantId)
         let manager = TerminalSessionManager(apiClient: apiClient)
         self.sessionManager = manager
 

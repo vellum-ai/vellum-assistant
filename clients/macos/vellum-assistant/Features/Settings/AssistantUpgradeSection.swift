@@ -423,7 +423,7 @@ struct AssistantUpgradeSection: View {
         do {
             let version = selectedVersion ?? latestRelease?.version
             let body: [String: String] = version.map { ["version": $0] } ?? [:]
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/upgrade", json: body)
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
             if response.isSuccess {
                 successMessage = isRollback
                     ? "Rollback initiated. The assistant may be briefly unavailable."

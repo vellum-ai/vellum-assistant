@@ -46,7 +46,7 @@ public enum HealthCheckClient {
         if assistant.isRemote {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/healthz",
+                    path: "assistants/\(assistant.assistantId)/healthz",
                     timeout: timeout
                 )
                 return response.isSuccess
