@@ -244,19 +244,15 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // readPersistedFeatureFlags returns whatever is in the values object,
-    // but the route handler only uses boolean values from the defaults merge.
-    // The non-boolean "no" will be used as-is since readPersistedFeatureFlags
-    // doesn't filter types. The route just checks `persistedValue !== undefined`.
-    // So browser flag enabled will be set to "no" (truthy). This is expected
-    // behavior — the store enforces type safety at write time, not read time.
+    // readPersistedFeatureFlags filters out non-boolean values, so the
+    // invalid "no" string is dropped and the flag falls back to its
+    // registry default (true).
     const browserFlag = body.flags.find(
       (f: { key: string }) => f.key === "feature_flags.browser.enabled",
     );
     expect(browserFlag).toBeDefined();
-    // The persisted value is "no" which is truthy and !== undefined, so
-    // it will be used as the enabled value
-    expect(browserFlag.enabled).toBe("no");
+    expect(browserFlag.enabled).toBe(true);
+    expect(browserFlag.defaultEnabled).toBe(true);
   });
 });
 

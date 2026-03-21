@@ -72,12 +72,19 @@ export function readPersistedFeatureFlags(): Record<string, boolean> {
       return cachedValues;
     }
 
-    cachedValues =
+    if (
       data.values &&
       typeof data.values === "object" &&
       !Array.isArray(data.values)
-        ? { ...data.values }
-        : {};
+    ) {
+      const filtered: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(data.values)) {
+        if (typeof v === "boolean") filtered[k] = v;
+      }
+      cachedValues = filtered;
+    } else {
+      cachedValues = {};
+    }
     return cachedValues;
   } catch (err) {
     log.error({ err }, "Failed to load feature flag store");
