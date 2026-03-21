@@ -311,22 +311,11 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - Version Compatibility
 
-    private func parseMajorMinor(_ version: String) -> (Int, Int)? {
-        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
-        let components = cleaned.split(separator: ".").compactMap { Int($0) }
-        guard components.count >= 2 else { return nil }
-        return (components[0], components[1])
-    }
-
     func checkVersionCompatibility(assistantVersion: String) {
-        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
-            return
-        }
-        guard let (daemonMajor, daemonMinor) = parseMajorMinor(assistantVersion),
-              let (clientMajor, clientMinor) = parseMajorMinor(clientVersion) else {
-            return
-        }
-        let mismatch = daemonMajor != clientMajor || daemonMinor != clientMinor
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else { return }
+        guard let daemon = VersionCompat.parseMajorMinor(assistantVersion),
+              let client = VersionCompat.parseMajorMinor(clientVersion) else { return }
+        let mismatch = daemon.major != client.major || daemon.minor != client.minor
         if mismatch != versionMismatch {
             versionMismatch = mismatch
         }
