@@ -10,10 +10,6 @@ private let log = Logger(
 /// TCP ports. Written as a standalone JSON file inside the log export archive.
 enum PortDiagnostics {
 
-    /// Default port for the Qdrant vector database (not a Vellum process,
-    /// so it won't be discovered dynamically).
-    private static let defaultQdrantPort = 6333
-
     /// Writes a `port-diagnostics.json` file to `directory` containing
     /// listener info for every port the assistant stack may use.
     nonisolated static func write(to url: URL) {
@@ -96,16 +92,8 @@ enum PortDiagnostics {
     }
 
     /// Discovers all listening TCP ports owned by processes whose command
-    /// name contains "vellum", plus the static Qdrant default port.
+    /// name contains "vellum" (case-insensitive).
     private static func collectPorts() -> [(label: String, port: Int)] {
-        var ports = vellumListeningPorts()
-        ports.append(("qdrant (default)", defaultQdrantPort))
-        return ports
-    }
-
-    /// Runs `lsof` to find every listening TCP port whose process name
-    /// contains "vellum" (case-insensitive).
-    private static func vellumListeningPorts() -> [(label: String, port: Int)] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         process.arguments = ["-i", "TCP", "-sTCP:LISTEN", "-n", "-P"]
