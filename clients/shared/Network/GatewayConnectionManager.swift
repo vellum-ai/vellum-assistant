@@ -233,6 +233,11 @@ public final class GatewayConnectionManager: ObservableObject {
         currentModel = nil
     }
 
+    /// Clears the last update outcome after the UI has consumed it.
+    public func clearLastUpdateOutcome() {
+        lastUpdateOutcome = nil
+    }
+
     // MARK: - Health Check (via GatewayHTTPClient)
 
     private func performHealthCheck() async throws {

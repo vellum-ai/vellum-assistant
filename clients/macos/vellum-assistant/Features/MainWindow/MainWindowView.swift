@@ -679,6 +679,11 @@ struct MainWindowView: View {
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
             }
+            .onReceive(connectionManager.$lastUpdateOutcome) { outcome in
+                guard let outcome else { return }
+                handleUpdateOutcome(outcome)
+                connectionManager.clearLastUpdateOutcome()
+            }
             .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: isAuthenticated)
             }
@@ -799,6 +804,43 @@ struct MainWindowView: View {
             withAnimation(VAnimation.standard) {
                 showDaemonLoading = false
             }
+        }
+    }
+
+    private func handleUpdateOutcome(_ outcome: UpdateOutcome) {
+        switch outcome.result {
+        case .succeeded(let version):
+            windowState.showToast(
+                message: "Assistant updated to \(version)",
+                style: .success,
+                autoDismissDelay: 8
+            )
+        case .rolledBack(_, let to):
+            windowState.showToast(
+                message: "Update failed — rolled back to \(to)",
+                style: .warning,
+                autoDismissDelay: 10
+            )
+        case .timedOut:
+            windowState.showToast(
+                message: "Update may not have completed. Check Settings for current version.",
+                style: .warning,
+                primaryAction: VToastAction(label: "Open Settings") {
+                    settingsStore.pendingSettingsTab = .general
+                    windowState.selection = .panel(.settings)
+                },
+                autoDismissDelay: 15
+            )
+        case .failed:
+            windowState.showToast(
+                message: "Update failed. Check Settings for details.",
+                style: .error,
+                primaryAction: VToastAction(label: "Open Settings") {
+                    settingsStore.pendingSettingsTab = .general
+                    windowState.selection = .panel(.settings)
+                },
+                autoDismissDelay: 15
+            )
         }
     }
 
