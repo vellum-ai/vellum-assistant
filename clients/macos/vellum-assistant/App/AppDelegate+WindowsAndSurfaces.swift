@@ -52,11 +52,6 @@ extension NSApplication {
 
 extension AppDelegate {
 
-    func currentUserAppsDirectory() -> URL {
-        let env = LockfileAssistant.connectedInstanceDir().map { ["BASE_DATA_DIR": $0] }
-        return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-    }
-
     func setupSurfaceManager() {
         // Surface event handling is now in startDaemonEventSubscription() via subscribe().
 
@@ -106,7 +101,6 @@ extension AppDelegate {
                 object: nil,
                 userInfo: [
                     "surfaceMessage": msg,
-                    "userAppsDirectoryPath": self.currentUserAppsDirectory().path
                 ]
             )
         }

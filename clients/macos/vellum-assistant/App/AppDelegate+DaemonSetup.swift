@@ -383,7 +383,6 @@ extension AppDelegate {
                 // Surface management (previously in setupSurfaceManager)
                 case .uiSurfaceShow(let msg):
                     if msg.display != "inline" {
-                        self.surfaceManager.userAppsDirectory = self.currentUserAppsDirectory()
                         self.surfaceManager.showSurface(msg)
                     }
                 case .uiSurfaceUpdate(let msg):

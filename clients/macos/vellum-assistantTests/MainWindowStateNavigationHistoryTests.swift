@@ -78,16 +78,14 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.selection)
     }
 
-    func testCloseDynamicPanelClearsCapturedUserAppsDirectory() {
+    func testCloseDynamicPanelClearsState() {
         let state = MainWindowState(hasAPIKey: false)
         state.selection = .app("myapp")
-        state.activeDynamicUserAppsDirectory = URL(fileURLWithPath: "/tmp/apps", isDirectory: true)
 
         state.closeDynamicPanel()
 
         XCTAssertNil(state.activeDynamicSurface)
         XCTAssertNil(state.activeDynamicParsedSurface)
-        XCTAssertNil(state.activeDynamicUserAppsDirectory)
         XCTAssertNil(state.selection)
     }
 }

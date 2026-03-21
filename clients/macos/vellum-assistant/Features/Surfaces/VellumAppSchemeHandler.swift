@@ -1,37 +1,25 @@
 import Foundation
 @preconcurrency import WebKit
-import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VellumAppScheme")
 
 /// Custom URL scheme handler for `vellumapp://{uuid}/path` URLs.
-/// Maps requests to files in the sandbox directory for shared apps.
+/// Maps requests to files in the bundled shared-apps directory.
+/// User-created apps are served from the remote assistant runtime
+/// via the gateway and loaded inline; they never hit this handler.
 final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// The scheme this handler manages.
     static let scheme = "vellumapp"
 
-    /// Base directory for shared app content.
+    /// Base directory for shared (bundled) app content.
     private let baseDirectory: URL
-    private let userAppsDirectory: URL
-
-    /// Base directory for user-created app content.
-    static var userAppsDirectory: URL {
-        resolveUserAppsDirectory()
-    }
-
-    static func resolveUserAppsDirectory(environment: [String: String]? = nil) -> URL {
-        URL(fileURLWithPath: resolveVellumDir(environment: environment), isDirectory: true)
-            .appendingPathComponent("workspace/data/apps", isDirectory: true)
-    }
 
     init(
-        baseDirectory: URL = BundleSandbox.sharedAppsDirectory,
-        userAppsDirectory: URL = VellumAppSchemeHandler.userAppsDirectory
+        baseDirectory: URL = BundleSandbox.sharedAppsDirectory
     ) {
         self.baseDirectory = baseDirectory
-        self.userAppsDirectory = userAppsDirectory
     }
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
@@ -48,9 +36,8 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
         let uuid = host
         let resourcePath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
 
-        // Resolve file path — try user apps directory first, then shared apps.
+        // Resolve file path from the bundled shared-apps directory.
         let candidateDirs = [
-            userAppsDirectory.appendingPathComponent(uuid),
             baseDirectory.appendingPathComponent(uuid)
         ]
 

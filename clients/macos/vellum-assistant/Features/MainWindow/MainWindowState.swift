@@ -63,7 +63,6 @@ public final class MainWindowState: ObservableObject {
     @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
-    @Published var activeDynamicUserAppsDirectory: URL?
     @Published var hasAPIKey: Bool
     @Published var needsInferenceApiKey: Bool = false
     @Published var workspaceComposerExpanded = false
@@ -274,7 +273,6 @@ public final class MainWindowState: ObservableObject {
     func clearDynamicWorkspaceState() {
         activeDynamicSurface = nil
         activeDynamicParsedSurface = nil
-        activeDynamicUserAppsDirectory = nil
     }
 
     /// Reset all dynamic workspace state. Callers should also reset

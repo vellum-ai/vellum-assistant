@@ -92,7 +92,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let data: DynamicPageSurfaceData
     let onAction: (String, Any?) -> Void
     let appId: String?
-    let userAppsDirectory: URL?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((Coordinator) -> Void)?
     /// Called when the user navigates to a different page in a multi-page app.
@@ -113,7 +112,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         data: DynamicPageSurfaceData,
         onAction: @escaping (String, Any?) -> Void,
         appId: String? = nil,
-        userAppsDirectory: URL? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
         onPageChanged: ((String) -> Void)? = nil,
@@ -128,7 +126,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.data = data
         self.onAction = onAction
         self.appId = appId
-        self.userAppsDirectory = userAppsDirectory
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
         self.onPageChanged = onPageChanged
@@ -322,9 +319,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(
-            VellumAppSchemeHandler(
-                userAppsDirectory: userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
-            ),
+            VellumAppSchemeHandler(),
             forURLScheme: VellumAppSchemeHandler.scheme
         )
         configuration.userContentController = contentController
@@ -440,55 +435,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
         if let appId = appId {
-            // App-backed surface — serve from disk via scheme handler.
-            // Use dirName for filesystem paths (may differ from appId/UUID).
-            let localDir = data.dirName ?? appId
-            // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
-            let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
-            let appDir = appsDirectory.appendingPathComponent(localDir)
-            let appDirExists = FileManager.default.fileExists(atPath: appDir.path)
-
-            if !appDirExists {
-                // App directory not on host (e.g. Docker instance) — load
-                // the HTML returned by the open API inline. Use the same
-                // https:// origin that updateNSView uses so localStorage
-                // persists across HTML updates and relative assets don't
-                // try to load via the scheme handler.
-                let origin = "https://\(appId).vellum.local/"
-                context.coordinator.isInlineFallback = true
-                webView.loadHTMLString(data.html, baseURL: URL(string: origin))
-            } else {
-                let distIndex = appDir.appendingPathComponent("dist/index.html")
-                let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
-
-                if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
-                    // Multifile app whose dist/ hasn't been compiled yet — show a
-                    // "building" placeholder that auto-retries by navigating to the
-                    // scheme URL (not reload, which would just re-render this inline HTML).
-                    let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
-                    let origin = "vellumapp://\(localDir)/"
-                    let buildingHTML = """
-                    <!DOCTYPE html><html><head><meta charset="UTF-8">
-                    <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
-                    font-family:system-ui;color:#666;background:#fafafa}
-                    .c{text-align:center}.spin{animation:r 1s linear infinite;font-size:24px;display:inline-block}
-                    @keyframes r{to{transform:rotate(360deg)}}
-                    button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
-                    background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
-                    </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
-                    <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
-                    <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
-                    """
-                    context.coordinator.isShowingBuildPlaceholder = true
-                    webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
-                } else {
-                    let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
-                        ? "dist/index.html"
-                        : "index.html"
-                    let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
-                    webView.load(URLRequest(url: schemeURL))
-                }
-            }
+            // User apps are served from the remote assistant runtime via
+            // the gateway and loaded inline; they never live on disk.
+            let origin = "https://\(appId).vellum.local/"
+            context.coordinator.isInlineFallback = true
+            webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         } else {
             // Ephemeral surface — inline HTML
             let origin = "https://surface.vellum.local/"
@@ -553,53 +504,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onSnapshotCaptured = onSnapshotCaptured
 
 
-        // Recompute isInlineFallback: if the app directory has appeared since the
-        // initial makeNSView fallback, switch back to disk-backed reloads.
-        if context.coordinator.isInlineFallback, let appId = appId {
-            let localDir = data.dirName ?? appId
-            let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
-            let appDir = appsDirectory.appendingPathComponent(localDir)
-            if FileManager.default.fileExists(atPath: appDir.path) {
-                context.coordinator.isInlineFallback = false
-                context.coordinator.hasCapturedSnapshot = false
-                context.coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
-
-                // Reload from disk so the web view picks up the real app files.
-                let distIndex = appDir.appendingPathComponent("dist/index.html")
-                let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
-
-                if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
-                    // Multifile app whose dist/ hasn't been compiled yet — show a
-                    // "building" placeholder that auto-retries by navigating to the
-                    // scheme URL (not reload, which would just re-render this inline HTML).
-                    let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
-                    let origin = "vellumapp://\(localDir)/"
-                    let buildingHTML = """
-                    <!DOCTYPE html><html><head><meta charset="UTF-8">
-                    <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
-                    font-family:system-ui;color:#666;background:#fafafa}
-                    .c{text-align:center}.spin{animation:r 1s linear infinite;font-size:24px;display:inline-block}
-                    @keyframes r{to{transform:rotate(360deg)}}
-                    button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
-                    background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
-                    </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
-                    <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
-                    <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
-                    """
-                    context.coordinator.isShowingBuildPlaceholder = true
-                    webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
-                } else {
-                    let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
-                        ? "dist/index.html"
-                        : "index.html"
-                    let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
-                    webView.load(URLRequest(url: schemeURL))
-                }
-                return
-            }
-        }
-
-        // For file-based apps, reload on generation change (picks up CSS/JS/HTML edits)
+        // For app surfaces, reload on generation change (picks up updates from the gateway)
         if let gen = data.reloadGeneration, gen != context.coordinator.lastReloadGeneration {
             context.coordinator.lastReloadGeneration = gen
             context.coordinator.hasCapturedSnapshot = false
