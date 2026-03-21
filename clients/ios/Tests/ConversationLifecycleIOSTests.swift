@@ -335,7 +335,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
-    func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() {
+    func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() async {
         let connectionManager = GatewayConnectionManager()
         let mockListClient = MockConversationListClient()
 
@@ -359,7 +359,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -413,7 +413,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
-    func testMarkingSeenConnectedConversationUnreadUpdatesLocalStateAndEmitsSignal() {
+    func testMarkingSeenConnectedConversationUnreadUpdatesLocalStateAndEmitsSignal() async {
         let connectionManager = GatewayConnectionManager()
         let mockUnreadClient = MockConversationUnreadClient()
 
@@ -437,7 +437,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.markConversationUnread(storedConversation)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -491,7 +491,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? false)
     }
 
-    func testMarkingSeenConnectedConversationUnreadRollsBackWhenSendFails() {
+    func testMarkingSeenConnectedConversationUnreadRollsBackWhenSendFails() async {
         let connectionManager = GatewayConnectionManager()
         let mockUnreadClient = MockConversationUnreadClient()
         mockUnreadClient.shouldThrow = true
@@ -516,7 +516,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.markConversationUnread(storedConversation)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -554,7 +554,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
-    func testMarkingConversationWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
+    func testMarkingConversationWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() async {
         let connectionManager = GatewayConnectionManager()
         let mockUnreadClient = MockConversationUnreadClient()
 
@@ -586,7 +586,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         )))
 
         store.markConversationUnread(storedConversation)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -692,7 +692,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         )
     }
 
-    func testPinningConnectedConversationUpdatesLocalStateAndEmitsReorder() {
+    func testPinningConnectedConversationUpdatesLocalStateAndEmitsReorder() async {
         let connectionManager = GatewayConnectionManager()
         let mockListClient = MockConversationListClient()
 
@@ -721,7 +721,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.pinConversation(conversation)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == conversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -779,7 +779,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatedConversation.displayOrder, 1)
     }
 
-    func testUnpinningConnectedConversationRecompactsPinnedOrderAndEmitsReorder() {
+    func testUnpinningConnectedConversationRecompactsPinnedOrderAndEmitsReorder() async {
         let connectionManager = GatewayConnectionManager()
         let mockListClient = MockConversationListClient()
 
@@ -810,7 +810,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         }
 
         store.unpinConversation(conversation)
-        waitForAsyncMutation()
+        await waitForAsyncMutation()
 
         guard let firstConversation = store.conversations.first(where: { $0.conversationId == "connected-session-first" }),
               let secondConversation = store.conversations.first(where: { $0.conversationId == "connected-session-second" }) else {
@@ -843,12 +843,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertNil(store.conversations[0].displayOrder)
     }
 
-    private func waitForAsyncMutation() {
-        let expectation = XCTestExpectation(description: "async mutation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
+    private func waitForAsyncMutation() async {
+        try? await Task.sleep(nanoseconds: 150_000_000)
     }
     #endif
 }
