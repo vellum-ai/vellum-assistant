@@ -18,7 +18,7 @@ public protocol DaemonStatusProtocol: AnyObject {
 /// Observable status of the assistant daemon connection. Publishes connection state,
 /// daemon version, model info, and other status properties derived from SSE events.
 ///
-/// Pure state object — connection lifecycle is managed by `ConnectionManager`,
+/// Pure state object — connection lifecycle is managed by `GatewayConnectionManager`,
 /// SSE and message broadcast by `EventStreamClient`. This class wires the three
 /// together and reacts to events by updating `@Published` properties.
 @MainActor
@@ -92,7 +92,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     public let eventStreamClient: EventStreamClient
 
     /// Connection lifecycle manager (health checks, auto-wake, transport).
-    public let connectionManager: ConnectionManager
+    public let connectionManager: GatewayConnectionManager
 
     // MARK: - Forwarding accessors (backward compat)
 
@@ -135,7 +135,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     public init(config: DaemonConfig = .default) {
         let esc = EventStreamClient()
         self.eventStreamClient = esc
-        self.connectionManager = ConnectionManager(config: config, eventStreamClient: esc)
+        self.connectionManager = GatewayConnectionManager(config: config, eventStreamClient: esc)
 
         // Wire the pre-processor so state is updated before subscribers see messages
         esc.messagePreProcessor = { [weak self] message in
@@ -156,7 +156,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             #endif
         }
 
-        // Wire ConnectionManager callbacks to update DaemonStatus state.
+        // Wire GatewayConnectionManager callbacks to update DaemonStatus state.
         connectionManager.onConnectionStateChanged = { [weak self] connected in
             guard let self else { return }
             self.isConnected = connected
