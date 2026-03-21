@@ -115,7 +115,7 @@ enum PortDiagnostics {
         guard let output = String(data: data, encoding: .utf8) else { return [] }
 
         // lsof output columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-        // NAME for TCP looks like "*:7821 (LISTEN)" or "127.0.0.1:7830 (LISTEN)"
+        // NAME for TCP looks like "*:PORT (LISTEN)" or "127.0.0.1:PORT (LISTEN)"
         var results: [(label: String, port: Int)] = []
         var seen = Set<Int>()
 

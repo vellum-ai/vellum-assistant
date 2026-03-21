@@ -98,7 +98,7 @@ final class LockfileAssistantManagedTests: XCTestCase {
                 [
                     "assistantId": "local-id",
                     "cloud": "local",
-                    "runtimeUrl": "http://localhost:7821",
+                    "runtimeUrl": "http://localhost:9999",
                     "hatchedAt": "2024-01-01T00:00:00Z",
                 ] as [String: Any],
             ]
