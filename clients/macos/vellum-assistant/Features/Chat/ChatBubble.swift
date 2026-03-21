@@ -543,9 +543,9 @@ struct ChatBubble: View {
                 }
 
                 if !partitioned.audios.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(partitioned.audios) { attachment in
-                            fileAttachmentChip(attachment)
+                            InlineAudioAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
                         }
                     }
                 }
