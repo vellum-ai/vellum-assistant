@@ -14,6 +14,8 @@ private enum UpdateCheckResult {
 /// label, commit SHA, architecture, and an in-place "Check for Updates" button.
 @MainActor
 struct AboutVellumView: View {
+    var connectionManager: GatewayConnectionManager?
+
     @State private var healthz: DaemonHealthz?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
@@ -31,9 +33,15 @@ struct AboutVellumView: View {
             : .remote
     }
 
+    /// Resolved service group version — prefers the reactive connectionManager value,
+    /// falls back to the one-shot healthz fetch.
+    private var serviceVersion: String? {
+        connectionManager?.assistantVersion ?? healthz?.version
+    }
+
     /// Whether the client and service group versions match.
     private var versionsMatch: Bool {
-        guard let sgVersion = healthz?.version, !sgVersion.isEmpty,
+        guard let sgVersion = serviceVersion, !sgVersion.isEmpty,
               let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               let sgParsed = VersionCompat.parse(sgVersion),
               let appParsed = VersionCompat.parse(appVersion) else {
@@ -121,7 +129,7 @@ struct AboutVellumView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
 
-            if let version = healthz?.version, !version.isEmpty {
+            if let version = serviceVersion, !version.isEmpty {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentDefault)

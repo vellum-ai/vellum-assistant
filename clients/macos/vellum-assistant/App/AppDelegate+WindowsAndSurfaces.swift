@@ -592,7 +592,7 @@ extension AppDelegate {
             return
         }
 
-        let aboutView = AboutVellumView()
+        let aboutView = AboutVellumView(connectionManager: connectionManager)
         let hostingController = NSHostingController(rootView: aboutView)
 
         let window = NSWindow(
