@@ -321,12 +321,26 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
 
+    // MARK: - Version Comparison
+
+    /// Compare two version strings using parsed semver components so that
+    /// prefix differences (e.g. "v1.2.3" vs "1.2.3") are ignored.
+    private func versionsMatch(_ a: String, _ b: String) -> Bool {
+        guard let parsedA = VersionCompat.parse(a),
+              let parsedB = VersionCompat.parse(b) else {
+            return a == b
+        }
+        return parsedA.major == parsedB.major
+            && parsedA.minor == parsedB.minor
+            && parsedA.patch == parsedB.patch
+    }
+
     // MARK: - Version Change Handling
 
     private func handleDaemonVersionChanged(_ newVersion: String) {
         checkVersionCompatibility(assistantVersion: newVersion)
         if isUpdateInProgress {
-            if newVersion == updateTargetVersion {
+            if let target = updateTargetVersion, versionsMatch(newVersion, target) {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
                 lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: newVersion), timestamp: Date())
             } else {
@@ -364,7 +378,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 assistantVersion = version
                 checkVersionCompatibility(assistantVersion: version)
                 if self.isUpdateInProgress {
-                    if version == self.updateTargetVersion {
+                    if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
                         self.lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: version), timestamp: Date())
                     } else {

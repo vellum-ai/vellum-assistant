@@ -5,6 +5,7 @@ import VellumAssistantShared
 private enum UpdateCheckResult {
     case upToDate
     case updateAvailable(version: String)
+    case notAvailable(String)
     case error
 }
 
@@ -179,6 +180,14 @@ struct AboutVellumView: View {
                         AppDelegate.shared?.showSettingsTab("General")
                     }
                 }
+            case .notAvailable(let message):
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(message)
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             case .error:
                 Text("Could not check for updates.")
                     .font(VFont.caption)
@@ -271,8 +280,8 @@ struct AboutVellumView: View {
             }
 
         case .remote:
-            // Remote: no automatic update mechanism
-            break
+            updateCheckResult = .notAvailable("Automatic updates are not available for remote deployments.")
+            isCheckingForUpdates = false
         }
     }
 
