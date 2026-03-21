@@ -334,7 +334,8 @@ public final class GatewayConnectionManager: ObservableObject {
                 lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: newVersion), timestamp: Date())
             }
             isUpdateInProgress = false
-            updateTargetVersion = nil
+            // Preserve updateTargetVersion — only the authoritative
+            // .serviceGroupUpdateComplete SSE event or timeout clears it.
             updateExpiresAt = nil
             eventStreamClient.resetSSEReconnectDelay()
         }
@@ -371,7 +372,8 @@ public final class GatewayConnectionManager: ObservableObject {
                         self.lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: self.updateTargetVersion ?? "unknown", to: version), timestamp: Date())
                     }
                     self.isUpdateInProgress = false
-                    self.updateTargetVersion = nil
+                    // Preserve updateTargetVersion — only the authoritative
+                    // .serviceGroupUpdateComplete SSE event or timeout clears it.
                     self.updateExpiresAt = nil
                     self.eventStreamClient.resetSSEReconnectDelay()
                 }

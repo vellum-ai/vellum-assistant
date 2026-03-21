@@ -18,7 +18,9 @@ public enum VersionCompat {
         let withoutBuild = withoutPreRelease.split(separator: "+", maxSplits: 1).first.map(String.init) ?? withoutPreRelease
         let segments = withoutBuild.split(separator: ".").map(String.init)
         let components = segments.compactMap { Int($0) }
-        guard components.count >= 2, components.count <= 3 else { return nil }
+        // Fail-fast if any segment was non-numeric (compactMap silently drops them)
+        guard components.count == segments.count,
+              components.count >= 2, components.count <= 3 else { return nil }
         return ParsedVersion(
             major: components[0],
             minor: components[1],

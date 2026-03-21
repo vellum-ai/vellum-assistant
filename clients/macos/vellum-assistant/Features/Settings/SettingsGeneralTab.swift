@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -19,8 +20,18 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationLabel: String = ""
     @State private var sparkleUpdateAvailable: Bool = false
     @State private var sparkleUpdateVersion: String?
+    @State private var isServiceGroupUpdateInProgress = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+
+    /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
+    /// Falls back to a single `false` emission when connectionManager is nil.
+    private var updateInProgressPublisher: AnyPublisher<Bool, Never> {
+        if let cm = connectionManager {
+            return cm.$isUpdateInProgress.eraseToAnyPublisher()
+        }
+        return Just(false).eraseToAnyPublisher()
+    }
 
     /// Derive the topology for the currently selected assistant.
     private var topology: AssistantTopology {
@@ -44,7 +55,7 @@ struct SettingsGeneralTab: View {
                     dockerOperationLabel: $dockerOperationLabel,
                     sparkleUpdateAvailable: sparkleUpdateAvailable,
                     sparkleUpdateVersion: sparkleUpdateVersion,
-                    isServiceGroupUpdateInProgress: connectionManager?.isUpdateInProgress ?? false
+                    isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
@@ -61,6 +72,9 @@ struct SettingsGeneralTab: View {
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
             Task { await fetchHealthz() }
+        }
+        .onReceive(updateInProgressPublisher) { inProgress in
+            isServiceGroupUpdateInProgress = inProgress
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false

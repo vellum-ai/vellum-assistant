@@ -479,11 +479,13 @@ struct MainWindowView: View {
                         ? "Restart to update"
                         : (connectionManager.versionMismatch ? "Compatibility update" : "Update"),
                     leftIcon: VIcon.arrowUp.rawValue,
-                    style: connectionManager.versionMismatch ? .outlined : .primary,
+                    style: updateManager.isDeferredUpdateReady ? .primary : (connectionManager.versionMismatch ? .outlined : .primary),
                     size: .pill,
-                    tooltip: connectionManager.versionMismatch
-                        ? "Your assistant version doesn't match this app"
-                        : (updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available")
+                    tooltip: updateManager.isDeferredUpdateReady
+                        ? "Restart to install the latest version"
+                        : (connectionManager.versionMismatch
+                            ? "Your assistant version doesn't match this app"
+                            : "A new version is available")
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
