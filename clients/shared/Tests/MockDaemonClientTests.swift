@@ -40,14 +40,14 @@ final class MockDaemonClientTests: XCTestCase {
 
     func testSubscribeReturnsStream() {
         let client = MockDaemonClient()
-        let stream = client.subscribe()
+        let stream = client.eventStreamClient.subscribe()
         // Simply verify subscribe() returns without crashing; stream is non-nil (value type)
         _ = stream
     }
 
     func testEmitDeliversToSubscriber() async {
         let client = MockDaemonClient()
-        let stream = client.subscribe()
+        let stream = client.eventStreamClient.subscribe()
 
         // Collect one message from the stream
         let expectation = XCTestExpectation(description: "Subscriber receives emitted message")
@@ -81,8 +81,8 @@ final class MockDaemonClientTests: XCTestCase {
     func testEmitDeliversToMultipleSubscribers() async {
         let client = MockDaemonClient()
 
-        let stream1 = client.subscribe()
-        let stream2 = client.subscribe()
+        let stream1 = client.eventStreamClient.subscribe()
+        let stream2 = client.eventStreamClient.subscribe()
 
         let exp1 = XCTestExpectation(description: "Subscriber 1 receives message")
         let exp2 = XCTestExpectation(description: "Subscriber 2 receives message")
