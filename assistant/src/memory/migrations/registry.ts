@@ -241,6 +241,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename checkpoint keys from thread_starters: to conversation_starters: prefix so renamed code paths find existing generation state",
   },
+  {
+    key: "migration_backfill_audio_attachment_mime_types_v1",
+    version: 36,
+    description:
+      "Backfill correct MIME types for audio attachments stored as application/octet-stream due to missing extension map entries",
+  },
 ];
 
 export interface MigrationValidationResult {
