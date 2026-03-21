@@ -31,11 +31,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mock security check to always pass
-mock.module("../security/secret-ingress.js", () => ({
-  checkIngressForSecrets: () => ({ blocked: false }),
-}));
-
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";

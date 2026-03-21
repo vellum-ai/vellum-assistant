@@ -20,9 +20,6 @@ export enum ErrorCode {
   // WASM integrity check failures
   INTEGRITY_ERROR = "INTEGRITY_ERROR",
 
-  // Secret detected in inbound content
-  INGRESS_BLOCKED = "INGRESS_BLOCKED",
-
   // Internal/unexpected errors
   INTERNAL_ERROR = "INTERNAL_ERROR",
 }
@@ -178,12 +175,3 @@ export class IntegrityError extends AssistantError {
   }
 }
 
-export class IngressBlockedError extends AssistantError {
-  constructor(
-    message: string,
-    public readonly detectedTypes: string[],
-  ) {
-    super(message, ErrorCode.INGRESS_BLOCKED);
-    this.name = "IngressBlockedError";
-  }
-}

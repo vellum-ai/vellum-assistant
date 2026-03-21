@@ -56,7 +56,7 @@ import {
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
-import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -637,7 +637,6 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
-    bypassSecretCheck?: boolean;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -701,29 +700,6 @@ export async function handleSendMessage(
         "BAD_REQUEST",
         `Attachment IDs not found: ${missing.join(", ")}`,
         400,
-      );
-    }
-  }
-
-  // Block inbound messages containing secrets before they reach the model.
-  // This mirrors the legacy handleUserMessage behavior: secrets are
-  // detected and the message is rejected with a safe notice. The client
-  // should prompt the user to use the secure credential flow instead.
-  if (trimmedContent.length > 0 && body.bypassSecretCheck !== true) {
-    const ingressCheck = checkIngressForSecrets(trimmedContent);
-    if (ingressCheck.blocked) {
-      log.warn(
-        { detectedTypes: ingressCheck.detectedTypes },
-        "Blocked user message containing secrets (POST /v1/messages)",
-      );
-      return Response.json(
-        {
-          accepted: false,
-          error: "secret_blocked",
-          message: ingressCheck.userNotice,
-          detectedTypes: ingressCheck.detectedTypes,
-        },
-        { status: 422 },
       );
     }
   }

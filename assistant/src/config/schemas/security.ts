@@ -50,10 +50,6 @@ export const SecretDetectionConfigSchema = z
       .describe(
         "Whether to allow sending a detected secret once (with user confirmation) before redacting future occurrences",
       ),
-    blockIngress: z
-      .boolean({ error: "secretDetection.blockIngress must be a boolean" })
-      .default(true)
-      .describe("Whether to block secrets in incoming ingress messages"),
     customPatterns: z
       .array(CustomSecretPatternSchema)
       .optional()

@@ -106,7 +106,6 @@ The assistant can store and use credentials (API keys, tokens, passwords) withou
 
 - **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`, with an encrypted file fallback for Linux/headless environments or degraded Keychain sessions. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/workspace/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
-- **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). When `secretDetection.blockIngress` is `true` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead. The `secretDetection.action` setting (default: `redact`) separately controls how secrets in tool *output* are handled.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
 - **No plaintext read API**: There is no tool-layer function that returns a stored secret as plaintext. Secrets are only consumed by the broker for scoped tool execution.

@@ -139,44 +139,6 @@ describe("Invariant 1: secrets never enter LLM context", () => {
     }
   }
 
-  // PR 27 — secret ingress block scans inbound messages
-  test("user message containing secret is blocked from entering history", () => {
-    // Mock config to enable block mode
-    mock.module("../config/loader.js", () => ({
-      applyNestedDefaults: (config: unknown) => config,
-      getConfig: () => ({
-        ui: {},
-        secretDetection: {
-          enabled: true,
-          action: "block",
-          blockIngress: true,
-        },
-      }),
-      invalidateConfigCache: () => {},
-      loadConfig: () => ({
-        ui: {},
-        secretDetection: {
-          enabled: true,
-          action: "block",
-          blockIngress: true,
-        },
-      }),
-    }));
-
-    // Re-import to pick up the mock
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { checkIngressForSecrets } = require("../security/secret-ingress.js");
-
-    // Build a fake AWS key at runtime to avoid pre-commit hook
-    const fakeKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const result = checkIngressForSecrets(`My key is ${fakeKey}`);
-
-    expect(result.blocked).toBe(true);
-    expect(result.detectedTypes.length).toBeGreaterThan(0);
-    // User notice must not echo the secret
-    expect(result.userNotice).toBeDefined();
-    expect(result.userNotice).not.toContain(fakeKey);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -612,10 +574,6 @@ describe("One-time send override", () => {
 
   test("default secretDetection.action is redact", () => {
     expect(DEFAULT_CONFIG.secretDetection.action).toBe("redact");
-  });
-
-  test("default secretDetection.blockIngress is true", () => {
-    expect(DEFAULT_CONFIG.secretDetection.blockIngress).toBe(true);
   });
 });
 

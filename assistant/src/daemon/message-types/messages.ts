@@ -13,8 +13,6 @@ export interface UserMessage {
   activeSurfaceId?: string;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
-  /** When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway". */
-  bypassSecretCheck?: boolean;
   /** Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent. */
   channel?: ChannelId;
   /** Originating interface identifier (e.g. 'macos'). */

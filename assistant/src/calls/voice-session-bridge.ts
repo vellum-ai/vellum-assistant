@@ -20,9 +20,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   CALL_OPENING_MARKER,
@@ -241,15 +239,6 @@ export async function startVoiceTurn(
   if (!deps) {
     throw new Error(
       "Voice bridge not initialized — setVoiceBridgeDeps() was not called",
-    );
-  }
-
-  // Block inbound content that contains secrets
-  const ingressCheck = checkIngressForSecrets(opts.content);
-  if (ingressCheck.blocked) {
-    throw new IngressBlockedError(
-      ingressCheck.userNotice!,
-      ingressCheck.detectedTypes,
     );
   }
 

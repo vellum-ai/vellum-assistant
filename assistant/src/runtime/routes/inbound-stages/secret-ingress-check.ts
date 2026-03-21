@@ -1,12 +1,6 @@
 /**
- * Secret ingress check stage: persists the raw inbound payload, runs the
- * secret detection scan, and records a conversation-seen signal for
- * Telegram messages.
- *
- * The payload is stored before the scan so dead-lettered events can be
- * replayed. If the scan detects embedded secrets the stored payload is
- * cleared before the IngressBlockedError propagates, ensuring
- * secret-bearing content is never left on disk.
+ * Inbound payload persistence stage: persists the raw inbound payload and
+ * records a conversation-seen signal for Telegram messages.
  *
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
@@ -15,8 +9,6 @@ import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
 import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
-import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
-import { IngressBlockedError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -44,10 +36,7 @@ export interface SecretIngressCheckParams {
 }
 
 /**
- * Persist the raw payload, run the secret ingress scan, and record a
- * Telegram seen signal.
- *
- * Throws IngressBlockedError if the content contains secrets.
+ * Persist the raw payload and record a Telegram seen signal.
  */
 export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
   const {
@@ -68,9 +57,7 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
     canonicalAssistantId,
   } = params;
 
-  // Persist the raw payload first so dead-lettered events can always be
-  // replayed. If the ingress check later detects secrets we clear it
-  // before throwing, so secret-bearing content is never left on disk.
+  // Persist the raw payload so dead-lettered events can always be replayed.
   deliveryCrud.storePayload(eventId, {
     sourceChannel,
     externalChatId: conversationExternalId,
@@ -85,22 +72,6 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
     replyCallbackUrl,
     assistantId: canonicalAssistantId,
   });
-
-  const contentToCheck = content ?? "";
-  let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
-  try {
-    ingressCheck = checkIngressForSecrets(contentToCheck);
-  } catch (checkErr) {
-    deliveryCrud.clearPayload(eventId);
-    throw checkErr;
-  }
-  if (ingressCheck.blocked) {
-    deliveryCrud.clearPayload(eventId);
-    throw new IngressBlockedError(
-      ingressCheck.userNotice!,
-      ingressCheck.detectedTypes,
-    );
-  }
 
   // Record inferred seen signal for non-duplicate Telegram inbound messages
   if (sourceChannel === "telegram") {

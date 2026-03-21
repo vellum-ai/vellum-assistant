@@ -10,7 +10,6 @@ const mockConfig = {
     action: "block" as "redact" | "warn" | "block",
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
-    blockIngress: true,
   },
   timeouts: { permissionTimeoutSec: 300 },
 };
@@ -118,8 +117,6 @@ mock.module("../tools/credentials/policy-validate.js", () => ({
 
 // Import modules under test
 const { credentialStoreTool } = await import("../tools/credentials/vault.js");
-const { checkIngressForSecrets } =
-  await import("../security/secret-ingress.js");
 const { isToolAllowed } = await import("../tools/credentials/tool-policy.js");
 const { isDomainAllowed } =
   await import("../tools/credentials/domain-policy.js");
@@ -200,61 +197,6 @@ describe("E2E: secure store and list lifecycle", () => {
     );
     expect(result.isError).toBe(false);
     expect(storedKeys.has("credential/github/token")).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// E2E Scenario 2 — Secret-in-chat blocked and redirected
-// ---------------------------------------------------------------------------
-
-describe("E2E: secret ingress blocking", () => {
-  beforeEach(() => {
-    mockConfig.secretDetection.enabled = true;
-    mockConfig.secretDetection.action = "block";
-  });
-
-  test("blocks message containing AWS access key", () => {
-    const awsKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const check = checkIngressForSecrets(`Here is my key: ${awsKey}`);
-    expect(check.blocked).toBe(true);
-    expect(check.detectedTypes.length).toBeGreaterThan(0);
-    // Notice must never contain the actual secret
-    expect(check.userNotice).toBeDefined();
-    expect(check.userNotice).not.toContain(awsKey);
-  });
-
-  test("blocks message containing GitHub token", () => {
-    const ghToken = ["ghp_", "ABCDEFghijklMN01234567", "89abcdef"].join("");
-    const check = checkIngressForSecrets(`Use this token: ${ghToken}`);
-    expect(check.blocked).toBe(true);
-  });
-
-  test("allows normal text through", () => {
-    const check = checkIngressForSecrets("Please help me configure my project");
-    expect(check.blocked).toBe(false);
-    expect(check.detectedTypes).toEqual([]);
-  });
-
-  test("bypasses when detection is disabled", () => {
-    mockConfig.secretDetection.enabled = false;
-    const awsKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const check = checkIngressForSecrets(awsKey);
-    expect(check.blocked).toBe(false);
-  });
-
-  test("bypasses when blockIngress is false", () => {
-    mockConfig.secretDetection.blockIngress = false;
-    const awsKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const check = checkIngressForSecrets(awsKey);
-    expect(check.blocked).toBe(false);
-  });
-
-  test("still blocks when action is warn but blockIngress is true", () => {
-    mockConfig.secretDetection.action = "warn";
-    mockConfig.secretDetection.blockIngress = true;
-    const awsKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const check = checkIngressForSecrets(awsKey);
-    expect(check.blocked).toBe(true);
   });
 });
 
@@ -410,13 +352,5 @@ describe("E2E: cross-cutting secret leak prevention", () => {
       ctx,
     );
     expect(result.content).not.toContain(secret);
-  });
-
-  test("ingress notice never contains the detected secret", () => {
-    const awsKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
-    const check = checkIngressForSecrets(awsKey);
-    expect(check.blocked).toBe(true);
-    expect(check.userNotice).toBeDefined();
-    expect(check.userNotice).not.toContain(awsKey);
   });
 });

@@ -4,7 +4,6 @@
 
 import {
   ConfigError,
-  IngressBlockedError,
   ProviderNotConfiguredError,
 } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -14,7 +13,7 @@ const log = getLogger("runtime-http");
 
 /**
  * Wrap an async endpoint handler with standard error handling.
- * Catches IngressBlockedError (422), ConfigError (422), and generic errors (500).
+ * Catches ConfigError (422) and generic errors (500).
  */
 export async function withErrorHandling(
   endpoint: string,
@@ -23,13 +22,6 @@ export async function withErrorHandling(
   try {
     return await handler();
   } catch (err) {
-    if (err instanceof IngressBlockedError) {
-      log.warn(
-        { endpoint, detectedTypes: err.detectedTypes },
-        "Blocked HTTP request containing secrets",
-      );
-      return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
-    }
     if (err instanceof ProviderNotConfiguredError) {
       log.warn({ err, endpoint }, "No LLM provider configured");
       return httpError(

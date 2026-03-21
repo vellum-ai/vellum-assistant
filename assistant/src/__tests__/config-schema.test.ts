@@ -137,7 +137,6 @@ describe("AssistantConfigSchema", () => {
       action: "redact",
       entropyThreshold: 4.0,
       allowOneTimeSend: false,
-      blockIngress: true,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });

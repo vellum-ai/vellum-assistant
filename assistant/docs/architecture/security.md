@@ -249,22 +249,6 @@ sequenceDiagram
     end
 ```
 
-### Secret Ingress Blocking
-
-```mermaid
-graph TB
-    MSG["Inbound user_message / task_submit"] --> CHECK{"secretDetection.enabled<br/>+ blockIngress == true?"}
-    CHECK -->|no| PASS["Pass through to session"]
-    CHECK -->|yes| SCAN["scanText(content)<br/>regex + entropy detection"]
-    SCAN --> MATCH{"Matches found?"}
-    MATCH -->|no| PASS
-    MATCH -->|yes| BLOCK["Block message"]
-    BLOCK --> NOTIFY["Send error to client:<br/>'Message contains sensitive info'"]
-    BLOCK --> LOG["Log warning with<br/>detectedTypes + matchCount<br/>(never the secret itself)"]
-```
-
-The secret scanner includes pattern-based detection for Telegram bot tokens (format: `<8-10 digit bot_id>:<35-char secret>`), API keys from major providers, Slack tokens, and other common secret formats. This prevents users from accidentally pasting a Telegram bot token in chat — the token must be entered through the secure credential prompt flow or the Settings UI instead.
-
 ### Brokered Credential Use
 
 ```mermaid
@@ -305,7 +289,6 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
 | `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                              |
 | `assistant/src/security/secret-scanner.ts`           | Regex + entropy-based secret detection                                |
-| `assistant/src/security/secret-ingress.ts`           | Inbound message secret blocking                                       |
 | `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                         |
 
 ---

@@ -47,10 +47,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../security/secret-ingress.js", () => ({
-  checkIngressForSecrets: () => ({ blocked: false }),
-}));
-
 import { upsertContact } from "../contacts/contact-store.js";
 import {
   linkAttachmentToMessage,

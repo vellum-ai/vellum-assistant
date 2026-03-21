@@ -31,11 +31,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-// Mock security check to always pass
-mock.module("../security/secret-ingress.js", () => ({
-  checkIngressForSecrets: () => ({ blocked: false }),
-}));
-
 // Mock render to return the raw content as text
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({

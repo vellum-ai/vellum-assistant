@@ -15,7 +15,6 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
@@ -89,22 +88,6 @@ async function handleBtw(
   }
 
   const trimmedContent = content.trim();
-  const ingressCheck = checkIngressForSecrets(trimmedContent);
-  if (ingressCheck.blocked) {
-    log.warn(
-      { detectedTypes: ingressCheck.detectedTypes },
-      "Blocked /v1/btw message containing secrets",
-    );
-    return Response.json(
-      {
-        accepted: false,
-        error: "secret_blocked",
-        message: ingressCheck.userNotice,
-        detectedTypes: ingressCheck.detectedTypes,
-      },
-      { status: 422 },
-    );
-  }
 
   // ----- Identity intro fast-path -----
   // When the client requests the identity intro, check SOUL.md first (persisted

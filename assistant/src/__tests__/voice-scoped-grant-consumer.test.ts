@@ -70,12 +70,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// ── Secret ingress mock ────────────────────────────────────────────
-
-mock.module("../security/secret-ingress.js", () => ({
-  checkIngressForSecrets: () => ({ blocked: false }),
-}));
-
 // ── Assistant event hub mock ───────────────────────────────────────
 
 mock.module("../runtime/assistant-event-hub.js", () => ({

@@ -38,10 +38,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../security/secret-ingress.js", () => ({
-  checkIngressForSecrets: () => ({ blocked: false }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
