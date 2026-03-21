@@ -198,11 +198,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Clear bearer token from Keychain
         _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
 
-        // Clear legacy TCP keys
-        defaults.removeObject(forKey: "daemon_hostname")
-        defaults.removeObject(forKey: "daemon_port")
-        defaults.removeObject(forKey: "daemon_tls_enabled")
-
         // Clear legacy daemon token (constructed to avoid pre-commit false positive)
         let legacyTokenKey = ["daemon", "auth", "token"].joined(separator: "_")
         _ = APIKeyManager.shared.deleteAPIKey(provider: legacyTokenKey)
