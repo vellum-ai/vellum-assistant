@@ -3101,18 +3101,15 @@ public final class SettingsStore: ObservableObject {
     private func persistUserTimezone() {
         guard !isCurrentAssistantRemote else { return }
 
-        // When userTimezone is nil we skip sending the key entirely — sending
-        // JSON null would fail Zod's string().optional() validation on next
-        // config load.
-        var uiPatch: [String: Any] = [:]
-        if let tz = userTimezone {
-            uiPatch["userTimezone"] = tz
-        }
-        guard !uiPatch.isEmpty else { return }
+        // Send the timezone string, or "" to clear it. An empty string avoids
+        // sending JSON null (which would fail Zod's string().optional()
+        // validation) while loadUserTimezone() already treats "" as nil via
+        // its `guard !trimmed.isEmpty` check.
+        let tzValue = userTimezone ?? ""
 
         Task {
             let success = await settingsClient.patchConfig([
-                "ui": uiPatch
+                "ui": ["userTimezone": tzValue]
             ])
             if !success {
                 log.error("Failed to patch config for user timezone")
