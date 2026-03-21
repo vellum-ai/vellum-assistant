@@ -91,15 +91,14 @@ struct SettingsGeneralTab: View {
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
                 if dockerOperationTimedOut {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(VColor.systemMidStrong)
+                    VIconView(.triangleAlert, size: 28)
+                        .foregroundStyle(VColor.systemMidStrong)
                     Text("This is taking longer than expected")
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text(dockerOperationLabel)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     VButton(label: "Dismiss", style: .outlined) {
                         isDockerOperationInProgress = false
                     }
@@ -109,10 +108,10 @@ struct SettingsGeneralTab: View {
                         .progressViewStyle(.circular)
                     Text(dockerOperationLabel)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("This may take a minute. The assistant will be briefly unavailable.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.xxl)
