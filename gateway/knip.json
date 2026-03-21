@@ -1,8 +1,4 @@
 {
-  "entry": [
-    "src/**/*.test.ts",
-    "src/**/__tests__/**/*.ts",
-    "src/feature-flag-store.ts"
-  ],
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
   "project": ["src/**/*.ts"]
 }
