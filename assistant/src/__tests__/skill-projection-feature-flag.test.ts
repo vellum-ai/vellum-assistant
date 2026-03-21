@@ -45,6 +45,24 @@ mock.module("../config/skill-state.js", () => ({
       : undefined,
 }));
 
+// Mock assistant-feature-flags to avoid loading the real module (which
+// triggers file I/O and env-registry imports that hang in test context).
+let _mockOverrides: Record<string, boolean> = {};
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
+    const explicit = _mockOverrides[key];
+    if (typeof explicit === "boolean") return explicit;
+    return true; // undeclared flags default to enabled
+  },
+  clearFeatureFlagOverridesCache: () => {
+    _mockOverrides = {};
+  },
+  _setOverridesForTesting: (overrides: Record<string, boolean>) => {
+    _mockOverrides = { ...overrides };
+  },
+  getAssistantFeatureFlagDefaults: () => ({}),
+}));
+
 mock.module("../skills/active-skill-tools.js", () => {
   const parseMarkers = (messages: Message[]) => {
     const skillLoadUseIds = new Set<string>();
@@ -200,7 +218,10 @@ mock.module("../util/logger.js", () => ({
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
 const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
-  await import("../config/assistant-feature-flags.js");
+  (await import("../config/assistant-feature-flags.js")) as {
+    _setOverridesForTesting: (o: Record<string, boolean>) => void;
+    clearFeatureFlagOverridesCache: () => void;
+  };
 
 // ---------------------------------------------------------------------------
 // Helpers
