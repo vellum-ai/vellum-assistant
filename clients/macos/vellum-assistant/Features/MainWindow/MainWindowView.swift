@@ -856,7 +856,7 @@ struct MainWindowView: View {
             )
         case .failed:
             windowState.showToast(
-                message: "Update failed. Check Settings for details.",
+                message: "Update failed. Try again from Settings.",
                 style: .error,
                 primaryAction: VToastAction(label: "Open Settings") {
                     settingsStore.pendingSettingsTab = .general
