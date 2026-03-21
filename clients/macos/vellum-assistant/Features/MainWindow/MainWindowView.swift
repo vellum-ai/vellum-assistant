@@ -806,7 +806,7 @@ struct MainWindowView: View {
             if let path = notification.userInfo?["userAppsDirectoryPath"] as? String, !path.isEmpty {
                 windowState.activeDynamicUserAppsDirectory = URL(fileURLWithPath: path, isDirectory: true)
             } else {
-                let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                let env = LockfileAssistant.connectedInstanceDir().map { ["BASE_DATA_DIR": $0] }
                 windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
             }
             if let surface = windowState.activeDynamicParsedSurface,
@@ -821,7 +821,7 @@ struct MainWindowView: View {
             // send a fresh ui_surface_show via SSE with the full payload.
             let reopenId = ref.appId ?? ref.surfaceId
             windowState.selection = .app(reopenId)
-            let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
+            let env = LockfileAssistant.connectedInstanceDir().map { ["BASE_DATA_DIR": $0] }
             windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
             Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
         }

@@ -53,7 +53,7 @@ extension NSApplication {
 extension AppDelegate {
 
     func currentUserAppsDirectory() -> URL {
-        let env = connectionManager.instanceDir.map { ["BASE_DATA_DIR": $0] }
+        let env = LockfileAssistant.connectedInstanceDir().map { ["BASE_DATA_DIR": $0] }
         return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
     }
 

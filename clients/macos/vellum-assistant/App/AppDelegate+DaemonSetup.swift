@@ -67,8 +67,7 @@ extension AppDelegate {
         guard let assistant, assistant.isRemote else {
             // Local assistant or no assistant.
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
-            let instanceDir = assistant?.instanceDir
-            services.reconfigureConnection(instanceDir: instanceDir, conversationKey: conversationKey)
+            services.reconfigureConnection(conversationKey: conversationKey)
             log.info("Configured local assistant")
             return
         }

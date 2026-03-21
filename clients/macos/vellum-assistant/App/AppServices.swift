@@ -19,10 +19,7 @@ public final class AppServices {
     )
 
     /// Reconfigure the connection for a new assistant.
-    func reconfigureConnection(instanceDir: String? = nil, conversationKey: String? = nil) {
-        connectionManager.reconfigure(
-            instanceDir: instanceDir,
-            conversationKey: conversationKey
-        )
+    func reconfigureConnection(conversationKey: String? = nil) {
+        connectionManager.reconfigure(conversationKey: conversationKey)
     }
 }

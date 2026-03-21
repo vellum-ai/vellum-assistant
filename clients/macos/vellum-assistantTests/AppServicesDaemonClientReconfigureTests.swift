@@ -9,20 +9,12 @@ final class AppServicesConnectionReconfigureTests: XCTestCase {
         let services = AppServices()
         let originalIdentity = ObjectIdentifier(services.connectionManager)
 
-        services.reconfigureConnection(instanceDir: "/tmp/test", conversationKey: "key")
+        services.reconfigureConnection(conversationKey: "key")
 
         XCTAssertEqual(
             ObjectIdentifier(services.connectionManager), originalIdentity,
             "reconfigureConnection must preserve GatewayConnectionManager object identity"
         )
-    }
-
-    func testReconfigureUpdatesInstanceDir() {
-        let services = AppServices()
-
-        services.reconfigureConnection(instanceDir: "/tmp/test-instance", conversationKey: "new-key")
-
-        XCTAssertEqual(services.connectionManager.instanceDir, "/tmp/test-instance")
     }
 
     func testSettingsStoreRetainsWorkingConnectionAfterReconfigure() {

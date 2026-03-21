@@ -17,43 +17,33 @@ final class GatewayConnectionManagerReconfigureTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Object identity preservation
-
-    func testResetPreservesObjectIdentity() {
+    func testReconfigurePreservesObjectIdentity() {
         let originalIdentity = ObjectIdentifier(client!)
-        client.reconfigure(instanceDir: "/tmp/test")
+        client.reconfigure(conversationKey: "test-key")
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity,
             "reconfigure must preserve object identity")
     }
 
-    func testResetUpdatesInstanceDir() {
-        client.reconfigure(instanceDir: "/tmp/test-instance")
-        XCTAssertEqual(client.instanceDir, "/tmp/test-instance")
-    }
-
-    func testResetClearsConnectionState() {
+    func testReconfigureClearsConnectionState() {
         client.currentModel = "claude-3"
-
-        client.reconfigure(instanceDir: nil)
-
+        client.reconfigure()
         XCTAssertNil(client.currentModel)
         XCTAssertNil(client.assistantVersion)
         XCTAssertNil(client.latestMemoryStatus)
         XCTAssertFalse(client.isConnected)
     }
 
-    func testResetSetsIsConnectedToFalse() {
+    func testReconfigureSetsIsConnectedToFalse() {
         client.isConnected = true
-        client.reconfigure(instanceDir: nil)
+        client.reconfigure()
         XCTAssertFalse(client.isConnected)
     }
 
-    func testWeakReferencesSurviveReset() {
+    func testWeakReferencesSurviveReconfigure() {
         weak var weakClient = client
         _ = { weakClient = nil }
-
         XCTAssertNotNil(weakClient)
-        client.reconfigure(instanceDir: nil)
+        client.reconfigure()
         XCTAssertNotNil(weakClient)
         XCTAssertTrue(weakClient === client)
     }

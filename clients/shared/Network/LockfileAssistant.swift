@@ -194,6 +194,12 @@ public struct LockfileAssistant {
         loadAll().first { $0.assistantId == name }
     }
 
+    /// Resolve the instance directory for the currently connected assistant.
+    public static func connectedInstanceDir() -> String? {
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return nil }
+        return loadByName(id)?.instanceDir
+    }
+
     /// Creates or refreshes a managed entry for the given `assistantId`.
     /// Existing entries keep their original `hatchedAt` value but have the
     /// managed runtime URL refreshed so sign-in follows the current platform.

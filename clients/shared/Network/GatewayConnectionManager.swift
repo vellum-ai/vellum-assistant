@@ -31,9 +31,6 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public var currentModel: String?
     @Published public var latestModelInfo: ModelInfoMessage?
 
-    /// Instance directory for the connected assistant.
-    public var instanceDir: String?
-
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
 
@@ -143,7 +140,7 @@ public final class GatewayConnectionManager: ObservableObject {
             }
 
             if let wakeHandler, isLocal {
-                let reachable = await HealthCheckClient.isReachable(instanceDir: instanceDir)
+                let reachable = await HealthCheckClient.isReachable()
                 if !reachable {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
                     do {
@@ -196,14 +193,13 @@ public final class GatewayConnectionManager: ObservableObject {
 
     /// Reconfigure connection parameters for a new assistant.
     /// Callers must call `connect()` after reconfiguring.
-    public func reconfigure(instanceDir: String?, conversationKey: String? = nil) {
+    public func reconfigure(conversationKey: String? = nil) {
         self.conversationKey = conversationKey
         #if os(macOS)
         autoWakeTask?.cancel()
         autoWakeTask = nil
         #endif
         disconnect()
-        self.instanceDir = instanceDir
         isAuthenticated = false
         refreshTask?.cancel()
         refreshTask = nil
@@ -462,7 +458,7 @@ public final class GatewayConnectionManager: ObservableObject {
         autoWakeTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let reachable = await HealthCheckClient.isReachable(instanceDir: self.instanceDir)
+            let reachable = await HealthCheckClient.isReachable()
             guard !reachable else {
                 self.lastAutoWakeAttempt = nil
                 return
