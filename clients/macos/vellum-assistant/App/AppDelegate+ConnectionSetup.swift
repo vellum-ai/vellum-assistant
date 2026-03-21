@@ -16,7 +16,7 @@ extension AppDelegate {
     // MARK: - Lockfile & Transport
 
     /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
-    /// (falling back to the latest entry), and writes its config so the daemon connects
+    /// (falling back to the latest entry), and writes its config so the client connects
     /// to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
@@ -35,7 +35,7 @@ extension AppDelegate {
 
         // If the assistant changed (e.g. user hatched a new one via CLI),
         // clear the stale actor token so ensureActorCredentials() triggers
-        // a fresh bootstrap against the new daemon's JWT secret.
+        // a fresh bootstrap against the new assistant's JWT secret.
         if let storedId, storedId != assistant.assistantId, ActorTokenManager.hasToken {
             log.info("Assistant changed from \(storedId, privacy: .public) to \(assistant.assistantId, privacy: .public) — clearing stale actor token")
             actorTokenBootstrapTask?.cancel()
@@ -48,10 +48,10 @@ extension AppDelegate {
         return assistant
     }
 
-    /// Configure the daemon client's transport based on the lockfile assistant.
+    /// Configure the connection transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
-    /// Local assistants use HTTP+SSE via the daemon's runtime HTTP server.
+    /// Local assistants use HTTP+SSE via the assistant's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
@@ -86,7 +86,7 @@ extension AppDelegate {
         let assistant = loadAssistantFromLockfile()
 
         // Start the keychain broker before the gateway so it is listening
-        // when the daemon process launches and reads the socket path.
+        // when the process launches and reads the socket path.
         #if !DEBUG
         keychainBroker = KeychainBrokerServer()
         keychainBroker?.start()
@@ -98,7 +98,7 @@ extension AppDelegate {
         connectionManager.recoveryPlatform = "macos"
         connectionManager.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
 
-        // Auto-wake: if a connection attempt finds the daemon process dead,
+        // Auto-wake: if a connection attempt finds the assistant process dead,
         // wake it via the CLI before retrying.
         connectionManager.wakeHandler = { [weak self] in
             guard let self else { return }
@@ -133,7 +133,6 @@ extension AppDelegate {
             } else {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
-
             if connectionManager.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
@@ -314,7 +313,7 @@ extension AppDelegate {
 
     // MARK: - Signing Identity
 
-    /// Handle a sign_bundle_payload request from the daemon.
+    /// Handle a sign_bundle_payload request from the assistant.
     private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
         do {
             let payloadData = Data(msg.payload.utf8)
@@ -338,7 +337,7 @@ extension AppDelegate {
         }
     }
 
-    /// Handle a get_signing_identity request from the daemon.
+    /// Handle a get_signing_identity request from the assistant.
     private func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
         do {
             let keyId = try SigningIdentityManager.shared.getKeyId()
@@ -367,8 +366,8 @@ extension AppDelegate {
     /// master switch are respected from the very first SDK decision.
     ///
     /// This is the local-only (UserDefaults) portion of the migration.
-    /// The daemon-sync portion still happens asynchronously in
-    /// `syncPrivacyConfig()` after the daemon connects.
+    /// The assistant-sync portion still happens asynchronously in
+    /// `syncPrivacyConfig()` after the assistant connects.
     static func migratePrivacyDefaults() {
         let legacyCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         let canonicalCollectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
@@ -394,14 +393,14 @@ extension AppDelegate {
     }
 
     /// Reads both privacy keys from UserDefaults, applies Sentry state based
-    /// on sendDiagnostics, and syncs both keys to the daemon.
+    /// on sendDiagnostics, and syncs both keys to the assistant.
     ///
     /// Legacy key migration has already been performed by
     /// `migratePrivacyDefaults()` at launch, so this method only reads
     /// canonical keys.
     ///
-    /// Only syncs a key to the daemon when a value is explicitly present in
-    /// UserDefaults. When no local value exists we leave the daemon's
+    /// Only syncs a key to the assistant when a value is explicitly present in
+    /// UserDefaults. When no local value exists we leave the assistant's
     /// persisted config untouched — defaulting to `true` and pushing that
     /// upstream would silently re-enable telemetry for users who previously
     /// opted out on a different machine or after a UserDefaults reset.
@@ -418,7 +417,7 @@ extension AppDelegate {
                 MetricKitManager.closeSentry()
             }
 
-            // Best-effort sync to daemon config — only include keys that the
+            // Best-effort sync to assistant config — only include keys that the
             // user has explicitly set locally to avoid overwriting remote opt-outs.
             let syncCollectUsageData = hasExplicitCollectUsageData ? collectUsageData : nil
             let syncSendDiagnostics = hasExplicitSendDiagnostics ? sendDiagnostics : nil

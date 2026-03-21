@@ -12,7 +12,7 @@ private struct HealthzVersionResponse: Decodable {
 ///
 /// Owns `EventStreamClient` (SSE + subscribe + send). Handles health checks,
 /// auto-wake, and SSE message pre-processing to update `@Published` properties.
-/// SwiftUI views observe this for connection status and daemon metadata.
+/// SwiftUI views observe this for connection status and assistant metadata.
 @MainActor
 public final class GatewayConnectionManager: ObservableObject {
 
@@ -322,14 +322,14 @@ public final class GatewayConnectionManager: ObservableObject {
 
     func checkVersionCompatibility(assistantVersion: String) {
         guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else { return }
-        guard let daemon = VersionCompat.parseMajorMinor(assistantVersion),
+        guard let assistant = VersionCompat.parseMajorMinor(assistantVersion),
               let client = VersionCompat.parseMajorMinor(clientVersion) else { return }
-        let mismatch = daemon.major != client.major || daemon.minor != client.minor
+        let mismatch = assistant.major != client.major || assistant.minor != client.minor
         if mismatch != versionMismatch {
             versionMismatch = mismatch
         }
         if mismatch {
-            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs daemon \(assistantVersion, privacy: .public)")
+            log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs assistant \(assistantVersion, privacy: .public)")
         }
     }
 
@@ -357,7 +357,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 keyFingerprint = newFingerprint
 
                 if let oldFingerprint, oldFingerprint != newFingerprint {
-                    log.info("Daemon key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
+                    log.info("Assistant key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
                     ActorTokenManager.deleteAllCredentials()
                     NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
                 }
@@ -444,7 +444,7 @@ public final class GatewayConnectionManager: ObservableObject {
     #if os(macOS)
     private static let autoWakeCooldown: TimeInterval = 60.0
 
-    private func autoWakeIfDaemonDied() {
+    private func autoWakeIfAssistantDied() {
         guard let wakeHandler, isLocal else { return }
 
         if let last = lastAutoWakeAttempt,
@@ -497,7 +497,7 @@ public final class GatewayConnectionManager: ObservableObject {
         }
         #if os(macOS)
         if !connected {
-            autoWakeIfDaemonDied()
+            autoWakeIfAssistantDied()
         }
         #endif
     }
@@ -514,11 +514,11 @@ public final class GatewayConnectionManager: ObservableObject {
         public var errorDescription: String? {
             switch self {
             case .missingToken:
-                return "Missing daemon session token"
+                return "Missing session token"
             case .timeout:
-                return "Daemon authentication timed out"
+                return "Authentication timed out"
             case .rejected(let message):
-                return message ?? "Daemon authentication rejected"
+                return message ?? "Authentication rejected"
             }
         }
     }

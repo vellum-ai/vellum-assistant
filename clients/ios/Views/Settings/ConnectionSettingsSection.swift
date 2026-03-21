@@ -43,7 +43,7 @@ struct APIKeySection: View {
     }
 }
 
-// MARK: - Connected Daemon Section
+// MARK: - Connected Assistant Section
 
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider

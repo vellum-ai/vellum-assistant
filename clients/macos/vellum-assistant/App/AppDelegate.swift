@@ -92,10 +92,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
-    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the assistant-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     var instanceChangeObserver: NSObjectProtocol?
-    /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
+    /// Tracks file paths of .vellum bundles awaiting assistant responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
     var pendingBundleFilePaths: [String] = []
@@ -138,13 +138,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
-    /// Structured error from the most recent daemon startup failure.
+    /// Structured error from the most recent assistant startup failure.
     /// Read by the UI to show a contextual error view instead of a
     /// generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 
     /// Whether the current assistant runs remotely (cloud != "local").
-    /// When true, local daemon hatching is skipped.
+    /// When true, local assistant hatching is skipped.
     var isCurrentAssistantRemote = false
 
     /// Whether the current assistant is platform-managed (cloud == "vellum").
@@ -505,7 +505,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
-            // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
+            // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete.
             // Each transition is persisted so a restart resumes correctly.
             bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
@@ -530,19 +530,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     }
 
                     // Push locally-stored LLM provider keys (e.g. Anthropic) to the
-                    // daemon so it can fulfil the first message. Without this the
+                    // assistant so it can fulfil the first message. Without this the
                     // wake-up greeting races with the detached key sync from onboarding
                     // and may hit "No providers available".
                     await self.syncApiKeysViaGateway()
 
-                    // Daemon connected within timeout — proceed directly
+                    // Assistant connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show the main window with a
+                    // Assistant not ready — show the main window with a
                     // timeout screen so the user knows something went wrong.
-                    log.warning("Daemon not ready after timeout — showing timeout screen")
+                    log.warning("Assistant not ready after timeout — showing timeout screen")
                     transitionBootstrap(to: .timedOut)
                     showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
@@ -550,7 +550,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         } else {
             // Record app_open telemetry event (fire-and-forget).
-            // The daemon may not be connected yet, so retry briefly.
+            // The assistant may not be connected yet, so retry briefly.
             Task {
                 let ready = await awaitDaemonReady(timeout: 10)
                 if ready {

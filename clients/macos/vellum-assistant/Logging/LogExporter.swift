@@ -482,19 +482,19 @@ enum LogExporter {
         }
     }
 
-    // MARK: - Daemon HTTP Helpers
+    // MARK: - Assistant Export Helpers
 
     /// Calls POST /v1/export on the gateway to download a tar.gz archive of
-    /// audit data, daemon logs, workspace files, and config snapshot.
+    /// audit data, assistant logs, workspace files, and config snapshot.
     /// Extracts the archive into `directory/daemon-exports/`.
-    /// Returns `true` if the export succeeded, `false` if the daemon was unreachable.
+    /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
     @discardableResult
     private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
 
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-            log.warning("No actor token available — skipping daemon exports")
+            log.warning("No actor token available — skipping assistant exports")
             return false
         }
 
@@ -534,14 +534,14 @@ enum LogExporter {
         }
     }
 
-    // MARK: - Daemon Log Fallback
+    // MARK: - Assistant Log Fallback
 
-    /// Maximum total bytes to read when collecting fallback daemon logs.
+    /// Maximum total bytes to read when collecting fallback assistant logs.
     private nonisolated static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
 
-    /// When the daemon is unreachable, reads log files directly from the
+    /// When the assistant is unreachable, reads log files directly from the
     /// filesystem and copies them into `directory/daemon-logs-fallback/`.
-    /// Includes the main daemon log (`vellum.log`) and the 3 most recent
+    /// Includes the main assistant log (`vellum.log`) and the 3 most recent
     /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
     ///
     /// Resolves the workspace log directory from the connected assistant's
@@ -564,7 +564,7 @@ enum LogExporter {
 
         var totalBytes = 0
 
-        // 1. Main daemon log — vellum.log
+        // 1. Main assistant log — vellum.log
         let vellumLog = workspaceLogDir.appendingPathComponent("vellum.log")
         if fileManager.fileExists(atPath: vellumLog.path),
            let attrs = try? fileManager.attributesOfItem(atPath: vellumLog.path),
@@ -655,7 +655,7 @@ enum LogExporter {
             totalBytes += bytesToRead
         }
 
-        log.info("Collected \(totalBytes) bytes of fallback daemon logs from filesystem")
+        log.info("Collected \(totalBytes) bytes of fallback assistant logs from filesystem")
     }
 
     /// Reads the last `bytes` bytes from `source` and writes them to `destination`.
