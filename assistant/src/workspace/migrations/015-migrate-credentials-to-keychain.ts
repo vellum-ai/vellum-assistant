@@ -4,7 +4,7 @@ import type { WorkspaceMigration } from "./types.js";
 const log = getLogger("workspace-migrations");
 
 export const migrateCredentialsToKeychainMigration: WorkspaceMigration = {
-  id: "014-migrate-credentials-to-keychain",
+  id: "015-migrate-credentials-to-keychain",
   description:
     "Copy encrypted store credentials to keychain for single-backend migration",
 

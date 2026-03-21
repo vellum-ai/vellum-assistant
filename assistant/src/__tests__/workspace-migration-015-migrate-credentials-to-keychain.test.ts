@@ -50,7 +50,7 @@ mock.module("../security/encrypted-store.js", () => ({
 }));
 
 // Import after mocking
-import { migrateCredentialsToKeychainMigration } from "../workspace/migrations/014-migrate-credentials-to-keychain.js";
+import { migrateCredentialsToKeychainMigration } from "../workspace/migrations/015-migrate-credentials-to-keychain.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,7 +62,7 @@ const WORKSPACE_DIR = "/mock-home/.vellum/workspace";
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("014-migrate-credentials-to-keychain migration", () => {
+describe("015-migrate-credentials-to-keychain migration", () => {
   beforeEach(() => {
     isAvailableFn.mockClear();
     brokerSetFn.mockClear();
@@ -84,7 +84,7 @@ describe("014-migrate-credentials-to-keychain migration", () => {
 
   test("has correct migration id", () => {
     expect(migrateCredentialsToKeychainMigration.id).toBe(
-      "014-migrate-credentials-to-keychain",
+      "015-migrate-credentials-to-keychain",
     );
   });
 
