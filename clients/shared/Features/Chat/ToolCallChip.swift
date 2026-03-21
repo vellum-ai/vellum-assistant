@@ -101,6 +101,7 @@ public struct ToolCallChip: View {
                         .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .help(toolCall.actionDescription)
 
                     // Status indicator
                     if !toolCall.isComplete {
