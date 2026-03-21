@@ -194,7 +194,7 @@ public final class GatewayConnectionManager {
     private func performHealthCheck() async throws {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "health",
                 timeout: 10
             )
 
