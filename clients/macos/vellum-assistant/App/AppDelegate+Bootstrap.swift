@@ -26,7 +26,7 @@ extension AppDelegate {
 
     /// Transitions to a new bootstrap state, persists it, and emits stage timing logs.
     func transitionBootstrap(to newState: BootstrapState) {
-        log.info("Bootstrap state: \(self.bootstrapState.rawValue) → \(newState.rawValue)")
+        log.info("Bootstrap state: \(self.bootstrapState.rawValue, privacy: .public) → \(newState.rawValue, privacy: .public)")
         bootstrapState = newState
         persistBootstrapState()
 
