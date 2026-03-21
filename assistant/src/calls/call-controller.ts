@@ -45,7 +45,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
-import { FishAudioSession } from "./fish-audio-client.js";
+import { synthesizeWithFishAudio } from "./fish-audio-client.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
@@ -67,19 +67,6 @@ import {
 } from "./voice-session-bridge.js";
 
 const log = getLogger("call-controller");
-
-const SENTENCE_END_RE = /[.!?]\s+/;
-function splitAtSentenceBoundary(
-  text: string,
-): { complete: string; remainder: string } | undefined {
-  const match = SENTENCE_END_RE.exec(text);
-  if (!match) return undefined;
-  const splitIdx = match.index + match[0].length;
-  return {
-    complete: text.slice(0, splitIdx).trim(),
-    remainder: text.slice(splitIdx),
-  };
-}
 
 type ControllerState = "idle" | "processing" | "speaking";
 
@@ -152,7 +139,7 @@ export class CallController {
    */
   private guardianUnavailableForCall = false;
   /** Active Fish Audio session — tracked so interrupt handling can close it. */
-  private activeFishSession: FishAudioSession | null = null;
+  private activeFishAbort: AbortController | null = null;
 
   constructor(
     callSessionId: string,
@@ -364,9 +351,9 @@ export class CallController {
     this.abortCurrentTurn();
     this.llmRunVersion++;
     // Cancel in-flight Fish Audio synthesis on barge-in
-    if (this.activeFishSession) {
-      this.activeFishSession.close();
-      this.activeFishSession = null;
+    if (this.activeFishAbort) {
+      this.activeFishAbort.abort();
+      this.activeFishAbort = null;
     }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
@@ -398,9 +385,9 @@ export class CallController {
     this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
-    if (this.activeFishSession) {
-      this.activeFishSession.close();
-      this.activeFishSession = null;
+    if (this.activeFishAbort) {
+      this.activeFishAbort.abort();
+      this.activeFishAbort = null;
     }
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
@@ -553,44 +540,6 @@ export class CallController {
     // tokens for ElevenLabs TTS.
     const config = loadConfig();
     const useFishAudio = isFishAudioTts(config);
-    let fishSession: FishAudioSession | null = null;
-    let sentenceBuffer = "";
-    let fishSynthesisChain: Promise<void> = Promise.resolve();
-
-    const synthesizeAndPlay = async (text: string): Promise<void> => {
-      if (!this.isCurrentRun(runVersion)) return;
-      try {
-        // Reuse the session across sentences — a single WebSocket
-        // connection for the entire call turn avoids rate-limit
-        // rejections from rapid reconnection.
-        if (!fishSession || fishSession.closed) {
-          fishSession = await FishAudioSession.create(config.fishAudio);
-          this.activeFishSession = fishSession;
-        }
-        const format = config.fishAudio.format ?? "mp3";
-        const handle = createStreamingEntry(
-          format as "mp3" | "wav" | "opus",
-        );
-        const baseUrl = getPublicBaseUrl(config);
-        const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-        // Send the play URL to Twilio immediately — before synthesis
-        // completes. Twilio will fetch the audio while Fish Audio is
-        // still streaming chunks, eliminating the idle-timeout wait
-        // from the critical path.
-        this.relay.sendPlayUrl(url);
-        await fishSession.synthesize(text, (chunk) => handle.push(chunk));
-        handle.finalize();
-      } catch (err) {
-        log.error(
-          { err, textLength: text.length },
-          "Fish Audio synthesis failed for sentence — skipping",
-        );
-        // Reset session so next sentence tries a fresh connection.
-        fishSession = null;
-        // Don't re-throw: skip this sentence rather than crashing the
-        // entire daemon with an unhandled rejection.
-      }
-    };
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -598,20 +547,14 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
 
+    // When using Fish Audio, we accumulate all text and synthesize
+    // the complete response at the end of the turn (better prosody).
+    let fishAudioTextBuffer = "";
+
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
       if (useFishAudio) {
-        sentenceBuffer += safeText;
-        let split: ReturnType<typeof splitAtSentenceBoundary>;
-        while (
-          (split = splitAtSentenceBoundary(sentenceBuffer)) !== undefined
-        ) {
-          const sentence = split.complete;
-          fishSynthesisChain = fishSynthesisChain.then(() =>
-            synthesizeAndPlay(sentence),
-          );
-          sentenceBuffer = split.remainder;
-        }
+        fishAudioTextBuffer += safeText;
       } else {
         this.relay.sendTextToken(safeText, false);
       }
@@ -724,20 +667,37 @@ export class CallController {
       emitSafeChunk(ttsBuffer);
     }
 
-    // When using Fish Audio, flush any remaining sentence buffer (even
-    // if it doesn't end with sentence-ending punctuation) and wait for
-    // all in-flight synthesis to finish before signaling end-of-turn.
-    if (useFishAudio) {
-      if (sentenceBuffer.trim().length > 0) {
-        fishSynthesisChain = fishSynthesisChain.then(() =>
-          synthesizeAndPlay(sentenceBuffer.trim()),
+    // When using Fish Audio, synthesize the complete response text in a
+    // single REST API call. The full text gives Fish Audio better context
+    // for prosody and intonation. Audio streams back via chunked transfer
+    // encoding and is forwarded to Twilio as it arrives.
+    if (useFishAudio && fishAudioTextBuffer.trim().length > 0) {
+      if (!this.isCurrentRun(runVersion)) return fullResponseText;
+      try {
+        const format = config.fishAudio.format ?? "mp3";
+        const handle = createStreamingEntry(format as "mp3" | "wav" | "opus");
+        const baseUrl = getPublicBaseUrl(config);
+        const url = `${baseUrl}/v1/audio/${handle.audioId}`;
+        this.relay.sendPlayUrl(url);
+        const abortController = new AbortController();
+        this.activeFishAbort = abortController;
+        await synthesizeWithFishAudio(
+          fishAudioTextBuffer.trim(),
+          config.fishAudio,
+          {
+            onChunk: (chunk) => handle.push(chunk),
+            signal: abortController.signal,
+          },
         );
-        sentenceBuffer = "";
-      }
-      await fishSynthesisChain;
-      if (this.activeFishSession) {
-        this.activeFishSession.close();
-        this.activeFishSession = null;
+        handle.finalize();
+        this.activeFishAbort = null;
+      } catch (err) {
+        this.activeFishAbort = null;
+        if (err instanceof DOMException && err.name === "AbortError") {
+          log.debug("Fish Audio synthesis aborted (barge-in)");
+        } else {
+          log.error({ err }, "Fish Audio synthesis failed — skipping");
+        }
       }
     }
 
