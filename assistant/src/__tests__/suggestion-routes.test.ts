@@ -2,8 +2,7 @@
  * Unit tests for the GET /v1/suggestion endpoint (handleGetSuggestion).
  *
  * Validates happy path, all null-return paths, caching, staleness check,
- * quote stripping, word-boundary truncation, empty response rejection,
- * and modelIntent verification.
+ * quote stripping, empty response rejection, and modelIntent verification.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -291,36 +290,6 @@ describe("GET /v1/suggestion", () => {
     const body = (await res.json()) as { suggestion: string };
 
     expect(body.suggestion).toBe("Sure, let's go!");
-  });
-
-  test("truncates long suggestions at word boundary", async () => {
-    // A 60-char string that will exceed the 50-char limit
-    const longText =
-      "This is a really long suggestion that goes well beyond fifty chars";
-    const provider = makeMockProvider(longText);
-    mockGetConfiguredProvider.mockImplementation(async () => provider);
-    mockGetConversationByKey.mockImplementation(() => ({
-      conversationId: "conv-test",
-    }));
-    mockGetMessages.mockImplementation(() => [
-      {
-        id: "msg-asst-1",
-        conversationId: "conv-test",
-        role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello there" }]),
-        createdAt: Date.now(),
-        metadata: null,
-      },
-    ]);
-
-    const url = makeUrl({ conversationKey: "test-key" });
-    const deps = makeDeps();
-    const res = await handleGetSuggestion(url, deps);
-    const body = (await res.json()) as { suggestion: string };
-
-    expect(body.suggestion.length).toBeLessThanOrEqual(50);
-    // Should end at a word boundary (no partial words)
-    expect(body.suggestion).not.toMatch(/\s$/);
   });
 
   test("rejects empty LLM response", async () => {

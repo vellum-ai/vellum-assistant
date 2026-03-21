@@ -1234,12 +1234,12 @@ async function generateLlmSuggestion(
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
-  const prompt = `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     undefined, // no system prompt
-    { config: { max_tokens: 40, modelIntent: "latency-optimized" } },
+    { config: { modelIntent: "latency-optimized" } },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -1251,7 +1251,7 @@ async function generateLlmSuggestion(
     return null;
   }
 
-  // Take first line only, then enforce the length cap
+  // Take first line only
   const firstLine = stripped.split("\n")[0].trim();
   if (!firstLine) {
     log.debug(
@@ -1260,22 +1260,7 @@ async function generateLlmSuggestion(
     );
     return null;
   }
-  if (firstLine.length <= 50) return firstLine;
-  // Truncate at last word boundary within 50 chars.
-  // Only strip the trailing partial word if the slice actually cut mid-word;
-  // if the character right after the cut is whitespace, the slice is already clean.
-  const sliced = firstLine.slice(0, 50);
-  const wordTruncated = (
-    /\s/.test(firstLine[50]) ? sliced : sliced.replace(/\s+\S*$/, "")
-  ).trim();
-  if (wordTruncated.length < 15) {
-    log.debug(
-      { rawLength: firstLine.length, truncatedLength: wordTruncated.length },
-      "Suggestion rejected: too short after word-boundary truncation",
-    );
-    return null;
-  }
-  return wordTruncated;
+  return firstLine;
 }
 
 export async function handleGetSuggestion(
