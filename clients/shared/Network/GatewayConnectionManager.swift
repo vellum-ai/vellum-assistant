@@ -37,6 +37,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
     var updateExpiresAt: Date?
+    private var outcomeEmittedForCurrentCycle = false
     @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
     @Published public internal(set) var keyFingerprint: String?
     @Published public var latestMemoryStatus: MemoryStatusMessage?
@@ -74,8 +75,11 @@ public final class GatewayConnectionManager: ObservableObject {
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
         isUpdateInProgress = value
-        if value && !wasInProgress && healthCheckTask != nil {
-            startHealthCheckLoop()
+        if value && !wasInProgress {
+            outcomeEmittedForCurrentCycle = false
+            if healthCheckTask != nil {
+                startHealthCheckLoop()
+            }
         }
     }
 
@@ -339,7 +343,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
     private func handleDaemonVersionChanged(_ newVersion: String) {
         checkVersionCompatibility(assistantVersion: newVersion)
-        if isUpdateInProgress {
+        if isUpdateInProgress && !outcomeEmittedForCurrentCycle {
             if let target = updateTargetVersion, versionsMatch(newVersion, target) {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
                 lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: newVersion), timestamp: Date())
@@ -347,6 +351,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 log.warning("Health check detected version \(newVersion, privacy: .public) after update — expected \(self.updateTargetVersion ?? "?", privacy: .public), may have rolled back")
                 lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: updateTargetVersion ?? "unknown", to: newVersion), timestamp: Date())
             }
+            outcomeEmittedForCurrentCycle = true
             isUpdateInProgress = false
             // Preserve updateTargetVersion — only the authoritative
             // .serviceGroupUpdateComplete SSE event or timeout clears it.
@@ -377,7 +382,7 @@ public final class GatewayConnectionManager: ObservableObject {
             if let version = status.version {
                 assistantVersion = version
                 checkVersionCompatibility(assistantVersion: version)
-                if self.isUpdateInProgress {
+                if self.isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
                     if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
                         self.lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: version), timestamp: Date())
@@ -385,6 +390,7 @@ public final class GatewayConnectionManager: ObservableObject {
                         log.warning("Planned update may have rolled back — expected \(self.updateTargetVersion ?? "?", privacy: .public) but running \(version, privacy: .public)")
                         self.lastUpdateOutcome = UpdateOutcome(result: .rolledBack(from: self.updateTargetVersion ?? "unknown", to: version), timestamp: Date())
                     }
+                    self.outcomeEmittedForCurrentCycle = true
                     self.isUpdateInProgress = false
                     // Preserve updateTargetVersion — only the authoritative
                     // .serviceGroupUpdateComplete SSE event or timeout clears it.
@@ -411,6 +417,7 @@ public final class GatewayConnectionManager: ObservableObject {
             setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
         case .serviceGroupUpdateComplete(let msg):
+            outcomeEmittedForCurrentCycle = true
             if msg.success {
                 lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: msg.installedVersion), timestamp: Date())
             } else if let rollbackVersion = msg.rolledBackToVersion {
