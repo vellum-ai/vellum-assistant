@@ -427,6 +427,7 @@ struct InlineAudioAttachmentView: View {
             self.isSaving = true
             if let sourceURL {
                 Task.detached {
+                    var succeeded = false
                     do {
                         let tempURL = FileManager.default.temporaryDirectory
                             .appendingPathComponent(UUID().uuidString)
@@ -437,17 +438,24 @@ struct InlineAudioAttachmentView: View {
                         } else {
                             try FileManager.default.moveItem(at: tempURL, to: destURL)
                         }
+                        succeeded = true
                     } catch {
                         log.error("Failed to save audio: \(error)")
                     }
-                    await MainActor.run { self.isSaving = false }
+                    await MainActor.run {
+                        self.isSaving = false
+                        if succeeded { Self.showSaveSuccessToast(destURL) }
+                    }
                 }
             } else if isLazy, let attachmentId {
                 Task {
                     do {
                         let data = try await fetchAudioAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
                         try data.write(to: destURL)
-                        await MainActor.run { self.isSaving = false }
+                        await MainActor.run {
+                            self.isSaving = false
+                            Self.showSaveSuccessToast(destURL)
+                        }
                     } catch {
                         await MainActor.run { self.isSaving = false }
                     }
@@ -459,10 +467,21 @@ struct InlineAudioAttachmentView: View {
                         return
                     }
                     try? data.write(to: destURL)
-                    await MainActor.run { self.isSaving = false }
+                    await MainActor.run {
+                        self.isSaving = false
+                        Self.showSaveSuccessToast(destURL)
+                    }
                 }
             }
         }
+    }
+
+    @MainActor
+    private static func showSaveSuccessToast(_ url: URL) {
+        AppDelegate.shared?.mainWindow?.windowState.showToast(
+            message: "Saved to \(url.lastPathComponent)",
+            style: .success
+        )
     }
 
     // MARK: - Formatting Helpers
