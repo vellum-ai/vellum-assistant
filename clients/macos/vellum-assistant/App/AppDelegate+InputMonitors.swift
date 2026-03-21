@@ -369,7 +369,10 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: {
+                let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+                return shortcut.isEmpty ? nil : ShortcutHelper.displayString(for: shortcut)
+            }()) { [weak self] in
                 self?.mainWindow?.conversationManager.createConversation()
                 SoundManager.shared.play(.newConversation)
                 if let id = self?.mainWindow?.conversationManager.activeConversationId {
