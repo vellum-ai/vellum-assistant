@@ -159,6 +159,9 @@ struct SettingsDeveloperTab: View {
             sentryTestingSection
         }
         .onAppear {
+            // Fetch skip-permissions state for Docker assistants
+            store.refreshDangerouslySkipPermissions()
+
             // Assistant info setup
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
