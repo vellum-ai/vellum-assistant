@@ -5,16 +5,18 @@ import XCTest
 @MainActor
 final class ConversationManagerRenameTests: XCTestCase {
 
+    private var cm: GatewayConnectionManager!
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
     private var capturedMessages: [Any] = []
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        cm = GatewayConnectionManager()
+        daemonClient = DaemonClient(connectionManager: cm)
         daemonClient.isConnected = true
         capturedMessages = []
-        conversationManager = ConversationManager(daemonClient: daemonClient)
+        conversationManager = ConversationManager(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
         conversationManager.createConversation()
     }
 
@@ -22,6 +24,7 @@ final class ConversationManagerRenameTests: XCTestCase {
         conversationManager = nil
         capturedMessages = []
         daemonClient = nil
+        cm = nil
         super.tearDown()
     }
 

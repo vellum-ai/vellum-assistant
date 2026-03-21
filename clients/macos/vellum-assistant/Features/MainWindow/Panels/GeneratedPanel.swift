@@ -54,11 +54,11 @@ struct GeneratedPanel: View {
     /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, eventStreamClient: EventStreamClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
+        self.eventStreamClient = eventStreamClient
         self.gatewayBaseURL = gatewayBaseURL
         self.onOpenApp = onOpenApp
         self.onRecordAppOpen = onRecordAppOpen
@@ -579,7 +579,7 @@ struct GeneratedPanel: View {
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            Task { await AppsClient.openAppAndDispatchSurface(id: localId, daemonClient: daemonClient) }
+            Task { await AppsClient.openAppAndDispatchSurface(id: localId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata

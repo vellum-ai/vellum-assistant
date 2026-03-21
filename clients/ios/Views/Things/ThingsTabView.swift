@@ -13,7 +13,7 @@ struct ThingsTabView: View {
 
     var body: some View {
         if let daemon = clientProvider.client as? DaemonClient, clientProvider.isConnected {
-            ThingsView(directoryStore: directoryStore.resolve(daemon: daemon))
+            ThingsView(directoryStore: directoryStore.resolve(daemon: daemon, eventStreamClient: clientProvider.eventStreamClient))
                 .environmentObject(clientProvider)
         } else {
             ThingsDisconnectedView(onConnectTapped: onConnectTapped)
@@ -28,9 +28,9 @@ private final class LazyDirectoryStore: ObservableObject {
     private var store: DirectoryStore?
     private weak var lastDaemon: DaemonClient?
 
-    func resolve(daemon: DaemonClient) -> DirectoryStore {
+    func resolve(daemon: DaemonClient, eventStreamClient: EventStreamClient) -> DirectoryStore {
         if let store, lastDaemon === daemon { return store }
-        let newStore = DirectoryStore(daemonClient: daemon)
+        let newStore = DirectoryStore(daemonClient: daemon, eventStreamClient: eventStreamClient)
         self.store = newStore
         self.lastDaemon = daemon
         return newStore

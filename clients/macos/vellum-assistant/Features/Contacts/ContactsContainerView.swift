@@ -24,13 +24,13 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+    init(daemonClient: DaemonClient?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
         self.conversationManager = conversationManager
         self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
-        _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
+        _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient))
     }
 
     var body: some View {

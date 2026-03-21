@@ -353,6 +353,7 @@ public final class SettingsStore: ObservableObject {
 
     init(
         daemonClient: DaemonClient? = nil,
+        eventStreamClient: EventStreamClient? = nil,
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
@@ -363,7 +364,7 @@ public final class SettingsStore: ObservableObject {
         verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient?.connectionManager.eventStreamClient
+        self.eventStreamClient = eventStreamClient
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient

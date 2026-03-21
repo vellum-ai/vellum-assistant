@@ -106,10 +106,10 @@ final class ConversationForkIOSTests: XCTestCase {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
 
-        let daemonClient = DaemonClient()
+        let cm = GatewayConnectionManager(); let daemonClient = DaemonClient(connectionManager: cm)
         let store = IOSConversationStore(
             daemonClient: daemonClient,
-            eventStreamClient: daemonClient.connectionManager.eventStreamClient,
+            eventStreamClient: cm.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )

@@ -31,11 +31,11 @@ public final class DirectoryStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient, documentClient: DocumentClientProtocol = DocumentClient()) {
+    public init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, documentClient: DocumentClientProtocol = DocumentClient()) {
         self.appsClient = AppsClient()
         self.documentClient = documentClient
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
+        self.eventStreamClient = eventStreamClient
         subscribeToAppFilesChanged()
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,
@@ -73,8 +73,8 @@ public final class DirectoryStore: ObservableObject {
 
     /// Open a local app by ID (fire-and-forget).
     public func openApp(id: String) {
-        guard let daemonClient else { return }
-        Task { await AppsClient.openAppAndDispatchSurface(id: id, daemonClient: daemonClient) }
+        guard let daemonClient, let eventStreamClient else { return }
+        Task { await AppsClient.openAppAndDispatchSurface(id: id, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
     }
 
     /// Open a local app by ID, returning the result for callers that need to

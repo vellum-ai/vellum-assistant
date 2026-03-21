@@ -55,9 +55,9 @@ final class ConversationRestorer {
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
+    init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
+        self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
     }
 

@@ -63,7 +63,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
     var daemonClient: DaemonClient { services.daemonClient }
-    var eventStreamClient: EventStreamClient { services.daemonClient.connectionManager.eventStreamClient }
+    var connectionManager: GatewayConnectionManager { services.connectionManager }
+    var eventStreamClient: EventStreamClient { services.connectionManager.eventStreamClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }

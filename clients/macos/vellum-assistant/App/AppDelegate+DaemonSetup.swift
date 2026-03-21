@@ -136,12 +136,12 @@ extension AppDelegate {
         configureDaemonTransport(for: assistant)
 
         // Set recovery credentials for automatic 401 re-bootstrap
-        daemonClient.recoveryPlatform = "macos"
-        daemonClient.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
+        connectionManager.recoveryPlatform = "macos"
+        connectionManager.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
 
         // Auto-wake: if a connection attempt finds the daemon process dead,
         // wake it via the CLI before retrying.
-        daemonClient.wakeHandler = { [weak self] in
+        connectionManager.wakeHandler = { [weak self] in
             guard let self else { return }
             let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
             log.info("Auto-wake: waking assistant '\(name, privacy: .public)' via CLI")
@@ -267,7 +267,7 @@ extension AppDelegate {
             // coordinator connects independently). Checking isConnecting
             // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
-            if !daemonClient.isConnected && !daemonClient.isConnecting {
+            if !daemonClient.isConnected && !connectionManager.isConnecting {
                 log.info("setupDaemonClient: calling connect()")
                 do {
                     try await daemonClient.connect()
@@ -276,7 +276,7 @@ extension AppDelegate {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
             } else {
-                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.daemonClient.isConnecting)")
+                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {

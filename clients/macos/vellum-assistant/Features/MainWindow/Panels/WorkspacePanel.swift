@@ -982,13 +982,9 @@ private struct AuthenticatedImageView: View {
         }
         // On 401, re-bootstrap actor token via daemon and retry once
         if http.statusCode == 401 {
-            guard let platform = daemonClient.recoveryPlatform,
-                  let deviceId = daemonClient.recoveryDeviceId else {
-                return nil
-            }
             let success = await GuardianClient().bootstrapActorToken(
-                platform: platform,
-                deviceId: deviceId
+                platform: "macos",
+                deviceId: HostIdComputer.computeHostId()
             )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)
@@ -1094,13 +1090,9 @@ private struct WorkspaceVideoPlayer: View {
         // On 401, re-bootstrap actor token via daemon and retry once
         if http.statusCode == 401 {
             try? FileManager.default.removeItem(at: downloadedURL)
-            guard let platform = daemonClient.recoveryPlatform,
-                  let deviceId = daemonClient.recoveryDeviceId else {
-                return nil
-            }
             let success = await GuardianClient().bootstrapActorToken(
-                platform: platform,
-                deviceId: deviceId
+                platform: "macos",
+                deviceId: HostIdComputer.computeHostId()
             )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)

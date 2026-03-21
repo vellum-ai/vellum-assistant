@@ -247,6 +247,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     init(
         daemonClient: DaemonClient,
+        eventStreamClient: EventStreamClient,
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
@@ -254,11 +255,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
+        self.eventStreamClient = eventStreamClient
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
-        self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient)
+        self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
         // the wake-up conversation's UUID is persisted.
