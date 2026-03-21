@@ -99,6 +99,7 @@ import {
   switchConversation,
   undoLastMessage,
 } from "./handlers/conversations.js";
+import { installAssistantSymlink } from "./install-symlink.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -873,6 +874,14 @@ export async function runDaemon(): Promise<void> {
 
     writePid(process.pid);
     log.info({ pid: process.pid }, "Daemon started");
+
+    // Install the `assistant` CLI symlink idempotently on every daemon start.
+    // Non-blocking — failures are logged but don't affect startup.
+    try {
+      installAssistantSymlink();
+    } catch (err) {
+      log.warn({ err }, "Assistant symlink installation failed — continuing");
+    }
 
     const hookManager = getHookManager();
     hookManager.watch();
