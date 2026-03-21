@@ -65,10 +65,9 @@ final class ClientProvider: ObservableObject {
         )
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
-        let newClient = DaemonClient(connectionManager: newCM)
-        newClient.instanceDir = config.instanceDir
+        newCM.instanceDir = config.instanceDir
         self.connectionManager = newCM
-        self.client = newClient
+        self.client = newCM
         self.clientGeneration &+= 1
         self.isConnected = false
         bindCombineBridge()
@@ -118,12 +117,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     override init() {
         let cm = GatewayConnectionManager()
         let config = DaemonConfig.fromUserDefaults()
-        let client = DaemonClient(connectionManager: cm)
-        client.instanceDir = config.instanceDir
+        cm.instanceDir = config.instanceDir
         cm.reconfigure(
             instanceDir: config.instanceDir
         )
-        self.clientProvider = ClientProvider(connectionManager: cm, client: client)
+        self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
     }
 
