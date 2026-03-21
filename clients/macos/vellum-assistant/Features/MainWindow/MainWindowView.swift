@@ -816,6 +816,8 @@ struct MainWindowView: View {
         Task {
             guard let appDelegate = AppDelegate.shared,
                   let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+            daemonStartupError = nil
+            appDelegate.daemonStartupError = nil
             try? await appDelegate.vellumCli.retire(name: assistantName)
             await MainActor.run {
                 appDelegate.showOnboarding()
