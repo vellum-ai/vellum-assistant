@@ -251,7 +251,6 @@ export class DaemonServer {
   private conversationOptions = new Map<string, ConversationCreateOptions>();
   private conversationCreating = new Map<string, Promise<Conversation>>();
   private sharedRequestTimestamps: number[] = [];
-  private httpPort: number | undefined;
   private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
   private _hubChain: Promise<void> = Promise.resolve();
@@ -654,11 +653,9 @@ export class DaemonServer {
 
   // ── Conversation management ──────────────────────────────────────────────
 
-  setHttpPort(port: number): void {
-    this.httpPort = port;
+  broadcastStatus(): void {
     this.broadcast({
       type: "daemon_status",
-      httpPort: port,
       version: daemonVersion,
       keyFingerprint: getSigningKeyFingerprint(),
     });

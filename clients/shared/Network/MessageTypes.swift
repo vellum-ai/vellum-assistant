@@ -2091,7 +2091,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentSaveResponse(DocumentSaveResponseMessage)
     case documentLoadResponse(DocumentLoadResponseMessage)
     case documentListResponse(DocumentListResponseMessage)
-    case daemonStatus(DaemonStatusMessage)
+    case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(NavigateSettings)
     case integrationListResponse(IntegrationListResponse)
@@ -2411,8 +2411,8 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
         case "daemon_status":
-            let message = try DaemonStatusMessage(from: decoder)
-            self = .daemonStatus(message)
+            let message = try AssistantStatusMessage(from: decoder)
+            self = .assistantStatus(message)
         case "publish_page_response":
             let message = try PublishPageResponseMessage(from: decoder)
             self = .publishPageResponse(message)

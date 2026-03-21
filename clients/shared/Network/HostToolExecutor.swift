@@ -5,9 +5,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Standalone executor for host tool requests (bash commands, file operations).
 /// These run locally on macOS and post results back via `HostProxyClient`.
-///
-/// Extracted from `HTTPTransport` — these operations are self-contained and
-/// don't need transport state.
 public enum HostToolExecutor {
 
     // MARK: - Host Bash Execution

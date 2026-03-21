@@ -178,7 +178,7 @@ final class KeychainBrokerServer {
 
     // MARK: - Receive Loop
 
-    /// Newline-delimited JSON receive loop matching the DaemonConnection pattern.
+    /// Newline-delimited JSON receive loop.
     private func receiveData(on conn: NWConnection) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self, weak conn] content, _, isComplete, error in
             guard let self, let conn else { return }
