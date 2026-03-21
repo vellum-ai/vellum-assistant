@@ -23,6 +23,8 @@ struct SettingsGeneralTab: View {
     @State private var isServiceGroupUpdateInProgress = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+    @State private var dockerOperationTimedOut = false
+    @State private var dockerOperationTimeoutTask: Task<Void, Never>?
 
     /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
     /// Falls back to a single `false` emission when connectionManager is nil.
@@ -88,19 +90,48 @@ struct SettingsGeneralTab: View {
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
-                ProgressView()
-                    .controlSize(.regular)
-                    .progressViewStyle(.circular)
-                Text(dockerOperationLabel)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-                Text("This may take a minute. The assistant will be briefly unavailable.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
+                if dockerOperationTimedOut {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(VColor.systemMidStrong)
+                    Text("This is taking longer than expected")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.contentDefault)
+                    Text(dockerOperationLabel)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    VButton(label: "Dismiss", style: .outlined) {
+                        isDockerOperationInProgress = false
+                    }
+                } else {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .progressViewStyle(.circular)
+                    Text(dockerOperationLabel)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("This may take a minute. The assistant will be briefly unavailable.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
             }
             .padding(VSpacing.xxl)
             .frame(minWidth: 260)
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(!dockerOperationTimedOut)
+            .onAppear {
+                dockerOperationTimedOut = false
+                dockerOperationTimeoutTask = Task {
+                    try? await Task.sleep(nanoseconds: 3 * 60 * 1_000_000_000)
+                    if !Task.isCancelled {
+                        dockerOperationTimedOut = true
+                    }
+                }
+            }
+            .onDisappear {
+                dockerOperationTimeoutTask?.cancel()
+                dockerOperationTimeoutTask = nil
+                dockerOperationTimedOut = false
+            }
         }
     }
 
