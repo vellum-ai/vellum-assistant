@@ -205,7 +205,7 @@ function classifyCore(
         errorCategory: "credits_exhausted",
       };
     }
-    if (error.statusCode === 429) {
+    if (error.statusCode === 429 || error.statusCode === 529) {
       return {
         code: "PROVIDER_RATE_LIMIT",
         userMessage: "The AI provider is busy. Please try again in a moment.",

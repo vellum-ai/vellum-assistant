@@ -400,6 +400,26 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("rate_limit");
     });
 
+    it("classifies ProviderError with 529 (Anthropic overloaded) as PROVIDER_RATE_LIMIT", () => {
+      /** Anthropic returns HTTP 529 for overloaded_error. After retries are
+       *  exhausted the error should be surfaced as a rate-limit, not a generic
+       *  server error, so the user sees the "busy" message. */
+      // GIVEN a ProviderError with Anthropic's overloaded status code
+      const err = new ProviderError(
+        'Anthropic request failed: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+        "anthropic",
+        529,
+      );
+
+      // WHEN classifying the error
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN it is classified as PROVIDER_RATE_LIMIT
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
     it("classifies ProviderError with 500 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Internal server error", "anthropic", 500);
       const result = classifyConversationError(err, baseCtx);
