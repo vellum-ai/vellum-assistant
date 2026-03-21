@@ -303,15 +303,6 @@ export const AssistantConfigSchema = z
       NotificationsConfigSchema.parse({}),
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    assistantFeatureFlagValues: z
-      .record(
-        z.string(),
-        z.boolean({
-          error: "assistantFeatureFlagValues values must be booleans",
-        }),
-      )
-      .optional()
-      .describe("Feature flag overrides — map of flag names to boolean values"),
     collectUsageData: z
       .boolean()
       .default(true)
