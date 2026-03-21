@@ -37,7 +37,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     func testStartedStandardConversationShowsActionsMenu() {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
-        let vm = ChatViewModel(daemonClient: DaemonClient())
+        let vm = ChatViewModel(daemonClient: DaemonClient(), eventStreamClient: DaemonClient().eventStreamClient)
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
             activeViewModel: vm,
@@ -51,7 +51,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     func testStartedStandardConversationWithPersistedTipShowsForkAction() {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
-        let vm = ChatViewModel(daemonClient: DaemonClient())
+        let vm = ChatViewModel(daemonClient: DaemonClient(), eventStreamClient: DaemonClient().eventStreamClient)
         var message = ChatMessage(role: .assistant, text: "Persisted reply")
         message.daemonMessageId = "msg-tip"
         vm.messages = [message]
@@ -106,7 +106,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     func testUnstartedConversationDoesNotShowActions() {
         let conversation = ConversationModel(title: "New Conversation")
-        let vm = ChatViewModel(daemonClient: DaemonClient())
+        let vm = ChatViewModel(daemonClient: DaemonClient(), eventStreamClient: DaemonClient().eventStreamClient)
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
             activeViewModel: vm,

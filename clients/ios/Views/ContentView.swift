@@ -15,10 +15,10 @@ struct ContentView: View {
     /// overwrite the other's UserDefaults writes in standalone mode.
     @StateObject private var conversationStore: IOSConversationStore
 
-    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: any DaemonClientProtocol) {
+    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: any DaemonClientProtocol, eventStreamClient: EventStreamClient) {
         self.authManager = authManager
         self.ambientAgent = ambientAgent
-        _conversationStore = StateObject(wrappedValue: IOSConversationStore(daemonClient: daemonClient))
+        _conversationStore = StateObject(wrappedValue: IOSConversationStore(daemonClient: daemonClient, eventStreamClient: eventStreamClient))
     }
 
     private enum Tab { case chats, things, intelligence, settings }
@@ -71,7 +71,7 @@ struct ContentView: View {
         // to the new client so it doesn't keep targeting the old disconnected daemon.
         // ObjectIdentifier changes whenever the client object is replaced.
         .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
-            conversationStore.rebindDaemonClient(clientProvider.client)
+            conversationStore.rebindDaemonClient(clientProvider.client, eventStreamClient: clientProvider.eventStreamClient)
         }
     }
 

@@ -37,9 +37,9 @@ final class ClientProvider: ObservableObject {
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
-    init(client: any DaemonClientProtocol) {
+    init(client: DaemonStatus) {
         self.client = client
-        self.eventStreamClient = (client as? DaemonStatus)?.eventStreamClient ?? EventStreamClient()
+        self.eventStreamClient = client.eventStreamClient
         self.traceStore = TraceStore()
         bindCombineBridge()
         bindTraceEvents()

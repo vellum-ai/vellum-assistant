@@ -23,6 +23,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
 
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             conversationDetailClient: detailClient,
             userDefaults: userDefaults
@@ -144,6 +145,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
 
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -197,16 +199,16 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true), for: privateConversation))
+        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true), for: privateConversation))
         XCTAssertNil(
             makeCurrentTipForkToolbarAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true),
+                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )
         XCTAssertNil(
             makeOpenForkParentAction(
-                store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true),
+                store: IOSConversationStore(daemonClient: MockDaemonClient(), eventStreamClient: MockDaemonClient().eventStreamClient, connectedModeOverride: true),
                 conversation: privateConversation
             )
         )

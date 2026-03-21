@@ -14,7 +14,7 @@ final class ChatViewModelTests: XCTestCase {
         // Mark as connected so send-path tests don't hit the disconnected guard.
         // Tests that verify disconnected behaviour explicitly set isConnected = false.
         daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
     }
 
     override func tearDown() {

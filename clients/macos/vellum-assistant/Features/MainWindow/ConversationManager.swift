@@ -1392,7 +1392,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(daemonClient: daemonClient)
+        let viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)

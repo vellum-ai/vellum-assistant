@@ -20,6 +20,7 @@ final class ConversationForkIOSTests: XCTestCase {
 
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -51,6 +52,7 @@ final class ConversationForkIOSTests: XCTestCase {
 
         let restoredStore = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults
@@ -89,6 +91,7 @@ final class ConversationForkIOSTests: XCTestCase {
         daemonClient.isConnected = true
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )
@@ -106,6 +109,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )
@@ -150,6 +154,7 @@ final class ConversationForkIOSTests: XCTestCase {
 
         let store = IOSConversationStore(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             connectedModeOverride: true,
             conversationForkClient: forkClient,
             userDefaults: userDefaults

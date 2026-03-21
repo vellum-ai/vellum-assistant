@@ -11,7 +11,7 @@ final class ChatViewModelForkCommandTests: XCTestCase {
         super.setUp()
         daemonClient = MockDaemonClient()
         daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
         viewModel.conversationId = "sess-1"
     }
 

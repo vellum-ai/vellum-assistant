@@ -73,6 +73,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         settingsClient = StubSettingsClient()
         viewModel = ChatViewModel(
             daemonClient: daemonClient,
+            eventStreamClient: daemonClient.eventStreamClient,
             settingsClient: settingsClient
         )
         viewModel.conversationId = "sess-1"
