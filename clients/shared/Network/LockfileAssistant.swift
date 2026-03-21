@@ -93,7 +93,9 @@ public struct LockfileAssistant {
 
     /// Whether this is a platform-managed assistant.
     public var isManaged: Bool {
-        cloud.lowercased() == "vellum"
+        let normalizedCloud = cloud.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // `platform` is a legacy managed marker used by older lockfiles.
+        return normalizedCloud == "vellum" || normalizedCloud == "platform"
     }
 
     /// Whether this assistant is running in Docker.

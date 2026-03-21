@@ -181,6 +181,25 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertTrue(assistant.isManaged)
     }
 
+    func testIsManagedReturnsTrueForLegacyPlatformCloud() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            bearerToken: nil,
+            cloud: "platform",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: "2024-01-01T00:00:00Z",
+            baseDataDir: nil,
+            daemonPort: nil,
+            gatewayPort: nil,
+            instanceDir: nil
+        )
+        XCTAssertTrue(assistant.isManaged)
+    }
+
     func testIsManagedReturnsFalseForLocalCloud() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
