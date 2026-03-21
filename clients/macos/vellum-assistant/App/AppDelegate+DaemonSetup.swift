@@ -115,16 +115,6 @@ extension AppDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
-        let launchEnvironment = ProcessInfo.processInfo.environment
-
-        // Ensure the daemon starts its runtime HTTP server so the
-        // gateway can proxy iOS traffic to it.
-        if let assistant, !assistant.isRemote {
-            let port = Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821
-            setenv("RUNTIME_HTTP_PORT", String(port), 1)
-        } else {
-            setenv("RUNTIME_HTTP_PORT", "7821", 1)
-        }
 
         // Start the keychain broker before the daemon so it is listening
         // when the daemon process launches and reads the socket path.
