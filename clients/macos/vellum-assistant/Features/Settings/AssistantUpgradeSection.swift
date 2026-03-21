@@ -31,6 +31,9 @@ struct AssistantUpgradeSection: View {
     /// Whether a service group update is in progress (managed topology).
     var isServiceGroupUpdateInProgress: Bool = false
 
+    /// Whether the healthz fetch has completed (regardless of success/failure).
+    var healthzLoaded: Bool = false
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -150,7 +153,7 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.mono)
                                 .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                         } else {
-                            Text("Loading...")
+                            Text(healthzLoaded ? "Unavailable" : "Loading...")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
