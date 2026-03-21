@@ -357,6 +357,10 @@ struct AssistantUpgradeSection: View {
                 isTakingLongerThanExpected = false
             }
         }
+        .onDisappear {
+            escalationTask?.cancel()
+            escalationTask = nil
+        }
         .alert(isRollback ? (topology == .managed ? "Downgrade Assistant" : "Roll Back Assistant") : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button(isRollback ? (topology == .managed ? "Downgrade" : "Roll Back") : "Update") {
