@@ -12,6 +12,7 @@ import {
 } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
+import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
 import { credentialKey } from "./credential-key.js";
@@ -1211,6 +1212,9 @@ async function main() {
 
   configFileWatcher.start();
 
+  const featureFlagWatcher = new FeatureFlagWatcher();
+  featureFlagWatcher.start();
+
   // ── Sleep/wake detection ──
   // Detect system sleep/wake transitions and force-reconnect channels
   // that may have stale connections after the OS suspended the process.
@@ -1241,6 +1245,7 @@ async function main() {
     sleepWakeDetector.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
+    featureFlagWatcher.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     if (slackSocketClient) {
