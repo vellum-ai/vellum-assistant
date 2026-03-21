@@ -114,14 +114,42 @@ describe("014-migrate-credentials-to-keychain migration", () => {
     expect(listKeysFn).not.toHaveBeenCalled();
   });
 
-  test("skips when broker is not available", async () => {
+  test("throws when broker is not available after max retry attempts", async () => {
     isAvailableFn.mockReturnValue(false);
 
-    await migrateCredentialsToKeychainMigration.run(WORKSPACE_DIR);
+    await expect(
+      migrateCredentialsToKeychainMigration.run(WORKSPACE_DIR),
+    ).rejects.toThrow(
+      "Keychain broker not available after waiting — credential migration will be retried on next startup",
+    );
+
+    // Should have retried isAvailable multiple times
+    expect(isAvailableFn.mock.calls.length).toBeGreaterThan(1);
 
     // Should not proceed to list or migrate keys
     expect(listKeysFn).not.toHaveBeenCalled();
     expect(brokerSetFn).not.toHaveBeenCalled();
+  });
+
+  test("succeeds when broker becomes available after retry", async () => {
+    // Broker unavailable for first 3 calls, then available
+    let callCount = 0;
+    isAvailableFn.mockImplementation(() => {
+      callCount++;
+      return callCount > 3;
+    });
+    listKeysFn.mockReturnValue(["retry-key"]);
+    getKeyFn.mockReturnValue("retry-secret");
+    brokerSetFn.mockResolvedValue({ status: "ok" });
+
+    await migrateCredentialsToKeychainMigration.run(WORKSPACE_DIR);
+
+    // Should have called isAvailable 4 times (3 false + 1 true)
+    expect(isAvailableFn).toHaveBeenCalledTimes(4);
+
+    // Should have proceeded with migration
+    expect(brokerSetFn).toHaveBeenCalledWith("retry-key", "retry-secret");
+    expect(deleteKeyFn).toHaveBeenCalledWith("retry-key");
   });
 
   test("no-ops when encrypted store has no keys", async () => {

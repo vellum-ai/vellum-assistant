@@ -3,6 +3,9 @@ import type { WorkspaceMigration } from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
+const BROKER_WAIT_INTERVAL_MS = 500;
+const BROKER_WAIT_MAX_ATTEMPTS = 10; // 5 seconds total
+
 export const migrateCredentialsToKeychainMigration: WorkspaceMigration = {
   id: "014-migrate-credentials-to-keychain",
   description:
@@ -21,11 +24,22 @@ export const migrateCredentialsToKeychainMigration: WorkspaceMigration = {
       await import("../../security/keychain-broker-client.js");
     const client = createBrokerClient();
 
-    if (!client.isAvailable()) {
-      log.warn(
-        "Keychain broker not available — skipping credential migration to keychain",
+    // Wait for the broker to become available (up to 5 seconds), matching
+    // the retry strategy in secure-keys.ts waitForBrokerAvailability().
+    let brokerAvailable = false;
+    for (let i = 0; i < BROKER_WAIT_MAX_ATTEMPTS; i++) {
+      if (client.isAvailable()) {
+        brokerAvailable = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, BROKER_WAIT_INTERVAL_MS));
+    }
+
+    if (!brokerAvailable) {
+      throw new Error(
+        "Keychain broker not available after waiting — credential migration " +
+          "will be retried on next startup",
       );
-      return;
     }
 
     const { listKeys, getKey, deleteKey } =
