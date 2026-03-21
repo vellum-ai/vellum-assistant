@@ -79,7 +79,7 @@ import os
         attachments: [Attachment] = [],
         userFeedback: UserFeedbackData? = nil,
         dsn: String? = nil,
-        completion: (@Sendable () -> Void)? = nil
+        completion: (@Sendable (SentryId?) -> Void)? = nil
     ) {
         sentrySerialQueue.async {
             let targetDSN = dsn ?? macosDSN
@@ -178,7 +178,7 @@ import os
                 // SDK was disabled before we started it — close the temp session.
                 SentrySDK.close()
             }
-            completion?()
+            completion?(eventId)
         }
     }
 
