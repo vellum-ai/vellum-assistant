@@ -162,7 +162,11 @@ function loadOverridesFromFile(): Record<string, boolean> {
       typeof data.values === "object" &&
       !Array.isArray(data.values)
     ) {
-      return { ...data.values };
+      const filtered: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(data.values)) {
+        if (typeof v === "boolean") filtered[k] = v;
+      }
+      return filtered;
     }
     return {};
   } catch {

@@ -125,5 +125,11 @@ enum AssistantFeatureFlagResolver {
         )
 
         try data.write(to: fileURL, options: .atomic)
+
+        // Restrict to owner-only (0o600), matching the gateway and migration.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: filePath
+        )
     }
 }
