@@ -210,7 +210,7 @@ struct AssistantUpgradeSection: View {
 
                 if !availableReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
-                        Text(isRollback ? "Roll back to:" : "Update to:")
+                        Text(isRollback ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                         Picker("", selection: Binding<String>(
@@ -278,8 +278,8 @@ struct AssistantUpgradeSection: View {
                     // Docker and managed get the upgrade button
                     VButton(
                         label: isUpgrading
-                            ? (isRollback ? "Rolling back..." : "Updating...")
-                            : (isRollback ? "Roll Back" : "Update Now"),
+                            ? (isRollback ? (topology == .managed ? "Downgrading..." : "Rolling back...") : "Updating...")
+                            : (isRollback ? (topology == .managed ? "Downgrade" : "Roll Back") : "Update Now"),
                         style: isRollback ? .outlined : .primary
                     ) {
                         showingUpgradeConfirmation = true
@@ -302,7 +302,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Updating assistant...") : "Checking for updates...")
+                    Text(isUpgrading ? (isRollback ? (topology == .managed ? "Downgrading assistant..." : "Rolling back assistant...") : "Updating assistant...") : "Checking for updates...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -357,14 +357,16 @@ struct AssistantUpgradeSection: View {
                 isTakingLongerThanExpected = false
             }
         }
-        .alert(isRollback ? "Roll Back Assistant" : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
+        .alert(isRollback ? (topology == .managed ? "Downgrade Assistant" : "Roll Back Assistant") : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button(isRollback ? "Roll Back" : "Update") {
+            Button(isRollback ? (topology == .managed ? "Downgrade" : "Roll Back") : "Update") {
                 Task { await performUpgrade() }
             }
         } message: {
             if isRollback {
-                Text("Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+                Text(topology == .managed
+                     ? "Downgrade to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable."
+                     : "Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
             } else {
                 Text("Update to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the update.")
             }
@@ -479,7 +481,7 @@ struct AssistantUpgradeSection: View {
             let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
             if response.isSuccess {
                 successMessage = isRollback
-                    ? "Rollback initiated. The assistant may be briefly unavailable."
+                    ? "Downgrade initiated. The assistant may be briefly unavailable."
                     : "Update initiated. The assistant may be briefly unavailable."
                 AppDelegate.shared?.updateManager.clearServiceGroupFlags()
                 showFeedbackOption = false
@@ -488,14 +490,14 @@ struct AssistantUpgradeSection: View {
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
                 if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "\(isRollback ? "Rollback" : "Update") failed (HTTP \(response.statusCode))"
+                errorMessage = "\(isRollback ? "Downgrade" : "Update") failed (HTTP \(response.statusCode))"
                 showFeedbackOption = true
             }
         } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = "Unable to start \(isRollback ? "rollback" : "update"): \(error.localizedDescription)"
+            errorMessage = "Unable to start \(isRollback ? "downgrade" : "update"): \(error.localizedDescription)"
             showFeedbackOption = true
         } catch {
-            errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Downgrade" : "Update") failed: \(error.localizedDescription)"
             showFeedbackOption = true
         }
     }
