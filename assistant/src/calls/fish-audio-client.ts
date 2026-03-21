@@ -22,6 +22,7 @@ interface StartEvent {
     chunk_length?: number;
     normalize?: boolean;
     latency?: string;
+    temperature?: number;
     prosody?: { speed?: number; volume?: number };
   };
 }
@@ -73,6 +74,7 @@ interface PendingSynthesis {
   reject: (error: Error) => void;
   idleTimer: ReturnType<typeof setTimeout> | null;
   firstChunkReceived: boolean;
+  onChunk?: (chunk: Uint8Array) => void;
 }
 
 export class FishAudioSession {
@@ -125,7 +127,9 @@ export class FishAudioSession {
             format: config.format,
             mp3_bitrate: 192,
             chunk_length: config.chunkLength,
+            normalize: true,
             latency: config.latency,
+            temperature: 1.0,
             prosody:
               config.speed !== 1.0 ? { speed: config.speed } : undefined,
           },
@@ -156,7 +160,10 @@ export class FishAudioSession {
    * server has finished streaming audio for this text. The session remains
    * alive for subsequent calls.
    */
-  synthesize(text: string): Promise<Buffer> {
+  synthesize(
+    text: string,
+    onChunk?: (chunk: Uint8Array) => void,
+  ): Promise<Buffer> {
     if (this.closed) {
       return Promise.reject(new Error("FishAudioSession is closed"));
     }
@@ -176,6 +183,7 @@ export class FishAudioSession {
         reject,
         idleTimer: null,
         firstChunkReceived: false,
+        onChunk,
       };
 
       const textEvent: TextEvent = { event: "text", text };
@@ -323,6 +331,7 @@ export class FishAudioSession {
         if (this.pending) {
           this.pending.chunks.push(msg.audio);
           this.pending.firstChunkReceived = true;
+          this.pending.onChunk?.(msg.audio);
           // Reset idle timer — more audio may follow. The first chunk
           // cancels the initial FIRST_CHUNK_TIMEOUT and switches to the
           // shorter IDLE_TIMEOUT for inter-chunk gaps.
