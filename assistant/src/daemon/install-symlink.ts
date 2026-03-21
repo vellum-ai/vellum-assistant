@@ -31,18 +31,13 @@ const log = getLogger("install-symlink");
  *   symlinking in dev mode since developers manage their own PATH.
  */
 function resolveAssistantBinary(): string | null {
-  // When running as a compiled bun binary, process.execPath is the binary
-  // itself (not the bun runtime). We detect this by checking whether
-  // process.execPath ends with a known bun path or is inside a node_modules.
   const execPath = process.execPath;
-  const isBundled =
-    !execPath.includes("node_modules") &&
-    !execPath.endsWith("/bun") &&
-    !execPath.endsWith("/node");
+  // Detect the bundled desktop app case by checking for the app bundle path.
+  const isBundled = execPath.includes("/Contents/MacOS/");
 
   if (isBundled) {
-    // In the desktop app bundle, the assistant CLI binary is a sibling of the
-    // daemon binary in Contents/MacOS/.
+    // The assistant CLI binary is a sibling of the daemon binary in
+    // Contents/MacOS/.
     const macosDir = dirname(execPath);
     const assistantBinary = join(macosDir, "vellum-assistant");
     if (existsSync(assistantBinary)) {
