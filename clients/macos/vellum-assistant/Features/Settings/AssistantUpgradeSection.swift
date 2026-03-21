@@ -326,7 +326,7 @@ struct AssistantUpgradeSection: View {
                     .foregroundColor(VColor.systemPositiveStrong)
             }
 
-            if isServiceGroupUpdateInProgress && !isUpgrading && topology == .managed {
+            if isServiceGroupUpdateInProgress && !isUpgrading && (topology == .managed || topology == .docker) {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
