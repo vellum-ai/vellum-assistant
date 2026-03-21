@@ -180,21 +180,7 @@ extension AppDelegate {
                 if ActorTokenManager.needsProactiveRefresh {
                     guard self.daemonClient.isConnected else { continue }
 
-                    let baseURL: String
-                    let bearerToken: String?
-                    if case .http(let url, let token, _) = self.daemonClient.config.transport {
-                        baseURL = url
-                        bearerToken = token
-                    } else if let port = self.daemonClient.httpPort {
-                        baseURL = "http://localhost:\(port)"
-                        bearerToken = ActorTokenManager.getToken()
-                    } else {
-                        continue
-                    }
-
                     let result = await ActorCredentialRefresher.refresh(
-                        baseURL: baseURL,
-                        bearerToken: bearerToken,
                         platform: "macos",
                         deviceId: PairingQRCodeSheet.computeHostId()
                     )
@@ -202,9 +188,6 @@ extension AppDelegate {
                     switch result {
                     case .success:
                         log.info("Proactive token refresh succeeded")
-                        if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                            self.daemonClient.updateTransportBearerToken(token)
-                        }
                     case .terminalError(let reason):
                         log.error("Proactive token refresh failed terminally: \(reason)")
                     case .transientError:
@@ -229,9 +212,6 @@ extension AppDelegate {
         if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
            GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
             log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                daemonClient.updateTransportBearerToken(token)
-            }
             return
         }
 
@@ -254,11 +234,6 @@ extension AppDelegate {
 
             if success {
                 log.info("Initial actor token bootstrap succeeded")
-                // Push the new actor token to the HTTP transport so SSE and
-                // API requests authenticate with the full-scope JWT.
-                if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                    daemonClient.updateTransportBearerToken(token)
-                }
                 return
             }
 

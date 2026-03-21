@@ -249,11 +249,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         currentModel = nil
     }
 
-    /// Push a new bearer token to the active HTTP transport.
-    public func updateTransportBearerToken(_ token: String) {
-        connectionManager.updateBearerToken(token)
-    }
-
     // MARK: - Version Compatibility
 
     private func parseMajorMinor(_ version: String) -> (Int, Int)? {

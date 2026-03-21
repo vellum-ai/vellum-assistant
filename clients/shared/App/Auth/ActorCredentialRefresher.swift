@@ -1,8 +1,8 @@
 import Foundation
 
 /// Shared credential refresher. Calls POST /v1/guardian/refresh
-/// through the gateway, updates Keychain via ActorTokenManager, and handles
-/// terminal errors that require re-pairing.
+/// through the gateway via `GatewayHTTPClient`, updates Keychain via
+/// ActorTokenManager, and handles terminal errors that require re-pairing.
 public class ActorCredentialRefresher {
 
     public enum RefreshResult {
@@ -11,10 +11,12 @@ public class ActorCredentialRefresher {
         case transientError // retry later
     }
 
-    /// Attempts a single refresh. Thread-safe via @MainActor or serial dispatch.
-    /// `baseURL` is the gateway URL (e.g. https://gateway.example.com).
-    /// `bearerToken` is the legacy runtime bearer (used only as fallback if no JWT yet).
-    public static func refresh(baseURL: String, bearerToken: String?, platform: String, deviceId: String) async -> RefreshResult {
+    /// Attempts a single credential refresh via the gateway.
+    ///
+    /// - Parameters:
+    ///   - platform: Platform identifier ("macos" or "ios").
+    ///   - deviceId: Stable device identifier for device binding.
+    public static func refresh(platform: String, deviceId: String) async -> RefreshResult {
         guard let refreshToken = ActorTokenManager.getRefreshToken() else {
             return .terminalError(reason: "no_refresh_token")
         }
@@ -24,34 +26,17 @@ public class ActorCredentialRefresher {
             return .terminalError(reason: "refresh_token_expired")
         }
 
-        guard let url = URL(string: "\(baseURL)/v1/guardian/refresh") else {
-            return .transientError
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 15
-        // Use the JWT access token as the sole Authorization bearer.
-        // Falls back to the legacy runtime bearer token if no JWT is available.
-        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        } else if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
         let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
 
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let response = try await GatewayHTTPClient.post(
+                path: "guardian/refresh",
+                json: body,
+                timeout: 15
+            )
 
-            guard let http = response as? HTTPURLResponse else {
-                return .transientError
-            }
-
-            if (200..<300).contains(http.statusCode) {
-                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            if response.isSuccess {
+                guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                       let newRefreshToken = json["refreshToken"] as? String,
                       let refreshTokenExpiresAt = json["refreshTokenExpiresAt"] as? Int,
                       let refreshAfter = json["refreshAfter"] as? Int else {
@@ -81,7 +66,7 @@ public class ActorCredentialRefresher {
             }
 
             // Check for terminal errors
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let error = json["error"] as? String {
                 let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
                 if terminalErrors.contains(error) {

@@ -9,11 +9,11 @@ private struct HealthzVersionResponse: Decodable {
 }
 
 /// Manages the gateway connection lifecycle: connect, disconnect,
-/// reconfigure, auto-wake, health checks, and bearer token updates.
+/// reconfigure, auto-wake, and health checks.
 ///
-/// Coordinates with `EventStreamClient` (SSE start/stop). Does NOT own
-/// published state — `DaemonStatus` observes this manager's callbacks
-/// to update its `@Published` properties.
+/// Uses `GatewayHTTPClient` for authenticated health checks (no manual URL
+/// construction or auth handling). Coordinates with `EventStreamClient`
+/// for SSE start/stop.
 @MainActor
 public final class GatewayConnectionManager {
 
@@ -27,15 +27,6 @@ public final class GatewayConnectionManager {
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
-
-    /// Base URL of the connected gateway/runtime.
-    private var baseURL: String?
-
-    /// Bearer token for authentication.
-    private var bearerToken: String?
-
-    /// Transport metadata (route mode, auth mode, platform assistant ID).
-    private var transportMetadata: TransportMetadata?
 
     // MARK: - Health Check
 
@@ -70,15 +61,8 @@ public final class GatewayConnectionManager {
 
     // MARK: - 401 Recovery
 
-    /// Result of an async authentication refresh attempt.
-    enum AuthRefreshResult {
-        case success
-        case transientFailure
-        case terminalFailure
-    }
-
     /// In-flight refresh task for coalescing concurrent 401 handlers.
-    private var refreshTask: Task<AuthRefreshResult, Never>?
+    private var refreshTask: Task<Void, Never>?
 
     // MARK: - Auto-Wake
 
@@ -131,17 +115,11 @@ public final class GatewayConnectionManager {
 
         isConnecting = true
 
-        guard case .http(let baseURL, let bearerToken, let conversationKey) = config.transport else {
+        guard case .http(_, _, let conversationKey) = config.transport else {
             isConnecting = false
             log.info("connect: non-HTTP transport, skipping")
             return
         }
-
-        log.info("connect: establishing connection to \(baseURL, privacy: .public)")
-
-        self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
-        self.bearerToken = bearerToken
-        self.transportMetadata = config.transportMetadata
 
         // Register the conversation key for host tool filtering
         if !conversationKey.isEmpty {
@@ -151,23 +129,18 @@ public final class GatewayConnectionManager {
         shouldReconnect = true
 
         do {
-            // Run initial health check
             try await performHealthCheck()
-
-            // Start periodic health checks
             startHealthCheckLoop()
 
             isAuthenticated = true
             isConnecting = false
-            log.info("connect: connected successfully to \(baseURL, privacy: .public)")
+            log.info("connect: connected successfully")
 
-            // Auto-start SSE now that health check passed
             eventStreamClient.startSSE()
         } catch {
             #if os(macOS)
             guard !Task.isCancelled else {
                 isConnecting = false
-                self.baseURL = nil
                 log.info("connect: task cancelled — skipping auto-wake")
                 throw error
             }
@@ -178,24 +151,22 @@ public final class GatewayConnectionManager {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
                     do {
                         try await wakeHandler()
-                        log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
                         try await performHealthCheck()
                         startHealthCheckLoop()
                         isAuthenticated = true
                         isConnecting = false
-                        log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
+                        log.info("connect: retry after auto-wake succeeded")
                         eventStreamClient.startSSE()
                         return
                     } catch {
-                        log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+                        log.error("connect: auto-wake or retry failed: \(error)")
                     }
                 }
             }
             #endif
 
             isConnecting = false
-            self.baseURL = nil
-            log.error("connect: connection failed for \(baseURL, privacy: .public): \(error)")
+            log.error("connect: connection failed: \(error)")
             throw error
         }
     }
@@ -221,7 +192,6 @@ public final class GatewayConnectionManager {
         healthCheckTask = nil
         setConnected(false)
 
-        // Stop SSE but preserve subscriber streams
         eventStreamClient.stopSSE()
     }
 
@@ -235,64 +205,35 @@ public final class GatewayConnectionManager {
         disconnect()
         self.config = newConfig
         isAuthenticated = false
-        baseURL = nil
-        bearerToken = nil
-        transportMetadata = nil
+        refreshTask?.cancel()
+        refreshTask = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
         #endif
     }
 
-    // MARK: - Token Update
+    // MARK: - Health Check (via GatewayHTTPClient)
 
-    public func updateBearerToken(_ token: String) {
-        bearerToken = token
-    }
-
-    // MARK: - Health Check
-
-    /// Build the health check URL based on the current route mode.
-    private func buildHealthCheckURL() -> URL? {
-        guard let baseURL else { return nil }
-
-        let path: String
-        switch transportMetadata?.routeMode {
-        case .platformAssistantProxy:
-            guard let assistantId = transportMetadata?.platformAssistantId else {
-                log.error("platformAssistantProxy route mode requires platformAssistantId")
-                return nil
-            }
-            path = "/v1/assistants/\(assistantId)/healthz/"
-        default:
-            path = "/healthz"
-        }
-
-        return URL(string: "\(baseURL)\(path)")
-    }
-
-    /// Run a single health check against the gateway.
+    /// Run a single health check via GatewayHTTPClient.
     private func performHealthCheck() async throws {
-        guard let healthURL = buildHealthCheckURL() else {
-            throw ConnectionError.invalidURL
-        }
-        var healthReq = URLRequest(url: healthURL)
-        healthReq.timeoutInterval = 10
-        applyAuth(&healthReq)
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: healthReq)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 {
-                    handleAuthenticationFailure(responseData: data)
-                    if isManagedMode {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/healthz",
+                timeout: 10
+            )
+
+            guard response.isSuccess else {
+                if response.statusCode == 401 {
+                    handleAuthenticationFailure()
+                    if config.transportMetadata.routeMode == .platformAssistantProxy {
                         shouldReconnect = false
                     }
                 }
                 throw ConnectionError.healthCheckFailed
             }
+
             // Extract daemon version from response body
-            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: data) {
+            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != daemonVersion {
                     daemonVersion = newVersion
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
@@ -303,8 +244,13 @@ public final class GatewayConnectionManager {
                     daemonVersion = newVersion
                 }
             }
-            log.info("Health check passed for \(self.baseURL ?? "?", privacy: .public)")
+
+            log.info("Health check passed")
             setConnected(true)
+        } catch let error as GatewayHTTPClient.ClientError {
+            log.error("Health check client error: \(error.localizedDescription)")
+            setConnected(false)
+            throw ConnectionError.healthCheckFailed
         } catch let error as ConnectionError {
             setConnected(false)
             throw error
@@ -315,7 +261,7 @@ public final class GatewayConnectionManager {
         }
     }
 
-    /// Periodically poll `/healthz` to maintain connection status.
+    /// Periodically poll healthz to maintain connection status.
     private func startHealthCheckLoop() {
         healthCheckTask?.cancel()
 
@@ -341,8 +287,8 @@ public final class GatewayConnectionManager {
 
     // MARK: - 401 Recovery
 
-    private func handleAuthenticationFailure(responseData: Data? = nil) {
-        if isManagedMode {
+    private func handleAuthenticationFailure() {
+        if config.transportMetadata.routeMode == .platformAssistantProxy {
             log.warning("401 in managed mode — session token may be expired")
             onAuthError?(.conversationError(ConversationErrorMessage(
                 conversationId: "",
@@ -354,90 +300,40 @@ public final class GatewayConnectionManager {
             return
         }
 
-        Task { @MainActor [weak self] in
+        // Coalesce concurrent 401 handlers
+        guard refreshTask == nil else { return }
+
+        refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.handleAuthenticationFailureAsync(responseData: responseData)
-        }
-    }
+            defer { self.refreshTask = nil }
 
-    func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
-        if isManagedMode {
-            log.warning("401 in managed mode — session token may be expired")
-            onAuthError?(.conversationError(ConversationErrorMessage(
-                conversationId: "",
-                code: .authenticationRequired,
-                userMessage: "Session expired. Please sign in again.",
-                retryable: false
-            )))
-            disconnect()
-            return .terminalFailure
-        }
+            #if os(macOS)
+            let platform = "macos"
+            let deviceId = HostIdComputer.computeHostId()
+            #else
+            let platform = "ios"
+            let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
+            #endif
 
-        let terminalCodes: Set<String> = ["credentials_revoked"]
-        if let data = responseData,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let code = (json["error"] as? [String: Any])?["code"] as? String
-            if let code, terminalCodes.contains(code) {
-                log.error("Terminal 401 code: \(code) — re-auth required")
+            let result = await ActorCredentialRefresher.refresh(
+                platform: platform,
+                deviceId: deviceId
+            )
+
+            switch result {
+            case .success:
+                log.info("Token refresh succeeded")
+            case .terminalError(let reason):
+                log.error("Token refresh failed terminally: \(reason) — re-pair required")
                 self.onAuthError?(.conversationError(ConversationErrorMessage(
                     conversationId: "",
                     code: .authenticationRequired,
                     userMessage: "Session expired. Please re-pair your device.",
                     retryable: false
                 )))
-                return .terminalFailure
+            case .transientError:
+                log.warning("Token refresh encountered transient error — will retry on next 401")
             }
-        }
-
-        if let existing = refreshTask {
-            return await existing.value
-        }
-
-        let task = Task<AuthRefreshResult, Never> { @MainActor [weak self] in
-            guard let self else { return .transientFailure }
-            defer { self.refreshTask = nil }
-            return await self.performRefresh()
-        }
-        refreshTask = task
-        return await task.value
-    }
-
-    private func performRefresh() async -> AuthRefreshResult {
-        guard let baseURL else { return .transientFailure }
-
-        #if os(macOS)
-        let refreshPlatform = "macos"
-        let refreshDeviceId = HostIdComputer.computeHostId()
-        #else
-        let refreshPlatform = "ios"
-        let refreshDeviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
-        #endif
-
-        let result = await ActorCredentialRefresher.refresh(
-            baseURL: baseURL,
-            bearerToken: self.bearerToken,
-            platform: refreshPlatform,
-            deviceId: refreshDeviceId
-        )
-
-        switch result {
-        case .success:
-            log.info("Token refresh succeeded")
-            return .success
-
-        case .terminalError(let reason):
-            log.error("Token refresh failed terminally: \(reason) — re-pair required")
-            self.onAuthError?(.conversationError(ConversationErrorMessage(
-                conversationId: "",
-                code: .authenticationRequired,
-                userMessage: "Session expired. Please re-pair your device.",
-                retryable: false
-            )))
-            return .terminalFailure
-
-        case .transientError:
-            log.warning("Token refresh encountered transient error — will retry on next 401")
-            return .transientFailure
         }
     }
 
@@ -491,29 +387,6 @@ public final class GatewayConnectionManager {
     #endif
 
     // MARK: - Helpers
-
-    private func applyAuth(_ request: inout URLRequest) {
-        guard let transportMetadata else { return }
-        switch transportMetadata.authMode {
-        case .bearerToken:
-            if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-            } else if let token = bearerToken {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-        case .sessionToken:
-            if let token = SessionTokenManager.getToken() {
-                request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-            }
-            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-            }
-        }
-    }
-
-    private var isManagedMode: Bool {
-        transportMetadata?.routeMode == .platformAssistantProxy
-    }
 
     private func setConnected(_ connected: Bool) {
         guard isConnected != connected else { return }
