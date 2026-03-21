@@ -81,7 +81,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     /// `updaterDidNotFindUpdate` fires.  Falls back to the current
     /// `isUpdateAvailable` state after `timeout` seconds so callers never hang.
     func checkForUpdatesAsync(timeout: TimeInterval = 5.0) async -> Bool {
-        updaterController.checkForUpdates(nil)
+        updaterController.updater.checkForUpdatesInBackground()
 
         return await withTaskGroup(of: Bool.self) { group in
             // Race: delegate callback vs timeout
@@ -232,7 +232,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     }
 
     /// Resets service group update flags to their default (no update available) state.
-    private func clearServiceGroupFlags() {
+    func clearServiceGroupFlags() {
         isServiceGroupUpdateAvailable = false
         serviceGroupUpdateVersion = nil
     }

@@ -43,6 +43,8 @@ struct AssistantUpgradeSection: View {
     @State private var hasCheckedForUpdates = false
     @State private var checkedSparkleAvailable: Bool?
     @State private var checkedSparkleVersion: String?
+    @State private var isTakingLongerThanExpected = false
+    @State private var escalationTask: Task<Void, Never>?
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -328,15 +330,32 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Assistant is updating...")
+                    Text(isTakingLongerThanExpected
+                        ? "Taking longer than expected. The assistant may still be updating..."
+                        : "Assistant is updating...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(isTakingLongerThanExpected ? VColor.systemMidStrong : VColor.contentTertiary)
                 }
             }
         }
         .task { await loadReleases() }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
+        }
+        .onChange(of: isServiceGroupUpdateInProgress) { _, inProgress in
+            if inProgress {
+                isTakingLongerThanExpected = false
+                escalationTask = Task {
+                    try? await Task.sleep(nanoseconds: 90 * 1_000_000_000)
+                    if !Task.isCancelled {
+                        isTakingLongerThanExpected = true
+                    }
+                }
+            } else {
+                escalationTask?.cancel()
+                escalationTask = nil
+                isTakingLongerThanExpected = false
+            }
         }
         .alert(isRollback ? (topology == .managed ? "Downgrade Assistant" : "Roll Back Assistant") : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -435,6 +454,8 @@ struct AssistantUpgradeSection: View {
         do {
             try await cli.upgrade(name: name, version: version)
             successMessage = isRollback ? "Rollback complete." : "Update complete."
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
+            showFeedbackOption = false
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
         } catch let error as VellumCli.CLIError {
@@ -462,6 +483,8 @@ struct AssistantUpgradeSection: View {
                 successMessage = isRollback
                     ? "Downgrade initiated. The assistant may be briefly unavailable."
                     : "Update initiated. The assistant may be briefly unavailable."
+                AppDelegate.shared?.updateManager.clearServiceGroupFlags()
+                showFeedbackOption = false
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
@@ -527,6 +550,8 @@ struct AssistantUpgradeSection: View {
             return "The platform returned an error. Try again in a few minutes."
         case "ASSISTANT_NOT_FOUND":
             return "Could not find the assistant. Make sure it's still configured."
+        case "UNSUPPORTED_TOPOLOGY":
+            return "This assistant type doesn't support automatic updates. Update your infrastructure manually."
         default:
             return "Something went wrong. Share feedback to send logs to the team."
         }
