@@ -655,7 +655,7 @@ export class DaemonServer {
 
   broadcastStatus(): void {
     this.broadcast({
-      type: "daemon_status",
+      type: "assistant_status",
       version: daemonVersion,
       keyFingerprint: getSigningKeyFingerprint(),
     });

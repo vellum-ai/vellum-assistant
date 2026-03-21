@@ -289,7 +289,7 @@ export function isSigningKeyInitialized(): boolean {
 
 /**
  * Returns a short hex fingerprint of the current signing key.
- * Used by daemon_status to let clients detect instance switches.
+ * Used by assistant_status to let clients detect instance switches.
  */
 export function getSigningKeyFingerprint(): string {
   return createHash("sha256")

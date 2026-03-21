@@ -221,8 +221,8 @@ export interface PongMessage {
   type: "pong";
 }
 
-export interface DaemonStatusMessage {
-  type: "daemon_status";
+export interface AssistantStatusMessage {
+  type: "assistant_status";
   version?: string;
   keyFingerprint?: string;
 }
@@ -418,7 +418,7 @@ export type _ConversationsClientMessages =
 export type _ConversationsServerMessages =
   | AuthResult
   | PongMessage
-  | DaemonStatusMessage
+  | AssistantStatusMessage
   | GenerationCancelled
   | GenerationHandoff
   | ModelInfo

@@ -2410,7 +2410,11 @@ public enum ServerMessage: Decodable, Sendable {
         case "get_signing_identity":
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
+        case "assistant_status":
+            let message = try AssistantStatusMessage(from: decoder)
+            self = .assistantStatus(message)
         case "daemon_status":
+            // Legacy: old assistants may still emit "daemon_status". Remove for v1.0.0.
             let message = try AssistantStatusMessage(from: decoder)
             self = .assistantStatus(message)
         case "publish_page_response":
