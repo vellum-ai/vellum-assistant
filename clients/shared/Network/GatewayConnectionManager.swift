@@ -351,6 +351,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
+                    self.eventStreamClient.resetSSEReconnectDelay()
                 }
             }
             if let newFingerprint = status.keyFingerprint {
@@ -375,6 +376,7 @@ public final class GatewayConnectionManager: ObservableObject {
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
+            self.eventStreamClient.resetSSEReconnectDelay()
         case .modelInfo(let msg):
             currentModel = msg.model
             latestModelInfo = msg
