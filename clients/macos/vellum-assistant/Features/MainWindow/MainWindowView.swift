@@ -62,9 +62,6 @@ struct MainWindowView: View {
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
-    /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
-    /// daemon loading overlay when a structured error arrives or is cleared.
-    @State private var daemonStartupError: DaemonStartupError?
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
@@ -390,7 +387,6 @@ struct MainWindowView: View {
     private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
-                error: daemonStartupError,
                 onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
@@ -692,7 +688,6 @@ struct MainWindowView: View {
     private func applyLifecycleModifiers<Content: View>(to content: Content) -> some View {
         content
             .onAppear { handleCoreLayoutAppear() }
-            .task { await observeDaemonStartupErrors() }
             .onDisappear { handleCoreLayoutDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
@@ -793,7 +788,6 @@ struct MainWindowView: View {
             windowState.persistentConversationId = activeId
         }
         eventStreamClient.startSSE()
-        daemonStartupError = AppDelegate.shared?.daemonStartupError
 
         // Show toast for update outcomes emitted while the main window was not visible.
         // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
@@ -804,20 +798,11 @@ struct MainWindowView: View {
         }
     }
 
-    private func observeDaemonStartupErrors() async {
-        guard let appDelegate = AppDelegate.shared else { return }
-        for await error in appDelegate.$daemonStartupError.values {
-            daemonStartupError = error
-        }
-    }
-
     /// Restarts the current assistant's daemon by sleeping then waking it.
     private func rewakeAssistant() {
         Task {
             guard let appDelegate = AppDelegate.shared,
                   let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
-            daemonStartupError = nil
-            appDelegate.daemonStartupError = nil
             try? await appDelegate.vellumCli.sleep(name: assistantName)
             try? await appDelegate.vellumCli.wake(name: assistantName)
         }
@@ -1284,12 +1269,10 @@ private struct ErrorToastOverlay: View {
 // MARK: - Assistant Loading Overlay Content
 
 /// Standalone view for the assistant loading overlay that shows either a
-/// structured error view, a connection timeout error, or the default
-/// skeleton placeholder.
+/// connection timeout error or the default skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
 private struct AssistantLoadingOverlayContent: View {
-    let error: DaemonStartupError?
     let onRetry: () -> Void
     let onSendLogs: () -> Void
     let onGoToDeveloper: () -> Void
@@ -1300,20 +1283,7 @@ private struct AssistantLoadingOverlayContent: View {
     @State private var timedOut = false
 
     var body: some View {
-        if let error {
-            ZStack {
-                VColor.surfaceBase
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                AssistantStartupErrorView(
-                    error: error,
-                    onRetry: {
-                        timedOut = false
-                        onRetry()
-                    },
-                    onSendLogs: onSendLogs
-                )
-            }
-        } else if timedOut {
+        if timedOut {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
