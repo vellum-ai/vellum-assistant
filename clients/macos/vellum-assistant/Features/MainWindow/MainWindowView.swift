@@ -582,9 +582,43 @@ struct MainWindowView: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                 .padding(.top, VSpacing.sm)
                 .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
+            } else if daemonClient.versionMismatch {
+                ChatConversationErrorToast(
+                    message: versionMismatchMessage,
+                    icon: .triangleAlert,
+                    accentColor: VColor.systemMidStrong,
+                    actionLabel: "Update in Settings",
+                    onAction: {
+                        settingsStore.pendingSettingsTab = .general
+                        windowState.selection = .panel(.settings)
+                    }
+                )
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                .padding(.top, VSpacing.sm)
+                .animation(VAnimation.fast, value: daemonClient.versionMismatch)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Contextual message for version mismatch: tells user which side is behind.
+    private var versionMismatchMessage: String {
+        guard let daemonVersion = daemonClient.daemonVersion,
+              let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let daemonParsed = VersionCompat.parse(daemonVersion),
+              let clientParsed = VersionCompat.parse(clientVersion) else {
+            return "Your app and assistant versions don't match."
+        }
+        let daemonBehind: Bool = {
+            if daemonParsed.major != clientParsed.major { return daemonParsed.major < clientParsed.major }
+            if daemonParsed.minor != clientParsed.minor { return daemonParsed.minor < clientParsed.minor }
+            return daemonParsed.patch < clientParsed.patch
+        }()
+        if daemonBehind {
+            return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Upgrade to avoid issues."
+        } else {
+            return "Your app (\(clientVersion)) is older than the assistant (\(daemonVersion)). Update the app."
+        }
     }
 
     @ViewBuilder
