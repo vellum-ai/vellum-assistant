@@ -82,7 +82,7 @@ struct VellumAssistantApp: App {
             // the menu system would consume the event even when the nav stack
             // is empty, breaking the event monitor's intentional pass-through
             // to the responder chain (e.g. text editors).
-            CommandGroup(replacing: .toolbar) {
+            CommandGroup(before: .toolbar) {
                 Button("Zoom In") {
                     appDelegate.performZoomIn()
                 }
