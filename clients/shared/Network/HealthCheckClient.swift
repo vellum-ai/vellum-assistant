@@ -70,13 +70,5 @@ public enum HealthCheckClient {
         }
     }
 
-    /// Check whether the assistant matching the given instance directory is reachable.
-    public static func isReachable(instanceDir: String?, timeout: TimeInterval = 3) async -> Bool {
-        if let instanceDir,
-           let assistant = LockfileAssistant.loadAll().first(where: { $0.instanceDir == instanceDir }) {
-            return await isReachable(for: assistant, timeout: timeout)
-        }
-        return await isReachable(timeout: timeout)
-    }
     #endif
 }
