@@ -43,6 +43,8 @@ struct AssistantUpgradeSection: View {
     @State private var hasCheckedForUpdates = false
     @State private var checkedSparkleAvailable: Bool?
     @State private var checkedSparkleVersion: String?
+    @State private var isTakingLongerThanExpected = false
+    @State private var escalationTask: Task<Void, Never>?
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -328,15 +330,32 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Assistant is updating...")
+                    Text(isTakingLongerThanExpected
+                        ? "Taking longer than expected. The assistant may still be updating..."
+                        : "Assistant is updating...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(isTakingLongerThanExpected ? VColor.systemMidStrong : VColor.contentTertiary)
                 }
             }
         }
         .task { await loadReleases() }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
+        }
+        .onChange(of: isServiceGroupUpdateInProgress) { _, inProgress in
+            if inProgress {
+                isTakingLongerThanExpected = false
+                escalationTask = Task {
+                    try? await Task.sleep(nanoseconds: 90 * 1_000_000_000)
+                    if !Task.isCancelled {
+                        isTakingLongerThanExpected = true
+                    }
+                }
+            } else {
+                escalationTask?.cancel()
+                escalationTask = nil
+                isTakingLongerThanExpected = false
+            }
         }
         .alert(isRollback ? "Roll Back Assistant" : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
