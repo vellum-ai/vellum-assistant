@@ -2,10 +2,13 @@
  * Unified secure key storage — single-writer routing through CredentialBackend
  * adapters.
  *
- * Backend selection (`resolveBackend`) is the single decision point:
+ * Backend selection (`resolveBackendAsync`) is the single async decision point:
  *   - Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
- *   - Production (VELLUM_DEV unset or "0"): keychain backend when available.
- *   - Dev mode (VELLUM_DEV=1): encrypted file store always.
+ *   - Desktop app (VELLUM_DESKTOP_APP=1, non-dev): keychain backend always,
+ *     with up to 5 s wait for the broker socket to appear. Even if the broker
+ *     never becomes available, we commit to keychain so operations fail visibly
+ *     rather than silently writing to a different store.
+ *   - Dev mode or non-desktop topology: encrypted file store always.
  *
  * Writes go to exactly one backend (no dual-writing). Reads in keychain mode
  * fall back to the encrypted store for keys that haven't been migrated yet.
@@ -43,9 +46,13 @@ export interface SecureKeyResult {
 
 const log = getLogger("secure-keys");
 
+const BROKER_WAIT_INTERVAL_MS = 500;
+const BROKER_WAIT_MAX_ATTEMPTS = 10; // 5 seconds total
+
 let _keychain: CredentialBackend | undefined;
 let _encryptedStore: CredentialBackend | undefined;
 let _resolvedBackend: CredentialBackend | undefined;
+let _resolvePromise: Promise<CredentialBackend> | undefined;
 
 function getKeychainBackend(): CredentialBackend {
   if (!_keychain) _keychain = createKeychainBackend();
@@ -57,43 +64,69 @@ function getEncryptedStoreBackend(): CredentialBackend {
   return _encryptedStore;
 }
 
+async function waitForBrokerAvailability(): Promise<boolean> {
+  const keychain = getKeychainBackend();
+  for (let i = 0; i < BROKER_WAIT_MAX_ATTEMPTS; i++) {
+    if (keychain.isAvailable()) return true;
+    await new Promise((r) => setTimeout(r, BROKER_WAIT_INTERVAL_MS));
+  }
+  return false;
+}
+
 /**
- * Resolve the primary credential backend for this process.
+ * Resolve the primary credential backend for this process (async).
  *
  * Priority:
  *   1. Containerized + CES_CREDENTIAL_URL → CES HTTP client (skip keychain
  *      and encrypted store entirely — the sidecar owns credential storage).
- *   2. Production (VELLUM_DEV unset or "0") → keychain when available.
- *   3. Dev mode (VELLUM_DEV=1) → encrypted file store always.
+ *   2. Desktop app (VELLUM_DESKTOP_APP=1, non-dev) → keychain always, with
+ *      up to 5 s wait for the broker socket. Even if the broker never becomes
+ *      available, we commit to keychain so operations fail visibly.
+ *   3. Dev mode or non-desktop topology → encrypted file store always.
  *
  * Once resolved, the backend does not change during the process lifetime.
  * Call `_resetBackend()` in tests to clear the cached resolution.
  */
-function resolveBackend(): CredentialBackend {
-  if (!_resolvedBackend) {
-    if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
-      const ces = createCesCredentialBackend();
-      if (ces.isAvailable()) {
-        _resolvedBackend = ces;
-      } else {
-        log.warn(
-          "CES_CREDENTIAL_URL is set but CES backend is not available — " +
-            "falling back to local credential store",
-        );
-      }
-    }
-
-    if (!_resolvedBackend) {
-      if (
-        process.env.VELLUM_DEV !== "1" &&
-        getKeychainBackend().isAvailable()
-      ) {
-        _resolvedBackend = getKeychainBackend();
-      } else {
-        _resolvedBackend = getEncryptedStoreBackend();
-      }
-    }
+async function resolveBackendAsync(): Promise<CredentialBackend> {
+  if (_resolvedBackend) return _resolvedBackend;
+  if (!_resolvePromise) {
+    _resolvePromise = doResolveBackend();
   }
+  return _resolvePromise;
+}
+
+async function doResolveBackend(): Promise<CredentialBackend> {
+  // 1. Containerized + CES (unchanged)
+  if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
+    const ces = createCesCredentialBackend();
+    if (ces.isAvailable()) {
+      _resolvedBackend = ces;
+      return ces;
+    }
+    log.warn(
+      "CES_CREDENTIAL_URL is set but CES backend is not available — " +
+        "falling back to local credential store",
+    );
+  }
+
+  // 2. Mac production: wait for keychain broker, commit to it even if
+  //    the wait times out (operations will fail with unreachable errors).
+  if (
+    process.env.VELLUM_DESKTOP_APP === "1" &&
+    process.env.VELLUM_DEV !== "1"
+  ) {
+    const available = await waitForBrokerAvailability();
+    if (!available) {
+      log.warn(
+        "Keychain broker not available after waiting — credential operations will fail until the Vellum app is restarted",
+      );
+    }
+    _resolvedBackend = getKeychainBackend();
+    return _resolvedBackend;
+  }
+
+  // 3. Dev mode or non-desktop topology
+  _resolvedBackend = getEncryptedStoreBackend();
   return _resolvedBackend;
 }
 
@@ -108,7 +141,7 @@ function resolveBackend(): CredentialBackend {
  * store, only that store is queried.
  */
 export async function listSecureKeysAsync(): Promise<string[]> {
-  const backend = resolveBackend();
+  const backend = await resolveBackendAsync();
   const primaryKeys = await backend.list();
 
   // CES mode — the sidecar is the single source of truth, no local merge.
@@ -144,7 +177,7 @@ export async function listSecureKeysAsync(): Promise<string[]> {
 export async function getSecureKeyResultAsync(
   account: string,
 ): Promise<SecureKeyResult> {
-  const backend = resolveBackend();
+  const backend = await resolveBackendAsync();
   const result = await backend.get(account);
   if (result.value != null) {
     return { value: result.value, unreachable: false };
@@ -187,7 +220,7 @@ export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  const backend = resolveBackend();
+  const backend = await resolveBackendAsync();
   const ok = await backend.set(account, value);
   if (!ok) {
     log.warn(
@@ -211,7 +244,7 @@ export async function setSecureKeyAsync(
 export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
-  const backend = resolveBackend();
+  const backend = await resolveBackendAsync();
 
   // In CES mode, the sidecar is the only store — no local cleanup needed.
   if (backend.name === "ces-http") {
@@ -295,4 +328,5 @@ export function _resetBackend(): void {
   _keychain = undefined;
   _encryptedStore = undefined;
   _resolvedBackend = undefined;
+  _resolvePromise = undefined;
 }

@@ -103,8 +103,9 @@ describe("secure-keys", () => {
     mockBrokerGetCalled = false;
     mockBrokerSetCalled = false;
 
-    // Ensure VELLUM_DEV is NOT set so broker tests work by default
+    // Ensure VELLUM_DEV and VELLUM_DESKTOP_APP are NOT set so broker tests work by default
     delete process.env.VELLUM_DEV;
+    delete process.env.VELLUM_DESKTOP_APP;
 
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
@@ -117,6 +118,7 @@ describe("secure-keys", () => {
     _setStorePath(null);
     _resetBackend();
     delete process.env.VELLUM_DEV;
+    delete process.env.VELLUM_DESKTOP_APP;
   });
 
   afterAll(() => {
@@ -154,6 +156,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("single-writer with broker available", () => {
     test("setSecureKeyAsync writes to broker only (not encrypted store)", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -166,6 +169,7 @@ describe("secure-keys", () => {
     });
 
     test("setSecureKeyAsync returns false on broker set error", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       mockBrokerSetError = true;
       _resetBackend();
@@ -181,6 +185,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("reads with broker available", () => {
     test("getSecureKeyAsync reads from broker (primary backend)", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -191,6 +196,7 @@ describe("secure-keys", () => {
     });
 
     test("getSecureKeyAsync falls back to encrypted store for legacy keys", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -204,6 +210,7 @@ describe("secure-keys", () => {
     });
 
     test("getSecureKeyAsync returns undefined when neither store has the key", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -211,6 +218,7 @@ describe("secure-keys", () => {
     });
 
     test("getSecureKeyAsync returns broker value even when encrypted store also has a value", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -269,10 +277,59 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
+  // VELLUM_DESKTOP_APP gating — keychain backend selection
+  // -----------------------------------------------------------------------
+  describe("VELLUM_DESKTOP_APP gating", () => {
+    test("uses keychain when VELLUM_DESKTOP_APP=1 and broker available", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      // Value is in the broker store (keychain backend)
+      expect(mockBrokerStore.get("api-key")).toBe("new-value");
+      // Value should NOT be in the encrypted store
+      expect(encryptedStore.getKey("api-key")).toBeUndefined();
+    });
+
+    test(
+      "still resolves to keychain when VELLUM_DESKTOP_APP=1 and broker unavailable",
+      async () => {
+        process.env.VELLUM_DESKTOP_APP = "1";
+        mockBrokerAvailable = false;
+        mockBrokerGetError = true;
+        _resetBackend();
+
+        // Backend resolves to keychain even though broker is unavailable.
+        // Operations will report unreachable rather than falling back to encrypted store.
+        const result = await getSecureKeyResultAsync("api-key");
+        expect(result.value).toBeUndefined();
+        expect(result.unreachable).toBe(true);
+      },
+      { timeout: 10_000 },
+    );
+
+    test("non-desktop topology uses encrypted store even when broker is available", async () => {
+      // VELLUM_DESKTOP_APP is NOT set
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      // Value is in the encrypted store (not broker)
+      expect(encryptedStore.getKey("api-key")).toBe("new-value");
+      // Broker should NOT have been used
+      expect(mockBrokerSetCalled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Delete always attempts both stores
   // -----------------------------------------------------------------------
   describe("delete attempts both stores", () => {
     test("deleteSecureKeyAsync removes from both stores when broker available", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -295,6 +352,7 @@ describe("secure-keys", () => {
     });
 
     test("deleteSecureKeyAsync returns error when broker delete fails", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       mockBrokerDelError = true;
       _resetBackend();
@@ -308,6 +366,7 @@ describe("secure-keys", () => {
 
     test("deleteSecureKeyAsync in dev mode still attempts both stores", async () => {
       process.env.VELLUM_DEV = "1";
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -332,6 +391,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("legacy read fallback", () => {
     test("returns encrypted store value when broker has no key (legacy migration)", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -362,6 +422,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("stale-value prevention", () => {
     test("setSecureKeyAsync failure does not corrupt broker store", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -383,6 +444,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("listSecureKeysAsync", () => {
     test("returns merged, deduplicated keys when broker is primary and encrypted store has legacy keys", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -434,6 +496,7 @@ describe("secure-keys", () => {
     });
 
     test("returns broker-only keys when encrypted store is empty", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -447,6 +510,7 @@ describe("secure-keys", () => {
     });
 
     test("deduplicates keys that exist in both stores", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -462,6 +526,7 @@ describe("secure-keys", () => {
     });
 
     test("returns empty array when both stores are empty", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -475,6 +540,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("getSecureKeyResultAsync", () => {
     test("returns unreachable true when broker errors", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       mockBrokerGetError = true;
       _resetBackend();
@@ -485,6 +551,7 @@ describe("secure-keys", () => {
     });
 
     test("returns value and unreachable false on success", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       _resetBackend();
 
@@ -495,6 +562,7 @@ describe("secure-keys", () => {
     });
 
     test("falls back to encrypted store when broker is unreachable", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       mockBrokerGetError = true;
       _resetBackend();
@@ -506,6 +574,7 @@ describe("secure-keys", () => {
     });
 
     test("propagates unreachable when broker errors and encrypted store also missing", async () => {
+      process.env.VELLUM_DESKTOP_APP = "1";
       mockBrokerAvailable = true;
       mockBrokerGetError = true;
       _resetBackend();
