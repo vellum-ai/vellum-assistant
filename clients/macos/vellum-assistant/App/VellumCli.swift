@@ -97,7 +97,7 @@ final class VellumCli {
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
         "BASE_DATA_DIR",
-        "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
+        "VELLUM_PLATFORM_URL",
         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
     ] + Array(providerEnvVars.values) + [
         // Cloud provider auth — needed by hatch and retire flows.
@@ -743,13 +743,6 @@ final class VellumCli {
                 proc.standardError = stderrPipe
 
                 var env = VellumCli.makeBaseEnvironment()
-                // Always forward RUNTIME_HTTP_PORT from getenv as a fallback
-                // (setenv may have been called after ProcessInfo was captured).
-                let fullEnv = ProcessInfo.processInfo.environment
-                if env["RUNTIME_HTTP_PORT"] == nil,
-                   let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
-                    env["RUNTIME_HTTP_PORT"] = port
-                }
                 // Fall back to credential storage for provider API keys
                 // when they're not in the process environment (e.g. app
                 // launched from Finder, not a terminal with env vars set).
