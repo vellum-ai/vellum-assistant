@@ -7,6 +7,21 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppDelegate")
 
+/// Resolve the conversation key from UserDefaults for host tool filtering.
+private func resolveConversationKey() -> String? {
+    // Managed assistant uses assistantId as conversation key
+    if let managedId = UserDefaults.standard.string(forKey: "managed_assistant_id"), !managedId.isEmpty {
+        return managedId
+    }
+    // QR-paired: use stored or generate new
+    if let stored = UserDefaults.standard.string(forKey: "conversation_key"), !stored.isEmpty {
+        return stored
+    }
+    let newKey = UUID().uuidString
+    UserDefaults.standard.set(newKey, forKey: "conversation_key")
+    return newKey
+}
+
 /// Observable wrapper that holds the active GatewayConnectionManager implementation.
 /// Allows SwiftUI views to receive the client via @EnvironmentObject without
 /// requiring GatewayConnectionManager to be the concrete type.
@@ -59,7 +74,7 @@ final class ClientProvider: ObservableObject {
         // Tear down the old client's connection, timers, and monitors before replacing.
         client.disconnect()
         let newCM = GatewayConnectionManager()
-        let conversationKey = Self.resolveConversationKey()
+        let conversationKey = resolveConversationKey()
         newCM.reconfigure(conversationKey: conversationKey)
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
@@ -113,25 +128,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private var instanceChangeObserver: NSObjectProtocol?
     override init() {
         let cm = GatewayConnectionManager()
-        let conversationKey = Self.resolveConversationKey()
+        let conversationKey = resolveConversationKey()
         cm.reconfigure(conversationKey: conversationKey)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
-    }
-
-    /// Resolve the conversation key from UserDefaults for host tool filtering.
-    private static func resolveConversationKey() -> String? {
-        // Managed assistant uses assistantId as conversation key
-        if let managedId = UserDefaults.standard.string(forKey: "managed_assistant_id"), !managedId.isEmpty {
-            return managedId
-        }
-        // QR-paired: use stored or generate new
-        if let stored = UserDefaults.standard.string(forKey: "conversation_key"), !stored.isEmpty {
-            return stored
-        }
-        let newKey = UUID().uuidString
-        UserDefaults.standard.set(newKey, forKey: "conversation_key")
-        return newKey
     }
 
     func application(
