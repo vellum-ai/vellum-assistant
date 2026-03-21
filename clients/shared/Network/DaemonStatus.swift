@@ -265,6 +265,18 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             break
         }
     }
+
+    // MARK: - Recovery Credentials (forwarded to GatewayConnectionManager)
+
+    public var recoveryPlatform: String? {
+        get { _connectionManager?.recoveryPlatform }
+        set { _connectionManager?.recoveryPlatform = newValue }
+    }
+
+    public var recoveryDeviceId: String? {
+        get { _connectionManager?.recoveryDeviceId }
+        set { _connectionManager?.recoveryDeviceId = newValue }
+    }
 }
 
 // MARK: - Backward Compatibility
