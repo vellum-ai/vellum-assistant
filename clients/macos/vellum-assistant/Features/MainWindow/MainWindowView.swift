@@ -793,6 +793,14 @@ struct MainWindowView: View {
         }
         eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
+
+        // Show toast for update outcomes emitted while the main window was not visible.
+        // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
+        // the view is live; this catches any that were missed in between.
+        if let outcome = connectionManager.lastUpdateOutcome {
+            handleUpdateOutcome(outcome)
+            connectionManager.clearLastUpdateOutcome()
+        }
     }
 
     private func observeDaemonStartupErrors() async {
