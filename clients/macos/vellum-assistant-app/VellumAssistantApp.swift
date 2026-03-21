@@ -63,6 +63,13 @@ struct VellumAssistantApp: App {
                 }
             }
             CommandGroup(replacing: .help) {
+                Button("Vellum Help") {
+                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs")!)
+                }
+                Button("Community") {
+                    NSWorkspace.shared.open(URL(string: "https://discord.gg/BbVhBYHPP3")!)
+                }
+                Divider()
                 Button("Share Feedback") {
                     appDelegate.sendLogsToSentry()
                 }
