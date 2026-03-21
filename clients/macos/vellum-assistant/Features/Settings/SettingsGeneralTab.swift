@@ -43,7 +43,8 @@ struct SettingsGeneralTab: View {
                     isDockerOperationInProgress: $isDockerOperationInProgress,
                     dockerOperationLabel: $dockerOperationLabel,
                     sparkleUpdateAvailable: sparkleUpdateAvailable,
-                    sparkleUpdateVersion: sparkleUpdateVersion
+                    sparkleUpdateVersion: sparkleUpdateVersion,
+                    isServiceGroupUpdateInProgress: connectionManager?.isUpdateInProgress ?? false
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
