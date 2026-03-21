@@ -18,7 +18,10 @@ import {
   stopContainers,
 } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
-import { loadBootstrapSecret, saveBootstrapSecret } from "../lib/guardian-token";
+import {
+  loadBootstrapSecret,
+  saveBootstrapSecret,
+} from "../lib/guardian-token";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
@@ -223,7 +226,14 @@ export async function rollback(): Promise<void> {
   await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
   console.log("🔑 Clearing signing key bootstrap lock...");
-  await clearSigningKeyBootstrapLock(res);
+  try {
+    await clearSigningKeyBootstrapLock(res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
+    );
+  }
 
   console.log("🚀 Starting containers with previous version...");
   await startContainers(
