@@ -220,7 +220,7 @@ export function deepMergeMissing(
  * Recursively merges nested objects; scalars and arrays from `overrides`
  * replace corresponding values in `target`.
  */
-function deepMergeOverwrite(
+export function deepMergeOverwrite(
   target: Record<string, unknown>,
   overrides: Record<string, unknown>,
 ): void {

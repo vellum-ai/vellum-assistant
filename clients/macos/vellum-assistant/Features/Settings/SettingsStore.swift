@@ -2181,15 +2181,13 @@ public final class SettingsStore: ObservableObject {
     func setInferenceMode(_ mode: String) {
         inferenceMode = mode
         guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["mode"] = mode
-        services["inference"] = inference
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for inference mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["inference": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for inference mode")
+            }
         }
         scheduleRoutingSourceRefresh()
         NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
@@ -2198,15 +2196,13 @@ public final class SettingsStore: ObservableObject {
     func setImageGenMode(_ mode: String) {
         imageGenMode = mode
         guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var imageGen = services["image-generation"] as? [String: Any] ?? [:]
-        imageGen["mode"] = mode
-        services["image-generation"] = imageGen
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for image-generation mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["image-generation": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for image-generation mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2214,15 +2210,13 @@ public final class SettingsStore: ObservableObject {
     func setWebSearchMode(_ mode: String) {
         webSearchMode = mode
         guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        webSearch["mode"] = mode
-        services["web-search"] = webSearch
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for web search mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["web-search": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for web search mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2236,15 +2230,13 @@ public final class SettingsStore: ObservableObject {
         // if metadata hadn't arrived yet the fallback wrote under the wrong key.
         let slug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
         let serviceKey = "\(slug)-oauth"
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var svc = services[serviceKey] as? [String: Any] ?? [:]
-        svc["mode"] = mode
-        services[serviceKey] = svc
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for \(serviceKey) mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": [serviceKey: ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for \(serviceKey) mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2662,15 +2654,13 @@ public final class SettingsStore: ObservableObject {
     func setWebSearchProvider(_ provider: String) {
         webSearchProvider = provider
         guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        webSearch["provider"] = provider
-        services["web-search"] = webSearch
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for web search provider: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["web-search": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for web search provider")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2678,15 +2668,13 @@ public final class SettingsStore: ObservableObject {
     func setInferenceProvider(_ provider: String) {
         selectedInferenceProvider = provider
         guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["provider"] = provider
-        services["inference"] = inference
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to persist inference provider: \(error.localizedDescription)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["inference": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for inference provider")
+            }
         }
         scheduleRoutingSourceRefresh()
         NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
@@ -2979,32 +2967,18 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
-        // Docker assistants: use the HTTP API (workspace is on a Docker volume,
-        // not directly writable from the host).
-        if isCurrentAssistantDocker {
-            skipPermissionsToggleGeneration &+= 1
-            let requestGeneration = skipPermissionsToggleGeneration
-            dangerouslySkipPermissions = enabled
-            Task { @MainActor in
-                let success = await settingsClient.setDangerouslySkipPermissions(enabled)
-                if !success, self.skipPermissionsToggleGeneration == requestGeneration {
-                    // Revert optimistic toggle on failure only if no newer toggle has fired
-                    self.dangerouslySkipPermissions = !enabled
-                }
-            }
-            return
-        }
         // Truly remote (managed/cloud) assistants: not supported.
         guard !isCurrentAssistantRemote else { return }
-        // Local assistants: write directly to workspace config file.
+        // Both Docker and local assistants: route through the daemon HTTP API.
+        skipPermissionsToggleGeneration &+= 1
+        let requestGeneration = skipPermissionsToggleGeneration
         dangerouslySkipPermissions = enabled
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var permissions = existingConfig["permissions"] as? [String: Any] ?? [:]
-        permissions["dangerouslySkipPermissions"] = enabled
-        do {
-            try WorkspaceConfigIO.merge(["permissions": permissions], into: configPath)
-        } catch {
-            log.error("Failed to persist dangerouslySkipPermissions: \(error)")
+        Task { @MainActor in
+            let success = await settingsClient.setDangerouslySkipPermissions(enabled)
+            if !success, self.skipPermissionsToggleGeneration == requestGeneration {
+                // Revert optimistic toggle on failure only if no newer toggle has fired
+                self.dangerouslySkipPermissions = !enabled
+            }
         }
     }
 
@@ -3016,17 +2990,13 @@ public final class SettingsStore: ObservableObject {
 
         guard !isCurrentAssistantRemote else { return }
 
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
-
-        existingMediaEmbeds["videoAllowlistDomains"] = normalized
-        existingUI["mediaEmbeds"] = existingMediaEmbeds
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for video allowlist domains: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["mediaEmbeds": ["videoAllowlistDomains": normalized]]
+            ])
+            if !success {
+                log.error("Failed to patch config for video allowlist domains")
+            }
         }
     }
 
@@ -3044,21 +3014,13 @@ public final class SettingsStore: ObservableObject {
             mediaEmbedsDict["enabledSince"] = formatter.string(from: since)
         }
 
-        // Read existing config to preserve sibling keys inside ui and ui.mediaEmbeds
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
-
-        // Merge our changes on top of whatever is already in mediaEmbeds
-        for (key, value) in mediaEmbedsDict {
-            existingMediaEmbeds[key] = value
-        }
-        existingUI["mediaEmbeds"] = existingMediaEmbeds
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for media embed state: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["mediaEmbeds": mediaEmbedsDict]
+            ])
+            if !success {
+                log.error("Failed to patch config for media embed state")
+            }
         }
     }
 
@@ -3137,18 +3099,13 @@ public final class SettingsStore: ObservableObject {
     private func persistUserTimezone() {
         guard !isCurrentAssistantRemote else { return }
 
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        if let timezone = userTimezone {
-            existingUI["userTimezone"] = timezone
-        } else {
-            existingUI.removeValue(forKey: "userTimezone")
-        }
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for user timezone: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["userTimezone": userTimezone as Any]
+            ])
+            if !success {
+                log.error("Failed to patch config for user timezone")
+            }
         }
     }
 
