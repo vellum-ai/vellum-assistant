@@ -617,7 +617,7 @@ Examples:
               writeOutput(cmd, {
                 ok: false,
                 error:
-                  "Keychain broker is unreachable — is the macOS app running?",
+                  "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
               });
             } else {
               writeOutput(cmd, { ok: false, error: "Credential not found" });
@@ -668,7 +668,7 @@ Examples:
             printCredentialHuman(output);
             if (unreachable && (secret == null || secret.length === 0)) {
               log.info(
-                "    \u26A0 Keychain broker unreachable — secret may exist but cannot be retrieved",
+                "    \u26A0 Keychain broker unreachable — restart the Vellum app and accept the macOS Keychain prompt to access credentials",
               );
             }
           }
@@ -754,7 +754,7 @@ Examples:
               writeOutput(cmd, {
                 ok: false,
                 error:
-                  "Keychain broker is unreachable — is the macOS app running?",
+                  "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
               });
             } else {
               writeOutput(cmd, { ok: false, error: "Credential not found" });
