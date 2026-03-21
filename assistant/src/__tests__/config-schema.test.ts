@@ -638,6 +638,7 @@ describe("AssistantConfigSchema", () => {
       voice: {
         language: "en-US",
         transcriptionProvider: "Deepgram",
+        speechModel: "nova-3",
         ttsProvider: "elevenlabs",
       },
       callerIdentity: {
