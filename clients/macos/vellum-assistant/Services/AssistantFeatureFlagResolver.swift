@@ -93,4 +93,36 @@ enum AssistantFeatureFlagResolver {
         )
         return resolved[key] ?? true
     }
+
+    // MARK: - Write
+
+    /// Merges a single flag into the protected feature-flags file, creating it
+    /// if it does not exist. Reads existing values, overlays the new flag, and
+    /// writes back atomically.
+    ///
+    /// The file format matches the daemon's: `{ "version": 1, "values": { ... } }`.
+    static func mergePersistedFlag(key: String, enabled: Bool) throws {
+        let filePath = resolvedFeatureFlagsPath()
+        let fileURL = URL(fileURLWithPath: filePath)
+
+        // Ensure parent directory exists
+        let parentDir = fileURL.deletingLastPathComponent().path
+        try FileManager.default.createDirectory(
+            atPath: parentDir,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        // Read existing values (empty dict if file is missing/malformed)
+        var values = readPersistedFlags(from: filePath)
+        values[key] = enabled
+
+        let payload: [String: Any] = ["version": 1, "values": values]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+
+        try data.write(to: fileURL, options: .atomic)
+    }
 }

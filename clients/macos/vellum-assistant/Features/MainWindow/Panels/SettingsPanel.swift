@@ -308,9 +308,10 @@ struct SettingsPanel: View {
                                     if connectionManager != nil {
                                         try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                                     } else {
-                                        try WorkspaceConfigIO.merge([
-                                            "assistantFeatureFlagValues": [Self.developerFeatureFlagKey: true]
-                                        ])
+                                        try AssistantFeatureFlagResolver.mergePersistedFlag(
+                                            key: Self.developerFeatureFlagKey,
+                                            enabled: true
+                                        )
                                     }
                                 } catch {
                                     // Flag is already set in memory; persistence failure is non-fatal
