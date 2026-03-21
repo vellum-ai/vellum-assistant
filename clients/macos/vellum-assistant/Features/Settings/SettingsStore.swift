@@ -8,7 +8,7 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
-/// UserDefaults key for tracking explicit key deletions that may not have reached the daemon.
+/// UserDefaults key for tracking explicit key deletions that may not have reached the gateway.
 private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"
 
 /// Single source of truth for settings state shared between `SettingsPanel`
@@ -61,7 +61,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var selectedInferenceProvider: String = "anthropic"
 
-    /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
+    /// Full provider catalog from gateway. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
 
     static let availableImageGenModels: [String] = [
@@ -198,11 +198,11 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Provider Routing Sources
 
-    /// Per-provider routing source from the daemon debug endpoint.
+    /// Per-provider routing source from the gateway debug endpoint.
     /// Values: `"user-key"`, `"managed-proxy"`, or absent.
     @Published var providerRoutingSources: [String: String] = [:]
 
-    /// Current inference mode from the daemon debug endpoint.
+    /// Current inference mode from the gateway debug endpoint.
     /// Values: `"managed"` or `"your-own"`.
     @Published var inferenceMode: String = "your-own"
 
@@ -252,7 +252,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
-    /// Read-only gateway target derived from daemon config.
+    /// Read-only gateway target derived from assistant config.
     /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by HTTP.
     @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
         connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -326,10 +326,10 @@ public final class SettingsStore: ObservableObject {
     private var routingSourceRefreshTask: Task<Void, Never>?
     private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
 
-    /// Last model reported by the daemon — used to skip redundant model_set calls
+    /// Last model reported by the gateway — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
-    private var lastDaemonModel: String?
-    private var lastDaemonProvider: String?
+    private var lastGatewayModel: String?
+    private var lastGatewayProvider: String?
     private var pendingVerificationSessionChannel: String?
     private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
     private var verificationStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
@@ -393,8 +393,8 @@ public final class SettingsStore: ObservableObject {
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
         // Restore persisted image-gen model as a local fallback so the
-        // user's selection survives restarts even if the daemon is unreachable.
-        // loadServiceModes() will override with the daemon's authoritative
+        // user's selection survives restarts even if the gateway is unreachable.
+        // loadServiceModes() will override with the gateway's authoritative
         // value once it connects.
         let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
         if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
@@ -449,7 +449,7 @@ public final class SettingsStore: ObservableObject {
         loadServiceModes()
 
         // Seed provider catalog with shared defaults so the UI has data before
-        // the first daemon fetch completes.
+        // the first gateway fetch completes.
         providerCatalog = ProviderCatalogEntry.defaultCatalog
 
         // When enabledSince was defaulted to "now" (no value on disk),
@@ -528,7 +528,7 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
 
-        // Subscribe to daemon-pushed model changes so the UI stays in sync
+        // Subscribe to gateway-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
         connectionManager?.$latestModelInfo
             .compactMap { $0 }
@@ -567,19 +567,19 @@ public final class SettingsStore: ObservableObject {
         apiKeySaving = true
 
         // Persist locally first so the key survives reconnect/retry flows
-        // even if the daemon is unreachable or validation is inconclusive.
+        // even if the gateway is unreachable or validation is inconclusive.
         APIKeyManager.setKey(trimmed, for: "anthropic")
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
 
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded. Deferring this until
-        // after async validation creates a race: if the daemon reconnects before
+        // after async validation creates a race: if the gateway reconnects before
         // validation completes, replayDeletionTombstones would DELETE the new key.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "anthropic")
 
         Task {
-            let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
+            let result = await syncKeyToGatewayWithValidation(provider: "anthropic", value: trimmed)
             apiKeySaving = false
             if result.success {
                 scheduleRoutingSourceRefresh()
@@ -599,7 +599,7 @@ public final class SettingsStore: ObservableObject {
                         addDeletionTombstone(type: "api_key", name: "anthropic")
                     }
                 }
-                // For transient errors (daemon unreachable), keep the local
+                // For transient errors (gateway unreachable), keep the local
                 // key so it survives for retry on reconnect.
             }
         }
@@ -608,7 +608,7 @@ public final class SettingsStore: ObservableObject {
     func clearAPIKey() {
         APIKeyManager.deleteKey(for: "anthropic")
         addDeletionTombstone(type: "api_key", name: "anthropic")
-        deleteKeyFromDaemon(provider: "anthropic")
+        deleteKeyFromGateway(provider: "anthropic")
         hasKey = false
         maskedKey = ""
         scheduleRoutingSourceRefresh()
@@ -626,7 +626,7 @@ public final class SettingsStore: ObservableObject {
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
         Task {
-            let result = await syncKeyToDaemonWithValidation(provider: "brave", value: trimmed)
+            let result = await syncKeyToGatewayWithValidation(provider: "brave", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
             } else if let error = result.error {
@@ -648,7 +648,7 @@ public final class SettingsStore: ObservableObject {
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
         addDeletionTombstone(type: "api_key", name: "brave")
-        deleteKeyFromDaemon(provider: "brave")
+        deleteKeyFromGateway(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
         scheduleRoutingSourceRefresh()
@@ -665,7 +665,7 @@ public final class SettingsStore: ObservableObject {
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
         Task {
-            let result = await syncKeyToDaemonWithValidation(provider: "perplexity", value: trimmed)
+            let result = await syncKeyToGatewayWithValidation(provider: "perplexity", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
             } else if let error = result.error {
@@ -687,7 +687,7 @@ public final class SettingsStore: ObservableObject {
     func clearPerplexityKey() {
         APIKeyManager.deleteKey(for: "perplexity")
         addDeletionTombstone(type: "api_key", name: "perplexity")
-        deleteKeyFromDaemon(provider: "perplexity")
+        deleteKeyFromGateway(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
         scheduleRoutingSourceRefresh()
@@ -704,7 +704,7 @@ public final class SettingsStore: ObservableObject {
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
         Task {
-            let result = await syncKeyToDaemonWithValidation(provider: "gemini", value: trimmed)
+            let result = await syncKeyToGatewayWithValidation(provider: "gemini", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
             } else if let error = result.error {
@@ -726,7 +726,7 @@ public final class SettingsStore: ObservableObject {
     func clearImageGenKey() {
         APIKeyManager.deleteKey(for: "gemini")
         addDeletionTombstone(type: "api_key", name: "gemini")
-        deleteKeyFromDaemon(provider: "gemini")
+        deleteKeyFromGateway(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
         scheduleRoutingSourceRefresh()
@@ -749,7 +749,7 @@ public final class SettingsStore: ObservableObject {
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
         addDeletionTombstone(type: "api_key", name: provider)
-        deleteKeyFromDaemon(provider: provider)
+        deleteKeyFromGateway(provider: provider)
         refreshAPIKeyState()
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
@@ -772,12 +772,12 @@ public final class SettingsStore: ObservableObject {
 
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded. Deferring this until
-        // after async validation creates a race: if the daemon reconnects before
+        // after async validation creates a race: if the gateway reconnects before
         // validation completes, replayDeletionTombstones would DELETE the new key.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
-            let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
+            let result = await syncKeyToGatewayWithValidation(provider: provider, value: trimmed)
             if onError == nil {
                 apiKeySaving = false
             }
@@ -901,8 +901,8 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func applyModelInfoResponse(_ response: ModelInfoMessage) {
-        self.lastDaemonModel = response.model
-        self.lastDaemonProvider = response.provider
+        self.lastGatewayModel = response.model
+        self.lastGatewayProvider = response.provider
         self.selectedModel = response.model
         self.selectedInferenceProvider = response.provider
         if let providers = response.configuredProviders {
@@ -954,7 +954,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Fetches the current dangerouslySkipPermissions state from the daemon
+    /// Fetches the current dangerouslySkipPermissions state from the gateway
     /// over HTTP. Only meaningful for Docker assistants where the config lives
     /// inside the container and cannot be read from the host filesystem.
     func refreshDangerouslySkipPermissions() {
@@ -984,7 +984,7 @@ public final class SettingsStore: ObservableObject {
 
     func saveEmbeddingAPIKey(_ raw: String, provider: String) {
         embeddingKeySaveError = nil
-        // Delegate to saveInferenceAPIKey — same keychain store, same daemon validation
+        // Delegate to saveInferenceAPIKey — same keychain store, same gateway validation
         saveInferenceAPIKey(raw, provider: provider, onSuccess: {
             self.refreshEmbeddingConfig()
         }, onError: { error in
@@ -1047,10 +1047,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Slack Channel Actions (HTTP-first)
 
-    // MARK: - Daemon Key Sync (HTTP)
+    // MARK: - Gateway Key Sync (HTTP)
 
-    /// Notify the daemon that an API key was set, so it updates its encrypted store.
-    private func syncKeyToDaemon(provider: String, value: String) {
+    /// Notify the gateway that an API key was set, so it updates its encrypted store.
+    private func syncKeyToGateway(provider: String, value: String) {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
@@ -1059,9 +1059,9 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Sync an API key to the daemon with server-side validation.
+    /// Sync an API key to the gateway with server-side validation.
     /// Returns a result indicating success or a validation error message.
-    private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
+    private func syncKeyToGatewayWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
             return (false, "No connected assistant. Please restart the app.", true)
         }
@@ -1126,9 +1126,9 @@ public final class SettingsStore: ObservableObject {
             guard let type = entry["type"], let name = entry["name"] else { continue }
             var dispatched = false
             if type == "api_key" {
-                dispatched = deleteKeyFromDaemon(provider: name)
+                dispatched = deleteKeyFromGateway(provider: name)
             } else if type == "credential" {
-                dispatched = deleteCredentialFromDaemon(name: name)
+                dispatched = deleteCredentialFromGateway(name: name)
             }
             if !dispatched {
                 remaining.append(entry)
@@ -1141,10 +1141,10 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Notify the daemon that an API key was deleted.
+    /// Notify the gateway that an API key was deleted.
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
-    private func deleteKeyFromDaemon(provider: String) -> Bool {
+    private func deleteKeyFromGateway(provider: String) -> Bool {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
         let body: [String: String] = ["type": "api_key", "name": provider]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
@@ -1154,8 +1154,8 @@ public final class SettingsStore: ObservableObject {
         return true
     }
 
-    /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
-    private func syncCredentialToDaemon(name: String, value: String) {
+    /// Notify the gateway that a credential was set (type: "credential", name: "service:field").
+    private func syncCredentialToGateway(name: String, value: String) {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
@@ -1164,10 +1164,10 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Notify the daemon that a credential was deleted.
+    /// Notify the gateway that a credential was deleted.
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
-    private func deleteCredentialFromDaemon(name: String) -> Bool {
+    private func deleteCredentialFromGateway(name: String) -> Bool {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
@@ -1177,12 +1177,12 @@ public final class SettingsStore: ObservableObject {
         return true
     }
 
-    /// Re-sync locally-known keys to daemon on reconnect.
+    /// Re-sync locally-known keys to gateway on reconnect.
     /// Pushes keys present in the macOS keychain, and replays any pending
     /// deletion tombstones so user-initiated clears are eventually consistent.
     /// Waits for the JWT to become available before syncing, because reconnect
     /// can fire before async credential bootstrap completes.
-    private func syncAllKeysToDaemon() {
+    private func syncAllKeysToGateway() {
         Task {
             // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
             // In local mode, wait for the JWT to be populated; on reconnect the async
@@ -1196,7 +1196,7 @@ public final class SettingsStore: ObservableObject {
 
             for provider in APIKeyManager.allSyncableProviders {
                 if let key = APIKeyManager.getKey(for: provider) {
-                    syncKeyToDaemon(provider: provider, value: key)
+                    syncKeyToGateway(provider: provider, value: key)
                 }
             }
 
@@ -2071,7 +2071,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Provider Routing Sources
 
-    /// Fetches provider routing sources from the daemon debug endpoint and
+    /// Fetches provider routing sources from the gateway debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
@@ -2097,19 +2097,19 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Loads service modes (inference, image-generation) from workspace config.
-    /// Called during init and when the daemon reconnects.
+    /// Called when the relevant settings tab appears.
     func loadServiceModes() {
         let config = WorkspaceConfigIO.read(from: configPath)
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            // Only apply local config provider/model as a fallback when the daemon
-            // hasn't yet reported an authoritative value. Once the daemon responds
+            // Only apply local config provider/model as a fallback when the gateway
+            // hasn't yet reported an authoritative value. Once the gateway responds
             // via applyModelInfoResponse, its values take precedence over local
             // config which may be stale (especially for remote assistants).
-            if lastDaemonProvider == nil,
+            if lastGatewayProvider == nil,
                let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-            if lastDaemonProvider == nil,
+            if lastGatewayProvider == nil,
                let model = inference["model"] as? String { self.selectedModel = model }
         }
         if let imageGen = services["image-generation"] as? [String: Any] {
@@ -2247,7 +2247,7 @@ public final class SettingsStore: ObservableObject {
             )
         } catch {
             // Bootstrap can persist the keychain mapping during ensure-registration
-            // but then throw on daemon injection (e.g. gateway not reachable yet).
+            // but then throw on gateway injection (e.g. gateway not reachable yet).
             // Always retry the resolve — the mapping may already be cached.
             log.warning("Lazy bootstrap threw (mapping may still be cached): \(error.localizedDescription)")
         }
@@ -2636,7 +2636,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
-    /// daemon time to re-initialize providers after a key change.
+    /// gateway time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
         routingSourceRefreshTask?.cancel()
         routingSourceRefreshTask = Task {
@@ -2662,7 +2662,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Update local state optimistically so the focus-leave onChange handler
         // in SettingsPanel reads the new value instead of reverting
-        // the text field to a stale URL. The daemon's success response
+        // the text field to a stale URL. The gateway's success response
         // (handled by onIngressConfigResponse) will confirm or correct.
         let previous = ingressPublicBaseUrl
         ingressPublicBaseUrl = trimmed
@@ -2704,9 +2704,9 @@ public final class SettingsStore: ObservableObject {
 
     private func handleIngressConfigResponse(_ response: IngressConfigResponseMessage) {
         // For remote assistants, prefer the lockfile's runtimeUrl because the
-        // daemon reports its own loopback address which is not reachable from
-        // the client. For local assistants, use the daemon's authoritative value
-        // since it reflects the daemon's actual runtime environment.
+        // gateway reports its own loopback address which is not reachable from
+        // the client. For local assistants, use the gateway's authoritative value
+        // since it reflects the gateway's actual runtime environment.
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
             ?? LockfileAssistant.loadLatest()
@@ -2854,20 +2854,20 @@ public final class SettingsStore: ObservableObject {
         // e.g. after an inference-mode switch that requires re-persisting
         // the model+provider pair even when IDs haven't changed).
         if !force {
-            let modelUnchanged = model == lastDaemonModel
-            let providerUnchanged = provider == nil || provider == lastDaemonProvider
+            let modelUnchanged = model == lastGatewayModel
+            let providerUnchanged = provider == nil || provider == lastGatewayProvider
             guard !modelUnchanged || !providerUnchanged else { return }
         }
-        lastDaemonModel = model
-        if let provider { lastDaemonProvider = provider }
+        lastGatewayModel = model
+        if let provider { lastGatewayProvider = provider }
         Task {
             let info = await settingsClient.setModel(model: model, provider: provider)
             if let info {
                 applyModelInfoResponse(info)
-            } else if lastDaemonModel == model {
-                // Request failed — revert only if no newer call overwrote lastDaemonModel
-                lastDaemonModel = nil
-                lastDaemonProvider = nil
+            } else if lastGatewayModel == model {
+                // Request failed — revert only if no newer call overwrote lastGatewayModel
+                lastGatewayModel = nil
+                lastGatewayProvider = nil
             }
         }
     }
