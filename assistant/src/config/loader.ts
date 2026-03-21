@@ -10,12 +10,7 @@ import { dirname, join } from "node:path";
 
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import {
-  ensureDataDir,
-  getWorkspaceConfigPath,
-  readLockfile,
-  writeLockfile,
-} from "../util/platform.js";
+import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -469,30 +464,6 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   cached = null; // invalidate cache
-}
-
-/**
- * Sync client-relevant config values (e.g. platform.baseUrl) to the lockfile
- * so external tools (e.g. vel) can discover them without importing the full
- * config schema.  Mirrors the behaviour of `syncConfigToLockfile` in the
- * lightweight CLI (`cli/src/lib/assistant-config.ts`).
- */
-export function syncConfigToLockfile(): void {
-  const configPath = getWorkspaceConfigPath();
-  if (!existsSync(configPath)) return;
-
-  try {
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const platform = raw.platform as Record<string, unknown> | undefined;
-    const data = readLockfile() ?? {};
-    data.platformBaseUrl = (platform?.baseUrl as string) || undefined;
-    writeLockfile(data);
-  } catch {
-    // Config file unreadable — skip sync
-  }
 }
 
 export function getNestedValue(
