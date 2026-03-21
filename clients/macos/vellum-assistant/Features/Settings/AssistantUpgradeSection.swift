@@ -441,10 +441,10 @@ struct AssistantUpgradeSection: View {
                 errorMessage = guidanceForError(cliError)
                 showFeedbackOption = true
             case .executionFailed(let stderr):
-                errorMessage = "Update failed: \(stderr)"
+                errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(stderr)"
                 showFeedbackOption = true
             default:
-                errorMessage = "Update failed: \(error.localizedDescription)"
+                errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
             }
         } catch {
             errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
