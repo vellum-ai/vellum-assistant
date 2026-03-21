@@ -34,7 +34,7 @@ struct AssistantStartupErrorView: View {
             technicalDetails
 
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Start Over", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
+                VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
                     onRetry()
                 }
                 VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {

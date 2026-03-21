@@ -391,7 +391,7 @@ struct MainWindowView: View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
                 error: daemonStartupError,
-                onRetry: { retireAndStartOver() },
+                onRetry: { retryDaemonStartup() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -811,17 +811,15 @@ struct MainWindowView: View {
         }
     }
 
-    /// Retires the current assistant and navigates back to the initial setup screen.
-    private func retireAndStartOver() {
+    /// Restarts the current assistant's daemon by sleeping then waking it.
+    private func retryDaemonStartup() {
         Task {
             guard let appDelegate = AppDelegate.shared,
                   let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
             daemonStartupError = nil
             appDelegate.daemonStartupError = nil
-            try? await appDelegate.vellumCli.retire(name: assistantName)
-            await MainActor.run {
-                appDelegate.showOnboarding()
-            }
+            try? await appDelegate.vellumCli.sleep(name: assistantName)
+            try? await appDelegate.vellumCli.wake(name: assistantName)
         }
     }
 
@@ -1308,7 +1306,10 @@ private struct AssistantLoadingOverlayContent: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 AssistantStartupErrorView(
                     error: error,
-                    onRetry: onRetry,
+                    onRetry: {
+                        timedOut = false
+                        onRetry()
+                    },
                     onSendLogs: onSendLogs
                 )
             }
@@ -1317,7 +1318,10 @@ private struct AssistantLoadingOverlayContent: View {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 AssistantConnectionTimeoutView(
-                    onRetry: onRetry,
+                    onRetry: {
+                        timedOut = false
+                        onRetry()
+                    },
                     onGoToDeveloper: onGoToDeveloper,
                     onSendLogs: onSendLogs
                 )

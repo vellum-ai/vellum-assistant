@@ -31,7 +31,7 @@ struct AssistantConnectionTimeoutView: View {
             }
 
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Start Over", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
+                VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
                     onRetry()
                 }
                 VButton(label: "Developer Settings", leftIcon: VIcon.settings.rawValue, style: .primary) {
