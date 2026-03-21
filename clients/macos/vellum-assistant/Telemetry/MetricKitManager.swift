@@ -121,7 +121,26 @@ import os
                 SentrySDK.setUser(user)
             }
 
+            // Attach files to the Sentry scope when callers provide them
+            // (e.g. CrashReportView sends crash log files). The feedback/
+            // LogExporter flow passes attachments: [] so this block is skipped
+            // for feedback archives (those are uploaded to the platform API).
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    for attachment in attachments {
+                        scope.addAttachment(attachment)
+                    }
+                }
+            }
+
             let eventId = SentrySDK.capture(event: event)
+
+            // Clear attachments so they don't leak into subsequent events.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    scope.clearAttachments()
+                }
+            }
 
             // Send user feedback linked to the event so it appears in Sentry's
             // User Feedback section. This lets us associate user-provided context
@@ -138,11 +157,12 @@ import os
                 SentrySDK.capture(feedback: feedback)
             }
 
-            // Flush to ensure the lightweight event is delivered before the
-            // app quits. Archives are no longer attached to Sentry events
-            // (they're uploaded to the platform API instead), so a short
-            // timeout is sufficient.
-            SentrySDK.flush(timeout: 5)
+            // Flush to ensure the event is delivered before the app quits.
+            // Use a longer timeout when attachments are present (crash log
+            // files can be large); feedback archives are no longer attached
+            // to Sentry events so the short timeout applies to that flow.
+            let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
+            SentrySDK.flush(timeout: flushTimeout)
 
             // Clear reporter identity so it doesn't leak into subsequent events.
             if userFeedback != nil {
