@@ -351,14 +351,15 @@ struct SettingsPanel: View {
                     selectedTab = tab
                 }
             }
-            Spacer()
+            Spacer(minLength: VSpacing.sm)
             if isDeveloperEnabled {
-                Divider()
+                VColor.surfaceBase
+                    .frame(height: 1)
+                    .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
                     .padding(.trailing, VSpacing.md)
                 SettingsNavRow(tab: .developer, isSelected: selectedTab == .developer) {
                     selectedTab = .developer
                 }
-                .padding(.bottom, VSpacing.sm)
             }
         }
         .padding(.top, VSpacing.lg)
