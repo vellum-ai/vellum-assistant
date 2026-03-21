@@ -138,7 +138,6 @@ describe("Invariant 1: secrets never enter LLM context", () => {
       });
     }
   }
-
 });
 
 // ---------------------------------------------------------------------------
@@ -170,6 +169,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
+      "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
       "security/token-manager.ts", // OAuth token refresh flow
       "email/providers/index.ts", // email provider API key lookup
