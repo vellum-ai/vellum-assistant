@@ -28,6 +28,9 @@ struct AssistantUpgradeSection: View {
     /// The version Sparkle would upgrade to (local topology only).
     var sparkleUpdateVersion: String?
 
+    /// Whether a service group update is in progress (managed topology).
+    var isServiceGroupUpdateInProgress: Bool = false
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -280,7 +283,7 @@ struct AssistantUpgradeSection: View {
                     .disabled(!upgradeAvailable || isUpgrading)
                 }
 
-                if topology != .local {
+                if topology != .local && topology != .remote {
                     VButton(
                         label: isLoadingReleases ? "Checking..." : "Check for Updates",
                         style: .outlined
@@ -311,6 +314,16 @@ struct AssistantUpgradeSection: View {
                 Text(success)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemPositiveStrong)
+            }
+
+            if isServiceGroupUpdateInProgress && !isUpgrading && topology == .managed {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Assistant is updating...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
             }
         }
         .task { await loadReleases() }
