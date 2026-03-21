@@ -25,6 +25,7 @@ struct SettingsGeneralTab: View {
     @State private var selectedAssistantId: String = ""
     @State private var dockerOperationTimedOut = false
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
+    @State private var healthzLoaded = false
 
     /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
     /// Falls back to a single `false` emission when connectionManager is nil.
@@ -57,7 +58,8 @@ struct SettingsGeneralTab: View {
                     dockerOperationLabel: $dockerOperationLabel,
                     sparkleUpdateAvailable: sparkleUpdateAvailable,
                     sparkleUpdateVersion: sparkleUpdateVersion,
-                    isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress
+                    isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
+                    healthzLoaded: healthzLoaded
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
@@ -147,6 +149,7 @@ struct SettingsGeneralTab: View {
         } catch {
             healthz = DaemonHealthz()
         }
+        healthzLoaded = true
     }
 
     // MARK: - Mobile Pairing
