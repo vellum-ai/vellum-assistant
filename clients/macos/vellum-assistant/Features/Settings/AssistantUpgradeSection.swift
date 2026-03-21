@@ -1,6 +1,9 @@
 import Foundation
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantUpgrade")
 
 /// Topology classification for upgrade UI behavior.
 enum AssistantTopology {
@@ -45,6 +48,7 @@ struct AssistantUpgradeSection: View {
     @State private var checkedSparkleVersion: String?
     @State private var isTakingLongerThanExpected = false
     @State private var escalationTask: Task<Void, Never>?
+    @State private var dockerUpgradeTask: Task<Void, Never>?
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -360,6 +364,8 @@ struct AssistantUpgradeSection: View {
         .onDisappear {
             escalationTask?.cancel()
             escalationTask = nil
+            dockerUpgradeTask?.cancel()
+            dockerUpgradeTask = nil
         }
         .alert(isRollback ? (topology == .managed ? "Downgrade Assistant" : "Roll Back Assistant") : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -431,13 +437,22 @@ struct AssistantUpgradeSection: View {
     }
 
     private func performUpgrade() async {
+        guard dockerUpgradeTask == nil else {
+            log.warning("Upgrade already in progress — ignoring duplicate request")
+            return
+        }
+
         clearMessages()
         isUpgrading = true
         defer { isUpgrading = false }
 
         switch topology {
         case .docker:
-            await performDockerUpgrade()
+            dockerUpgradeTask = Task {
+                await performDockerUpgrade()
+                dockerUpgradeTask = nil
+            }
+            await dockerUpgradeTask?.value
         case .managed:
             await performManagedUpgrade()
         case .local, .remote:
