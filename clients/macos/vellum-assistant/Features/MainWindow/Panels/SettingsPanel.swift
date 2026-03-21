@@ -363,6 +363,7 @@ struct SettingsPanel: View {
             }
         }
         .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.md)
         .padding(.trailing, VSpacing.sm)
     }
 
