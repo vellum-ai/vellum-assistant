@@ -14,15 +14,26 @@ import { httpError } from "../http-errors.js";
 /**
  * Handle GET /v1/audio/:audioId.
  *
- * Returns the audio buffer with its stored Content-Type on hit,
- * or a 404 when the audioId is unknown or expired.
+ * Returns the audio with its stored Content-Type. For complete audio,
+ * includes Content-Length for efficient playback. For in-progress
+ * streaming entries, uses chunked transfer encoding.
  */
 export function handleGetAudio(audioId: string): Response {
   const entry = getAudio(audioId);
   if (!entry) {
     return httpError("NOT_FOUND", "Audio not found", 404);
   }
-  return new Response(new Uint8Array(entry.buffer), {
+  if (entry.type === "buffer") {
+    return new Response(new Uint8Array(entry.buffer), {
+      status: 200,
+      headers: {
+        "Content-Type": entry.contentType,
+        "Content-Length": entry.buffer.length.toString(),
+      },
+    });
+  }
+  // Streaming — Content-Length unknown, chunked transfer encoding
+  return new Response(entry.stream, {
     status: 200,
     headers: { "Content-Type": entry.contentType },
   });

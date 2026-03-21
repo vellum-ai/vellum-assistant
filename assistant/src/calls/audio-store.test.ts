@@ -28,7 +28,10 @@ describe("audio-store", () => {
       const id = storeAudio(buf, "mp3");
       const result = getAudio(id);
       expect(result).not.toBeNull();
-      expect(result!.buffer).toEqual(buf);
+      expect(result!.type).toBe("buffer");
+      if (result!.type === "buffer") {
+        expect(result!.buffer).toEqual(buf);
+      }
       expect(result!.contentType).toBe("audio/mpeg");
     });
 

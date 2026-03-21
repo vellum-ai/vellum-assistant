@@ -24,7 +24,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
-import { storeAudio } from "./audio-store.js";
+import { createStreamingEntry } from "./audio-store.js";
 import {
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
@@ -567,15 +567,19 @@ export class CallController {
           fishSession = await FishAudioSession.create(config.fishAudio);
           this.activeFishSession = fishSession;
         }
-        const audioBuffer = await fishSession.synthesize(text);
         const format = config.fishAudio.format ?? "mp3";
-        const audioId = storeAudio(
-          audioBuffer,
+        const handle = createStreamingEntry(
           format as "mp3" | "wav" | "opus",
         );
         const baseUrl = getPublicBaseUrl(config);
-        const url = `${baseUrl}/v1/audio/${audioId}`;
+        const url = `${baseUrl}/v1/audio/${handle.audioId}`;
+        // Send the play URL to Twilio immediately — before synthesis
+        // completes. Twilio will fetch the audio while Fish Audio is
+        // still streaming chunks, eliminating the idle-timeout wait
+        // from the critical path.
         this.relay.sendPlayUrl(url);
+        await fishSession.synthesize(text, (chunk) => handle.push(chunk));
+        handle.finalize();
       } catch (err) {
         log.error(
           { err, textLength: text.length },
