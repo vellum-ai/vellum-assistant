@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 /// State management for the command palette (CMD+K).
 @MainActor
@@ -23,9 +24,6 @@ final class CommandPaletteViewModel {
 
     /// Deep search task that runs after fast results arrive.
     private var deepSearchTask: Task<Void, Never>?
-
-    /// Base URL and token resolver for runtime HTTP calls.
-    var runtimeHTTPResolver: (() -> (baseURL: String, token: String)?)?
 
     /// Filtered actions based on the current query.
     var filteredActions: [CommandPaletteAction] {
@@ -164,32 +162,21 @@ final class CommandPaletteViewModel {
     }
 
     private func performSearch(query: String, deep: Bool) async -> GlobalSearchResults {
-        guard let resolver = runtimeHTTPResolver,
-              let http = resolver() else {
-            return .empty
-        }
-
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        var urlString = "\(http.baseURL)/v1/search/global?q=\(encoded)&limit=10"
+        var params = ["q": query, "limit": "10"]
         if deep {
-            urlString += "&deep=true&categories=memories"
+            params["deep"] = "true"
+            params["categories"] = "memories"
         }
-        guard let url = URL(string: urlString) else {
-            return .empty
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = deep ? 10 : 5
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            let (decoded, response): (GlobalSearchResponse?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/search/global",
+                params: params,
+                timeout: deep ? 10 : 5
+            )
+            guard response.isSuccess, let decoded else {
                 return .empty
             }
-            let decoded = try JSONDecoder().decode(GlobalSearchResponse.self, from: data)
             return decoded.results
         } catch {
             return .empty
