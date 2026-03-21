@@ -3,10 +3,9 @@ import VellumAssistantShared
 
 /// Shown when the daemon fails to start with a structured error.
 /// Displays a category-specific message, expandable technical details,
-/// and retry / report-to-Vellum actions.
+/// and a report-to-Vellum action.
 struct DaemonStartupErrorView: View {
     let error: DaemonStartupError
-    let onRetry: () -> Void
     let onSendLogs: () -> Void
 
     @State private var visible = false
@@ -33,13 +32,8 @@ struct DaemonStartupErrorView: View {
 
             technicalDetails
 
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
-                    onRetry()
-                }
-                VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
-                    onSendLogs()
-                }
+            VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
+                onSendLogs()
             }
 
             Spacer()

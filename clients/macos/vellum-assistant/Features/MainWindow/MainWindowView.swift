@@ -383,7 +383,6 @@ struct MainWindowView: View {
         if showDaemonLoading && !isSettingsOpen {
             DaemonLoadingOverlayContent(
                 error: daemonStartupError,
-                onRetry: { handleDaemonRetry() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -392,13 +391,6 @@ struct MainWindowView: View {
             )
             .transition(.opacity)
         }
-    }
-
-    private func handleDaemonRetry() {
-        daemonStartupError = nil
-        AppDelegate.shared?.daemonStartupError = nil
-        showDaemonLoading = true
-        retryDaemonStartup()
     }
 
     /// Top bar extracted to break up type-checker complexity.
@@ -1164,45 +1156,6 @@ struct MainWindowView: View {
             }
         }
     }
-
-    /// Restart the daemon process without re-hatching a new assistant.
-    /// Stops the existing daemon, then re-hatches with the restart flag
-    /// to avoid creating a duplicate assistant entry.
-    private func retryDaemonStartup() {
-        Task {
-            let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.vellumCli.stop(name: assistantName)
-            do {
-                try await appDelegate.vellumCli.hatch(
-                    name: assistantName,
-                    restart: true
-                )
-            } catch let error as VellumCli.CLIError {
-                let startupError: DaemonStartupError
-                if case .daemonStartupFailed(let parsed) = error {
-                    startupError = parsed
-                } else {
-                    startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                }
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            } catch {
-                let startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            }
-            // Reconnect the daemon client after a successful restart
-            if !appDelegate.connectionManager.isConnected && !appDelegate.connectionManager.isConnecting {
-                try? await appDelegate.connectionManager.connect()
-            }
-        }
-    }
-
 }
 
 // MARK: - Error Toast Overlay
@@ -1276,7 +1229,6 @@ private struct ErrorToastOverlay: View {
 /// `coreLayoutView`.
 private struct DaemonLoadingOverlayContent: View {
     let error: DaemonStartupError?
-    let onRetry: () -> Void
     let onSendLogs: () -> Void
     let onGoToDeveloper: () -> Void
 
@@ -1292,10 +1244,6 @@ private struct DaemonLoadingOverlayContent: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 DaemonStartupErrorView(
                     error: error,
-                    onRetry: {
-                        timedOut = false
-                        onRetry()
-                    },
                     onSendLogs: onSendLogs
                 )
             }
@@ -1304,10 +1252,6 @@ private struct DaemonLoadingOverlayContent: View {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 DaemonConnectionTimeoutView(
-                    onRetry: {
-                        timedOut = false
-                        onRetry()
-                    },
                     onGoToDeveloper: onGoToDeveloper,
                     onSendLogs: onSendLogs
                 )
