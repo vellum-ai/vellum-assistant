@@ -525,6 +525,8 @@ struct AssistantUpgradeSection: View {
             return "The platform returned an error. Try again in a few minutes."
         case "ASSISTANT_NOT_FOUND":
             return "Could not find the assistant. Make sure it's still configured."
+        case "UNSUPPORTED_TOPOLOGY":
+            return "This assistant type doesn't support automatic updates. Update your infrastructure manually."
         default:
             return "Something went wrong. Share feedback to send logs to the team."
         }
