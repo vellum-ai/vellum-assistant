@@ -141,7 +141,6 @@ interface TestConfig {
   permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
-  assistantFeatureFlagValues?: Record<string, boolean>;
   [key: string]: unknown;
 }
 
@@ -149,9 +148,6 @@ const testConfig: TestConfig = {
   permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
-  assistantFeatureFlagValues: {
-    "feature_flags.inline-skill-commands.enabled": true,
-  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -169,6 +165,8 @@ mock.module("../config/loader.js", () => ({
 
 await import("../tools/skills/load.js");
 const { getTool } = await import("../tools/registry.js");
+const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+  await import("../config/assistant-feature-flags.js");
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -228,16 +226,17 @@ describe("vellum-self-knowledge inline command expansion", () => {
       ) => mockRunInlineCommand(command, workingDir),
     }));
 
-    // Enable the feature flag
-    testConfig.assistantFeatureFlagValues = {
+    // Enable the feature flag via protected directory override
+    _setOverridesForTesting({
       "feature_flags.inline-skill-commands.enabled": true,
-    };
+    });
     testConfig.skills = { load: { extraDirs: [] } };
 
     installSelfKnowledgeSkill();
   });
 
   afterEach(() => {
+    clearFeatureFlagOverridesCache();
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

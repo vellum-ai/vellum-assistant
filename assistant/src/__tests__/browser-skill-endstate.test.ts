@@ -7,13 +7,13 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    assistantFeatureFlagValues: {
-      "feature_flags.browser.enabled": true,
-    },
-  }),
+  getConfig: () => ({}),
 }));
 
+import {
+  _setOverridesForTesting,
+  clearFeatureFlagOverridesCache,
+} from "../config/assistant-feature-flags.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,
@@ -35,11 +35,15 @@ import {
 
 afterAll(() => {
   __resetRegistryForTesting();
+  clearFeatureFlagOverridesCache();
 });
 
 describe("browser skill migration end-state", () => {
   beforeAll(async () => {
     __resetRegistryForTesting();
+    _setOverridesForTesting({
+      "feature_flags.browser.enabled": true,
+    });
     await initializeTools();
   });
 
