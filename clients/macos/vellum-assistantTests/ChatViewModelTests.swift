@@ -1444,6 +1444,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        viewModel.flushStreamingBuffer()
         XCTAssertTrue(viewModel.messages[0].isStreaming)
 
         let errorMsg = ConversationErrorMessage(

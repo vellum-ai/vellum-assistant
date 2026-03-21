@@ -1696,6 +1696,11 @@ extension ChatViewModel {
             pendingVoiceMessage = false
             let wasCancelling = isCancelling
             isCancelling = false
+            // Flush any buffered streaming text so the message exists in
+            // `messages` before we try to finalize it below. This mirrors
+            // the `messageComplete` path and preserves partial assistant
+            // text for the user to see alongside the error.
+            flushStreamingBuffer()
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
@@ -1714,7 +1719,6 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            discardStreamingBuffer()
             flushPartialOutputBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually

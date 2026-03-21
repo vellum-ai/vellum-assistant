@@ -651,8 +651,11 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
         coordinator.requestPin(reason: .messageCount, conversationId: convId)
 
-        // Wait for retries to process.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Poll until the session completes (robust against slow CI scheduling).
+        let deadline = CFAbsoluteTimeGetCurrent() + 1.0
+        while coordinator.activeSession != nil, CFAbsoluteTimeGetCurrent() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
 
         // Session should have completed successfully once geometry appeared.
         XCTAssertNil(coordinator.activeSession,
