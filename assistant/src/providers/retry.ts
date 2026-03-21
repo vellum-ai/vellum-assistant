@@ -155,7 +155,8 @@ export class RetryProvider implements Provider {
             MAX_RETRY_DELAY_MS,
           );
           const errorType =
-            error instanceof ProviderError && error.statusCode === 429
+            error instanceof ProviderError &&
+            (error.statusCode === 429 || error.statusCode === 529)
               ? "rate_limit"
               : error instanceof ProviderError &&
                   error.statusCode !== undefined &&
