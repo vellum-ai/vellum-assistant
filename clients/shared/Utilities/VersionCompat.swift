@@ -9,17 +9,14 @@ public struct ParsedVersion {
 
 public enum VersionCompat {
     /// Parse a version string into major.minor.patch components.
-    /// Handles optional `v` prefix (e.g., "v1.2.3" or "1.2.3").
+    /// Handles optional `v`/`V` prefix (e.g., "v1.2.3", "V1.2.3", or "1.2.3").
     /// Returns nil if the string cannot be parsed.
     public static func parse(_ version: String) -> ParsedVersion? {
-        let cleaned = version.hasPrefix("v") ? String(version.dropFirst()) : version
-        // Strip pre-release/build metadata from each segment
-        let segments = cleaned.split(separator: ".").map { segment -> String in
-            let s = String(segment)
-            if let dashIdx = s.firstIndex(of: "-") { return String(s[..<dashIdx]) }
-            if let plusIdx = s.firstIndex(of: "+") { return String(s[..<plusIdx]) }
-            return s
-        }
+        let cleaned = (version.hasPrefix("v") || version.hasPrefix("V")) ? String(version.dropFirst()) : version
+        // Strip pre-release (-beta.1) and build metadata (+build.123) before splitting on dots
+        let withoutPreRelease = cleaned.split(separator: "-", maxSplits: 1).first.map(String.init) ?? cleaned
+        let withoutBuild = withoutPreRelease.split(separator: "+", maxSplits: 1).first.map(String.init) ?? withoutPreRelease
+        let segments = withoutBuild.split(separator: ".").map(String.init)
         let components = segments.compactMap { Int($0) }
         guard components.count >= 2, components.count <= 3 else { return nil }
         return ParsedVersion(
