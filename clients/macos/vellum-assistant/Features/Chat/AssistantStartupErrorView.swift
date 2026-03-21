@@ -1,11 +1,12 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Shown when the daemon fails to start with a structured error.
+/// Shown when the assistant fails to start with a structured error.
 /// Displays a category-specific message, expandable technical details,
-/// and a report-to-Vellum action.
-struct DaemonStartupErrorView: View {
+/// and actions to start over or report to Vellum.
+struct AssistantStartupErrorView: View {
     let error: DaemonStartupError
+    let onRetry: () -> Void
     let onSendLogs: () -> Void
 
     @State private var visible = false
@@ -32,8 +33,13 @@ struct DaemonStartupErrorView: View {
 
             technicalDetails
 
-            VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
-                onSendLogs()
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Start Over", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
+                    onRetry()
+                }
+                VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
+                    onSendLogs()
+                }
             }
 
             Spacer()

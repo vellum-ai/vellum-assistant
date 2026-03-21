@@ -1,10 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Shown when the daemon loading skeleton times out without connecting.
-/// Displays an "unreachable" message with actions to navigate to
-/// the developer settings tab or report to Vellum.
-struct DaemonConnectionTimeoutView: View {
+/// Shown when the assistant loading skeleton times out without connecting.
+/// Displays an "unreachable" message with actions to start over, navigate to
+/// the developer settings tab, or report to Vellum.
+struct AssistantConnectionTimeoutView: View {
+    let onRetry: () -> Void
     let onGoToDeveloper: () -> Void
     let onSendLogs: () -> Void
 
@@ -29,8 +30,13 @@ struct DaemonConnectionTimeoutView: View {
                     .frame(maxWidth: 380)
             }
 
-            VButton(label: "Developer Settings", leftIcon: VIcon.settings.rawValue, style: .primary) {
-                onGoToDeveloper()
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Start Over", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
+                    onRetry()
+                }
+                VButton(label: "Developer Settings", leftIcon: VIcon.settings.rawValue, style: .primary) {
+                    onGoToDeveloper()
+                }
             }
 
             VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .ghost) {

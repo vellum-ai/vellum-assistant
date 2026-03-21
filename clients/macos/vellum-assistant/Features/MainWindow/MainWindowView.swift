@@ -377,12 +377,13 @@ struct MainWindowView: View {
         return false
     }
 
-    /// Daemon loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
-    private var daemonLoadingOverlayIfNeeded: some View {
+    private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
-            DaemonLoadingOverlayContent(
+            AssistantLoadingOverlayContent(
                 error: daemonStartupError,
+                onRetry: { retireAndStartOver() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -773,6 +774,18 @@ struct MainWindowView: View {
         }
     }
 
+    /// Retires the current assistant and navigates back to the initial setup screen.
+    private func retireAndStartOver() {
+        Task {
+            guard let appDelegate = AppDelegate.shared,
+                  let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+            try? await appDelegate.vellumCli.retire(name: assistantName)
+            await MainActor.run {
+                appDelegate.showOnboarding()
+            }
+        }
+    }
+
     private func handleCoreLayoutDisappear() {
         sharing.errorDismissTask?.cancel()
         sharing.errorDismissTask = nil
@@ -1005,7 +1018,7 @@ struct MainWindowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
-                        daemonLoadingOverlayIfNeeded
+                        assistantLoadingOverlayIfNeeded
                     }
             }
             .padding(16)
@@ -1220,15 +1233,16 @@ private struct ErrorToastOverlay: View {
     }
 }
 
-// MARK: - Daemon Loading Overlay Content
+// MARK: - Assistant Loading Overlay Content
 
-/// Standalone view for the daemon loading overlay that shows either a
+/// Standalone view for the assistant loading overlay that shows either a
 /// structured error view, a connection timeout error, or the default
 /// skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
-private struct DaemonLoadingOverlayContent: View {
+private struct AssistantLoadingOverlayContent: View {
     let error: DaemonStartupError?
+    let onRetry: () -> Void
     let onSendLogs: () -> Void
     let onGoToDeveloper: () -> Void
 
@@ -1242,8 +1256,9 @@ private struct DaemonLoadingOverlayContent: View {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonStartupErrorView(
+                AssistantStartupErrorView(
                     error: error,
+                    onRetry: onRetry,
                     onSendLogs: onSendLogs
                 )
             }
@@ -1251,7 +1266,8 @@ private struct DaemonLoadingOverlayContent: View {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonConnectionTimeoutView(
+                AssistantConnectionTimeoutView(
+                    onRetry: onRetry,
                     onGoToDeveloper: onGoToDeveloper,
                     onSendLogs: onSendLogs
                 )
