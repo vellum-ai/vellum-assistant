@@ -475,11 +475,15 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
                 VButton(
-                    label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
+                    label: updateManager.isDeferredUpdateReady
+                        ? "Restart to update"
+                        : (connectionManager.versionMismatch ? "Compatibility update" : "Update"),
                     leftIcon: VIcon.arrowUp.rawValue,
-                    style: .primary,
+                    style: connectionManager.versionMismatch ? .outlined : .primary,
                     size: .pill,
-                    tooltip: updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available"
+                    tooltip: connectionManager.versionMismatch
+                        ? "Your assistant version doesn't match this app"
+                        : (updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available")
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
@@ -535,6 +539,7 @@ struct MainWindowView: View {
             .frame(minWidth: 800, minHeight: 600)
             .overlay(alignment: .top) { zoomIndicatorOverlay }
             .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+            .overlay(alignment: .top) { versionMismatchBannerOverlay }
             .overlay(alignment: .top) { coreLayoutErrorOverlay }
             .overlay(alignment: .bottom) { windowToastOverlay }
             .animation(VAnimation.standard, value: windowState.toastInfo != nil)
@@ -584,7 +589,18 @@ struct MainWindowView: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                 .padding(.top, VSpacing.sm)
                 .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
-            } else if connectionManager.versionMismatch {
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Version mismatch banner — renders independently of conversation error overlay
+    /// so it's visible even when a conversation is active.
+    @ViewBuilder
+    private var versionMismatchBannerOverlay: some View {
+        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {
+            // Suppress when the "Update" pill already covers it (daemon behind + update available)
+            if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
                 ChatConversationErrorToast(
                     message: versionMismatchMessage,
                     icon: .triangleAlert,
@@ -600,7 +616,17 @@ struct MainWindowView: View {
                 .animation(VAnimation.fast, value: connectionManager.versionMismatch)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Whether the daemon version is behind the client version.
+    private var isDaemonBehind: Bool {
+        guard let daemonVersion = connectionManager.assistantVersion,
+              let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let daemonParsed = VersionCompat.parse(daemonVersion),
+              let clientParsed = VersionCompat.parse(clientVersion) else { return false }
+        if daemonParsed.major != clientParsed.major { return daemonParsed.major < clientParsed.major }
+        if daemonParsed.minor != clientParsed.minor { return daemonParsed.minor < clientParsed.minor }
+        return daemonParsed.patch < clientParsed.patch
     }
 
     /// Contextual message for version mismatch: tells user which side is behind.
