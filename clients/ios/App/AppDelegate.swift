@@ -59,11 +59,10 @@ final class ClientProvider: ObservableObject {
         // Tear down the old client's connection, timers, and monitors before replacing.
         client.disconnect()
         let newCM = GatewayConnectionManager()
-        let config = DaemonConfig.fromUserDefaults()
-        newCM.reconfigure(instanceDir: config.instanceDir)
+        let conversationKey = Self.resolveConversationKey()
+        newCM.reconfigure(conversationKey: conversationKey)
         newCM.recoveryPlatform = prevPlatform
         newCM.recoveryDeviceId = prevDeviceId
-        newCM.instanceDir = config.instanceDir
         self.connectionManager = newCM
         self.client = newCM
         self.clientGeneration &+= 1
@@ -114,11 +113,25 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private var instanceChangeObserver: NSObjectProtocol?
     override init() {
         let cm = GatewayConnectionManager()
-        let config = DaemonConfig.fromUserDefaults()
-        cm.instanceDir = config.instanceDir
-        cm.reconfigure(instanceDir: config.instanceDir)
+        let conversationKey = Self.resolveConversationKey()
+        cm.reconfigure(conversationKey: conversationKey)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
+    }
+
+    /// Resolve the conversation key from UserDefaults for host tool filtering.
+    private static func resolveConversationKey() -> String? {
+        // Managed assistant uses assistantId as conversation key
+        if let managedId = UserDefaults.standard.string(forKey: "managed_assistant_id"), !managedId.isEmpty {
+            return managedId
+        }
+        // QR-paired: use stored or generate new
+        if let stored = UserDefaults.standard.string(forKey: "conversation_key"), !stored.isEmpty {
+            return stored
+        }
+        let newKey = UUID().uuidString
+        UserDefaults.standard.set(newKey, forKey: "conversation_key")
+        return newKey
     }
 
     func application(

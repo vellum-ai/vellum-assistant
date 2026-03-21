@@ -57,55 +57,25 @@ extension AppDelegate {
         isCurrentAssistantManaged = assistant?.isManaged ?? false
         let launchEnvironment = ProcessInfo.processInfo.environment
 
-        // Managed assistant: use platform proxy URLs with session token auth.
+        // Managed assistant: platform proxy with session token auth.
         if let assistant, assistant.isManaged {
-            let platformBaseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            let metadata = TransportMetadata(
-                routeMode: .platformAssistantProxy,
-                authMode: .sessionToken,
-                platformAssistantId: assistant.assistantId
-            )
-            let config = DaemonConfig(
-                transport: .http(
-                    baseURL: platformBaseURL,
-                    bearerToken: nil,
-                    conversationKey: assistant.assistantId
-                ),
-                transportMetadata: metadata
-            )
-            services.reconfigureGatewayConnectionManager(config: config)
-            log.info("Configured managed transport for assistant \(assistant.assistantId, privacy: .public) via platform at \(platformBaseURL, privacy: .public)")
+            services.reconfigureConnection(conversationKey: assistant.assistantId)
+            log.info("Configured managed assistant \(assistant.assistantId, privacy: .public)")
             return
         }
 
-        guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant — use HTTP transport to the local daemon.
-            // Bearer token is nil; resolved lazily at connect time.
-            let port = Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821
-            let baseURL = "http://localhost:\(port)"
+        guard let assistant, assistant.isRemote else {
+            // Local assistant or no assistant.
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
-            let config = DaemonConfig(transport: .http(
-                baseURL: baseURL,
-                bearerToken: nil,
-                conversationKey: conversationKey
-            ), instanceDir: instanceDir)
-            services.reconfigureGatewayConnectionManager(config: config)
-            log.info("Configured local HTTP transport on port \(port)")
+            services.reconfigureConnection(instanceDir: instanceDir, conversationKey: conversationKey)
+            log.info("Configured local assistant")
             return
         }
 
-        let config = DaemonConfig(transport: .http(
-            baseURL: runtimeUrl,
-            bearerToken: assistant.bearerToken,
-            conversationKey: assistant.assistantId
-        ))
-
-        // Reconfigure the daemon client's transport in place. This preserves
-        // object identity so all long-lived holders keep a valid reference.
-        services.reconfigureGatewayConnectionManager(config: config)
-
-        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId, privacy: .public) at \(runtimeUrl, privacy: .public)")
+        // Remote assistant.
+        services.reconfigureConnection(conversationKey: assistant.assistantId)
+        log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
     // MARK: - Daemon Client Setup

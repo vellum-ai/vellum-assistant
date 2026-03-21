@@ -3,6 +3,35 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "IdentityClient")
 
+/// Identity fields fetched from a remote assistant's identity endpoint.
+public struct RemoteIdentityInfo: Decodable {
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let version: String?
+    public let assistantId: String?
+    public let home: String?
+    public let createdAt: String?
+    public let originSystem: String?
+
+    public init(
+        name: String, role: String, personality: String, emoji: String,
+        version: String? = nil, assistantId: String? = nil, home: String? = nil,
+        createdAt: String? = nil, originSystem: String? = nil
+    ) {
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.version = version
+        self.assistantId = assistantId
+        self.home = home
+        self.createdAt = createdAt
+        self.originSystem = originSystem
+    }
+}
+
 /// Focused client for fetching remote assistant identity via the gateway.
 @MainActor
 public protocol IdentityClientProtocol {

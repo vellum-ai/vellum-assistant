@@ -19,11 +19,9 @@ public final class AppServices {
     )
 
     /// Reconfigure the connection for a new assistant.
-    func reconfigureGatewayConnectionManager(config: DaemonConfig) {
-        let conversationKey: String?
-        if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
+    func reconfigureConnection(instanceDir: String? = nil, conversationKey: String? = nil) {
         connectionManager.reconfigure(
-            instanceDir: config.instanceDir,
+            instanceDir: instanceDir,
             conversationKey: conversationKey
         )
     }
