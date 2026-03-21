@@ -1,5 +1,5 @@
 /**
- * Unified secure key storage — single-writer routing through CredentialBackend
+ * Unified secure key storage — single-backend routing through CredentialBackend
  * adapters.
  *
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
@@ -10,9 +10,8 @@
  *     rather than silently writing to a different store.
  *   - Dev mode or non-desktop topology: encrypted file store always.
  *
- * Writes go to exactly one backend (no dual-writing). Reads in keychain mode
- * fall back to the encrypted store for keys that haven't been migrated yet.
- * Deletes clean up both stores regardless of mode.
+ * All operations (reads, writes, lists, deletes) go to exactly one backend.
+ * There are no cross-backend fallbacks or merges.
  */
 
 import type {
@@ -131,35 +130,17 @@ async function doResolveBackend(): Promise<CredentialBackend> {
 }
 
 /**
- * List all account names across both backends (async).
+ * List all account names from the resolved backend (async).
  *
- * In CES mode, only the CES backend is queried — there are no local stores.
- *
- * When the primary backend is the keychain, this merges keys from the keychain
- * and the encrypted store (for legacy keys that haven't been migrated). The
- * result is deduplicated. When the primary backend is already the encrypted
- * store, only that store is queried.
+ * Queries exactly one backend — no cross-store merge.
  */
 export async function listSecureKeysAsync(): Promise<string[]> {
   const backend = await resolveBackendAsync();
-  const primaryKeys = await backend.list();
-
-  // CES mode — the sidecar is the single source of truth, no local merge.
-  if (backend.name === "ces-http") return primaryKeys;
-
-  // If primary backend is NOT the encrypted store, also check
-  // the encrypted store for legacy keys that haven't been migrated.
-  if (backend !== getEncryptedStoreBackend()) {
-    const encKeys = await getEncryptedStoreBackend().list();
-    const merged = new Set([...primaryKeys, ...encKeys]);
-    return Array.from(merged);
-  }
-
-  return primaryKeys;
+  return backend.list();
 }
 
 // ---------------------------------------------------------------------------
-// Async CRUD — single-writer routing
+// Async CRUD — single-backend routing
 // ---------------------------------------------------------------------------
 
 /**
@@ -169,10 +150,7 @@ export async function listSecureKeysAsync(): Promise<string[]> {
  * unreachable. Callers that need to distinguish "not found" from
  * "backend down" should use this instead of `getSecureKeyAsync`.
  *
- * Reads from the primary backend first. In CES mode, the sidecar is
- * the single source of truth — no local fallback. In local mode, if
- * the primary backend is the keychain, falls back to the encrypted
- * store for legacy keys that haven't been migrated.
+ * Reads from exactly one backend — no cross-store fallback.
  */
 export async function getSecureKeyResultAsync(
   account: string,
@@ -182,23 +160,7 @@ export async function getSecureKeyResultAsync(
   if (result.value != null) {
     return { value: result.value, unreachable: false };
   }
-
-  // CES mode — the sidecar is the single source of truth, no local fallback.
-  if (backend.name === "ces-http") {
-    return { value: undefined, unreachable: result.unreachable };
-  }
-
-  // Legacy fallback: if primary backend is NOT the encrypted store,
-  // check the encrypted store for keys that haven't been migrated.
-  if (backend !== getEncryptedStoreBackend()) {
-    const fallback = await getEncryptedStoreBackend().get(account);
-    if (fallback.value != null) {
-      return { value: fallback.value, unreachable: false };
-    }
-    return { value: undefined, unreachable: result.unreachable };
-  }
-
-  return { value: undefined, unreachable: false };
+  return { value: undefined, unreachable: result.unreachable };
 }
 
 /**
@@ -234,38 +196,13 @@ export async function setSecureKeyAsync(
 /**
  * Delete a secret from secure storage.
  *
- * In containerized mode with CES, deletion is routed exclusively through the
- * CES backend — there are no local stores to clean up.
- *
- * In local mode, always attempts deletion on both the keychain backend (if
- * available) and the encrypted store backend, regardless of routing mode.
- * This cleans up legacy data from both stores.
+ * Deletes from exactly one backend — no cross-store cleanup.
  */
 export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
   const backend = await resolveBackendAsync();
-
-  // In CES mode, the sidecar is the only store — no local cleanup needed.
-  if (backend.name === "ces-http") {
-    return backend.delete(account);
-  }
-
-  const keychain = getKeychainBackend();
-  const enc = getEncryptedStoreBackend();
-
-  let keychainResult: DeleteResult = "not-found";
-  if (keychain.isAvailable()) {
-    keychainResult = await keychain.delete(account);
-  }
-
-  const encResult = await enc.delete(account);
-
-  // Return "error" if either errored
-  if (keychainResult === "error" || encResult === "error") return "error";
-  // Return "deleted" if either deleted
-  if (keychainResult === "deleted" || encResult === "deleted") return "deleted";
-  return "not-found";
+  return backend.delete(account);
 }
 
 // ---------------------------------------------------------------------------
