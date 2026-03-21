@@ -1,10 +1,16 @@
 import Foundation
 
 /// Parsed semantic version components.
-public struct ParsedVersion {
+public struct ParsedVersion: Equatable, Comparable {
     public let major: Int
     public let minor: Int
     public let patch: Int
+
+    public static func < (lhs: ParsedVersion, rhs: ParsedVersion) -> Bool {
+        if lhs.major != rhs.major { return lhs.major < rhs.major }
+        if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+        return lhs.patch < rhs.patch
+    }
 }
 
 public enum VersionCompat {
