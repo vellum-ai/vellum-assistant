@@ -6,7 +6,6 @@ import {
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
-  syncConfigToLockfile,
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
@@ -73,8 +72,7 @@ Arguments:
           true, "42" becomes number 42). Falls back to plain string if JSON
           parsing fails.
 
-After writing the value to config.json, the lockfile is automatically synced
-to reflect the updated configuration.
+After writing the value to config.json, the change takes effect immediately.
 
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
@@ -93,7 +91,6 @@ Examples:
       }
       setNestedValue(raw, key, parsed);
       saveRawConfig(raw);
-      syncConfigToLockfile();
       log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
     });
 

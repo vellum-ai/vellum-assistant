@@ -75,7 +75,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
 }));
 
 await import("../tools/skills/load.js");

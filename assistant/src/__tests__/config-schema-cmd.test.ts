@@ -88,7 +88,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
 }));
 
 import { Command } from "commander";

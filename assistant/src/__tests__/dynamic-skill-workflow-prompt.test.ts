@@ -77,7 +77,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
 }));
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
