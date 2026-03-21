@@ -59,9 +59,10 @@ export function categorizeUpgradeError(err: unknown): CliErrorCategory {
   }
 
   if (
-    msg.includes("manifest") ||
+    msg.includes("manifest unknown") ||
+    msg.includes("manifest not found") ||
     msg.includes("pull access denied") ||
-    msg.includes("not found")
+    msg.includes("repository does not exist")
   ) {
     return "IMAGE_PULL_FAILED";
   }
