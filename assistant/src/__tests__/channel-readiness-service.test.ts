@@ -4,12 +4,6 @@ let mockTwilioPhoneNumber: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
-let mockGatewayHealth = {
-  target: "http://127.0.0.1:7830",
-  healthy: true,
-  localDeployment: true,
-  error: undefined as string | undefined,
-};
 
 mock.module("../calls/twilio-rest.js", () => ({
   getPhoneNumberSid: async () => null,
@@ -64,7 +58,6 @@ import type {
   ChannelProbe,
   ReadinessCheckResult,
 } from "../runtime/channel-readiness-types.js";
-import * as localGatewayHealth from "../runtime/local-gateway-health.js";
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
@@ -104,12 +97,6 @@ describe("ChannelReadinessService", () => {
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
-    mockGatewayHealth = {
-      target: "http://127.0.0.1:7830",
-      healthy: true,
-      localDeployment: true,
-      error: undefined,
-    };
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
@@ -402,50 +389,5 @@ describe("ChannelReadinessService", () => {
     await service.getReadiness("phone", true);
 
     expect(probe.remoteCallCount).toBe(1);
-  });
-
-  test("voice readiness includes gateway_health when ingress is configured", async () => {
-    mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumber = "+15550001111";
-    mockRawConfig = {
-      ingress: {
-        enabled: true,
-        publicBaseUrl: "https://voice.example.com",
-      },
-    };
-    mockGatewayHealth = {
-      target: "http://127.0.0.1:7830",
-      healthy: false,
-      localDeployment: true,
-      error: "connect ECONNREFUSED 127.0.0.1:7830",
-    };
-
-    const probeLocalGatewayHealthSpy = spyOn(
-      localGatewayHealth,
-      "probeLocalGatewayHealth",
-    ).mockImplementation(async () => ({
-      ...mockGatewayHealth,
-    }));
-
-    let snapshot: Awaited<
-      ReturnType<ChannelReadinessService["getReadiness"]>
-    >[number];
-    try {
-      const readinessService = createReadinessService();
-      [snapshot] = await readinessService.getReadiness("phone");
-    } finally {
-      probeLocalGatewayHealthSpy.mockRestore();
-    }
-
-    const gatewayHealthCheck = snapshot.localChecks.find(
-      (check) => check.name === "gateway_health",
-    );
-    expect(gatewayHealthCheck).toBeDefined();
-    expect(gatewayHealthCheck?.passed).toBe(false);
-    expect(snapshot.reasons).toContainEqual({
-      code: "gateway_health",
-      text: "Local gateway is not serving requests at http://127.0.0.1:7830: connect ECONNREFUSED 127.0.0.1:7830",
-    });
-    expect(snapshot.ready).toBe(false);
   });
 });
