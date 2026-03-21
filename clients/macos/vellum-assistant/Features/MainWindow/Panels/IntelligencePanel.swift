@@ -113,14 +113,10 @@ struct IntelligencePanel: View {
                 isEmailEnabled = emailFlag.enabled
             }
         } catch {
-            // Fall through to local config fallback
-            let registry = loadFeatureFlagRegistry()
-            let registryDefaults = Dictionary(
-                uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map { ($0.key, $0.defaultEnabled) }
+            // Fall through to local file fallback
+            let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+                registry: loadFeatureFlagRegistry()
             )
-            let config = WorkspaceConfigIO.read()
-            let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
-            let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
             if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {
                 isContactsEnabled = contactsEnabled
             }

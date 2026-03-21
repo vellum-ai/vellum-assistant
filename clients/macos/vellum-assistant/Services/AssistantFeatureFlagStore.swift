@@ -4,23 +4,21 @@ import VellumAssistantShared
 
 /// Caches assistant-scoped feature flags for the app session so SwiftUI views
 /// can read resolved values without disk access during body evaluation.
+///
+/// Reads persisted overrides from `~/.vellum/protected/feature-flags.json`.
 @MainActor
 final class AssistantFeatureFlagStore: ObservableObject {
     @Published private var resolvedFlags: [String: Bool]
 
     private let registryDefaults: [String: Bool]
-    private let readConfig: () -> [String: Any]
     private var flagChangeCancellable: AnyCancellable?
 
     init(
         notificationCenter: NotificationCenter = .default,
-        registry: FeatureFlagRegistry? = loadFeatureFlagRegistry(),
-        readConfig: @escaping () -> [String: Any] = { WorkspaceConfigIO.read() }
+        registry: FeatureFlagRegistry? = loadFeatureFlagRegistry()
     ) {
-        self.readConfig = readConfig
         self.registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: registry)
         self.resolvedFlags = AssistantFeatureFlagResolver.resolvedFlags(
-            config: readConfig(),
             registryDefaults: self.registryDefaults
         )
 
@@ -45,7 +43,6 @@ final class AssistantFeatureFlagStore: ObservableObject {
 
     func reloadFromDisk() {
         resolvedFlags = AssistantFeatureFlagResolver.resolvedFlags(
-            config: readConfig(),
             registryDefaults: registryDefaults
         )
     }
