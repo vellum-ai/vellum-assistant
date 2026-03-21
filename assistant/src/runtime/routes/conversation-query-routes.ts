@@ -12,6 +12,7 @@
  * PUT    /v1/config/embeddings          — set embedding provider/model
  * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
  * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
+ * PATCH  /v1/config                     — deep-merge partial config
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
@@ -19,6 +20,7 @@
  */
 
 import {
+  deepMergeOverwrite,
   getConfig,
   loadRawConfig,
   saveRawConfig,
@@ -293,6 +295,41 @@ export function conversationQueryRouteDefinitions(
         raw.permissions = permissions;
         saveRawConfig(raw);
         return Response.json({ enabled: body.enabled });
+      },
+    },
+
+    // ── Generic config patch ──────────────────────────────────────────
+    {
+      endpoint: "config",
+      method: "PATCH",
+      policyKey: "config",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as Record<string, unknown>;
+        if (
+          body == null ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          Object.keys(body).length === 0
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            "Body must be a non-empty JSON object",
+            400,
+          );
+        }
+        try {
+          const raw = loadRawConfig();
+          deepMergeOverwrite(raw, body);
+          saveRawConfig(raw);
+          return Response.json({ ok: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to patch config: ${message}`,
+            500,
+          );
+        }
       },
     },
 
