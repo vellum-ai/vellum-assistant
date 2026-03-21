@@ -274,7 +274,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     currentConfig = {};
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
     resetSkillToolProjection();
   });
 
