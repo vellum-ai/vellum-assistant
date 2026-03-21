@@ -373,6 +373,16 @@ public enum GatewayHTTPClient {
         return cs
     }()
 
+    /// Returns `true` when the current connection targets a managed (cloud-hosted)
+    /// assistant that routes through the platform proxy, `false` otherwise.
+    ///
+    /// Callers can use this to decide whether request paths need the
+    /// `assistants/{assistantId}/` scope prefix (required by the platform) or
+    /// should use flat paths (required by non-managed runtimes).
+    public static func isConnectionManaged() throws -> Bool {
+        return try resolveConnection().isManaged
+    }
+
     /// Constructs a gateway URL for the given path and query parameters.
     ///
     /// Use this when you need a raw URL (e.g. for media viewers) rather than

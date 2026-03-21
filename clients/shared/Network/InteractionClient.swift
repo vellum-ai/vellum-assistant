@@ -31,7 +31,8 @@ public struct InteractionClient: InteractionClientProtocol {
             if let selectedPattern { body["selectedPattern"] = selectedPattern }
             if let selectedScope { body["selectedScope"] = selectedScope }
 
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/confirm", json: body, timeout: 10)
+            let path = try Self.approvalPath(endpoint: "confirm")
+            let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendConfirmationResponse failed (HTTP \(response.statusCode))")
                 return false
@@ -56,7 +57,8 @@ public struct InteractionClient: InteractionClientProtocol {
             body["value"] = value ?? ""
             if let delivery { body["delivery"] = delivery }
 
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/secret", json: body, timeout: 10)
+            let path = try Self.approvalPath(endpoint: "secret")
+            let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSecretResponse failed (HTTP \(response.statusCode))")
                 return false
@@ -66,5 +68,18 @@ public struct InteractionClient: InteractionClientProtocol {
             log.error("sendSecretResponse error: \(error.localizedDescription)")
             return false
         }
+    }
+
+    // MARK: - Path Resolution
+
+    /// Returns the appropriate request path for an approval endpoint based on
+    /// the current connection type.
+    ///
+    /// Managed connections route through the platform proxy which expects
+    /// `assistants/{assistantId}/<endpoint>`. Non-managed connections (local
+    /// gateway or direct remote runtime) use flat `<endpoint>` paths.
+    private static func approvalPath(endpoint: String) throws -> String {
+        let managed = try GatewayHTTPClient.isConnectionManaged()
+        return managed ? "assistants/{assistantId}/\(endpoint)" : endpoint
     }
 }
