@@ -288,6 +288,15 @@ public final class GatewayConnectionManager: ObservableObject {
                 } catch {
                     log.warning("Periodic health check failed: \(error.localizedDescription)")
                 }
+
+                // Check for update timeout
+                if self.isUpdateInProgress, let expiresAt = self.updateExpiresAt, Date() > expiresAt {
+                    log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
+                    self.isUpdateInProgress = false
+                    self.updateTargetVersion = nil
+                    self.updateExpiresAt = nil
+                    self.eventStreamClient.resetSSEReconnectDelay()
+                }
             }
         }
     }
@@ -357,9 +366,9 @@ public final class GatewayConnectionManager: ObservableObject {
 
         switch message {
         case .serviceGroupUpdateStarting(let msg):
-            self.isUpdateInProgress = true
             self.updateTargetVersion = msg.targetVersion
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
+            setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
         case .serviceGroupUpdateComplete:
             self.isUpdateInProgress = false
