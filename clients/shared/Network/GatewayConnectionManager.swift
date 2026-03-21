@@ -30,8 +30,18 @@ public final class GatewayConnectionManager {
     private var instanceDir: String?
 
     /// Whether auto-wake should be attempted on disconnect.
-    /// Only applies to runtimeFlat mode (local assistants).
-    private var isRuntimeFlat: Bool = false
+    /// Only applies to local assistants (not remote, Docker, or managed).
+    private var isLocal: Bool {
+        #if os(macOS)
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(id) else {
+            return false
+        }
+        return !assistant.isRemote && !assistant.isManaged
+        #else
+        return false
+        #endif
+    }
 
     // MARK: - Health Check
 
@@ -117,7 +127,7 @@ public final class GatewayConnectionManager {
                 throw error
             }
 
-            if let wakeHandler, isRuntimeFlat {
+            if let wakeHandler, isLocal {
                 let reachable = await HealthCheckClient.isReachable(instanceDir: instanceDir)
                 if !reachable {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
@@ -174,7 +184,7 @@ public final class GatewayConnectionManager {
 
     /// Reconfigure connection parameters for a new assistant.
     /// Callers must call `connect()` after reconfiguring.
-    public func reconfigure(instanceDir: String?, isRuntimeFlat: Bool, conversationKey: String? = nil) {
+    public func reconfigure(instanceDir: String?, conversationKey: String? = nil) {
         self.conversationKey = conversationKey
         #if os(macOS)
         autoWakeTask?.cancel()
@@ -182,7 +192,6 @@ public final class GatewayConnectionManager {
         #endif
         disconnect()
         self.instanceDir = instanceDir
-        self.isRuntimeFlat = isRuntimeFlat
         isAuthenticated = false
         refreshTask?.cancel()
         refreshTask = nil
@@ -322,7 +331,7 @@ public final class GatewayConnectionManager {
     private static let autoWakeCooldown: TimeInterval = 60.0
 
     private func autoWakeIfDaemonDied() {
-        guard let wakeHandler, isRuntimeFlat else { return }
+        guard let wakeHandler, isLocal else { return }
 
         if let last = lastAutoWakeAttempt,
            Date().timeIntervalSince(last) < Self.autoWakeCooldown {
