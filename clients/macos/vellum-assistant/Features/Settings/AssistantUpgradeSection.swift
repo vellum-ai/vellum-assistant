@@ -217,7 +217,7 @@ struct AssistantUpgradeSection: View {
 
                 if !availableReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
-                        Text(isRollback ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
+                        Text(!upgradeAvailable ? "Selected:" : isRollback ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                         Picker("", selection: Binding<String>(
