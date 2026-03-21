@@ -154,16 +154,8 @@ struct ChatEmptyStateView: View {
             .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .padding(.top, VSpacing.xxl)
-            .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : 10)
-        } else if conversationStartersLoading {
-            Text("Getting some ideas\u{2026}")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .padding(.top, VSpacing.xxl)
-                .opacity(visible ? 1 : 0)
-                .offset(y: visible ? 0 : 10)
+            .transition(.opacity.combined(with: .offset(y: 10)))
+            .animation(.easeOut(duration: 0.4), value: conversationStarters.isEmpty)
         }
     }
 
