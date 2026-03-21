@@ -20,7 +20,6 @@ struct GalleryComponent: Identifiable {
 }
 
 enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
-    case assistantMessages = "Assistant Messages"
     case buttons = "Buttons"
     case chat = "Chat"
     case display = "Display"
@@ -36,7 +35,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
 
     var vIcon: VIcon {
         switch self {
-        case .assistantMessages: return .sparkles
         case .buttons: return .mousePointerClick
         case .chat: return .messagesSquare
         case .display: return .layers
@@ -52,22 +50,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
 
     var components: [GalleryComponent] {
         switch self {
-        case .assistantMessages:
-            return [
-                GalleryComponent("confirmationSurface", "ConfirmationSurfaceView", keywords: ["confirmation", "cancel", "dismiss"], description: "Inline confirmation card with pending and dismissed states."),
-                GalleryComponent("completedSurfaceChip", "CompletedSurfaceChip", keywords: ["completed", "chip", "surface"], description: "Compact chip shown after an interactive surface is completed."),
-                GalleryComponent("inlineFallbackChip", "InlineFallbackChip", keywords: ["fallback", "unsupported", "chip"], description: "Placeholder chip for unsupported inline surface types."),
-                GalleryComponent("commandListBubble", "CommandListBubble", keywords: ["command list", "commands"], description: "Rendered when the assistant outputs a parseable command list."),
-                GalleryComponent("modelListBubble", "ModelListBubble", keywords: ["model list", "models", "providers"], description: "Rendered when the assistant lists available models."),
-                GalleryComponent("toolCallProgressBar", "ToolCallProgressBar", keywords: ["progress bar", "tool call"], description: "Horizontal progress bar with clickable tool call steps."),
-                GalleryComponent("currentStepIndicator", "CurrentStepIndicator", keywords: ["step indicator", "progress"], description: "Current step name with spinner or checkmark."),
-                GalleryComponent("typingIndicator", "TypingIndicatorView", keywords: ["typing", "dots", "thinking"], description: "Animated three-dot indicator while assistant is thinking."),
-                GalleryComponent("subagentStatusChip", "SubagentStatusChip", keywords: ["subagent", "status"], description: "Status chip for subagent progress."),
-                GalleryComponent("subagentConversation", "SubagentConversationView", keywords: ["subagent", "conversation", "thread"], description: "Threaded conversation indicator for subagents."),
-                GalleryComponent("formSurface", "FormSurfaceView", keywords: ["form", "input", "fields"], description: "Interactive form with text, select, toggle, and password fields."),
-                GalleryComponent("fileUploadSurface", "FileUploadSurfaceView", keywords: ["file upload", "drop zone"], description: "File upload drop zone with file list (macOS only)."),
-                GalleryComponent("imageEmbedPlaceholder", "InlineImageEmbedView", keywords: ["image", "placeholder", "skeleton"], description: "Skeleton placeholder shown while an inline image loads."),
-            ]
         case .buttons:
             return [
                 GalleryComponent("vButton", "VButton", keywords: ["button"], description: "Primary action button with multiple styles (primary, outlined, danger, ghost, contrast), icon support, full-width option, and inline size.", useInsteadOf: "Custom Button with manual styling"),
@@ -343,7 +325,6 @@ struct ComponentGalleryView: View {
         }
 
         switch category {
-        case .assistantMessages: AssistantMessagesGallerySection()
         case .buttons: ButtonsGallerySection()
         case .chat: ChatGallerySection()
         case .display: DisplayGallerySection()
@@ -360,7 +341,6 @@ struct ComponentGalleryView: View {
     @ViewBuilder
     private func componentContent(for category: ComponentGalleryCategory, componentID: String) -> some View {
         switch category {
-        case .assistantMessages: AssistantMessagesGallerySection.componentPage(componentID)
         case .buttons: ButtonsGallerySection.componentPage(componentID)
         case .chat: ChatGallerySection.componentPage(componentID)
         case .display: DisplayGallerySection.componentPage(componentID)
