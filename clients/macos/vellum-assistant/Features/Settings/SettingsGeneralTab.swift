@@ -149,7 +149,7 @@ struct SettingsGeneralTab: View {
 
     private var accountSection: some View {
         SettingsCard(
-            title: "Account",
+            title: "Vellum Platform",
             subtitle: authManager.currentUser?.email ?? authManager.currentUser?.display ?? "Log in to your account"
         ) {
             if authManager.isLoading {
