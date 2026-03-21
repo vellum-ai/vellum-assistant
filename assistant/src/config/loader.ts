@@ -2,10 +2,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -326,7 +327,21 @@ export function mergeDefaultWorkspaceConfig(): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
-  log.info("Merged default workspace config from %s", defaultConfigPath);
+
+  // Move the temp file into the workspace directory as a permanent record.
+  // This prevents re-application on daemon restart (the env var still points
+  // at the old /tmp path which no longer exists).
+  try {
+    const dest = join(dir, "default-config.json");
+    renameSync(defaultConfigPath, dest);
+    log.info(
+      "Merged default workspace config from %s (archived to %s)",
+      defaultConfigPath,
+      dest,
+    );
+  } catch {
+    log.info("Merged default workspace config from %s", defaultConfigPath);
+  }
 }
 
 export function loadConfig(): AssistantConfig {

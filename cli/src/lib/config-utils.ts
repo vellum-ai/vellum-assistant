@@ -52,7 +52,7 @@ export function writeInitialConfig(
   const config = buildNestedConfig(configValues);
   const tempPath = join(
     tmpdir(),
-    `vellum-initial-config-${process.pid}-${Date.now()}.json`,
+    `vellum-default-workspace-config-${process.pid}-${Date.now()}.json`,
   );
   writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\n");
   return tempPath;

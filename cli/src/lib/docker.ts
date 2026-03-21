@@ -471,16 +471,16 @@ export function serviceDockerRunArgs(opts: {
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
-  initialConfigPath?: string;
+  defaultWorkspaceConfigPath?: string;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
   const {
     cesServiceToken,
+    defaultWorkspaceConfigPath,
     extraAssistantEnv,
     gatewayPort,
     imageTags,
-    initialConfigPath,
     instanceName,
     res,
   } = opts;
@@ -508,11 +508,11 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
       ];
-      if (initialConfigPath) {
-        const containerPath = "/tmp/vellum-initial-config.json";
+      if (defaultWorkspaceConfigPath) {
+        const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
         args.push(
           "-v",
-          `${initialConfigPath}:${containerPath}:ro`,
+          `${defaultWorkspaceConfigPath}:${containerPath}:ro`,
           "-e",
           `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${containerPath}`,
         );
@@ -757,7 +757,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
-    initialConfigPath?: string;
+    defaultWorkspaceConfigPath?: string;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
   },
@@ -1147,7 +1147,7 @@ export async function hatchDocker(
 
     // Write --config key=value pairs to a temp file that gets bind-mounted
     // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
-    const initialConfigPath = writeInitialConfig(configValues);
+    const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const bootstrapSecret = randomBytes(32).toString("hex");
@@ -1158,7 +1158,7 @@ export async function hatchDocker(
         cesServiceToken,
         gatewayPort,
         imageTags,
-        initialConfigPath,
+        defaultWorkspaceConfigPath,
         instanceName,
         res,
       },

@@ -743,9 +743,9 @@ async function hatchLocal(
     process.env.APP_VERSION = cliPkg.version;
   }
 
-  const initialConfigPath = writeInitialConfig(configValues);
+  const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
-  await startLocalDaemon(watch, resources, { initialConfigPath });
+  await startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath });
 
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
