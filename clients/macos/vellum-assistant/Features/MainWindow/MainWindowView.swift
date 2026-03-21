@@ -391,7 +391,7 @@ struct MainWindowView: View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
                 error: daemonStartupError,
-                onRetry: { retryDaemonStartup() },
+                onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -812,7 +812,7 @@ struct MainWindowView: View {
     }
 
     /// Restarts the current assistant's daemon by sleeping then waking it.
-    private func retryDaemonStartup() {
+    private func rewakeAssistant() {
         Task {
             guard let appDelegate = AppDelegate.shared,
                   let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
