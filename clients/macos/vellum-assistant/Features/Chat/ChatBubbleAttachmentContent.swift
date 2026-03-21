@@ -407,23 +407,26 @@ extension ChatBubble {
         return "Sent \(count) attachments"
     }
 
-    /// Partitions attachments into image, video, and file buckets without
+    /// Partitions attachments into image, video, audio, and file buckets without
     /// performing any image decoding — decoding happens asynchronously in
     /// AttachmentImageGrid to keep NSImage(data:) off the layout path.
-    var partitionedAttachments: (images: [ChatAttachment], videos: [ChatAttachment], files: [ChatAttachment]) {
+    var partitionedAttachments: (images: [ChatAttachment], videos: [ChatAttachment], audios: [ChatAttachment], files: [ChatAttachment]) {
         var images: [ChatAttachment] = []
         var videos: [ChatAttachment] = []
+        var audios: [ChatAttachment] = []
         var files: [ChatAttachment] = []
         for attachment in message.attachments {
             if attachment.mimeType.hasPrefix("image/") {
                 images.append(attachment)
             } else if attachment.mimeType.hasPrefix("video/") {
                 videos.append(attachment)
+            } else if attachment.mimeType.hasPrefix("audio/") {
+                audios.append(attachment)
             } else {
                 files.append(attachment)
             }
         }
-        return (images, videos, files)
+        return (images, videos, audios, files)
     }
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
