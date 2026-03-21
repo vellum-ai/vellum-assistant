@@ -11,6 +11,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
     @State private var isRecordingSidebarToggle = false
+    @State private var isRecordingNewChat = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
@@ -285,7 +286,36 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
-                ShortcutRow(label: "New chat", shortcut: "⌘N")
+                // New chat (configurable)
+                HStack {
+                    Text("New chat")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingNewChat, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.newChatShortcut))
+                    }
+
+                    if isRecordingNewChat {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingNewChat()
+                            }
+                            if !store.newChatShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.newChatShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
 
                 SettingsDivider()
 
@@ -524,6 +554,13 @@ struct SettingsAppearanceTab: View {
         isRecordingSidebarToggle = true
     }
 
+    private func startRecordingNewChat() {
+        startRecordingShortcut { shortcut, _ in
+            store.newChatShortcut = shortcut
+        }
+        isRecordingNewChat = true
+    }
+
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
@@ -568,6 +605,7 @@ struct SettingsAppearanceTab: View {
         isRecordingGlobalHotkey = false
         isRecordingQuickInputHotkey = false
         isRecordingSidebarToggle = false
+        isRecordingNewChat = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
@@ -672,22 +710,5 @@ struct SettingsAppearanceTab: View {
         return true
     }
 
-}
-
-/// A read-only row displaying a keyboard shortcut and its description.
-private struct ShortcutRow: View {
-    let label: String
-    let shortcut: String
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-            Spacer()
-            VShortcutTag(shortcut)
-        }
-        .padding(.vertical, VSpacing.md)
-    }
 }
 
