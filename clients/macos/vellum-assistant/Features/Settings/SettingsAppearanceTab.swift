@@ -290,7 +290,7 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("New chat")
                         .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingNewChat, let display = recordingDisplayString, !display.isEmpty {
                         VShortcutTag(display)
