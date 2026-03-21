@@ -192,7 +192,7 @@ extension AppDelegate {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed credential state")
-                    daemonClient.disconnect()
+                    connectionManager.disconnect()
                     vellumCli.stop(name: connectedAssistantId)
                 }
             }
@@ -443,7 +443,7 @@ extension AppDelegate {
 
         // 2. Disconnect transport — leave the old daemon running so it stays
         //    awake and can be switched back to without a cold start.
-        daemonClient.disconnect()
+        connectionManager.disconnect()
         // Reset dock icon to default before loading the new assistant's avatar
         AvatarAppearanceManager.shared.resetForDisconnect()
         // Close and recreate the main window to reset conversation state
@@ -561,7 +561,7 @@ extension AppDelegate {
                 }
                 // Retire failed but user chose Force Remove — stop the daemon
                 // before cleaning up local state.
-                daemonClient.disconnect()
+                connectionManager.disconnect()
                 vellumCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
@@ -570,7 +570,7 @@ extension AppDelegate {
             // The retire CLI already stopped the daemon process; an
             // additional vellumCli.stop() here would block the main
             // thread and always fail because the process is already gone.
-            daemonClient.disconnect()
+            connectionManager.disconnect()
         } else {
             vellumCli.stop(name: assistantName)
         }
@@ -617,7 +617,7 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
         UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
 
-        daemonClient.disconnect()
+        connectionManager.disconnect()
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
@@ -670,7 +670,7 @@ extension AppDelegate {
 
         hasSetupApp = false
         hasSetupDaemon = false
-        daemonClient.disconnect()
+        connectionManager.disconnect()
         UserDefaults.standard.removeObject(forKey: "user.profile")
 
         // Dev builds may have a custom bundle name (e.g. "Jarvis.app").
@@ -721,7 +721,7 @@ extension AppDelegate {
             }
 
             // Stop any remaining daemon processes.
-            daemonClient.disconnect()
+            connectionManager.disconnect()
             vellumCli.stop()
 
             // Move the app bundle to the Trash.

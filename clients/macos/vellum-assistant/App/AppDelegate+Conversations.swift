@@ -27,7 +27,7 @@ extension AppDelegate {
             if !daemonClient.isConnected {
                 log.info("Daemon not connected, attempting to connect before session start")
                 do {
-                    try await daemonClient.connect()
+                    try await connectionManager.connect()
                     self.setupAmbientAgent()
                 } catch {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")

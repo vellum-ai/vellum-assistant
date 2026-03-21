@@ -25,6 +25,13 @@ public final class AppServices {
 
     /// Reconfigure the connection for a new assistant.
     func reconfigureDaemonClient(config: DaemonConfig) {
-        daemonClient.reconfigure(config: config)
+        let conversationKey: String?
+        if case .http(_, _, let key) = config.transport { conversationKey = key } else { conversationKey = nil }
+        connectionManager.reconfigure(
+            instanceDir: config.instanceDir,
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat,
+            conversationKey: conversationKey
+        )
+        daemonClient.resetConnectionState(instanceDir: config.instanceDir)
     }
 }
