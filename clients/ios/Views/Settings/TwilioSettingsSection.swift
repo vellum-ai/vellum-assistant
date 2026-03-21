@@ -346,7 +346,7 @@ struct TwilioSettingsSection: View {
                 if !provisionCountry.isEmpty { body["country"] = provisionCountry }
                 let response = try await GatewayHTTPClient.post(
                     path: "assistants/{assistantId}/integrations/twilio/numbers/provision",
-                    json: body.isEmpty ? nil : body
+                    json: body
                 )
                 if response.isSuccess, let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
                     let success = applyTwilioResponse(json, applyPhoneNumber: true)
