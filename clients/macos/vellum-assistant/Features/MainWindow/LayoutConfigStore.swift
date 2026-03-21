@@ -10,11 +10,15 @@ public enum LayoutConfigStore {
     }
 
     public static func load() -> LayoutConfig {
+        let url = configURL
         let data: Data
         do {
-            data = try Data(contentsOf: configURL)
+            data = try Data(contentsOf: url)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue {
+            log.info("No layout config at \(url.path, privacy: .public), using defaults")
+            return .default
         } catch {
-            log.error("Failed to read layout config data from \(self.configURL.path): \(error)")
+            log.error("Failed to read layout config data from \(url.path, privacy: .public): \(error)")
             return .default
         }
         do {
@@ -31,7 +35,7 @@ public enum LayoutConfigStore {
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         } catch {
-            log.error("Failed to create layout config directory at \(dir.path): \(error)")
+            log.error("Failed to create layout config directory at \(dir.path, privacy: .public): \(error)")
             return
         }
         let encoder = JSONEncoder()
@@ -46,7 +50,7 @@ public enum LayoutConfigStore {
         do {
             try data.write(to: url, options: .atomic)
         } catch {
-            log.error("Failed to write layout config to \(url.path): \(error)")
+            log.error("Failed to write layout config to \(url.path, privacy: .public): \(error)")
         }
     }
 }
