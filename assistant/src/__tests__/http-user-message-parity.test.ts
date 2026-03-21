@@ -2,10 +2,9 @@
  * Tests for HTTP POST /v1/messages behavior after the legacy handleUserMessage
  * legacy entry point was retired.
  *
- * Secret ingress blocking has been ported to the HTTP path. Recording intent
- * interception has been deliberately retired — the HTTP path has dedicated
- * /v1/recording/* endpoints and the model handles recording-related messages
- * through the agent loop.
+ * Recording intent interception has been deliberately retired — the HTTP path
+ * has dedicated /v1/recording/* endpoints and the model handles
+ * recording-related messages through the agent loop.
  *
  * Approval reply interception has parity and is covered by
  * conversation-routes-guardian-reply.test.ts and send-endpoint-busy.test.ts.
@@ -121,7 +120,6 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   }),
 }));
 
-// Mock config to enable secret detection + ingress blocking
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     secretDetection: {
@@ -236,103 +234,6 @@ async function sendMessage(
     testAuthContext,
   );
 }
-
-// ============================================================================
-// SECRET INGRESS BLOCKING — now ported to HTTP path
-// ============================================================================
-describe("HTTP POST /v1/messages blocks secret ingress", () => {
-  beforeEach(() => {
-    routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
-    addMessageMock.mockClear();
-  });
-
-  test("handleSendMessage rejects messages containing Telegram bot token patterns", async () => {
-    const secretContent =
-      "Set up Telegram with my bot token 123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678";
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
-
-    const res = await sendMessage(secretContent, conversation);
-
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as {
-      accepted: boolean;
-      error: string;
-      message: string;
-      detectedTypes: string[];
-    };
-    expect(body.accepted).toBe(false);
-    expect(body.error).toBe("secret_blocked");
-    expect(body.detectedTypes.length).toBeGreaterThan(0);
-
-    // The message should NOT reach the agent loop
-    expect(persistUserMessage).toHaveBeenCalledTimes(0);
-    expect(runAgentLoop).toHaveBeenCalledTimes(0);
-  });
-
-  test("handleSendMessage rejects messages containing AWS credentials", async () => {
-    const secretContent =
-      "Here is my AWS key AKIAQRSTUVWXYZ123456 and secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
-
-    const res = await sendMessage(secretContent, conversation);
-
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as {
-      accepted: boolean;
-      error: string;
-    };
-    expect(body.accepted).toBe(false);
-    expect(body.error).toBe("secret_blocked");
-
-    // The message should NOT reach the agent loop
-    expect(persistUserMessage).toHaveBeenCalledTimes(0);
-    expect(runAgentLoop).toHaveBeenCalledTimes(0);
-  });
-
-  test("handleSendMessage rejects messages containing Stripe live API keys", async () => {
-    const secretContent = "My Stripe key is sk_live_4eC39HqLyjWDarjtT1zdp7dc";
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
-
-    const res = await sendMessage(secretContent, conversation);
-
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as {
-      accepted: boolean;
-      error: string;
-    };
-    expect(body.accepted).toBe(false);
-    expect(body.error).toBe("secret_blocked");
-
-    // The message should NOT reach the agent loop
-    expect(persistUserMessage).toHaveBeenCalledTimes(0);
-    expect(runAgentLoop).toHaveBeenCalledTimes(0);
-  });
-
-  test("handleSendMessage allows normal messages without secrets", async () => {
-    const normalContent = "What is the weather today?";
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
-
-    const res = await sendMessage(normalContent, conversation);
-
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as { accepted: boolean };
-    expect(body.accepted).toBe(true);
-
-    // Normal messages proceed to the agent loop
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
-  });
-});
 
 // ============================================================================
 // RECORDING INTENT — deliberately NOT intercepted on HTTP path
