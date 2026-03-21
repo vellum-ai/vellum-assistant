@@ -3,7 +3,6 @@ import {
   mkdirSync,
   readFileSync,
   statSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -278,6 +277,58 @@ function backfillConfigDefaults(
   }
 }
 
+/**
+ * Merge default workspace config from the file referenced by
+ * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH into the workspace config on disk.
+ *
+ * Called once at daemon startup (before the first loadConfig()) so the
+ * defaults are persisted to the workspace config file alongside any
+ * schema-level defaults that loadConfig() backfills.
+ */
+export function mergeDefaultWorkspaceConfig(): void {
+  const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+  if (!defaultConfigPath || !existsSync(defaultConfigPath)) return;
+
+  let defaults: unknown;
+  try {
+    defaults = JSON.parse(readFileSync(defaultConfigPath, "utf-8"));
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to read default workspace config from %s",
+      defaultConfigPath,
+    );
+    return;
+  }
+
+  if (
+    defaults == null ||
+    typeof defaults !== "object" ||
+    Array.isArray(defaults)
+  ) {
+    return;
+  }
+
+  const configPath = getConfigPath();
+  let existing: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      existing = JSON.parse(readFileSync(configPath, "utf-8"));
+    } catch {
+      // If existing config is corrupt, start fresh
+    }
+  }
+
+  deepMergeOverwrite(existing, defaults as Record<string, unknown>);
+
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+  log.info("Merged default workspace config from %s", defaultConfigPath);
+}
+
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
 
@@ -312,30 +363,6 @@ export function loadConfig(): AssistantConfig {
       }
     } else {
       configFileExisted = false;
-    }
-
-    // Merge initial config from temp file (written by CLI hatch --config flags)
-    // so onboarding preferences override workspace defaults on first boot.
-    const initialConfigPath = process.env.VELLUM_INITIAL_CONFIG_PATH;
-    if (initialConfigPath && existsSync(initialConfigPath)) {
-      try {
-        const initial = JSON.parse(readFileSync(initialConfigPath, "utf-8"));
-        if (initial && typeof initial === "object" && !Array.isArray(initial)) {
-          deepMergeOverwrite(fileConfig, initial);
-        }
-        // Delete the temp file after first successful read so subsequent
-        // loadConfig() calls (after cache invalidation) do not re-apply
-        // initial values over user-modified config.
-        try {
-          unlinkSync(initialConfigPath);
-        } catch {}
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to read initial config from %s",
-          initialConfigPath,
-        );
-      }
     }
 
     // Warn about and strip deprecated config fields so users know their

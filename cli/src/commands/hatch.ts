@@ -39,11 +39,11 @@ import type { RemoteHost, Species } from "../lib/constants";
 import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
+import { buildNestedConfig, writeInitialConfig } from "../lib/config-utils";
 import {
   startLocalDaemon,
   startGateway,
   stopLocalProcesses,
-  writeInitialConfig,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { getPlatformUrl } from "../lib/platform-client";
@@ -133,37 +133,19 @@ export async function buildStartupScript(
     .map((envVar) => `${envVar}=\$${envVar}`)
     .join("\n");
 
-  // Build a bash snippet that writes --config key=value pairs into
-  // config.json before the daemon starts. Uses Python3 (available on
-  // Debian) for reliable nested JSON manipulation.
+  // Write --config key=value pairs to a temp JSON file on the remote host
+  // and export the env var so the daemon reads it on first boot.
   let configWriteBlock = "";
   if (Object.keys(configValues).length > 0) {
-    const pairs = Object.entries(configValues)
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n");
+    const configJson = JSON.stringify(buildNestedConfig(configValues), null, 2);
     configWriteBlock = `
-echo "Writing initial workspace config..."
-mkdir -p "\$HOME/.vellum/workspace"
-python3 -c "
-import json, os, sys
-config_path = os.path.expanduser('~/.vellum/workspace/config.json')
-config = {}
-if os.path.exists(config_path):
-    with open(config_path) as f:
-        config = json.load(f)
-for line in '''${pairs}'''.strip().splitlines():
-    key, val = line.split('=', 1)
-    parts = key.split('.')
-    target = config
-    for p in parts[:-1]:
-        if p not in target or not isinstance(target[p], dict):
-            target[p] = {}
-        target = target[p]
-    target[parts[-1]] = val
-with open(config_path, 'w') as f:
-    json.dump(config, f, indent=2)
-"
-echo "Workspace config written."
+echo "Writing default workspace config..."
+VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH="/tmp/vellum-initial-config-$$.json"
+cat > "\$VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH" << 'VELLUM_CONFIG_EOF'
+${configJson}
+VELLUM_CONFIG_EOF
+export VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH
+echo "Default workspace config written to \$VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH"
 `;
   }
 

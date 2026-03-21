@@ -12,7 +12,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { buildNestedConfig } from "./config-utils";
+import { writeInitialConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
@@ -471,6 +471,7 @@ export function serviceDockerRunArgs(opts: {
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
+  initialConfigPath?: string;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
@@ -479,6 +480,7 @@ export function serviceDockerRunArgs(opts: {
     extraAssistantEnv,
     gatewayPort,
     imageTags,
+    initialConfigPath,
     instanceName,
     res,
   } = opts;
@@ -506,6 +508,15 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
       ];
+      if (initialConfigPath) {
+        const containerPath = "/tmp/vellum-initial-config.json";
+        args.push(
+          "-v",
+          `${initialConfigPath}:${containerPath}:ro`,
+          "-e",
+          `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${containerPath}`,
+        );
+      }
       if (cesServiceToken) {
         args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
       }
@@ -746,6 +757,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
+    initialConfigPath?: string;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
   },
@@ -1133,21 +1145,9 @@ export async function hatchDocker(
       "/gateway-security/signing-key-bootstrap.lock",
     ]);
 
-    // Write --config key=value pairs into the workspace volume so the
-    // daemon reads them on first loadConfig() call.
-    if (Object.keys(configValues).length > 0) {
-      const configJson = JSON.stringify(buildNestedConfig(configValues));
-      await exec("docker", [
-        "run",
-        "--rm",
-        "-v",
-        `${res.workspaceVolume}:/workspace`,
-        "busybox",
-        "sh",
-        "-c",
-        `printf '%s' '${configJson.replace(/'/g, "'\\''")}' > /workspace/config.json && chown 1001:1001 /workspace/config.json`,
-      ]);
-    }
+    // Write --config key=value pairs to a temp file that gets bind-mounted
+    // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
+    const initialConfigPath = writeInitialConfig(configValues);
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const bootstrapSecret = randomBytes(32).toString("hex");
@@ -1158,6 +1158,7 @@ export async function hatchDocker(
         cesServiceToken,
         gatewayPort,
         imageTags,
+        initialConfigPath,
         instanceName,
         res,
       },

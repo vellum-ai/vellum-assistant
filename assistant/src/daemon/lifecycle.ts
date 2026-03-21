@@ -15,7 +15,7 @@ import {
   setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
-import { loadConfig } from "../config/loader.js";
+import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -285,6 +285,11 @@ export async function runDaemon(): Promise<void> {
     } catch (err) {
       log.warn({ err }, "Call recovery failed — continuing startup");
     }
+
+    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
+    // into the workspace config file before the first loadConfig() call so
+    // onboarding preferences are persisted alongside schema defaults.
+    mergeDefaultWorkspaceConfig();
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();

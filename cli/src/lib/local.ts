@@ -7,11 +7,10 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
+import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
 import { type LocalInstanceResources } from "./assistant-config.js";
-import { buildNestedConfig } from "./config-utils.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
@@ -270,7 +269,7 @@ async function startDaemonFromSource(
     delete env.QDRANT_URL;
   }
   if (options?.initialConfigPath) {
-    env.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
+    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = options.initialConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -387,7 +386,7 @@ async function startDaemonWatchFromSource(
     delete env.QDRANT_URL;
   }
   if (options?.initialConfigPath) {
-    env.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
+    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = options.initialConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -480,32 +479,6 @@ function saveWorkspaceConfig(
   const dir = dirname(configPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-/**
- * Write arbitrary key-value pairs to a temporary JSON file and return its
- * path. The caller passes this path to the daemon via the
- * VELLUM_INITIAL_CONFIG_PATH env var so the daemon can merge the values
- * into its config on first boot.
- *
- * Keys use dot-notation to address nested fields. For example:
- *   "services.inference.provider" → {services: {inference: {provider: ...}}}
- *   "services.inference.model"    → {services: {inference: {model: ...}}}
- *
- * Returns undefined when configValues is empty (nothing to write).
- */
-export function writeInitialConfig(
-  configValues: Record<string, string>,
-): string | undefined {
-  if (Object.keys(configValues).length === 0) return undefined;
-
-  const config = buildNestedConfig(configValues);
-  const tempPath = join(
-    tmpdir(),
-    `vellum-initial-config-${process.pid}-${Date.now()}.json`,
-  );
-  writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\n");
-  return tempPath;
 }
 
 /**
@@ -973,7 +946,8 @@ export async function startLocalDaemon(
         }
       }
       if (options?.initialConfigPath) {
-        daemonEnv.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
+        daemonEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+          options.initialConfigPath;
       }
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
