@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
-import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
@@ -163,31 +163,6 @@ export function handleGetIdentity(): Response {
     // ignore
   }
 
-  // Read lockfile for assistantId, cloud, and originSystem
-  let assistantId: string | undefined;
-  let cloud: string | undefined;
-  let originSystem: string | undefined;
-  try {
-    const lockData = readLockfile();
-    const assistants = lockData?.assistants as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (assistants && assistants.length > 0) {
-      // Use the most recently hatched assistant
-      const sorted = [...assistants].sort((a, b) => {
-        const dateA = new Date((a.hatchedAt as string) || 0).getTime();
-        const dateB = new Date((b.hatchedAt as string) || 0).getTime();
-        return dateB - dateA;
-      });
-      const latest = sorted[0];
-      assistantId = latest.assistantId as string | undefined;
-      cloud = latest.cloud as string | undefined;
-      originSystem = cloud === "local" ? "local" : cloud;
-    }
-  } catch {
-    // ignore -- lockfile may not exist
-  }
-
   return Response.json({
     name: fields.name ?? "",
     role: fields.role ?? "",
@@ -195,9 +170,7 @@ export function handleGetIdentity(): Response {
     emoji: fields.emoji ?? "",
     home: fields.home ?? "",
     version,
-    assistantId,
     createdAt,
-    originSystem,
   });
 }
 

@@ -10,25 +10,21 @@ public struct RemoteIdentityInfo: Decodable {
     public let personality: String
     public let emoji: String
     public let version: String?
-    public let assistantId: String?
     public let home: String?
     public let createdAt: String?
-    public let originSystem: String?
 
     public init(
         name: String, role: String, personality: String, emoji: String,
-        version: String? = nil, assistantId: String? = nil, home: String? = nil,
-        createdAt: String? = nil, originSystem: String? = nil
+        version: String? = nil, home: String? = nil,
+        createdAt: String? = nil
     ) {
         self.name = name
         self.role = role
         self.personality = personality
         self.emoji = emoji
         self.version = version
-        self.assistantId = assistantId
         self.home = home
         self.createdAt = createdAt
-        self.originSystem = originSystem
     }
 }
 

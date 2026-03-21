@@ -232,7 +232,6 @@ struct IdentityInfo {
 struct AssistantMetadata {
     let version: String
     let createdAt: Date?
-    let originSystem: String
 
     static func load() -> AssistantMetadata {
         let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
@@ -250,10 +249,7 @@ struct AssistantMetadata {
             createdAt = nil
         }
 
-        // Origin system
-        let originSystem = Host.current().localizedName ?? "local"
-
-        return AssistantMetadata(version: version, createdAt: createdAt, originSystem: originSystem)
+        return AssistantMetadata(version: version, createdAt: createdAt)
     }
 }
 
