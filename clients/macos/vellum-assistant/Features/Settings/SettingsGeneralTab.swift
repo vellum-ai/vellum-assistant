@@ -51,6 +51,7 @@ struct SettingsGeneralTab: View {
                 mobilePairingCard
             }
             SettingsAppearanceTab(store: store)
+            uninstallSection
         }
         .onAppear {
             Task { await authManager.checkSession() }
@@ -142,6 +143,19 @@ struct SettingsGeneralTab: View {
                 VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                     showingPairingQR = true
                 }
+            }
+        }
+    }
+
+    // MARK: - Uninstall
+
+    private var uninstallSection: some View {
+        SettingsCard(
+            title: "Uninstall",
+            subtitle: "Stops all assistants, archives your data, and moves Vellum to the Trash"
+        ) {
+            VButton(label: "Uninstall Vellum...", style: .danger) {
+                AppDelegate.shared?.performUninstall()
             }
         }
     }

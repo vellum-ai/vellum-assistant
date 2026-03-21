@@ -26,20 +26,6 @@ struct VellumAssistantApp: App {
                 Button("About \(appName)") {
                     appDelegate.showAboutPanel()
                 }
-                Divider()
-                Button("Share Feedback") {
-                    appDelegate.sendLogsToSentry()
-                }
-                Divider()
-                Button("Uninstall \(appName)...") {
-                    appDelegate.performUninstall()
-                }
-                if appDelegate.authManager.isAuthenticated {
-                    Divider()
-                    Button("Sign Out") {
-                        appDelegate.performLogout()
-                    }
-                }
             }
             // Replace the auto-generated Hide/Quit items so they always
             // say "Vellum" instead of the bundle display name (which may
@@ -70,6 +56,16 @@ struct VellumAssistantApp: App {
                     appDelegate.showSettingsWindow(nil)
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                if appDelegate.authManager.isAuthenticated {
+                    Button("Sign Out") {
+                        appDelegate.performLogout()
+                    }
+                }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Share Feedback") {
+                    appDelegate.sendLogsToSentry()
+                }
             }
             // View menu: zoom shortcuts for discoverability.
             // The actual handling is done by event monitors (registerZoomMonitor)
