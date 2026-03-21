@@ -239,14 +239,16 @@ struct AboutVellumView: View {
 
         switch topology {
         case .local:
-            // Local: trigger Sparkle and show result inline after a brief wait
-            AppDelegate.shared?.updateManager.checkForUpdates()
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            let sparkleAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-            if sparkleAvailable, let version = AppDelegate.shared?.updateManager.availableUpdateVersion {
-                updateCheckResult = .updateAvailable(version: version)
+            // Local: trigger Sparkle and wait for delegate callback (up to 5s timeout)
+            if let manager = AppDelegate.shared?.updateManager {
+                let sparkleAvailable = await manager.checkForUpdatesAsync()
+                if sparkleAvailable, let version = manager.availableUpdateVersion {
+                    updateCheckResult = .updateAvailable(version: version)
+                } else {
+                    updateCheckResult = .upToDate
+                }
             } else {
-                updateCheckResult = .upToDate
+                updateCheckResult = .error
             }
             isCheckingForUpdates = false
 

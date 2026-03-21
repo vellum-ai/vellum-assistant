@@ -262,10 +262,11 @@ struct AssistantUpgradeSection: View {
                     ) {
                         Task {
                             isCheckingLocal = true
-                            AppDelegate.shared?.updateManager.checkForUpdates()
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            checkedSparkleAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
-                            checkedSparkleVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+                            if let manager = AppDelegate.shared?.updateManager {
+                                let available = await manager.checkForUpdatesAsync()
+                                checkedSparkleAvailable = available
+                                checkedSparkleVersion = manager.availableUpdateVersion
+                            }
                             hasCheckedForUpdates = true
                             isCheckingLocal = false
                         }
