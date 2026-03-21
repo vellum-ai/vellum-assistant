@@ -21,6 +21,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
 // ── Test directory ────────────────────────────────────────────────────────────
 
 const TEST_DIR = mkdtempSync(
@@ -127,7 +129,6 @@ interface TestConfig {
   permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
-  assistantFeatureFlagValues?: Record<string, boolean>;
   [key: string]: unknown;
 }
 
@@ -135,9 +136,6 @@ const testConfig: TestConfig = {
   permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
-  assistantFeatureFlagValues: {
-    "feature_flags.inline-skill-commands.enabled": true,
-  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -215,9 +213,9 @@ describe("skill_load inline command expansion", () => {
     }));
 
     // Enable the feature flag
-    testConfig.assistantFeatureFlagValues = {
+    _setOverridesForTesting({
       "feature_flags.inline-skill-commands.enabled": true,
-    };
+    });
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
@@ -316,9 +314,9 @@ describe("skill_load inline command expansion", () => {
 
   describe("feature flag disabled", () => {
     test("returns error when flag is off and skill has inline commands", async () => {
-      testConfig.assistantFeatureFlagValues = {
+      _setOverridesForTesting({
         "feature_flags.inline-skill-commands.enabled": false,
-      };
+      });
 
       writeSkill(
         "flagged-off-skill",
@@ -337,9 +335,9 @@ describe("skill_load inline command expansion", () => {
     });
 
     test("plain skill still loads when flag is off", async () => {
-      testConfig.assistantFeatureFlagValues = {
+      _setOverridesForTesting({
         "feature_flags.inline-skill-commands.enabled": false,
-      };
+      });
 
       writeSkill(
         "plain-flag-off",

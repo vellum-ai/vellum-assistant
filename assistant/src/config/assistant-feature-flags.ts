@@ -5,7 +5,8 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. `config.assistantFeatureFlagValues[key]`  (explicit override)
+ *   1. Override values from `~/.vellum/protected/feature-flags.json` (local)
+ *      or via the gateway HTTP API (Docker/containerized)
  *   2. defaults registry `defaultEnabled`         (for declared keys)
  *   3. `true`                                     (for undeclared keys)
  *
@@ -14,8 +15,10 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getBaseDataDir, getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -106,6 +109,178 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
+// Override loading — reads from protected directory or gateway HTTP
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level cache of feature flag override values. Populated lazily on
+ * first access, invalidated by `clearFeatureFlagOverridesCache()`.
+ */
+let cachedOverrides: Record<string, boolean> | null = null;
+
+/**
+ * File format for `~/.vellum/protected/feature-flags.json`, matching the
+ * gateway's feature-flag-store.ts schema.
+ */
+interface FeatureFlagFileData {
+  version: 1;
+  values: Record<string, boolean>;
+}
+
+/**
+ * Resolve the path to the feature flag overrides file.
+ *
+ * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
+ * Local:  `~/.vellum/protected/feature-flags.json`
+ *
+ * Uses `BASE_DATA_DIR` when set (multi-instance mode) so per-instance
+ * feature flag files are correctly scoped.
+ */
+function getFeatureFlagOverridesPath(): string {
+  const securityDir = process.env.GATEWAY_SECURITY_DIR;
+  if (securityDir) {
+    return join(securityDir, "feature-flags.json");
+  }
+  const root = join(getBaseDataDir() || homedir(), ".vellum");
+  return join(root, "protected", "feature-flags.json");
+}
+
+/**
+ * Load override values from the protected feature-flags.json file.
+ * Returns an empty record if the file doesn't exist or is malformed.
+ */
+function loadOverridesFromFile(): Record<string, boolean> {
+  const path = getFeatureFlagOverridesPath();
+  if (!existsSync(path)) return {};
+
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const data = JSON.parse(raw) as FeatureFlagFileData;
+    if (data.version !== 1) return {};
+    if (
+      data.values &&
+      typeof data.values === "object" &&
+      !Array.isArray(data.values)
+    ) {
+      return { ...data.values };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load override values from the gateway via synchronous HTTP call.
+ *
+ * Follows the trust-client pattern: uses `Bun.spawnSync` + `curl` to make
+ * a blocking GET request to the gateway's feature-flags endpoint. The
+ * gateway returns `{ flags: Array<{ key, enabled, ... }> }` and we extract
+ * just the key → enabled map.
+ */
+function loadOverridesFromGateway(): Record<string, boolean> {
+  try {
+    // Lazy-import to avoid circular dependency and keep this module
+    // importable from bootstrap code when not in containerized mode.
+    const { getGatewayInternalBaseUrl } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("./env.js") as typeof import("./env.js");
+    const { mintEdgeRelayToken } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
+
+    const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
+    const token = mintEdgeRelayToken();
+
+    const proc = Bun.spawnSync(
+      [
+        "curl",
+        "-s",
+        "-S",
+        "-X",
+        "GET",
+        "--max-time",
+        "10",
+        "-H",
+        `Authorization: Bearer ${token}`,
+        "-H",
+        "Accept: application/json",
+        "-w",
+        "\n%{http_code}",
+        url,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    if (proc.exitCode !== 0) return {};
+
+    const output = proc.stdout.toString().trim();
+    const lastNewline = output.lastIndexOf("\n");
+    const responseBody = lastNewline >= 0 ? output.slice(0, lastNewline) : "";
+    const statusCode = parseInt(
+      lastNewline >= 0 ? output.slice(lastNewline + 1) : output,
+      10,
+    );
+
+    if (statusCode < 200 || statusCode >= 300) return {};
+    if (!responseBody) return {};
+
+    const parsed = JSON.parse(responseBody) as {
+      flags?: Array<{ key: string; enabled: boolean }>;
+    };
+    if (!Array.isArray(parsed.flags)) return {};
+
+    const result: Record<string, boolean> = {};
+    for (const entry of parsed.flags) {
+      if (typeof entry.key === "string" && typeof entry.enabled === "boolean") {
+        result[entry.key] = entry.enabled;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load overrides from the appropriate source based on runtime mode.
+ * Results are cached at module level.
+ */
+function loadOverrides(): Record<string, boolean> {
+  if (cachedOverrides != null) return cachedOverrides;
+
+  cachedOverrides = getIsContainerized()
+    ? loadOverridesFromGateway()
+    : loadOverridesFromFile();
+
+  return cachedOverrides;
+}
+
+/**
+ * Invalidate the cached override values so the next call to
+ * `isAssistantFeatureFlagEnabled` re-reads from the source.
+ *
+ * Called by the config watcher when the feature-flags file changes.
+ */
+export function clearFeatureFlagOverridesCache(): void {
+  cachedOverrides = null;
+}
+
+/**
+ * Directly inject override values into the module-level cache.
+ *
+ * **Test-only** — bypasses file/gateway loading so unit tests can control
+ * flag state without writing to disk. Production code should never call this;
+ * use `clearFeatureFlagOverridesCache()` instead and let the resolver
+ * re-read from the appropriate source.
+ */
+export function _setOverridesForTesting(
+  overrides: Record<string, boolean>,
+): void {
+  cachedOverrides = { ...overrides };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -113,19 +288,21 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. `config.assistantFeatureFlagValues[key]`  (explicit override)
+ *   1. Override from `~/.vellum/protected/feature-flags.json` (local) or
+ *      gateway HTTP (Docker/containerized)
  *   2. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
  *   3. `true`                                     (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): boolean {
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
+  const overrides = loadOverrides();
 
-  // 1. Check config overrides
-  const explicit = config.assistantFeatureFlagValues?.[key];
+  // 1. Check overrides from protected feature-flags file / gateway
+  const explicit = overrides[key];
   if (typeof explicit === "boolean") return explicit;
 
   // 2. For declared keys, use the registry default

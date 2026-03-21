@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
 // ── Mock setup (must be before any imports from the project) ──────────────
 
 const testDir = mkdtempSync(join(tmpdir(), "inline-skill-perm-test-"));
@@ -46,7 +48,6 @@ interface TestConfig {
   permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
-  assistantFeatureFlagValues?: Record<string, boolean>;
   [key: string]: unknown;
 }
 
@@ -54,9 +55,6 @@ const testConfig: TestConfig = {
   permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
-  assistantFeatureFlagValues: {
-    "feature_flags.inline-skill-commands.enabled": true,
-  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -118,9 +116,9 @@ describe("inline-command skill_load permissions", () => {
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
-    testConfig.assistantFeatureFlagValues = {
+    _setOverridesForTesting({
       "feature_flags.inline-skill-commands.enabled": true,
-    };
+    });
     try {
       rmSync(join(testDir, "protected", "trust.json"));
     } catch {
@@ -352,9 +350,9 @@ describe("inline-command skill_load permissions", () => {
       writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
 
       // Disable the feature flag
-      testConfig.assistantFeatureFlagValues = {
+      _setOverridesForTesting({
         "feature_flags.inline-skill-commands.enabled": false,
-      };
+      });
 
       const result = await check(
         "skill_load",
