@@ -69,12 +69,14 @@ enum PortDiagnostics {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return nil
         }
 
-        let data = pipe.fileHandleForReading.availableData
+        // Read pipe data before waitUntilExit to avoid deadlock when
+        // the pipe buffer fills up and the subprocess blocks on write.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         guard let output = String(data: data, encoding: .utf8) else { return nil }
 
         // lsof output: header line then result lines.
@@ -114,12 +116,14 @@ enum PortDiagnostics {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return []
         }
 
-        let data = pipe.fileHandleForReading.availableData
+        // Read pipe data before waitUntilExit to avoid deadlock when
+        // the pipe buffer fills up and the subprocess blocks on write.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         guard let output = String(data: data, encoding: .utf8) else { return [] }
 
         // lsof output columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
