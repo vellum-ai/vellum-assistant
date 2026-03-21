@@ -76,6 +76,15 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   js: "text/javascript",
   ts: "text/typescript",
 
+  // Audio
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  m4a: "audio/x-m4a",
+  opus: "audio/opus",
+
   // Video
   mp4: "video/mp4",
   webm: "video/webm",

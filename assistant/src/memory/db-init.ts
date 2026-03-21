@@ -37,6 +37,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillAudioAttachmentMimeTypes,
   migrateBackfillInlineAttachmentsToDisk,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
@@ -495,6 +496,9 @@ export function initializeDb(): void {
 
   // 87. Add skip_disclosure column to call_sessions for per-call disclosure control
   migrateCallSessionSkipDisclosure(database);
+
+  // 88. Backfill correct MIME types for audio attachments stored as application/octet-stream
+  migrateBackfillAudioAttachmentMimeTypes(database);
 
   validateMigrationState(database);
 
