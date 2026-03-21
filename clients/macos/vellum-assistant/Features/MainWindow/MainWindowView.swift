@@ -41,6 +41,7 @@ struct MainWindowView: View {
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let daemonClient: DaemonClient
+    let eventStreamClient: EventStreamClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
@@ -66,13 +67,14 @@ struct MainWindowView: View {
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
@@ -735,7 +737,7 @@ struct MainWindowView: View {
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
         }
-        daemonClient.startSSE()
+        eventStreamClient.startSSE()
         daemonStartupError = AppDelegate.shared?.daemonStartupError
     }
 
@@ -752,7 +754,7 @@ struct MainWindowView: View {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
-        daemonClient.stopSSE()
+        eventStreamClient.stopSSE()
     }
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
@@ -821,7 +823,7 @@ struct MainWindowView: View {
             windowState.selection = .app(reopenId)
             let env = daemonClient.instanceDir.map { ["BASE_DATA_DIR": $0] }
             windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient) }
+            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
         }
     }
 
@@ -1134,7 +1136,7 @@ struct MainWindowView: View {
                 return
             }
             // Reconnect the daemon client after a successful restart
-            if !appDelegate.daemonClient.isConnected && !appDelegate.daemonClient.isConnecting {
+            if !appDelegate.daemonClient.isConnected && !appDelegate.connectionManager.isConnecting {
                 try? await appDelegate.daemonClient.connect()
             }
         }

@@ -22,9 +22,9 @@ final class ContactsViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init(daemonClient: DaemonClient?) {
-        if let daemonClient {
-            let store = ContactsStore(daemonClient: daemonClient)
+    init(daemonClient: DaemonClient?, eventStreamClient: EventStreamClient? = nil) {
+        if let daemonClient, let eventStreamClient {
+            let store = ContactsStore(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
             self.contactsStore = store
 
             store.$contacts

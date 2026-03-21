@@ -31,10 +31,17 @@ final class ClientProvider: ObservableObject {
     /// Task running the SSE subscribe loop that ingests trace events.
     private var traceSubscriptionTask: Task<Void, Never>?
 
+    /// Connection lifecycle manager — owns EventStreamClient.
+    private(set) var connectionManager: GatewayConnectionManager
+
+    /// Direct reference to the event stream client.
+    var eventStreamClient: EventStreamClient { connectionManager.eventStreamClient }
+
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
-    init(client: any DaemonClientProtocol) {
+    init(connectionManager: GatewayConnectionManager, client: DaemonStatus) {
+        self.connectionManager = connectionManager
         self.client = client
         self.traceStore = TraceStore()
         bindCombineBridge()
@@ -46,14 +53,22 @@ final class ClientProvider: ObservableObject {
     /// new transport configuration takes effect without an app restart.
     func rebuildClient() {
         // Preserve recovery credentials across client replacement
-        let prevPlatform = (client as? DaemonClient)?.recoveryPlatform
-        let prevDeviceId = (client as? DaemonClient)?.recoveryDeviceId
+        let prevPlatform = connectionManager.recoveryPlatform
+        let prevDeviceId = connectionManager.recoveryDeviceId
 
         // Tear down the old client's connection, timers, and monitors before replacing.
         client.disconnect()
-        let newClient = DaemonClient(config: .fromUserDefaults())
-        newClient.recoveryPlatform = prevPlatform
-        newClient.recoveryDeviceId = prevDeviceId
+        let newCM = GatewayConnectionManager()
+        let config = DaemonConfig.fromUserDefaults()
+        newCM.reconfigure(
+            instanceDir: config.instanceDir,
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+        )
+        newCM.recoveryPlatform = prevPlatform
+        newCM.recoveryDeviceId = prevDeviceId
+        let newClient = DaemonClient(connectionManager: newCM)
+        newClient.instanceDir = config.instanceDir
+        self.connectionManager = newCM
         self.client = newClient
         self.clientGeneration &+= 1
         self.isConnected = false
@@ -79,10 +94,9 @@ final class ClientProvider: ObservableObject {
     private func bindTraceEvents() {
         traceSubscriptionTask?.cancel()
         traceSubscriptionTask = nil
-        guard let daemon = client as? DaemonClient else { return }
         traceSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemon.subscribe() {
+            for await message in eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 if case .traceEvent(let msg) = message {
                     self.traceStore.ingest(msg)
@@ -103,7 +117,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// the closure-based observer before registering a new one.
     private var instanceChangeObserver: NSObjectProtocol?
     override init() {
-        self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
+        let cm = GatewayConnectionManager()
+        let config = DaemonConfig.fromUserDefaults()
+        let client = DaemonClient(connectionManager: cm)
+        client.instanceDir = config.instanceDir
+        cm.reconfigure(
+            instanceDir: config.instanceDir,
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
+        )
+        self.clientProvider = ClientProvider(connectionManager: cm, client: client)
         super.init()
     }
 
@@ -313,7 +335,7 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                     try? await self.clientProvider.client.connect()
                 }
                 if self.clientProvider.client.isConnected, let sid = conversationId {
-                    self.clientProvider.client.sendUserMessage(
+                    self.clientProvider.eventStreamClient.sendUserMessage(
                         content: replyText,
                         conversationId: sid,
                         attachments: nil,

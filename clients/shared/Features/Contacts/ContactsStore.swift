@@ -30,6 +30,7 @@ public final class ContactsStore: ObservableObject {
     // MARK: - Private State
 
     private let daemonClient: DaemonClient
+    private let eventStreamClient: EventStreamClient
     private let contactClient: ContactClientProtocol
     private var contactsChangedTask: Task<Void, Never>?
     private var subscriptionTask: Task<Void, Never>?
@@ -37,8 +38,9 @@ public final class ContactsStore: ObservableObject {
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient, contactClient: ContactClientProtocol = ContactClient()) {
+    public init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, contactClient: ContactClientProtocol = ContactClient()) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.contactClient = contactClient
         subscribeToContactsChanged()
         reconnectObserver = NotificationCenter.default.addObserver(
@@ -123,11 +125,11 @@ public final class ContactsStore: ObservableObject {
     private func subscribeToContactsChanged() {
         subscriptionTask?.cancel()
         subscriptionTask = Task { [weak self] in
-            guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.subscribe()
+            guard let self else { return }
+            let stream = self.eventStreamClient.subscribe()
 
             for await message in stream {
-                guard let self, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
                 if case .contactsChanged = message {
                     self.contactsChangedTask?.cancel()
                     self.contactsChangedTask = Task { @MainActor [weak self] in

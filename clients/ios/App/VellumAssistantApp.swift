@@ -23,7 +23,8 @@ struct VellumAssistantApp: App {
                     ContentView(
                         authManager: appDelegate.authManager,
                         ambientAgent: appDelegate.ambientAgentManager,
-                        daemonClient: appDelegate.clientProvider.client
+                        daemonClient: appDelegate.clientProvider.client,
+                        eventStreamClient: appDelegate.clientProvider.eventStreamClient
                     )
                     .environmentObject(appDelegate.clientProvider)
                 } else {

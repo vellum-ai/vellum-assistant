@@ -7,6 +7,7 @@ struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
+    let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var showToast: ((String, ToastInfo.Style) -> Void)?
@@ -19,10 +20,11 @@ struct IntelligencePanel: View {
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
         self.showToast = showToast
@@ -182,6 +184,7 @@ struct IntelligencePanel: View {
         case .contacts:
             ContactsContainerView(
                 daemonClient: daemonClient,
+                eventStreamClient: eventStreamClient,
                 store: store,
                 conversationManager: conversationManager,
                 isEmailEnabled: isEmailEnabled,

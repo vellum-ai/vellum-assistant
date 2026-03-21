@@ -564,7 +564,7 @@ extension ChatViewModel {
                     pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
                     pendingUserMessageAutomated = false
-                    daemonClient.sendUserMessage(
+                    eventStreamClient.sendUserMessage(
                         content: pending,
                         conversationId: info.conversationId,
                         attachments: attachments,

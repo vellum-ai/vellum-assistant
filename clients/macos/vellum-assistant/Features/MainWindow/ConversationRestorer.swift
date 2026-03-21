@@ -47,6 +47,7 @@ final class ConversationRestorer {
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
     private let daemonClient: DaemonClient
+    private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
@@ -54,15 +55,16 @@ final class ConversationRestorer {
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
+    init(daemonClient: DaemonClient, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.daemonClient.subscribe() {
+            for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationListResponse(let response):
                     self.handleConversationListResponse(response)

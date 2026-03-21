@@ -4,6 +4,7 @@ import VellumAssistantShared
 /// that were previously declared directly on `AppDelegate`.
 @MainActor
 public final class AppServices {
+    public let connectionManager = GatewayConnectionManager()
     public private(set) var daemonClient: DaemonStatus
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
@@ -14,17 +15,15 @@ public final class AppServices {
     /// Shared settings state consumed by SettingsPanel and its tab views.
     /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.
     public lazy var settingsStore: SettingsStore = SettingsStore(
-        daemonClient: daemonClient
+        daemonClient: daemonClient,
+        eventStreamClient: connectionManager.eventStreamClient
     )
 
     init() {
-        self.daemonClient = DaemonStatus()
+        self.daemonClient = DaemonStatus(connectionManager: connectionManager)
     }
 
-    /// Reconfigure the daemon client's transport in place (e.g., for HTTP transport).
-    /// This preserves the DaemonStatus object identity so long-lived holders
-    /// (ConversationManager, ChatViewModel, RecordingManager, SettingsStore) continue
-    /// to reference the same instance after an assistant switch.
+    /// Reconfigure the connection for a new assistant.
     func reconfigureDaemonClient(config: DaemonConfig) {
         daemonClient.reconfigure(config: config)
     }

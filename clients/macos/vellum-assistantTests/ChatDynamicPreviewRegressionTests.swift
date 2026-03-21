@@ -18,9 +18,9 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        let cm = GatewayConnectionManager(); daemonClient = DaemonClient(connectionManager: cm)
         daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
         viewModel.conversationId = "sess-dp"
     }
 

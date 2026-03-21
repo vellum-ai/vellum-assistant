@@ -164,6 +164,7 @@ class IOSConversationStore: ObservableObject {
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
+    private var eventStreamClient: EventStreamClient
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
@@ -378,6 +379,7 @@ class IOSConversationStore: ObservableObject {
 
     init(
         daemonClient: any DaemonClientProtocol,
+        eventStreamClient: EventStreamClient,
         connectedModeOverride: Bool? = nil,
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
@@ -387,6 +389,7 @@ class IOSConversationStore: ObservableObject {
         userDefaults: UserDefaults = .standard
     ) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationForkClient = conversationForkClient
         self.conversationHistoryClient = conversationHistoryClient
@@ -436,7 +439,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask?.cancel()
         subscribeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemon.subscribe() {
+            for await message in self.eventStreamClient.subscribe() {
                 if Task.isCancelled { break }
                 switch message {
                 case .scheduleConversationCreated(let msg):
@@ -530,7 +533,7 @@ class IOSConversationStore: ObservableObject {
     /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
     /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
     /// client so the conversation list is refreshed from the new connection.
-    func rebindDaemonClient(_ newClient: any DaemonClientProtocol) {
+    func rebindDaemonClient(_ newClient: any DaemonClientProtocol, eventStreamClient newEventStreamClient: EventStreamClient) {
         // Drop Combine subscriptions tied to the old DaemonClient so the reconnect
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
         cancellables.removeAll()
@@ -541,6 +544,7 @@ class IOSConversationStore: ObservableObject {
         subscribeTask = nil
 
         daemonClient = newClient
+        eventStreamClient = newEventStreamClient
 
         // Existing ViewModels hold a reference to the old, disconnected client inside
         // ChatViewModel.  Discard them so new ones are created with the new client.
@@ -638,7 +642,7 @@ class IOSConversationStore: ObservableObject {
         var restoredConversations: [IOSConversation] = []
         for item in filteredConversations {
             let conversation = conversationFromListItem(item)
-            let vm = ChatViewModel(daemonClient: daemonClient)
+            let vm = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
             vm.conversationId = item.id
             viewModels[conversation.id] = vm
             restoredConversations.append(conversation)
@@ -889,7 +893,7 @@ class IOSConversationStore: ObservableObject {
             updateForkCommandHandler(vm: existing, conversationLocalId: conversationLocalId)
             return existing
         }
-        let vm = ChatViewModel(daemonClient: daemonClient)
+        let vm = ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient)
         viewModels[conversationLocalId] = vm
 
         // Copy conversationId from the conversation so the VM joins the existing

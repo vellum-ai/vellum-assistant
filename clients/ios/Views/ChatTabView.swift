@@ -24,8 +24,8 @@ struct ChatTabView: View {
     @State private var showShareSheet = false
     @State private var shareMarkdown: String = ""
 
-    init(daemonClient: any DaemonClientProtocol) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(daemonClient: daemonClient))
+    init(daemonClient: any DaemonClientProtocol, eventStreamClient: EventStreamClient) {
+        _viewModel = StateObject(wrappedValue: ChatViewModel(daemonClient: daemonClient, eventStreamClient: eventStreamClient))
     }
 
     var body: some View {

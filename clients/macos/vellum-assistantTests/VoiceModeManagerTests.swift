@@ -14,9 +14,10 @@ final class VoiceModeManagerTests: XCTestCase {
         super.setUp()
         mockVoiceService = MockVoiceService()
         manager = VoiceModeManager(voiceService: mockVoiceService)
-        daemonClient = DaemonClient()
+        let cm = GatewayConnectionManager()
+        daemonClient = DaemonClient(connectionManager: cm)
         daemonClient.isConnected = true
-        chatViewModel = ChatViewModel(daemonClient: daemonClient)
+        chatViewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
     }
 
     override func tearDown() {

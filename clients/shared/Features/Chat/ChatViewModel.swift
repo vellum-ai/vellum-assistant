@@ -449,6 +449,7 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    let eventStreamClient: EventStreamClient
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
@@ -1009,11 +1010,13 @@ public final class ChatViewModel: ObservableObject {
 
     public init(
         daemonClient: any DaemonClientProtocol,
+        eventStreamClient: EventStreamClient,
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),
         onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
     ) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
@@ -1699,7 +1702,7 @@ public final class ChatViewModel: ObservableObject {
             startMessageLoop()
         }
 
-        daemonClient.sendUserMessage(
+        eventStreamClient.sendUserMessage(
             content: text,
             conversationId: conversationId,
             attachments: attachments,
@@ -1760,7 +1763,7 @@ public final class ChatViewModel: ObservableObject {
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
-        let messageStream = daemonClient.subscribe()
+        let messageStream = eventStreamClient.subscribe()
 
         messageLoopGeneration &+= 1
         let generation = messageLoopGeneration

@@ -41,6 +41,7 @@ extension MainWindowView {
                     set: { windowState.isDynamicExpanded = $0 }
                 ),
                 daemonClient: daemonClient,
+                eventStreamClient: eventStreamClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
@@ -60,7 +61,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -94,6 +95,7 @@ extension MainWindowView {
                     windowState.selection = nil
                 },
                 daemonClient: daemonClient,
+                eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
@@ -248,7 +250,7 @@ extension MainWindowView {
                 AppLoadingView(
                     appId: appId,
                     onRetry: { appId in
-                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
                     },
                     onClose: {
                         windowState.closeDynamicPanel()
@@ -263,7 +265,7 @@ extension MainWindowView {
                     daemonClient: daemonClient,
                     gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
-                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
@@ -443,7 +445,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient, eventStreamClient: eventStreamClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -479,6 +481,7 @@ extension MainWindowView {
                     windowState.dismissOverlay()
                 },
                 daemonClient: daemonClient,
+                eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },

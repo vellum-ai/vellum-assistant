@@ -292,6 +292,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Private
 
     private weak var daemonClient: DaemonClient?
+    private let eventStreamClient: EventStreamClient?
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
@@ -352,6 +353,7 @@ public final class SettingsStore: ObservableObject {
 
     init(
         daemonClient: DaemonClient? = nil,
+        eventStreamClient: EventStreamClient? = nil,
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
@@ -362,6 +364,7 @@ public final class SettingsStore: ObservableObject {
         verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
+        self.eventStreamClient = eventStreamClient
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
@@ -544,8 +547,8 @@ public final class SettingsStore: ObservableObject {
 
         // Subscribe to SSE-pushed config updates
         Task { @MainActor [weak self] in
-            guard let self, let daemonClient = self.daemonClient else { return }
-            for await message in daemonClient.subscribe() {
+            guard let self, let eventStreamClient = self.eventStreamClient else { return }
+            for await message in eventStreamClient.subscribe() {
                 switch message {
                 case .ingressConfigResponse(let response):
                     self.handleIngressConfigResponse(response)

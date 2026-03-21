@@ -56,7 +56,10 @@ final class DocumentEditorConversationVisibilityTests: XCTestCase {
 
     func testDocumentEditorShowsConversationTitleWhenActiveConversationExists() {
         let conversation = ConversationModel(title: "Doc Session Conversation", conversationId: "doc-session-1")
-        let vm = ChatViewModel(daemonClient: DaemonClient())
+        let vm = {
+            let cm = GatewayConnectionManager(); let dc = DaemonClient(connectionManager: cm)
+            return ChatViewModel(daemonClient: dc, eventStreamClient: cm.eventStreamClient)
+        }()
         let presentation = ConversationHeaderPresentation(
             activeConversation: conversation,
             activeViewModel: vm,

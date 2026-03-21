@@ -395,7 +395,7 @@ public final class EventStreamClient {
     }
 
     /// Broadcast a message to all subscribers.
-    func broadcastMessage(_ message: ServerMessage) {
+    public func broadcastMessage(_ message: ServerMessage) {
         for continuation in subscribers.values {
             continuation.yield(message)
         }

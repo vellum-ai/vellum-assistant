@@ -145,7 +145,7 @@ struct SettingsView: View {
                     return
                 }
                 if let daemon = clientProvider.client as? DaemonClient {
-                    let contacts = ContactsStore(daemonClient: daemon)
+                    let contacts = ContactsStore(daemonClient: daemon, eventStreamClient: clientProvider.eventStreamClient)
                     contactsStore = contacts
                     channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
                 }

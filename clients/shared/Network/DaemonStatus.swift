@@ -3,72 +3,53 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonStatus")
 
-/// Protocol for daemon status and connection management, enabling dependency injection and testing.
+/// Protocol for daemon connection status, enabling dependency injection and testing.
 @MainActor
 public protocol DaemonStatusProtocol: AnyObject {
     var isConnected: Bool { get }
-    func subscribe() -> AsyncStream<ServerMessage>
-    func sendUserMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]?, conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?)
     func connect() async throws
     func disconnect()
-    func startSSE()
-    func stopSSE()
 }
 
-/// Observable status of the assistant daemon connection. Publishes connection state,
-/// daemon version, model info, and other status properties derived from SSE events.
+/// Observable daemon state. Publishes connection status, daemon version,
+/// model info, and other metadata derived from SSE events and health checks.
 ///
-/// Pure state object — connection lifecycle is managed by `GatewayConnectionManager`,
-/// SSE and message broadcast by `EventStreamClient`. This class wires the three
-/// together and reacts to events by updating `@Published` properties.
+/// Does NOT own `GatewayConnectionManager` or `EventStreamClient` — those
+/// are owned by `AppServices` (macOS) or `AppDelegate` (iOS). This class
+/// subscribes to their callbacks to update `@Published` properties.
 @MainActor
 public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
-
-    /// The runtime HTTP server port, populated via `daemon_status` on connect.
     @Published public var httpPort: Int?
+    @Published public internal(set) var daemonVersion: String?
+    @Published public internal(set) var versionMismatch: Bool = false
+    @Published public internal(set) var isUpdateInProgress: Bool = false
+    @Published public internal(set) var updateTargetVersion: String?
+    var updateExpiresAt: Date?
+    @Published public internal(set) var keyFingerprint: String?
+    @Published public var latestMemoryStatus: MemoryStatusMessage?
+    @Published public var isTrustRulesSheetOpen: Bool = false
+    @Published public var currentModel: String?
+    @Published public var latestModelInfo: ModelInfoMessage?
+
+    /// Instance directory for the connected assistant.
+    public var instanceDir: String?
 
     /// Returns a closure that resolves the current HTTP port at call time.
     public var httpPortResolver: () -> Int? {
         { [weak self] in self?.httpPort }
     }
 
-    /// The daemon version string, populated via `daemon_status` on connect.
-    @Published public internal(set) var daemonVersion: String?
-
-    /// Whether the connected daemon's major.minor version differs from this client's version.
-    @Published public internal(set) var versionMismatch: Bool = false
-
-    /// Whether a planned service group update is in progress.
-    @Published public internal(set) var isUpdateInProgress: Bool = false
-
-    /// The version being upgraded to, if an update is in progress.
-    @Published public internal(set) var updateTargetVersion: String?
-
-    /// Deadline after which `isUpdateInProgress` is considered stale.
-    var updateExpiresAt: Date?
-
-    /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
-    @Published public internal(set) var keyFingerprint: String?
-
-    /// Latest memory health payload from daemon `memory_status` events.
-    @Published public var latestMemoryStatus: MemoryStatusMessage?
-
-    /// Whether a TrustRulesView sheet is currently open from any settings surface.
-    @Published public var isTrustRulesSheetOpen: Bool = false
-
-    /// The currently active model ID, populated via `model_info` responses.
-    @Published public var currentModel: String?
-
-    /// The latest full model info response from the daemon stream.
-    @Published public var latestModelInfo: ModelInfoMessage?
+    /// Whether a connection attempt is in flight.
+    public var isConnecting: Bool {
+        _connectionManager?.isConnecting ?? false
+    }
 
     // MARK: - Auth
 
-    /// Legacy authentication errors — retained for compatibility.
     public enum AuthError: Error, LocalizedError {
         case missingToken
         case timeout
@@ -86,62 +67,21 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         }
     }
 
-    // MARK: - Components
+    // MARK: - Private references for callbacks
 
-    /// Event stream client for SSE and message broadcast.
-    public let eventStreamClient: EventStreamClient
-
-    /// Connection lifecycle manager (health checks, auto-wake, transport).
-    public let connectionManager: GatewayConnectionManager
-
-    // MARK: - Forwarding accessors (backward compat)
-
-    /// Whether a connection attempt is in flight.
-    public var isConnecting: Bool {
-        get { connectionManager.isConnecting }
-        set { connectionManager.isConnecting = newValue }
-    }
-
-    /// Instance directory for the connected assistant. Used by consumers
-    /// that need to resolve file paths (e.g. workspace, identity).
-    public var instanceDir: String?
-
-    /// Platform identifier for automatic 401 re-bootstrap.
-    public var recoveryPlatform: String? {
-        get { connectionManager.recoveryPlatform }
-        set { connectionManager.recoveryPlatform = newValue }
-    }
-
-    /// Device identifier for automatic 401 re-bootstrap.
-    public var recoveryDeviceId: String? {
-        get { connectionManager.recoveryDeviceId }
-        set { connectionManager.recoveryDeviceId = newValue }
-    }
-
-    /// Optional closure invoked when the daemon process is not alive.
-    public var wakeHandler: (@MainActor @Sendable () async throws -> Void)? {
-        get { connectionManager.wakeHandler }
-        set { connectionManager.wakeHandler = newValue }
-    }
+    /// Weak reference to connection manager for update-in-progress sync.
+    private weak var _connectionManager: GatewayConnectionManager?
 
     // MARK: - Init
 
-    public init(config: DaemonConfig = .default) {
-        let esc = EventStreamClient()
-        self.eventStreamClient = esc
-        self.connectionManager = GatewayConnectionManager(eventStreamClient: esc)
+    public init(connectionManager: GatewayConnectionManager) {
+        self._connectionManager = connectionManager
 
-        // Extract fields from initial config
-        self.currentConfig = config
-        self.instanceDir = config.instanceDir
-        self.connectionManager.reconfigure(
-            instanceDir: config.instanceDir,
-            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
-        )
+        let esc = connectionManager.eventStreamClient
 
         // Wire the pre-processor so state is updated before subscribers see messages
-        esc.messagePreProcessor = { [weak self] message in
-            self?.handleServerMessage(message)
+        esc.messagePreProcessor = { [weak self, weak connectionManager] message in
+            self?.handleServerMessage(message, connectionManager: connectionManager)
         }
 
         // Wire conversation ID resolution to subscribers.
@@ -158,7 +98,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             #endif
         }
 
-        // Wire GatewayConnectionManager callbacks to update DaemonStatus state.
+        // Wire connection state changes to @Published properties.
         connectionManager.onConnectionStateChanged = { [weak self] connected in
             guard let self else { return }
             self.isConnected = connected
@@ -167,7 +107,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             }
         }
 
-        connectionManager.onDaemonVersionChanged = { [weak self] newVersion in
+        connectionManager.onDaemonVersionChanged = { [weak self, weak connectionManager] newVersion in
             guard let self else { return }
             self.daemonVersion = newVersion
             self.checkVersionCompatibility(daemonVersion: newVersion)
@@ -180,65 +120,44 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                 self.isUpdateInProgress = false
                 self.updateTargetVersion = nil
                 self.updateExpiresAt = nil
-                self.connectionManager.setUpdateInProgress(false)
-                self.eventStreamClient.resetSSEReconnectDelay()
+                connectionManager?.setUpdateInProgress(false)
+                connectionManager?.eventStreamClient.resetSSEReconnectDelay()
             }
         }
 
-        connectionManager.onAuthError = { [weak self] message in
-            self?.eventStreamClient.broadcastMessage(message)
+        connectionManager.onAuthError = { [weak connectionManager] message in
+            connectionManager?.eventStreamClient.broadcastMessage(message)
         }
     }
 
-    // MARK: - Subscribe (forwarding)
-
-    public func subscribe() -> AsyncStream<ServerMessage> {
-        eventStreamClient.subscribe()
-    }
-
-    // MARK: - Send (forwarding)
-
-    /// Fire-and-forget user message send. Delegates to EventStreamClient.
-    public func sendUserMessage(
-        content: String?,
-        conversationId: String,
-        attachments: [UserMessageAttachment]? = nil,
-        conversationType: String? = nil,
-        automated: Bool? = nil,
-        bypassSecretCheck: Bool? = nil
-    ) {
-        eventStreamClient.sendUserMessage(
-            content: content,
-            conversationId: conversationId,
-            attachments: attachments,
-            conversationType: conversationType,
-            automated: automated,
-            bypassSecretCheck: bypassSecretCheck
+    /// Convenience init for iOS where DaemonStatus creates its own GatewayConnectionManager.
+    public convenience init(config: DaemonConfig = .default) {
+        let cm = GatewayConnectionManager()
+        self.init(connectionManager: cm)
+        self.currentConfig = config
+        self.instanceDir = config.instanceDir
+        cm.reconfigure(
+            instanceDir: config.instanceDir,
+            isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
         )
-    }
-
-    // MARK: - SSE (forwarding)
-
-    public func startSSE() {
-        eventStreamClient.startSSE()
-    }
-
-    public func stopSSE() {
-        eventStreamClient.stopSSE()
     }
 
     // MARK: - Connection (forwarding)
 
+    /// Current config — stored only so `connect()` can extract the conversation key.
+    private var currentConfig: DaemonConfig?
+
     public func connect() async throws {
-        guard case .http(_, _, let conversationKey) = currentConfig?.transport else {
+        guard let cm = _connectionManager,
+              case .http(_, _, let conversationKey) = currentConfig?.transport else {
             log.info("connect: no HTTP transport configured, skipping")
             return
         }
-        try await connectionManager.connectImpl(cancelAutoWake: true, conversationKey: conversationKey)
+        try await cm.connectImpl(cancelAutoWake: true, conversationKey: conversationKey)
     }
 
     public func disconnect() {
-        connectionManager.disconnect()
+        _connectionManager?.disconnect()
         isConnected = false
         httpPort = nil
         latestMemoryStatus = nil
@@ -248,7 +167,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     public func reconfigure(config newConfig: DaemonConfig) {
         currentConfig = newConfig
         instanceDir = newConfig.instanceDir
-        connectionManager.reconfigure(
+        _connectionManager?.reconfigure(
             instanceDir: newConfig.instanceDir,
             isRuntimeFlat: newConfig.transportMetadata.routeMode == .runtimeFlat
         )
@@ -264,10 +183,6 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         latestMemoryStatus = nil
         currentModel = nil
     }
-
-    /// Current config — stored only so `connect()` can extract the conversation key.
-    /// Will be removed when DaemonStatus is deleted.
-    private var currentConfig: DaemonConfig?
 
     // MARK: - Version Compatibility
 
@@ -295,21 +210,9 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
         }
     }
 
-    // MARK: - Synthetic Message Injection
-
-    /// Inject a synthetic server message into the event stream. The message
-    /// is processed by the state pre-processor and then broadcast to all
-    /// subscribers, exactly as if it arrived via SSE.
-    public func injectMessage(_ message: ServerMessage) {
-        handleServerMessage(message)
-        eventStreamClient.broadcastMessage(message)
-    }
-
     // MARK: - Message Pre-Processing
 
-    /// Handle server messages that update DaemonStatus state. Called synchronously
-    /// before the message is broadcast to subscribers.
-    private func handleServerMessage(_ message: ServerMessage) {
+    private func handleServerMessage(_ message: ServerMessage, connectionManager: GatewayConnectionManager?) {
         if case .daemonStatus(let status) = message {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
             if let version = status.version {
@@ -324,7 +227,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
-                    self.connectionManager.setUpdateInProgress(false)
+                    connectionManager?.setUpdateInProgress(false)
                 }
             }
             if let newFingerprint = status.keyFingerprint {
@@ -344,20 +247,20 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             self.isUpdateInProgress = true
             self.updateTargetVersion = msg.targetVersion
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
-            self.connectionManager.setUpdateInProgress(true)
+            connectionManager?.setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
         case .serviceGroupUpdateComplete:
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
-            self.connectionManager.setUpdateInProgress(false)
+            connectionManager?.setUpdateInProgress(false)
         case .modelInfo(let msg):
             currentModel = msg.model
             latestModelInfo = msg
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
         case .authResult(let result):
-            connectionManager.isAuthenticated = result.success
+            connectionManager?.isAuthenticated = result.success
         default:
             break
         }
@@ -366,9 +269,5 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
 // MARK: - Backward Compatibility
 
-/// Typealias so existing code referencing `DaemonClient` compiles unchanged.
-/// New code should use `DaemonStatus` directly.
 public typealias DaemonClient = DaemonStatus
-
-/// Typealias so existing code referencing `DaemonClientProtocol` compiles unchanged.
 public typealias DaemonClientProtocol = DaemonStatusProtocol

@@ -5,6 +5,7 @@ import XCTest
 @MainActor
 final class ConversationManagerUnseenStateTests: XCTestCase {
 
+    private var cm: GatewayConnectionManager!
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
     private var sentMessages: [Any] = []
@@ -26,15 +27,17 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        daemonClient = DaemonClient()
+        cm = GatewayConnectionManager()
+        daemonClient = DaemonClient(connectionManager: cm)
         daemonClient.isConnected = true
-        conversationManager = ConversationManager(daemonClient: daemonClient)
+        conversationManager = ConversationManager(daemonClient: daemonClient, eventStreamClient: cm.eventStreamClient)
         conversationManager.createConversation()
     }
 
     override func tearDown() {
         conversationManager = nil
         daemonClient = nil
+        cm = nil
         sentMessages = []
         super.tearDown()
     }
