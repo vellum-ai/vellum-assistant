@@ -49,7 +49,7 @@ struct SettingsGeneralTab: View {
             accountSection
             if !lockfileAssistants.isEmpty {
                 AssistantUpgradeSection(
-                    currentVersion: healthz?.version,
+                    currentVersion: connectionManager?.assistantVersion ?? healthz?.version,
                     topology: topology,
                     isDockerOperationInProgress: $isDockerOperationInProgress,
                     dockerOperationLabel: $dockerOperationLabel,
