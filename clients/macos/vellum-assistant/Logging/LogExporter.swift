@@ -287,6 +287,8 @@ enum LogExporter {
             body.append("Content-Type: application/gzip\r\n\r\n".data(using: .utf8)!)
             body.append(archiveData)
             body.append("\r\n".data(using: .utf8)!)
+        } else {
+            log.warning("Failed to read archive at \(archiveURL.path) — submitting feedback without logs")
         }
 
         // Final boundary
