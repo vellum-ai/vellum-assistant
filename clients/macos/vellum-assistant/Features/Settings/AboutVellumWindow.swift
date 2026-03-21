@@ -266,7 +266,6 @@ struct AboutVellumView: View {
 
         case .docker, .managed:
             // Docker/managed: check platform API and show result inline
-            isCheckingForUpdates = true
             defer { isCheckingForUpdates = false }
 
             await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
