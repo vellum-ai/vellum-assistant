@@ -169,19 +169,19 @@ struct AboutVellumView: View {
                         .foregroundColor(VColor.systemPositiveStrong)
                 }
             case .updateAvailable(let version):
-                VStack(spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Update available:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(version)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    VButton(label: "Update in Settings", style: .outlined) {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                    Text("Version \(version) available")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.primaryBase)
+                    Button("Update in Settings") {
                         AppDelegate.shared?.aboutWindow?.close()
                         AppDelegate.shared?.showSettingsTab("General")
                     }
+                    .buttonStyle(.plain)
+                    .font(VFont.captionMedium)
+                    .foregroundStyle(VColor.primaryBase)
                 }
             case .notAvailable(let message):
                 HStack(spacing: VSpacing.xs) {
