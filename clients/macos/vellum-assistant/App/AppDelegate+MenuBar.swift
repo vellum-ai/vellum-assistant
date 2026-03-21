@@ -307,7 +307,16 @@ extension AppDelegate {
         currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
         menu.addItem(currentConversationItem)
 
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+        let newChatItem: NSMenuItem = {
+            let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+            guard !shortcut.isEmpty else {
+                return NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
+            }
+            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+            let item = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            return item
+        }()
         newChatItem.target = self
         newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)
