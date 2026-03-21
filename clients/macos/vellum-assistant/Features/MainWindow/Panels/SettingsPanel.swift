@@ -638,13 +638,9 @@ struct SettingsPanel: View {
             }
         }
         // Build resolved values: start with bundled registry defaults, then overlay persisted overrides
-        let registry = loadFeatureFlagRegistry()
-        let registryDefaults = Dictionary(
-            uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map { ($0.key, $0.defaultEnabled) }
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            registry: loadFeatureFlagRegistry()
         )
-        let config = WorkspaceConfigIO.read()
-        let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
-        let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
 
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled

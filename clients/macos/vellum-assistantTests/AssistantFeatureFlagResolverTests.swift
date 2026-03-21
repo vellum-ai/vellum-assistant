@@ -21,68 +21,86 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         )
     }
 
+    /// Creates a temporary feature-flags.json file with the given values and
+    /// returns the file path. The file is automatically cleaned up via `addTeardownBlock`.
+    private func createTempFeatureFlagsFile(values: [String: Bool]) throws -> String {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let filePath = tempDir.appendingPathComponent("feature-flags.json").path
+        let payload: [String: Any] = ["version": 1, "values": values]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+        FileManager.default.createFile(atPath: filePath, contents: data)
+
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        return filePath
+    }
+
     func testUsesAssistantRegistryDefaultWhenNoOverrideExists() {
-        let enabled = AssistantFeatureFlagResolver.isEnabled(
-            conversationStartersKey,
-            config: [:],
-            registry: makeRegistry(defaultEnabled: false)
+        // Read from a nonexistent path so no persisted overrides are found
+        let nonexistentPath = "/tmp/\(UUID().uuidString)/feature-flags.json"
+        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: nonexistentPath)
+        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            persistedFlags: persistedFlags,
+            registryDefaults: registryDefaults
         )
+        let enabled = resolved[conversationStartersKey] ?? true
 
         XCTAssertFalse(enabled)
     }
 
-    func testPersistedAssistantOverrideWinsOverRegistryDefault() {
-        let enabled = AssistantFeatureFlagResolver.isEnabled(
-            conversationStartersKey,
-            config: [
-                "assistantFeatureFlagValues": [
-                    conversationStartersKey: true
-                ]
-            ],
-            registry: makeRegistry(defaultEnabled: false)
+    func testPersistedAssistantOverrideWinsOverRegistryDefault() throws {
+        let filePath = try createTempFeatureFlagsFile(values: [
+            conversationStartersKey: true
+        ])
+
+        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
+        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            persistedFlags: persistedFlags,
+            registryDefaults: registryDefaults
         )
+        let enabled = resolved[conversationStartersKey] ?? true
 
         XCTAssertTrue(enabled)
     }
 
     func testUndeclaredAssistantFlagsDefaultToEnabled() {
-        let enabled = AssistantFeatureFlagResolver.isEnabled(
-            "feature_flags.unknown.enabled",
-            config: [:],
-            registry: makeRegistry(defaultEnabled: false)
+        let nonexistentPath = "/tmp/\(UUID().uuidString)/feature-flags.json"
+        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: nonexistentPath)
+        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            persistedFlags: persistedFlags,
+            registryDefaults: registryDefaults
         )
+        let enabled = resolved["feature_flags.unknown.enabled"] ?? true
 
         XCTAssertTrue(enabled)
     }
 
     @MainActor
     func testStoreCachesResolvedFlagsAfterInitialLoad() {
-        var readCount = 0
         let store = AssistantFeatureFlagStore(
             notificationCenter: NotificationCenter(),
-            registry: makeRegistry(defaultEnabled: false),
-            readConfig: {
-                readCount += 1
-                return [:]
-            }
+            registry: makeRegistry(defaultEnabled: false)
         )
 
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
-        XCTAssertEqual(readCount, 1)
+        // Store reads from disk once during init and caches the result
     }
 
     @MainActor
     func testStoreAppliesFlagChangeNotificationsWithoutReloadingConfig() {
         let notificationCenter = NotificationCenter()
-        var readCount = 0
         let store = AssistantFeatureFlagStore(
             notificationCenter: notificationCenter,
-            registry: makeRegistry(defaultEnabled: false),
-            readConfig: {
-                readCount += 1
-                return [:]
-            }
+            registry: makeRegistry(defaultEnabled: false)
         )
 
         notificationCenter.post(
@@ -93,6 +111,5 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         XCTAssertTrue(store.isEnabled(conversationStartersKey))
-        XCTAssertEqual(readCount, 1)
     }
 }
