@@ -139,15 +139,6 @@ final class AvatarAppearanceManager {
         // bundled Vellum logo.
         updateDockLabel()
 
-        // Fire-and-forget: fetch character component definitions via the
-        // gateway and populate AvatarComponentStore.shared so downstream
-        // code can look up definitions by ID. Avatar rendering requires
-        // the component store to be populated; safe defaults are used
-        // during the pre-fetch window.
-        Task { [weak self] in
-            await self?.fetchComponents()
-        }
-
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
         // reflects the new name.
@@ -168,17 +159,6 @@ final class AvatarAppearanceManager {
                 self.cachedFullFallbackName = nil
                 self.updateDockLabel()
             }
-        }
-    }
-
-    // MARK: - Component Fetch
-
-    /// Fetches the canonical character component definitions via the gateway
-    /// and populates `AvatarComponentStore.shared` for O(1) lookups.
-    /// Fails silently — avatar rendering uses safe defaults until the store is populated.
-    private func fetchComponents() async {
-        if let response = await AvatarComponentService.fetch() {
-            AvatarComponentStore.shared.load(response)
         }
     }
 
