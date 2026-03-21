@@ -240,7 +240,7 @@ extension AppDelegate {
             }
             Task { @MainActor in
                 guard self?.isBootstrapping != true else { return }
-                self?.createNewConversation()
+                self?.openNewChat()
             }
             return nil
         }
