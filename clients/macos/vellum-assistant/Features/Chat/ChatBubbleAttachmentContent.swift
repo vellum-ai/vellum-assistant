@@ -3,6 +3,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
+/// Posted when an image drag begins from within the chat UI.
+/// ChatView observes this to suppress the drop zone overlay for internal drags.
+extension Notification.Name {
+    static let internalImageDragStarted = Notification.Name("com.vellum.internalImageDragStarted")
+}
+
 // MARK: - Image Context Menu Actions
 
 /// Standalone helper for image context menu actions used by both
@@ -196,6 +202,7 @@ private struct InlineToolCallImageView: View {
                 ImageActions.contextMenuItems(image: image, filename: "image.png")
             }
             .onDrag {
+                NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
                 let provider = NSItemProvider()
                 if let tiff = image.tiffRepresentation,
                    let rep = NSBitmapImageRep(data: tiff),
@@ -205,7 +212,7 @@ private struct InlineToolCallImageView: View {
                         return nil
                     }
                 }
-                provider.suggestedName = "image.png"
+                provider.suggestedName = "image"
                 return provider
             }
             .pointerCursor()
@@ -283,6 +290,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                 )
                             }
                             .onDrag {
+                                NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
                                 let provider = NSItemProvider()
                                 let hasBase64 = !attachment.data.isEmpty
 
@@ -320,11 +328,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                 }
                                 // Force .png extension when falling back to PNG encoding
                                 let filename = attachment.filename
-                                if hasBase64 {
-                                    provider.suggestedName = filename
-                                } else {
-                                    provider.suggestedName = (filename as NSString).deletingPathExtension + ".png"
-                                }
+                                // Strip extension — Finder appends it from the UTType
+                                provider.suggestedName = (filename as NSString).deletingPathExtension
                                 return provider
                             }
                             .pointerCursor()
