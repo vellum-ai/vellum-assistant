@@ -298,7 +298,7 @@ extension AppDelegate {
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             guard self?.isBootstrapping != true,
                   self?.mainWindow?.isVisible == true else { return event }
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
             guard mods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
