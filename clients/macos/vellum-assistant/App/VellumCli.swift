@@ -172,7 +172,7 @@ final class VellumCli {
     /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, daemonOnly: Bool = false, restart: Bool = false) async throws {
+    func hatch(name: String? = nil, restart: Bool = false) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -181,9 +181,6 @@ final class VellumCli {
         log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
-        if daemonOnly {
-            arguments.append("--daemon-only")
-        }
         if restart {
             arguments.append("--restart")
         }

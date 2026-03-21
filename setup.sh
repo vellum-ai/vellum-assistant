@@ -94,7 +94,7 @@ _vellum_completions() {
 
   case "${COMP_WORDS[1]}" in
     hatch)
-      COMPREPLY=( $(compgen -W "openclaw vellum -d --daemon-only --name --remote" -- "${cur}") )
+      COMPREPLY=( $(compgen -W "openclaw vellum -d --name --remote" -- "${cur}") )
       ;;
     client|retire)
       local instances
@@ -140,7 +140,7 @@ _vellum() {
     args)
       case $words[1] in
         hatch)
-          _arguments '*:species:(openclaw vellum -d --daemon-only --name --remote)'
+          _arguments '*:species:(openclaw vellum -d --name --remote)'
           ;;
         client|retire)
           local -a instances

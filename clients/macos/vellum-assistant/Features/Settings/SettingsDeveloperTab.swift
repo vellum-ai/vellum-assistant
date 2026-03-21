@@ -705,7 +705,6 @@ struct SettingsDeveloperTab: View {
         do {
             try await AppDelegate.shared?.vellumCli.hatch(
                 name: selectedAssistantId,
-                daemonOnly: true,
                 restart: true
             )
         } catch {}

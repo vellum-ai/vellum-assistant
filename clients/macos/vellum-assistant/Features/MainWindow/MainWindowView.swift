@@ -1166,8 +1166,8 @@ struct MainWindowView: View {
     }
 
     /// Restart the daemon process without re-hatching a new assistant.
-    /// Stops the existing daemon, then re-hatches with daemonOnly + restart
-    /// flags to avoid creating a duplicate assistant entry.
+    /// Stops the existing daemon, then re-hatches with the restart flag
+    /// to avoid creating a duplicate assistant entry.
     private func retryDaemonStartup() {
         Task {
             let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -1176,7 +1176,6 @@ struct MainWindowView: View {
             do {
                 try await appDelegate.vellumCli.hatch(
                     name: assistantName,
-                    daemonOnly: true,
                     restart: true
                 )
             } catch let error as VellumCli.CLIError {
