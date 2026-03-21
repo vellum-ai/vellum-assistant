@@ -162,6 +162,17 @@ final class AvatarAppearanceManager {
         }
     }
 
+    // MARK: - Component Fetch
+
+    /// Fetches the canonical character component definitions via the gateway
+    /// and populates `AvatarComponentStore.shared` for O(1) lookups.
+    /// Fails silently — avatar rendering uses safe defaults until the store is populated.
+    private func fetchComponents() async {
+        if let response = await AvatarComponentService.fetch() {
+            AvatarComponentStore.shared.load(response)
+        }
+    }
+
     // MARK: - Remote Avatar Fetch (Docker/remote instances)
 
     /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
@@ -286,6 +297,7 @@ final class AvatarAppearanceManager {
         }
 
         Task { [weak self] in
+            await self?.fetchComponents()
             await self?.fetchAvatarViaHTTP()
             await self?.fetchTraitsViaHTTP()
         }
