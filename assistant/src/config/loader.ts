@@ -215,6 +215,35 @@ export function deepMergeMissing(
 }
 
 /**
+ * Deep-merge `overrides` into `target`, overwriting leaf values.
+ * Recursively merges nested objects; scalars and arrays from `overrides`
+ * replace corresponding values in `target`.
+ */
+function deepMergeOverwrite(
+  target: Record<string, unknown>,
+  overrides: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(overrides)) {
+    const ov = overrides[key];
+    if (
+      ov != null &&
+      typeof ov === "object" &&
+      !Array.isArray(ov) &&
+      target[key] != null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      deepMergeOverwrite(
+        target[key] as Record<string, unknown>,
+        ov as Record<string, unknown>,
+      );
+    } else {
+      target[key] = ov;
+    }
+  }
+}
+
+/**
  * Read the existing config.json from disk, merge any missing schema-default
  * keys, and rewrite only when there is an effective change.
  */
@@ -282,6 +311,24 @@ export function loadConfig(): AssistantConfig {
       }
     } else {
       configFileExisted = false;
+    }
+
+    // Merge initial config from temp file (written by CLI hatch --config flags)
+    // so onboarding preferences override workspace defaults on first boot.
+    const initialConfigPath = process.env.VELLUM_INITIAL_CONFIG_PATH;
+    if (initialConfigPath && existsSync(initialConfigPath)) {
+      try {
+        const initial = JSON.parse(readFileSync(initialConfigPath, "utf-8"));
+        if (initial && typeof initial === "object" && !Array.isArray(initial)) {
+          deepMergeOverwrite(fileConfig, initial);
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Failed to read initial config from %s",
+          initialConfigPath,
+        );
+      }
     }
 
     // Warn about and strip deprecated config fields so users know their

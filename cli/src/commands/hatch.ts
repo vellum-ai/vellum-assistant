@@ -770,11 +770,9 @@ async function hatchLocal(
     process.env.APP_VERSION = cliPkg.version;
   }
 
-  // Write --config key=value pairs to config.json before starting the daemon
-  // so the daemon sees them on first loadConfig() call.
-  writeInitialConfig(configValues, resources.instanceDir);
+  const initialConfigPath = writeInitialConfig(configValues);
 
-  await startLocalDaemon(watch, resources);
+  await startLocalDaemon(watch, resources, { initialConfigPath });
 
   // When daemonOnly is set, skip gateway and ngrok — the caller only wants
   // the daemon restarted (e.g. macOS app bootstrap retry).

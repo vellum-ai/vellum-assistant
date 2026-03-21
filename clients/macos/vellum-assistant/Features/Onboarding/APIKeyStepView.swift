@@ -227,9 +227,6 @@ struct APIKeyStepView: View {
         }
 
         if isAuthenticated {
-            // Authenticated user selecting Local: skip API key, advance to consent step.
-            // Provider/model are stored in state; the daemon will be configured
-            // via its HTTP API after hatching completes (see HatchingStepView).
             state.selectedProvider = "anthropic"
             state.selectedModel = "claude-opus-4-6"
             state.skippedAPIKeyEntry = true

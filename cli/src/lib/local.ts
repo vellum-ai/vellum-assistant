@@ -7,10 +7,11 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform } from "os";
+import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { type LocalInstanceResources } from "./assistant-config.js";
+import { buildNestedConfig } from "./config-utils.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
@@ -195,7 +196,7 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
-  options?: { foreground?: boolean },
+  options?: { foreground?: boolean; initialConfigPath?: string },
 ): Promise<void> {
   const foreground = options?.foreground ?? false;
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
@@ -268,6 +269,9 @@ async function startDaemonFromSource(
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
+  if (options?.initialConfigPath) {
+    env.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
+  }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -306,6 +310,7 @@ async function startDaemonFromSource(
 async function startDaemonWatchFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
+  options?: { initialConfigPath?: string },
 ): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
@@ -380,6 +385,9 @@ async function startDaemonWatchFromSource(
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
+  }
+  if (options?.initialConfigPath) {
+    env.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -475,42 +483,29 @@ function saveWorkspaceConfig(
 }
 
 /**
- * Write arbitrary key-value pairs into the workspace config file before
- * the daemon starts. The daemon reads config.json on first loadConfig()
- * call, so values written here are available immediately.
+ * Write arbitrary key-value pairs to a temporary JSON file and return its
+ * path. The caller passes this path to the daemon via the
+ * VELLUM_INITIAL_CONFIG_PATH env var so the daemon can merge the values
+ * into its config on first boot.
  *
  * Keys use dot-notation to address nested fields. For example:
- *   "services.inference.provider" → config.services.inference.provider
- *   "services.inference.model"    → config.services.inference.model
+ *   "services.inference.provider" → {services: {inference: {provider: ...}}}
+ *   "services.inference.model"    → {services: {inference: {model: ...}}}
+ *
+ * Returns undefined when configValues is empty (nothing to write).
  */
 export function writeInitialConfig(
   configValues: Record<string, string>,
-  instanceDir?: string,
-): void {
-  if (Object.keys(configValues).length === 0) return;
+): string | undefined {
+  if (Object.keys(configValues).length === 0) return undefined;
 
-  const config = loadWorkspaceConfig(instanceDir);
-
-  for (const [dotKey, value] of Object.entries(configValues)) {
-    const parts = dotKey.split(".");
-    // Walk/create nested objects for all parts except the last
-    let target: Record<string, unknown> = config;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      const existing = target[part];
-      if (
-        existing == null ||
-        typeof existing !== "object" ||
-        Array.isArray(existing)
-      ) {
-        target[part] = {};
-      }
-      target = target[part] as Record<string, unknown>;
-    }
-    target[parts[parts.length - 1]] = value;
-  }
-
-  saveWorkspaceConfig(config, instanceDir);
+  const config = buildNestedConfig(configValues);
+  const tempPath = join(
+    tmpdir(),
+    `vellum-initial-config-${process.pid}-${Date.now()}.json`,
+  );
+  writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\n");
+  return tempPath;
 }
 
 /**
@@ -858,7 +853,7 @@ export function isGatewayWatchModeAvailable(): boolean {
 export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
-  options?: { foreground?: boolean },
+  options?: { foreground?: boolean; initialConfigPath?: string },
 ): Promise<void> {
   const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
@@ -977,6 +972,9 @@ export async function startLocalDaemon(
           daemonEnv[key] = process.env[key]!;
         }
       }
+      if (options?.initialConfigPath) {
+        daemonEnv.VELLUM_INITIAL_CONFIG_PATH = options.initialConfigPath;
+      }
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
       if (resources) {
@@ -1044,9 +1042,13 @@ export async function startLocalDaemon(
         // Kill the bundled daemon to avoid two processes competing for the same port
         await stopProcessByPidFile(pidFile, "bundled daemon");
         if (watch) {
-          await startDaemonWatchFromSource(assistantIndex, resources);
+          await startDaemonWatchFromSource(assistantIndex, resources, {
+            initialConfigPath: options?.initialConfigPath,
+          });
         } else {
-          await startDaemonFromSource(assistantIndex, resources);
+          await startDaemonFromSource(assistantIndex, resources, {
+            initialConfigPath: options?.initialConfigPath,
+          });
         }
         daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       }
@@ -1070,7 +1072,9 @@ export async function startLocalDaemon(
       );
     }
     if (watch) {
-      await startDaemonWatchFromSource(assistantIndex, resources);
+      await startDaemonWatchFromSource(assistantIndex, resources, {
+        initialConfigPath: options?.initialConfigPath,
+      });
 
       const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       if (daemonReady) {
@@ -1081,7 +1085,10 @@ export async function startLocalDaemon(
         );
       }
     } else {
-      await startDaemonFromSource(assistantIndex, resources, { foreground });
+      await startDaemonFromSource(assistantIndex, resources, {
+        foreground,
+        initialConfigPath: options?.initialConfigPath,
+      });
 
       const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       if (daemonReady) {

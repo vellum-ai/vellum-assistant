@@ -352,9 +352,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config/permissions/skip:GET", scopes: ["settings.read"] },
   { endpoint: "config/permissions/skip:PUT", scopes: ["settings.write"] },
 
-  // Service mode initialization
-  { endpoint: "config/services/initialize", scopes: ["settings.write"] },
-
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },

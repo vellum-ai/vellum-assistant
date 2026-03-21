@@ -397,24 +397,6 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // Set service modes to "managed" on the first authenticated
-                // bootstrap so daemon-materialized schema defaults ("your-own")
-                // are replaced. On subsequent launches, pass force: false so
-                // user-chosen service modes (e.g. "your-own") are preserved.
-                let flagKey = "managedServiceModesInitialized"
-                let alreadyInitialized = UserDefaults.standard.bool(forKey: flagKey)
-                do {
-                    let _ = try await GatewayHTTPClient.put(
-                        path: "config/services/initialize",
-                        json: ["defaultMode": "managed", "force": !alreadyInitialized]
-                    )
-                } catch {
-                    log.error("Failed to initialize managed service modes via daemon: \(error.localizedDescription)")
-                }
-                if !alreadyInitialized {
-                    UserDefaults.standard.set(true, forKey: flagKey)
-                }
-
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)

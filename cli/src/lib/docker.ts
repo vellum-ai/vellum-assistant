@@ -12,6 +12,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
+import { buildNestedConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
@@ -1024,32 +1025,6 @@ function startFileWatcher(opts: {
   };
 }
 
-/**
- * Convert flat dot-notation key=value pairs into a nested JSON object string.
- * e.g. {"services.inference.provider": "anthropic"} → {"services":{"inference":{"provider":"anthropic"}}}
- */
-function buildNestedConfig(configValues: Record<string, string>): string {
-  const config: Record<string, unknown> = {};
-  for (const [dotKey, value] of Object.entries(configValues)) {
-    const parts = dotKey.split(".");
-    let target: Record<string, unknown> = config;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      const existing = target[part];
-      if (
-        existing == null ||
-        typeof existing !== "object" ||
-        Array.isArray(existing)
-      ) {
-        target[part] = {};
-      }
-      target = target[part] as Record<string, unknown>;
-    }
-    target[parts[parts.length - 1]] = value;
-  }
-  return JSON.stringify(config);
-}
-
 export async function hatchDocker(
   species: Species,
   detached: boolean,
@@ -1161,7 +1136,7 @@ export async function hatchDocker(
     // Write --config key=value pairs into the workspace volume so the
     // daemon reads them on first loadConfig() call.
     if (Object.keys(configValues).length > 0) {
-      const configJson = buildNestedConfig(configValues);
+      const configJson = JSON.stringify(buildNestedConfig(configValues));
       await exec("docker", [
         "run",
         "--rm",

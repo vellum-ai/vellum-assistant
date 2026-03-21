@@ -220,9 +220,6 @@ struct APIKeyEntryStepView: View {
         if providerRequiresKey {
             APIKeyManager.setKey(trimmed, for: state.selectedProvider)
         }
-        // Provider/model selection is already stored in state.selectedProvider
-        // and state.selectedModel. The daemon will be configured via its HTTP
-        // API after hatching completes (see HatchingStepView).
         state.advance()
     }
 }
