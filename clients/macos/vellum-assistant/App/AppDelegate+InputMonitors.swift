@@ -54,6 +54,12 @@ extension UserDefaults {
     @objc dynamic var quickInputHotkeyKeyCode: Int {
         return integer(forKey: "quickInputHotkeyKeyCode")
     }
+    @objc dynamic var sidebarToggleShortcut: String {
+        if UserDefaults.standard.object(forKey: "sidebarToggleShortcut") == nil {
+            return "cmd+\\"
+        }
+        return string(forKey: "sidebarToggleShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
