@@ -254,7 +254,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient

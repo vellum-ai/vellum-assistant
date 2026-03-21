@@ -40,7 +40,7 @@ public final class ContactsStore: ObservableObject {
 
     public init(daemonClient: DaemonClient, contactClient: ContactClientProtocol = ContactClient()) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         self.contactClient = contactClient
         subscribeToContactsChanged()
         reconnectObserver = NotificationCenter.default.addObserver(

@@ -160,7 +160,7 @@ public struct AppsClient: AppsClientProtocol {
             messageId: nil
         )
         await MainActor.run {
-            (eventStreamClient ?? daemonClient.eventStreamClient).broadcastMessage(.uiSurfaceShow(surfaceMsg))
+            (eventStreamClient ?? daemonClient.connectionManager.eventStreamClient).broadcastMessage(.uiSurfaceShow(surfaceMsg))
         }
     }
 

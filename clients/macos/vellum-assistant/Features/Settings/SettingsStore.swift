@@ -363,7 +363,7 @@ public final class SettingsStore: ObservableObject {
         verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient?.eventStreamClient
+        self.eventStreamClient = daemonClient?.connectionManager.eventStreamClient
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient

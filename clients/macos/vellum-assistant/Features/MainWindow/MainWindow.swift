@@ -254,7 +254,7 @@ public final class MainWindow {
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
     private var daemonClient: DaemonClient { services.daemonClient }
-    private var eventStreamClient: EventStreamClient { services.daemonClient.eventStreamClient }
+    private var eventStreamClient: EventStreamClient { services.daemonClient.connectionManager.eventStreamClient }
     private var surfaceManager: SurfaceManager { services.surfaceManager }
     private var ambientAgent: AmbientAgent { services.ambientAgent }
     private var zoomManager: ZoomManager { services.zoomManager }

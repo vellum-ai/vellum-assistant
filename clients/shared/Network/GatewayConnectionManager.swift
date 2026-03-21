@@ -73,15 +73,15 @@ public final class GatewayConnectionManager {
     var onDaemonVersionChanged: ((_ newVersion: String) -> Void)?
     var onAuthError: ((_ message: ServerMessage) -> Void)?
 
-    // MARK: - Dependencies
+    // MARK: - Event Stream
 
-    private let eventStreamClient: EventStreamClient
+    /// The event stream client for SSE and message broadcast.
+    /// Consumers should reference this directly for subscribe/send.
+    public let eventStreamClient = EventStreamClient()
 
     // MARK: - Init
 
-    init(eventStreamClient: EventStreamClient) {
-        self.eventStreamClient = eventStreamClient
-    }
+    public init() {}
 
     // MARK: - Connect
 

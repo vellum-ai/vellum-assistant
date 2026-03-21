@@ -58,7 +58,7 @@ struct GeneratedPanel: View {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         self.gatewayBaseURL = gatewayBaseURL
         self.onOpenApp = onOpenApp
         self.onRecordAppOpen = onRecordAppOpen

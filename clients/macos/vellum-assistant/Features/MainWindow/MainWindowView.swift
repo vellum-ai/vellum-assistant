@@ -74,7 +74,7 @@ struct MainWindowView: View {
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore

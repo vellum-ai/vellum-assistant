@@ -19,7 +19,7 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
         manager = VoiceModeManager(voiceService: mockVoiceService)
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        chatViewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        chatViewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.connectionManager.eventStreamClient)
     }
 
     override func tearDown() {

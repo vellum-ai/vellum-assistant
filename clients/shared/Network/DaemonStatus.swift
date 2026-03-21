@@ -84,10 +84,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
 
     // MARK: - Components
 
-    /// Event stream client for SSE and message broadcast.
-    public let eventStreamClient: EventStreamClient
-
-    /// Connection lifecycle manager (health checks, auto-wake, transport).
+    /// Connection lifecycle manager (health checks, auto-wake, SSE).
     public let connectionManager: GatewayConnectionManager
 
     // MARK: - Forwarding accessors (backward compat)
@@ -123,9 +120,7 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
     // MARK: - Init
 
     public init(config: DaemonConfig = .default) {
-        let esc = EventStreamClient()
-        self.eventStreamClient = esc
-        self.connectionManager = GatewayConnectionManager(eventStreamClient: esc)
+        self.connectionManager = GatewayConnectionManager()
 
         // Extract fields from initial config
         self.currentConfig = config
@@ -134,6 +129,8 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
             instanceDir: config.instanceDir,
             isRuntimeFlat: config.transportMetadata.routeMode == .runtimeFlat
         )
+
+        let esc = connectionManager.eventStreamClient
 
         // Wire the pre-processor so state is updated before subscribers see messages
         esc.messagePreProcessor = { [weak self] message in
@@ -177,12 +174,12 @@ public final class DaemonStatus: ObservableObject, DaemonStatusProtocol {
                 self.updateTargetVersion = nil
                 self.updateExpiresAt = nil
                 self.connectionManager.setUpdateInProgress(false)
-                self.eventStreamClient.resetSSEReconnectDelay()
+                self.connectionManager.eventStreamClient.resetSSEReconnectDelay()
             }
         }
 
         connectionManager.onAuthError = { [weak self] message in
-            self?.eventStreamClient.broadcastMessage(message)
+            self?.connectionManager.eventStreamClient.broadcastMessage(message)
         }
     }
 

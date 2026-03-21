@@ -109,7 +109,7 @@ final class ConversationForkIOSTests: XCTestCase {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(
             daemonClient: daemonClient,
-            eventStreamClient: daemonClient.eventStreamClient,
+            eventStreamClient: daemonClient.connectionManager.eventStreamClient,
             connectedModeOverride: true,
             userDefaults: userDefaults
         )

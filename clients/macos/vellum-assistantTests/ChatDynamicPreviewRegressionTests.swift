@@ -20,7 +20,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.connectionManager.eventStreamClient)
         viewModel.conversationId = "sess-dp"
     }
 

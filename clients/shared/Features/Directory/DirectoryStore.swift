@@ -35,7 +35,7 @@ public final class DirectoryStore: ObservableObject {
         self.appsClient = AppsClient()
         self.documentClient = documentClient
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         subscribeToAppFilesChanged()
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,

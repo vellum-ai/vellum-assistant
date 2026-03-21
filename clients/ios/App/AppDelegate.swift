@@ -39,7 +39,7 @@ final class ClientProvider: ObservableObject {
 
     init(client: DaemonStatus) {
         self.client = client
-        self.eventStreamClient = client.eventStreamClient
+        self.eventStreamClient = client.connectionManager.eventStreamClient
         self.traceStore = TraceStore()
         bindCombineBridge()
         bindTraceEvents()
@@ -59,7 +59,7 @@ final class ClientProvider: ObservableObject {
         newClient.recoveryPlatform = prevPlatform
         newClient.recoveryDeviceId = prevDeviceId
         self.client = newClient
-        self.eventStreamClient = newClient.eventStreamClient
+        self.eventStreamClient = newClient.connectionManager.eventStreamClient
         self.clientGeneration &+= 1
         self.isConnected = false
         bindCombineBridge()

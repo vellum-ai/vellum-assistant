@@ -57,7 +57,7 @@ final class ConversationRestorer {
 
     init(daemonClient: DaemonClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
-        self.eventStreamClient = daemonClient.eventStreamClient
+        self.eventStreamClient = daemonClient.connectionManager.eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
     }
 

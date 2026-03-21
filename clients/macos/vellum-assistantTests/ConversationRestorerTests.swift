@@ -46,7 +46,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     }
 
     func makeViewModel() -> ChatViewModel {
-        ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.connectionManager.eventStreamClient)
     }
 
     func activateConversation(_ id: UUID) {

@@ -19,7 +19,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.eventStreamClient)
+        viewModel = ChatViewModel(daemonClient: daemonClient, eventStreamClient: daemonClient.connectionManager.eventStreamClient)
     }
 
     override func tearDown() {
