@@ -29,6 +29,7 @@ struct MainWindowView: View {
     @State private var preTemporaryChatConversationId: UUID?
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
+    @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
     /// True when the sidebar was auto-collapsed by entering an app panel.
     /// Used to distinguish automatic collapse from manual user collapse so
     /// we only re-expand the sidebar on app exit when it was our doing.
@@ -377,6 +378,13 @@ struct MainWindowView: View {
         return false
     }
 
+    private var sidebarTooltip: String {
+        let label = sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
+        guard !sidebarToggleShortcut.isEmpty else { return label }
+        let display = ShortcutHelper.displayString(for: sidebarToggleShortcut)
+        return "\(label) (\(display))"
+    }
+
     /// Daemon loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
     private var daemonLoadingOverlayIfNeeded: some View {
@@ -405,7 +413,7 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarTooltip) {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
