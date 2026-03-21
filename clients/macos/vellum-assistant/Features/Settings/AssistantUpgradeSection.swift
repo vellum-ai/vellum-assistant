@@ -38,6 +38,7 @@ struct AssistantUpgradeSection: View {
     @State private var errorMessage: String?
     @State private var successMessage: String?
     @State private var showingUpgradeConfirmation = false
+    @State private var showFeedbackOption = false
     @State private var isCheckingLocal = false
     @State private var hasCheckedForUpdates = false
     @State private var checkedSparkleAvailable: Bool?
@@ -311,6 +312,12 @@ struct AssistantUpgradeSection: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
+            if showFeedbackOption {
+                VButton(label: "Share Feedback", style: .outlined) {
+                    AppDelegate.shared?.showLogReportWindow(reason: .somethingBroken)
+                }
+            }
+
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
@@ -428,6 +435,17 @@ struct AssistantUpgradeSection: View {
             successMessage = isRollback ? "Rollback complete." : "Update complete."
             await loadReleasesQuietly()
             if successMessage != nil { errorMessage = nil }
+        } catch let error as VellumCli.CLIError {
+            switch error {
+            case .structuredError(let cliError):
+                errorMessage = guidanceForError(cliError)
+                showFeedbackOption = true
+            case .executionFailed(let stderr):
+                errorMessage = "Update failed: \(stderr)"
+                showFeedbackOption = true
+            default:
+                errorMessage = "Update failed: \(error.localizedDescription)"
+            }
         } catch {
             errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
         }
@@ -448,11 +466,14 @@ struct AssistantUpgradeSection: View {
                 if successMessage != nil { errorMessage = nil }
             } else {
                 errorMessage = "\(isRollback ? "Rollback" : "Update") failed (HTTP \(response.statusCode))"
+                showFeedbackOption = true
             }
         } catch let error as GatewayHTTPClient.ClientError {
             errorMessage = "Unable to start \(isRollback ? "rollback" : "update"): \(error.localizedDescription)"
+            showFeedbackOption = true
         } catch {
             errorMessage = "\(isRollback ? "Rollback" : "Update") failed: \(error.localizedDescription)"
+            showFeedbackOption = true
         }
     }
 
@@ -481,6 +502,32 @@ struct AssistantUpgradeSection: View {
     private func clearMessages() {
         errorMessage = nil
         successMessage = nil
+        showFeedbackOption = false
+    }
+
+    private func guidanceForError(_ error: VellumCli.CliError) -> String {
+        switch error.category {
+        case "DOCKER_NOT_RUNNING":
+            return "Docker doesn't appear to be running. Start Docker Desktop and try again."
+        case "IMAGE_PULL_FAILED":
+            return "Failed to download the update. Check your internet connection and try again."
+        case "READINESS_TIMEOUT":
+            return "The assistant didn't start up in time. Check Docker Desktop for container status, or try rolling back."
+        case "ROLLBACK_FAILED":
+            return "Rollback failed. Check Docker Desktop for container status."
+        case "ROLLBACK_NO_STATE":
+            return "No previous version available to roll back to."
+        case "AUTH_FAILED":
+            return "Authentication failed. Try signing out and back in from Settings."
+        case "NETWORK_ERROR":
+            return "Couldn't reach the update server. Check your internet connection."
+        case "PLATFORM_API_ERROR":
+            return "The platform returned an error. Try again in a few minutes."
+        case "ASSISTANT_NOT_FOUND":
+            return "Could not find the assistant. Make sure it's still configured."
+        default:
+            return "Something went wrong. Share feedback to send logs to the team."
+        }
     }
 
 }
