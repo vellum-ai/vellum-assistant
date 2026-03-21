@@ -6,9 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Client that manages an SSE connection to the assistant runtime and broadcasts
 /// parsed `ServerMessage` values to multiple independent subscribers.
 ///
-/// Replaces the SSE portion of `HTTPTransport` and the broadcast portion of
-/// `GatewayConnectionManager`. Backed by `GatewayHTTPClient.stream()` for authenticated
-/// SSE connections.
+/// Backed by `GatewayHTTPClient.stream()` for authenticated SSE connections.
 @MainActor
 public final class EventStreamClient {
 

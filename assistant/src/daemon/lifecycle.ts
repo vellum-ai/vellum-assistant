@@ -847,7 +847,7 @@ export async function runDaemon(): Promise<void> {
         server.broadcast(msg as ServerMessage),
       );
       initSlashPairingContext(runtimeHttp.getPairingStore());
-      server.setHttpPort(httpPort);
+      server.broadcastStatus();
       log.info(
         { port: httpPort, hostname },
         "Daemon startup: runtime HTTP server listening",

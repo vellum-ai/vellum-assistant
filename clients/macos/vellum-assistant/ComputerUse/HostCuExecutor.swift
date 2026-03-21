@@ -32,7 +32,7 @@ enum HostCuExecutor {
         on client: GatewayConnectionManager,
         overlayProvider: @escaping @MainActor (_ conversationId: String, _ request: HostCuRequest) -> HostCuSessionProxy? = { _, _ in nil }
     ) {
-        // No-op: host CU requests are handled via DaemonStatus.subscribe() in AppDelegate.
+        // No-op: host CU requests are handled via EventStreamClient.subscribe() in AppDelegate.
     }
 }
 

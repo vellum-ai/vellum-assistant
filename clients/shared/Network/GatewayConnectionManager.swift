@@ -16,7 +16,7 @@ private struct HealthzVersionResponse: Decodable {
 @MainActor
 public final class GatewayConnectionManager: ObservableObject {
 
-    // MARK: - Published State (formerly on DaemonStatus)
+    // MARK: - Published State
 
     @Published public var isConnected: Bool = false
     @Published public var isConnecting: Bool = false
@@ -338,7 +338,7 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - SSE Message Pre-Processing
 
     private func handleServerMessage(_ message: ServerMessage) {
-        if case .daemonStatus(let status) = message {
+        if case .assistantStatus(let status) = message {
             if let version = status.version {
                 assistantVersion = version
                 checkVersionCompatibility(assistantVersion: version)

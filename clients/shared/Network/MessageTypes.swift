@@ -2091,7 +2091,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentSaveResponse(DocumentSaveResponseMessage)
     case documentLoadResponse(DocumentLoadResponseMessage)
     case documentListResponse(DocumentListResponseMessage)
-    case daemonStatus(DaemonStatusMessage)
+    case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(NavigateSettings)
     case integrationListResponse(IntegrationListResponse)
@@ -2410,9 +2410,13 @@ public enum ServerMessage: Decodable, Sendable {
         case "get_signing_identity":
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
+        case "assistant_status":
+            let message = try AssistantStatusMessage(from: decoder)
+            self = .assistantStatus(message)
         case "daemon_status":
-            let message = try DaemonStatusMessage(from: decoder)
-            self = .daemonStatus(message)
+            // Legacy: old assistants may still emit "daemon_status". Remove for v1.0.0.
+            let message = try AssistantStatusMessage(from: decoder)
+            self = .assistantStatus(message)
         case "publish_page_response":
             let message = try PublishPageResponseMessage(from: decoder)
             self = .publishPageResponse(message)

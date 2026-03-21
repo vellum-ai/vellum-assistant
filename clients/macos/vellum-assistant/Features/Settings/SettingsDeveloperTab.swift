@@ -326,7 +326,7 @@ struct SettingsDeveloperTab: View {
             }
 
             if let connectionManager {
-                DeveloperDaemonStatusRows(connectionManager: connectionManager)
+                DeveloperStatusRows(connectionManager: connectionManager)
             }
 
             healthzInfoRows
@@ -1190,7 +1190,7 @@ struct SettingsDeveloperTab: View {
 
 // MARK: - Daemon Status Rows (Developer Tab)
 
-private struct DeveloperDaemonStatusRows: View {
+private struct DeveloperStatusRows: View {
     @ObservedObject var connectionManager: GatewayConnectionManager
 
     var body: some View {
