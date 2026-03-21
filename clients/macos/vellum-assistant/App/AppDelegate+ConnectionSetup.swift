@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+DaemonSetup")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+ConnectionSetup")
 
 extension AppDelegate {
 
@@ -77,15 +77,15 @@ extension AppDelegate {
         log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
-    // MARK: - Daemon Client Setup
+    // MARK: - Gateway Connection Setup
 
-    func setupGatewayConnectionManager(isFirstLaunch: Bool = false) {
+    func setupGatewayConnectionManager() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
 
-        // Start the keychain broker before the daemon so it is listening
+        // Start the keychain broker before the gateway so it is listening
         // when the daemon process launches and reads the socket path.
         #if !DEBUG
         keychainBroker = KeychainBrokerServer()
@@ -112,139 +112,32 @@ extension AppDelegate {
         rebindConnectionStatusObserver()
 
         // Subscribe to SSE event stream for UI event routing.
-        // Replaces individual onX callbacks — each event type is handled
-        // in a single switch statement.
-        startDaemonEventSubscription()
-
+        startEventSubscription()
 
         Task {
-            if !isCurrentAssistantRemote {
-                // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
-                // skip the CLI hatch to avoid spawning a duplicate gateway process.
-                // Require BOTH lockfile and healthy gateway — a stale lockfile with an unhealthy
-                // gateway falls through to the normal hatch path.
-                let lockfileExists = self.lockfileHasAssistants()
-                var gatewayHealthy = false
-                if lockfileExists {
-                    if isFirstLaunch {
-                        // Retry window: gateway may still be starting from onboarding hatch
-                        for _ in 0..<3 {
-                            if await isGatewayHealthy() { gatewayHealthy = true; break }
-                            try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        }
-                    } else {
-                        // Non-first-launch: single check, no retry delay
-                        gatewayHealthy = await isGatewayHealthy()
-                    }
-                }
-
-                if lockfileExists && gatewayHealthy {
-                    log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
-                } else {
-                    // On first launch post-onboarding, use daemonOnly: false so the CLI
-                    // creates a lockfile entry AND starts the gateway. On subsequent
-                    // launches, daemonOnly: true prevents duplicates — gateway restart
-                    // is handled separately below to avoid tearing down the daemon on
-                    // transient gateway failures.
-                    let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry
-                    // Pass the selected assistant ID so the gateway starts
-                    // with the correct default assistant (not a random name).
-                    let assistantName = assistant?.assistantId
-                    // Clear any stale startup error from a previous hatch attempt
-                    // so a successful hatch doesn't leave a non-nil error in app state.
-                    self.daemonStartupError = nil
-                    do {
-                        try await vellumCli.hatch(name: assistantName, daemonOnly: daemonOnly)
-                    } catch let error as VellumCli.CLIError {
-                        switch error {
-                        case .daemonStartupFailed(let startupError):
-                            log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
-                            self.daemonStartupError = startupError
-                            MetricKitManager.reportDaemonStartupFailure(startupError)
-                        default:
-                            log.error("Failed to hatch assistant during daemon setup: \(error)")
-                        }
-                        if needsLockfileEntry {
-                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                                self.daemonStartupError = nil
-                            } catch {
-                                log.error("Fallback daemon-only hatch also failed: \(error)")
-                            }
-                        }
-                    } catch {
-                        log.error("Failed to hatch assistant during daemon setup: \(error)")
-                        if needsLockfileEntry {
-                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                                self.daemonStartupError = nil
-                            } catch {
-                                log.error("Fallback daemon-only hatch also failed: \(error)")
-                            }
-                        }
-                    }
-                    if needsLockfileEntry {
-                        _ = self.loadAssistantFromLockfile()
-                    }
-
-                    // Gateway died between app launches — attempt to restart it
-                    // separately from the daemon. If gateway startup fails, recover
-                    // the daemon so the user can still interact (just without gateway).
-                    if !needsLockfileEntry && !gatewayHealthy {
-                        log.info("Gateway unhealthy — attempting separate restart")
-                        do {
-                            try await vellumCli.hatch(name: assistantName, daemonOnly: false)
-                        } catch {
-                            log.warning("Gateway restart failed — recovering daemon: \(error)")
-                            // The full hatch may have torn down the daemon during
-                            // cleanup; re-hatch daemon-only so the user isn't left
-                            // with nothing.
-                            do {
-                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
-                            } catch {
-                                log.error("Daemon recovery after gateway failure also failed: \(error)")
-                            }
-                        }
-                    }
-                }
-            }
             // Import guardian token from CLI file before connecting, so the
-            // health check has valid credentials in the Keychain. On first
-            // launch ensureActorCredentials() runs later in proceedToApp()
-            // as a separate Task — this ensures the token is available in
-            // time for connect()'s health check.
+            // health check has valid credentials in the Keychain.
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
             }
 
-            // Skip connect if the bootstrap retry coordinator already connected
-            // or has a connect in flight (hatch can take a long time; the
-            // coordinator connects independently). Checking isConnecting
-            // prevents tearing down the coordinator's in-flight HTTP connection
-            // via disconnectInternal().
             if !connectionManager.isConnected && !connectionManager.isConnecting {
                 log.info("setupGatewayConnectionManager: calling connect()")
                 do {
                     try await connectionManager.connect()
                     log.info("setupGatewayConnectionManager: connect() succeeded, isConnected=\(self.connectionManager.isConnected)")
                 } catch {
-                    log.error("Failed to connect to daemon during setup: \(error)")
+                    log.error("Failed to connect during setup: \(error)")
                 }
             } else {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
-            // Once connected, start ambient agent if it was waiting for daemon
+
             if connectionManager.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
-                // Sync privacy config now that the gateway is reachable:
-                // close Sentry if diagnostics are disabled, and sync both
-                // keys to the daemon.
                 syncPrivacyConfig()
             }
         }
@@ -252,10 +145,9 @@ extension AppDelegate {
 
     // MARK: - SSE Event Subscription
 
-    /// Subscribe to the daemon event stream and dispatch events to their handlers.
-    /// Replaces the ~20 individual onX callback assignments that were previously set
-    /// on GatewayConnectionManager. Each event type is handled in a single switch statement.
-    private func startDaemonEventSubscription() {
+    /// Subscribe to the event stream and dispatch events to their handlers.
+    /// Each event type is handled in a single switch statement.
+    private func startEventSubscription() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()

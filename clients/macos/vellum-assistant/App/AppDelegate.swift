@@ -139,9 +139,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var lastNotificationPermissionToastAtMs: Double = 0
 
     /// Structured error from the most recent daemon startup failure.
-    /// Populated by `setupGatewayConnectionManager()` when `hatch()` throws a
-    /// `CLIError.daemonStartupFailed`. Read by the UI to show a
-    /// contextual error view instead of a generic failure message.
+    /// Read by the UI to show a contextual error view instead of a
+    /// generic failure message.
     @Published var daemonStartupError: DaemonStartupError?
 
     /// Whether the current assistant runs remotely (cloud != "local").
@@ -462,7 +461,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             hasSetupDaemon = false
         }
 
-        setupGatewayConnectionManager(isFirstLaunch: isFirstLaunch)
+        setupGatewayConnectionManager()
         setupMenuBar()
         setupFileMenu()
         patchAppMenuTitles()
