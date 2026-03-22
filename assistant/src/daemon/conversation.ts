@@ -42,6 +42,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
+import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -353,10 +354,18 @@ export class Conversation {
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
+      const persona = resolvePersonaContext(
+        this.trustContext,
+        this.channelCapabilities,
+      );
       const resolved = {
         systemPrompt: hasSystemPromptOverride
           ? systemPrompt
-          : buildSystemPrompt({ hasNoClient: this.hasNoClient }),
+          : buildSystemPrompt({
+              hasNoClient: this.hasNoClient,
+              userPersona: persona.userPersona,
+              channelPersona: persona.channelPersona,
+            }),
         maxTokens: configuredMaxTokens,
       };
       return resolved;
