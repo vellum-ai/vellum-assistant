@@ -144,7 +144,7 @@ export function setPlatformBaseUrl(value: string | undefined): void {
 }
 
 export function getPlatformBaseUrl(): string {
-  return str("PLATFORM_BASE_URL") ?? _platformBaseUrlOverride ?? "";
+  return str("VELLUM_PLATFORM_URL") ?? _platformBaseUrlOverride ?? "";
 }
 
 let _platformAssistantIdOverride: string | undefined;

@@ -939,7 +939,7 @@ export async function startLocalDaemon(
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
         "BASE_DATA_DIR",
-        "PLATFORM_BASE_URL",
+        "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
         "RUNTIME_HTTP_PORT",

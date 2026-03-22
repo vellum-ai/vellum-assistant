@@ -2,7 +2,7 @@
  * Platform callback route registration for containerized deployments.
  *
  * When the assistant daemon runs inside a container (IS_CONTAINERIZED=true)
- * with a configured PLATFORM_BASE_URL and PLATFORM_ASSISTANT_ID, external
+ * with a configured VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID, external
  * service callbacks (Twilio webhooks, OAuth redirects, Telegram webhooks, etc.)
  * must route through the platform's gateway proxy instead of hitting the
  * assistant directly.
@@ -12,7 +12,7 @@
  * webhooks to the correct containerized assistant instance.
  *
  * The platform endpoint is:
- *   POST {PLATFORM_BASE_URL}/v1/internal/gateway/callback-routes/register/
+ *   POST {VELLUM_PLATFORM_URL}/v1/internal/gateway/callback-routes/register/
  *
  * It accepts { assistant_id, callback_path, type } and returns a stable
  * callback_url that external services should use.
@@ -30,7 +30,7 @@ const log = getLogger("platform-callback-registration");
 
 /**
  * Whether the daemon should register callback routes with the platform.
- * True when IS_CONTAINERIZED, PLATFORM_BASE_URL, and PLATFORM_ASSISTANT_ID
+ * True when IS_CONTAINERIZED, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID
  * are all set. Intentionally does **not** require the managed proxy API key
  * so that callback-only flows (OAuth transport, Telegram/Twilio callback
  * registration) work during partial bootstrap before the key is injected.

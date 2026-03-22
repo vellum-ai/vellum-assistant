@@ -10,7 +10,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { setIngressPublicBaseUrl } from "../../config/env.js";
+import {
+  getPlatformBaseUrl,
+  setIngressPublicBaseUrl,
+} from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import {
@@ -736,7 +739,8 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: () => {
         const raw = loadRawConfig();
         const platform = (raw?.platform ?? {}) as Record<string, unknown>;
-        const baseUrl = (platform.baseUrl as string | undefined) ?? "";
+        const baseUrl =
+          (platform.baseUrl as string | undefined) || getPlatformBaseUrl();
         return Response.json({ baseUrl, success: true });
       },
     },

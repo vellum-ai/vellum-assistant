@@ -110,7 +110,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
   // from the bootstrap handshake (the assistant forwards it after hatch).
   // We use a lazy getter so the handshake-provided key takes effect even
   // though handlers are built before the handshake completes.
-  const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
+  const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
   const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
   const { getAssistantApiKey, getManagedSubjectOptions, getManagedMaterializerOptions } =
@@ -123,7 +123,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
 
   if (!platformBaseUrl || !assistantId) {
     warn(
-      "PLATFORM_BASE_URL and/or PLATFORM_ASSISTANT_ID not set. " +
+      "VELLUM_PLATFORM_URL and/or PLATFORM_ASSISTANT_ID not set. " +
         "Managed credential materialisation will depend on the handshake-provided API key.",
     );
   }
@@ -207,7 +207,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
               return {
                 ok: false as const,
                 error:
-                  "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+                  "VELLUM_PLATFORM_URL and/or ASSISTANT_API_KEY not set. " +
                   "Managed credential materialisation is not available.",
               };
             }

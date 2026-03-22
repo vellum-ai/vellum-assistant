@@ -24,7 +24,7 @@ export function registerPlatformCommand(program: Command): void {
     `
 The platform subsystem manages callback routing, containerized deployment
 context, and webhook forwarding for assistants running inside platform
-containers. When IS_CONTAINERIZED=true with a configured PLATFORM_BASE_URL
+containers. When IS_CONTAINERIZED=true with a configured VELLUM_PLATFORM_URL
 and PLATFORM_ASSISTANT_ID, external service callbacks (Telegram webhooks,
 Twilio webhooks, OAuth redirects) route through the platform's gateway proxy
 instead of hitting the assistant directly.
@@ -51,7 +51,7 @@ running.
 
 Fields:
   containerized       Whether IS_CONTAINERIZED is set (boolean)
-  baseUrl             PLATFORM_BASE_URL — the platform gateway base URL
+  baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
   assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
@@ -136,7 +136,7 @@ Known callback path/type combinations:
   --path oauth/callback             --type oauth
 
 Requires a containerized environment (IS_CONTAINERIZED=true) with
-PLATFORM_BASE_URL and PLATFORM_ASSISTANT_ID configured. Returns the
+VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID configured. Returns the
 platform-provided stable callback URL that external services should use.
 
 Examples:
