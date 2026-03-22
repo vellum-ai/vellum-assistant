@@ -1,4 +1,16 @@
 import type { DrizzleDb } from "../db-connection.js";
+import { downJobDeferrals } from "./001-job-deferrals.js";
+import { downMemoryEntityRelationDedup } from "./004-entity-relation-dedup.js";
+import { downMemoryItemsFingerprintScopeUnique } from "./005-fingerprint-scope-unique.js";
+import { downMemoryItemsScopeSaltedFingerprints } from "./006-scope-salted-fingerprints.js";
+import { downAssistantIdToSelf } from "./007-assistant-id-to-self.js";
+import { downRemoveAssistantIdColumns } from "./008-remove-assistant-id-columns.js";
+import { downLlmUsageEventsDropAssistantId } from "./009-llm-usage-events-drop-assistant-id.js";
+import { downBackfillInboxThreadState } from "./014-backfill-inbox-thread-state.js";
+import { downDropActiveSearchIndex } from "./015-drop-active-search-index.js";
+import { downNotificationTablesSchema } from "./019-notification-tables-schema-migration.js";
+import { downRenameChannelToVellum } from "./020-rename-macos-ios-channel-to-vellum.js";
+import { downEmbeddingVectorBlob } from "./024-embedding-vector-blob.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -30,18 +42,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 1,
     description:
       "Reconcile legacy deferral history from attempts column into deferrals column",
+    down: downJobDeferrals,
   },
   {
     key: "migration_memory_entity_relations_dedup_v1",
     version: 2,
     description:
       "Deduplicate entity relation edges before enforcing the (source, target, relation) unique index",
+    down: downMemoryEntityRelationDedup,
   },
   {
     key: "migration_memory_items_fingerprint_scope_unique_v1",
     version: 3,
     description:
       "Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index",
+    down: downMemoryItemsFingerprintScopeUnique,
   },
   {
     key: "migration_memory_items_scope_salted_fingerprints_v1",
@@ -49,12 +64,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_memory_items_fingerprint_scope_unique_v1"],
     description:
       "Recompute memory item fingerprints to include scope_id prefix after schema change",
+    down: downMemoryItemsScopeSaltedFingerprints,
   },
   {
     key: "migration_normalize_assistant_id_to_self_v1",
     version: 5,
     description:
       'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+    down: downAssistantIdToSelf,
   },
   {
     key: "migration_remove_assistant_id_columns_v1",
@@ -62,6 +79,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
       "Rebuild four tables to drop the assistant_id column after normalization",
+    down: downRemoveAssistantIdColumns,
   },
   {
     key: "migration_remove_assistant_id_lue_v1",
@@ -69,36 +87,42 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
       "Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)",
+    down: downLlmUsageEventsDropAssistantId,
   },
   {
     key: "backfill_inbox_thread_state_from_bindings",
     version: 8,
     description:
       "Seed assistant_inbox_thread_state from external_conversation_bindings",
+    down: downBackfillInboxThreadState,
   },
   {
     key: "drop_active_search_index_v1",
     version: 9,
     description:
       "Drop old idx_memory_items_active_search so it can be recreated with updated covering columns",
+    down: downDropActiveSearchIndex,
   },
   {
     key: "migration_notification_tables_schema_v1",
     version: 10,
     description:
       "Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema",
+    down: downNotificationTablesSchema,
   },
   {
     key: "migration_rename_macos_ios_channel_to_vellum_v1",
     version: 11,
     description:
       "Rename macos and ios channel identifiers to vellum across all tables",
+    down: downRenameChannelToVellum,
   },
   {
     key: "migration_embedding_vector_blob_v1",
     version: 12,
     description:
       "Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage",
+    down: downEmbeddingVectorBlob,
   },
   {
     key: "migration_embeddings_nullable_vector_json_v1",

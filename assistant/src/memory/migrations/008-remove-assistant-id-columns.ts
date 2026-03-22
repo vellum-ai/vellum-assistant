@@ -228,3 +228,37 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
     raw.exec("PRAGMA foreign_keys = ON");
   }
 }
+
+/**
+ * Add the assistant_id column back to the 4 tables that had it removed.
+ *
+ * NOTE: The data previously stored in assistant_id is lost — all rows will
+ * have assistant_id = 'self' after this down migration. This only restores
+ * the column structure so that older code expecting the column can function.
+ */
+export function downRemoveAssistantIdColumns(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  const tables = [
+    "conversation_keys",
+    "attachments",
+    "channel_inbound_events",
+    "message_runs",
+  ];
+
+  for (const table of tables) {
+    // Check if the table exists and lacks assistant_id
+    const ddl = raw
+      .query(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(table) as { sql: string } | null;
+    if (!ddl || ddl.sql.includes("assistant_id")) continue;
+
+    try {
+      raw.exec(
+        /*sql*/ `ALTER TABLE ${table} ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`,
+      );
+    } catch {
+      /* column already exists */
+    }
+  }
+}

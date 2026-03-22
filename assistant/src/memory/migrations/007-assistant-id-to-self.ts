@@ -265,3 +265,13 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
     throw e;
   }
 }
+
+/**
+ * No-op down: the original assistant_id values are not recoverable. The forward
+ * migration normalized all assistant_id values to "self" and merged/deduplicated
+ * rows where the same logical entity existed under both the real assistantId and
+ * "self". The original per-assistant IDs are permanently lost.
+ */
+export function downAssistantIdToSelf(_database: DrizzleDb): void {
+  // Intentionally empty — original assistant_id values cannot be restored.
+}

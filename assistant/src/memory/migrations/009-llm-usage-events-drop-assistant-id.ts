@@ -95,3 +95,29 @@ export function migrateLlmUsageEventsDropAssistantId(
     raw.exec("PRAGMA foreign_keys = ON");
   }
 }
+
+/**
+ * Add the assistant_id column back to llm_usage_events.
+ *
+ * NOTE: The data previously stored in assistant_id is lost — all rows will
+ * have assistant_id = NULL after this down migration. This only restores
+ * the column structure so that older code expecting the column can function.
+ */
+export function downLlmUsageEventsDropAssistantId(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  const ddl = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
+    )
+    .get() as { sql: string } | null;
+  if (!ddl || ddl.sql.includes("assistant_id")) return;
+
+  try {
+    raw.exec(
+      /*sql*/ `ALTER TABLE llm_usage_events ADD COLUMN assistant_id TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+}

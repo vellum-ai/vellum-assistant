@@ -91,3 +91,13 @@ export function migrateMemoryEntityRelationDedup(database: DrizzleDb): void {
     throw e;
   }
 }
+
+/**
+ * No-op down: deduplication is a lossy operation — deleted duplicate rows
+ * cannot be restored. The forward migration merged rows by keeping the most
+ * recent evidence per (source, target, relation) triple; the discarded rows
+ * are permanently lost.
+ */
+export function downMemoryEntityRelationDedup(_database: DrizzleDb): void {
+  // Intentionally empty — irreversible lossy migration.
+}
