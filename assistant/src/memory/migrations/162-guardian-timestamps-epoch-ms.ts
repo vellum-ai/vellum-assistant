@@ -364,10 +364,10 @@ function hasTextAffinity(raw: RawDb, table: string, column: string): boolean {
 function rebuildCanonicalGuardianRequestsToText(raw: RawDb): void {
   if (hasTextAffinity(raw, "canonical_guardian_requests", "created_at")) return;
 
-  // Caller (rollbackMemoryMigration) already manages the transaction.
-  // We only need to disable FK checks for the table rebuild.
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE canonical_guardian_requests_rb (
         id TEXT PRIMARY KEY,
@@ -431,6 +431,15 @@ function rebuildCanonicalGuardianRequestsToText(raw: RawDb): void {
     raw.exec(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_request_code ON canonical_guardian_requests(request_code)`,
     );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }
@@ -442,6 +451,8 @@ function rebuildCanonicalGuardianDeliveriesToText(raw: RawDb): void {
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE canonical_guardian_deliveries_rb (
         id TEXT PRIMARY KEY,
@@ -478,6 +489,15 @@ function rebuildCanonicalGuardianDeliveriesToText(raw: RawDb): void {
     raw.exec(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_destination ON canonical_guardian_deliveries(destination_channel, destination_chat_id)`,
     );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }
@@ -488,6 +508,8 @@ function rebuildScopedApprovalGrantsToText(raw: RawDb): void {
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE scoped_approval_grants_rb (
         id TEXT PRIMARY KEY,
@@ -536,6 +558,15 @@ function rebuildScopedApprovalGrantsToText(raw: RawDb): void {
     raw.exec(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_scoped_grants_status_expires ON scoped_approval_grants(status, expires_at)`,
     );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }

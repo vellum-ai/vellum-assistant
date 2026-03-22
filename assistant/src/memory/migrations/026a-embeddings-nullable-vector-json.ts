@@ -133,6 +133,8 @@ export function downEmbeddingsNullableVectorJson(database: DrizzleDb): void {
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE memory_embeddings_new (
         id TEXT PRIMARY KEY,
@@ -171,6 +173,15 @@ export function downEmbeddingsNullableVectorJson(database: DrizzleDb): void {
     raw.exec(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`,
     );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }

@@ -173,8 +173,9 @@ export async function rollbackWorkspaceMigrations(
   const checkpoints = loadCheckpoints(workspaceDir);
 
   for (const migration of migrationsToRollback) {
-    // Only roll back migrations that have been applied
-    if (!checkpoints.applied[migration.id]) {
+    // Only roll back migrations that have been fully applied (completed)
+    const entry = checkpoints.applied[migration.id];
+    if (!entry || entry.status !== "completed") {
       continue;
     }
 

@@ -127,6 +127,8 @@ export function migrateOAuthAppsClientSecretPathDown(
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE oauth_apps_rollback (
         id TEXT PRIMARY KEY,
@@ -149,6 +151,15 @@ export function migrateOAuthAppsClientSecretPathDown(
     raw.exec(
       /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_apps_provider_client ON oauth_apps(provider_key, client_id)`,
     );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }

@@ -25,6 +25,8 @@ export function downGuardianPrincipalIdNotNull(database: DrizzleDb): void {
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
+    raw.exec("BEGIN");
+
     raw.exec(/*sql*/ `
       CREATE TABLE channel_guardian_bindings_new (
         id TEXT PRIMARY KEY,
@@ -62,6 +64,15 @@ export function downGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       ON channel_guardian_bindings(assistant_id, channel)
       WHERE status = 'active'
     `);
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
   }
