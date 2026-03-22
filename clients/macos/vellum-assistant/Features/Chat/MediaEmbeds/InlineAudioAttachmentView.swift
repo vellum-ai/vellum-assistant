@@ -442,9 +442,10 @@ struct InlineAudioAttachmentView: View {
                     } catch {
                         log.error("Failed to save audio: \(error)")
                     }
+                    let didSucceed = succeeded
                     await MainActor.run {
                         self.isSaving = false
-                        if succeeded { Self.showSaveSuccessToast(destURL) }
+                        if didSucceed { Self.showSaveSuccessToast(destURL) }
                     }
                 }
             } else if isLazy, let attachmentId {
