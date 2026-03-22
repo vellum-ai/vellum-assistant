@@ -21,6 +21,7 @@ struct SettingsGeneralTab: View {
     @State private var sparkleUpdateAvailable: Bool = false
     @State private var sparkleUpdateVersion: String?
     @State private var isServiceGroupUpdateInProgress = false
+    @State private var updateStatusMessage: String?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
     @State private var dockerOperationTimedOut = false
@@ -34,6 +35,15 @@ struct SettingsGeneralTab: View {
             return cm.$isUpdateInProgress.eraseToAnyPublisher()
         }
         return Just(false).eraseToAnyPublisher()
+    }
+
+    /// Publisher for reactive observation of connectionManager's updateStatusMessage.
+    /// Falls back to a single `nil` emission when connectionManager is nil.
+    private var updateStatusMessagePublisher: AnyPublisher<String?, Never> {
+        if let cm = connectionManager {
+            return cm.$updateStatusMessage.eraseToAnyPublisher()
+        }
+        return Just(nil).eraseToAnyPublisher()
     }
 
     /// Derive the topology for the currently selected assistant.
@@ -59,6 +69,7 @@ struct SettingsGeneralTab: View {
                     sparkleUpdateAvailable: sparkleUpdateAvailable,
                     sparkleUpdateVersion: sparkleUpdateVersion,
                     isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
+                    updateStatusMessage: updateStatusMessage,
                     healthzLoaded: healthzLoaded
                 )
             }
@@ -79,6 +90,9 @@ struct SettingsGeneralTab: View {
         }
         .onReceive(updateInProgressPublisher) { inProgress in
             isServiceGroupUpdateInProgress = inProgress
+        }
+        .onReceive(updateStatusMessagePublisher) { message in
+            updateStatusMessage = message
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false

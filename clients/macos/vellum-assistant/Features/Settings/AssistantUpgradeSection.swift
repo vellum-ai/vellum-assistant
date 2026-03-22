@@ -34,6 +34,9 @@ struct AssistantUpgradeSection: View {
     /// Whether a service group update is in progress (managed topology).
     var isServiceGroupUpdateInProgress: Bool = false
 
+    /// Progress message from service group update events (e.g. "Downloading the update…").
+    var updateStatusMessage: String?
+
     /// Whether the healthz fetch has completed (regardless of success/failure).
     var healthzLoaded: Bool = false
 
@@ -339,7 +342,7 @@ struct AssistantUpgradeSection: View {
                         .controlSize(.small)
                     Text(isTakingLongerThanExpected
                         ? "Taking longer than expected. The assistant may still be updating..."
-                        : "Assistant is updating...")
+                        : (updateStatusMessage ?? "Assistant is updating..."))
                         .font(VFont.caption)
                         .foregroundStyle(isTakingLongerThanExpected ? VColor.systemMidStrong : VColor.contentTertiary)
                 }
