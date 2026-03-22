@@ -2662,6 +2662,63 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/migrations/export": {
+        post: {
+          summary: "Export workspace backup",
+          description:
+            "Proxies a migration export request to the assistant daemon. Returns a binary .vbundle backup of the workspace. Authenticated with an edge JWT. Timeout is 120 seconds to accommodate large workspaces.",
+          operationId: "migrationExport",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Binary .vbundle backup file",
+              content: {
+                "application/octet-stream": {
+                  schema: { type: "string", format: "binary" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
+      "/v1/migrations/import": {
+        post: {
+          summary: "Import workspace backup",
+          description:
+            "Proxies a migration import request to the assistant daemon. Accepts a binary .vbundle backup body and restores the workspace from it. Authenticated with an edge JWT. Timeout is 120 seconds to accommodate large backups.",
+          operationId: "migrationImport",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/octet-stream": {
+                schema: { type: "string", format: "binary" },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Backup imported successfully" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",
