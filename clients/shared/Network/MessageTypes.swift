@@ -1295,7 +1295,7 @@ public typealias ServiceGroupUpdateStartingMessage = ServiceGroupUpdateStarting
 public typealias ServiceGroupUpdateCompleteMessage = ServiceGroupUpdateComplete
 
 /// Broadcast when a service group update has progress to report.
-public struct ServiceGroupUpdateProgressMessage: Codable, Equatable {
+public struct ServiceGroupUpdateProgressMessage: Codable, Equatable, Sendable {
     public let statusMessage: String
 }
 
