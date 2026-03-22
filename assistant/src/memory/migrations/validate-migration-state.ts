@@ -222,10 +222,10 @@ export function validateMigrationState(
  * Roll back all completed memory (database) migrations with version > targetVersion.
  *
  * Iterates eligible migrations in reverse version order. For each:
- * 1. Verifies a `down` function exists (throws if missing).
- * 2. Marks the checkpoint as `"rolling_back"` for crash recovery.
- * 3. Calls `entry.down(database)` — each down() manages its own transactions.
- * 4. Deletes the checkpoint from `memory_checkpoints`.
+ * 1. Marks the checkpoint as `"rolling_back"` for crash recovery.
+ * 2. Calls `entry.down(database)` — each down() manages its own transactions.
+ *    (`down` is required on `MemoryMigrationEntry` at the type level.)
+ * 3. Deletes the checkpoint from `memory_checkpoints`.
  *
  * **Usage**: Pass the target version number you want to roll back *to*. All
  * migrations with a higher version number that have been applied will be
