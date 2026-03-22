@@ -203,7 +203,9 @@ export class UsageTelemetryReporter {
       if (client) {
         resp = await client.fetch(TELEMETRY_PATH, fetchInit);
       } else {
-        const url = `${getTelemetryPlatformUrl()}${TELEMETRY_PATH}`;
+        const platformUrl = getTelemetryPlatformUrl();
+        if (!platformUrl) return;
+        const url = `${platformUrl}${TELEMETRY_PATH}`;
         resp = await fetch(url, {
           ...fetchInit,
           headers: {

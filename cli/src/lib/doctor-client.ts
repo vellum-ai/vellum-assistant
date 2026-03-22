@@ -1,4 +1,4 @@
-const DOCTOR_URL = "https://doctor.vellum.ai";
+const DOCTOR_URL = process.env.DOCTOR_SERVICE_URL?.trim() || "";
 
 export type ProgressPhase =
   | "invoking_prompt"
@@ -107,6 +107,16 @@ async function callDoctorDaemon(
   chatContext?: ChatLogEntry[],
   onLog?: DoctorLogCallback,
 ): Promise<DoctorResult> {
+  if (!DOCTOR_URL) {
+    onLog?.("Doctor service not configured (DOCTOR_SERVICE_URL is not set)");
+    return {
+      assistantId,
+      diagnostics: null,
+      recommendation: null,
+      error: "Doctor service not configured",
+    };
+  }
+
   const MAX_RETRIES = 2;
   let lastError: unknown;
 

@@ -26,6 +26,7 @@ set -euo pipefail
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
 #   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
 #   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
+#   SU_FEED_URL          Sparkle appcast URL for auto-updates (default: Vellum GitHub releases)
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -824,7 +825,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
-    <string>https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml</string>
+    <string>${SU_FEED_URL:-https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUEnableAutomaticChecks</key>

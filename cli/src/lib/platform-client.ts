@@ -9,7 +9,7 @@ import {
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-const DEFAULT_PLATFORM_URL = "https://platform.vellum.ai";
+const DEFAULT_PLATFORM_URL = "";
 
 function getXdgConfigHome(): string {
   return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");

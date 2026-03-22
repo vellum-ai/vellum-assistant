@@ -573,7 +573,9 @@ export async function executeWebFetch(
       Accept:
         "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.9, text/plain;q=0.8, application/json;q=0.7, */*;q=0.6",
       "Accept-Encoding": "identity",
-      "User-Agent": "VellumAssistant/1.0 (+https://vellum.ai)",
+      "User-Agent":
+        process.env.HTTP_USER_AGENT ||
+        "VellumAssistant/1.0 (+https://vellum.ai)",
     };
 
     let currentUrl = new URL(requestedUrl);

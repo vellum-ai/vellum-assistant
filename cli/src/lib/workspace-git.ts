@@ -23,9 +23,9 @@ export async function commitWorkspaceState(
     "git",
     [
       "-c",
-      "user.name=vellum-cli",
+      `user.name=${process.env.CLI_GIT_USER_NAME || "vellum-cli"}`,
       "-c",
-      "user.email=cli@vellum.ai",
+      `user.email=${process.env.CLI_GIT_USER_EMAIL || "cli@vellum.ai"}`,
       "-c",
       "core.hooksPath=/dev/null",
       "commit",
