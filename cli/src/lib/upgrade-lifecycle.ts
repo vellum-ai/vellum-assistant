@@ -15,7 +15,6 @@ export const UPGRADE_PROGRESS = {
   REVERTING_MIGRATIONS: "Reverting database changes…",
   RESTORING: "Restoring your data…",
   SWITCHING: "Switching to the previous version…",
-  ALIGNING_SCHEMA: "Aligning database with installed version…",
 } as const;
 
 export function buildStartingEvent(
