@@ -1294,6 +1294,11 @@ public typealias ServiceGroupUpdateStartingMessage = ServiceGroupUpdateStarting
 /// Backed by generated `ServiceGroupUpdateComplete`.
 public typealias ServiceGroupUpdateCompleteMessage = ServiceGroupUpdateComplete
 
+/// Broadcast when a service group update has progress to report.
+public struct ServiceGroupUpdateProgressMessage: Codable, Equatable {
+    public let statusMessage: String
+}
+
 /// Watch session started notification from daemon.
 /// Backed by generated `WatchStarted`.
 public typealias WatchStartedMessage = WatchStarted
@@ -2147,6 +2152,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostCuRequest(HostCuRequest)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
+    case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case conversationIdResolved(localId: String, serverId: String)
     case pong
@@ -2579,6 +2585,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_starting":
             let message = try ServiceGroupUpdateStartingMessage(from: decoder)
             self = .serviceGroupUpdateStarting(message)
+        case "service_group_update_progress":
+            let message = try ServiceGroupUpdateProgressMessage(from: decoder)
+            self = .serviceGroupUpdateProgress(message)
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)

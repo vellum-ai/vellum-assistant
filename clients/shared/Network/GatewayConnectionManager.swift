@@ -36,6 +36,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public internal(set) var versionMismatch: Bool = false
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
+    @Published public var updateStatusMessage: String?
     var updateExpiresAt: Date?
     private var outcomeEmittedForCurrentCycle = false
     @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
@@ -319,6 +320,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     self.isUpdateInProgress = false
                     self.updateTargetVersion = nil
                     self.updateExpiresAt = nil
+                    self.updateStatusMessage = nil
                     self.eventStreamClient.resetSSEReconnectDelay()
                 }
             }
@@ -356,6 +358,7 @@ public final class GatewayConnectionManager: ObservableObject {
             // Preserve updateTargetVersion — only the authoritative
             // .serviceGroupUpdateComplete SSE event or timeout clears it.
             updateExpiresAt = nil
+            updateStatusMessage = nil
             eventStreamClient.resetSSEReconnectDelay()
         }
     }
@@ -395,6 +398,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     // Preserve updateTargetVersion — only the authoritative
                     // .serviceGroupUpdateComplete SSE event or timeout clears it.
                     self.updateExpiresAt = nil
+                    self.updateStatusMessage = nil
                     self.eventStreamClient.resetSSEReconnectDelay()
                 }
             }
@@ -414,8 +418,11 @@ public final class GatewayConnectionManager: ObservableObject {
         case .serviceGroupUpdateStarting(let msg):
             self.updateTargetVersion = msg.targetVersion
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
+            self.updateStatusMessage = "Preparing to update…"
             setUpdateInProgress(true)
             log.info("Service group update starting — target: \(msg.targetVersion, privacy: .public), expected downtime: \(msg.expectedDowntimeSeconds)s")
+        case .serviceGroupUpdateProgress(let msg):
+            self.updateStatusMessage = msg.statusMessage
         case .serviceGroupUpdateComplete(let msg):
             outcomeEmittedForCurrentCycle = true
             if msg.success {
@@ -428,6 +435,7 @@ public final class GatewayConnectionManager: ObservableObject {
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
             self.updateExpiresAt = nil
+            self.updateStatusMessage = nil
             self.eventStreamClient.resetSSEReconnectDelay()
         case .modelInfo(let msg):
             currentModel = msg.model
