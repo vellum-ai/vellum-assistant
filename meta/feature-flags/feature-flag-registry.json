@@ -111,7 +111,7 @@
       "key": "feature_flags.ces-credential-backend.enabled",
       "label": "CES Credential Backend",
       "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "settings-billing",

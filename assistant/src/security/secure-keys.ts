@@ -3,10 +3,12 @@
  * adapters.
  *
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
- *   0. CES RPC client injected via `setCesClient()` (local mode with
- *      ces-credential-backend flag enabled): delegates to CES via stdio RPC.
- *   1. Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
- *   2. All other topologies (desktop app, dev, CLI): encrypted file store.
+ *   1. CES RPC (primary) — injected via `setCesClient()`: delegates credential
+ *      operations to the CES process over stdio RPC. This is the default path
+ *      for all local modes (desktop app, dev, CLI).
+ *   2. CES HTTP — containerized mode (IS_CONTAINERIZED + CES_CREDENTIAL_URL):
+ *      delegates to the CES sidecar over HTTP. Used in Docker/managed mode.
+ *   3. Encrypted file store (fallback) — used when CES is unavailable.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
  * There are no cross-backend fallbacks or merges.
@@ -64,9 +66,9 @@ function getEncryptedStoreBackend(): CredentialBackend {
  * Resolve the primary credential backend for this process (async).
  *
  * Priority:
- *   1. Containerized + CES_CREDENTIAL_URL → CES HTTP client (the sidecar
- *      owns credential storage).
- *   2. All other topologies → encrypted file store.
+ *   1. CES RPC client → primary path for all local modes.
+ *   2. Containerized + CES_CREDENTIAL_URL → CES HTTP client (Docker/managed).
+ *   3. Encrypted file store → fallback when CES is unavailable.
  *
  * Once resolved, the backend does not change during the process lifetime.
  * Call `_resetBackend()` in tests to clear the cached resolution.
@@ -80,7 +82,7 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
-  // 0. CES RPC client (local mode with ces-credential-backend enabled)
+  // 1. CES RPC — primary credential backend for all local modes
   if (_cesClient) {
     const cesRpc = new CesRpcCredentialBackend(_cesClient);
     if (cesRpc.isAvailable()) {
@@ -90,7 +92,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     log.warn("CES RPC client is set but not ready — falling back to local credential store");
   }
 
-  // 1. Containerized + CES (unchanged)
+  // 2. CES HTTP — containerized / Docker / managed mode
   if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
     const ces = createCesCredentialBackend();
     if (ces.isAvailable()) {
@@ -103,7 +105,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     );
   }
 
-  // 2. All other topologies (desktop app, dev, CLI)
+  // 3. Encrypted file store — fallback when CES is unavailable
   _resolvedBackend = getEncryptedStoreBackend();
   return _resolvedBackend;
 }
