@@ -32,6 +32,7 @@ import {
   saveBootstrapSecret,
   loadGuardianToken,
 } from "../lib/guardian-token";
+import { createBackup, pruneOldBackups } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec, execOutput } from "../lib/step-runner";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
@@ -356,6 +357,20 @@ async function upgradeDocker(
   const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
   if (!loadedSecret) {
     saveBootstrapSecret(instanceName, bootstrapSecret);
+  }
+
+  // Create pre-upgrade backup (best-effort, daemon must be running)
+  console.log("📦 Creating pre-upgrade backup...");
+  const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
+    prefix: `${entry.assistantId}-pre-upgrade`,
+    description: `Pre-upgrade snapshot before ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}`,
+  });
+  if (backupPath) {
+    console.log(`   Backup saved: ${backupPath}\n`);
+    // Clean up old pre-upgrade backups, keep last 3
+    pruneOldBackups(entry.assistantId, 3);
+  } else {
+    console.warn("⚠️  Pre-upgrade backup failed (continuing with upgrade)\n");
   }
 
   // Notify connected clients that an upgrade is about to begin.
