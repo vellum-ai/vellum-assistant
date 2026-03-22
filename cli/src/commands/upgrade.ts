@@ -1,6 +1,8 @@
 import { randomBytes } from "crypto";
+import { join } from "node:path";
 
 import cliPkg from "../../package.json";
+import { getWorkspaceGitService } from "../../assistant/src/workspace/git-service.js";
 
 import {
   findAssistantByName,
@@ -249,6 +251,11 @@ async function upgradeDocker(
 ): Promise<void> {
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
+  const workspaceDir = join(
+    entry.resources.instanceDir,
+    ".vellum",
+    "workspace",
+  );
 
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
@@ -285,6 +292,20 @@ async function upgradeDocker(
     };
     saveAssistantEntry(rollbackEntry);
     console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
+  }
+
+  // Record version transition start in workspace git history
+  try {
+    const gitService = getWorkspaceGitService(workspaceDir);
+    await gitService.commitChanges(
+      `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
+        `assistant: ${entry.assistantId}\n` +
+        `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+        `to: ${versionTag}\n` +
+        `topology: docker`,
+    );
+  } catch {
+    // Best-effort — git failures must not block the upgrade
   }
 
   console.log("💾 Capturing existing container environment...");
@@ -430,6 +451,21 @@ async function upgradeDocker(
       installedVersion: versionTag,
       success: true,
     });
+
+    // Record successful upgrade in workspace git history
+    try {
+      const gitService = getWorkspaceGitService(workspaceDir);
+      await gitService.commitChanges(
+        `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${versionTag}\n` +
+          `result: success\n` +
+          `topology: docker`,
+      );
+    } catch {
+      // Best-effort — git failures must not block success reporting
+    }
 
     console.log(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
