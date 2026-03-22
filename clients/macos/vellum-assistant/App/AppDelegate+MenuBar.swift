@@ -47,6 +47,47 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
     }
 }
 
+/// Delegate installed on the SwiftUI-managed File submenu to inject
+/// "New Chat" and "Current Conversation" items every time the menu opens.
+/// SwiftUI rebuilds the File menu on each scene body evaluation (leaving
+/// only "Close"), so AppKit-level insertions get wiped.  This delegate
+/// re-applies them right before macOS renders the menu.
+final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
+    weak var appDelegate: AppDelegate?
+
+    /// Tag used to identify items we injected so we can avoid duplicates.
+    private static let injectedTag = 9001
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard let appDelegate else { return }
+
+        // Already patched for this open cycle — skip.
+        if menu.items.first(where: { $0.tag == Self.injectedTag }) != nil { return }
+
+        let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+        let newChatItem: NSMenuItem
+        if shortcut.isEmpty {
+            newChatItem = NSMenuItem(title: "New Chat", action: #selector(AppDelegate.openNewChat), keyEquivalent: "")
+        } else {
+            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+            newChatItem = NSMenuItem(title: "New Chat", action: #selector(AppDelegate.openNewChat), keyEquivalent: key)
+            newChatItem.keyEquivalentModifierMask = modifiers
+        }
+        newChatItem.target = appDelegate
+        newChatItem.tag = Self.injectedTag
+        menu.insertItem(newChatItem, at: 0)
+
+        let currentItem = NSMenuItem(title: "Current Conversation", action: #selector(AppDelegate.openCurrentConversation), keyEquivalent: "")
+        currentItem.target = appDelegate
+        currentItem.tag = Self.injectedTag
+        menu.insertItem(currentItem, at: 1)
+
+        let separator = NSMenuItem.separator()
+        separator.tag = Self.injectedTag
+        menu.insertItem(separator, at: 2)
+    }
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -101,30 +142,10 @@ extension AppDelegate {
     func setupFileMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
 
-        // Avoid duplicate File menus on logout/re-login cycles
-        if mainMenu.indexOfItem(withTitle: "File") >= 0 { return }
-
-        let fileMenu = NSMenu(title: "File")
-
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
-        newChatItem.keyEquivalentModifierMask = .command
-        newChatItem.target = self
-        fileMenu.addItem(newChatItem)
-        self.newChatMenuItem = newChatItem
-
-        let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
-        currentConversationItem.target = self
-        fileMenu.addItem(currentConversationItem)
-
-        fileMenu.addItem(NSMenuItem.separator())
-
-        let closeItem = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        closeItem.keyEquivalentModifierMask = .command
-        fileMenu.addItem(closeItem)
-
-        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
-        fileMenuItem.submenu = fileMenu
-        mainMenu.insertItem(fileMenuItem, at: 1)
+        // Ensure the File menu delegate is installed (may already be from
+        // applicationDidFinishLaunching, but re-check in case SwiftUI
+        // replaced the menu object).
+        installFileMenuDelegate()
 
         // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
         if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
@@ -404,19 +425,23 @@ extension AppDelegate {
         return menu
     }
 
-    @objc func openCurrentConversation() {
+    @objc public func openCurrentConversation() {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.windowState.dismissOverlay()
     }
 
-    @objc func openNewChat() {
+    @objc public func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
         SoundManager.shared.play(.newConversation)
         if let id = mainWindow?.conversationManager.activeConversationId {
             mainWindow?.windowState.selection = .conversation(id)
+        } else {
+            // Draft mode — no activeConversationId yet, but still dismiss
+            // any visible panel so the user sees the new empty chat.
+            mainWindow?.windowState.selection = nil
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }

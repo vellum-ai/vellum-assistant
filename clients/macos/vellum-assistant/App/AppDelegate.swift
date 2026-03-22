@@ -52,6 +52,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var cmdKLocalMonitor: Any?
     var cmdNLocalMonitor: Any?
     var newChatMenuItem: NSMenuItem?
+    var fileMenuPatchDelegate: FileMenuPatchDelegate?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
@@ -261,6 +262,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
+    /// Install the `FileMenuPatchDelegate` on the SwiftUI-managed File menu.
+    /// SwiftUI may not have created the menu yet at launch time, so we retry
+    /// with delays (same pattern as Help menu and app-name patching).
+    func installFileMenuDelegate() {
+        installFileMenuDelegateOnce()
+        for delay in [0.1, 0.5, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.installFileMenuDelegateOnce()
+            }
+        }
+    }
+
+    private func installFileMenuDelegateOnce() {
+        guard let mainMenu = NSApp.mainMenu,
+              let fileItem = mainMenu.items.first(where: { $0.title == "File" }),
+              let fileMenu = fileItem.submenu,
+              !(fileMenu.delegate is FileMenuPatchDelegate) else { return }
+        let delegate = FileMenuPatchDelegate()
+        delegate.appDelegate = self
+        self.fileMenuPatchDelegate = delegate
+        fileMenu.delegate = delegate
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // ── Single-instance guard ──────────────────────────────────────
         // If another copy of this app is already running (e.g. Sparkle
@@ -404,6 +428,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         patchAppMenuTitles()
         stripHelpMenuSearchField()
+        installFileMenuDelegate()
         setupHotKey()
 
         // Install CLI symlinks early so they are available before the daemon
