@@ -212,7 +212,7 @@ export async function rollbackMigrations(
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(120_000),
     });
     if (!resp.ok) {
       const text = await resp.text();
