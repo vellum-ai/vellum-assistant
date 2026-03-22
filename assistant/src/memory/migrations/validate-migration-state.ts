@@ -131,9 +131,11 @@ export function validateMigrationState(
     return { crashed: [], dependencyViolations: [] };
   }
 
-  // Any remaining 'started' checkpoints after recovery + migration execution
-  // indicate a migration that was retried but failed again.
-  const crashed = rows.filter((r) => r.value === "started").map((r) => r.key);
+  // Any remaining 'started' or 'rolling_back' checkpoints after recovery +
+  // migration execution indicate a migration that was retried but failed again.
+  const crashed = rows
+    .filter((r) => r.value === "started" || r.value === "rolling_back")
+    .map((r) => r.key);
   if (crashed.length > 0) {
     log.error(
       { crashed },
@@ -151,11 +153,14 @@ export function validateMigrationState(
     );
   }
 
-  // Only rows whose value is NOT 'started' represent truly completed migrations.
-  // In-progress/crashed checkpoints (value = 'started') must not count as applied
-  // dependencies — the migration never finished, so its postconditions are unmet.
+  // Only rows whose value is NOT 'started' or 'rolling_back' represent truly
+  // completed migrations. In-progress/crashed checkpoints must not count as
+  // applied dependencies — the migration never finished, so its postconditions
+  // are unmet.
   const completed = new Set(
-    rows.filter((r) => r.value !== "started").map((r) => r.key),
+    rows
+      .filter((r) => r.value !== "started" && r.value !== "rolling_back")
+      .map((r) => r.key),
   );
 
   const dependencyViolations: Array<{
@@ -202,7 +207,7 @@ export function validateMigrationState(
  * Iterates eligible migrations in reverse version order. For each:
  * 1. Verifies a `down` function exists (throws if missing).
  * 2. Marks the checkpoint as `"rolling_back"` for crash recovery.
- * 3. Calls `entry.down(database)` inside a transaction.
+ * 3. Calls `entry.down(database)` — each down() manages its own transactions.
  * 4. Deletes the checkpoint from `memory_checkpoints`.
  *
  * **Usage**: Pass the target version number you want to roll back *to*. All
@@ -274,17 +279,14 @@ export function rollbackMemoryMigration(
       )
       .run(Date.now(), entry.key);
 
-    // Execute the down migration inside a transaction.
-    raw.exec("BEGIN");
-    try {
-      entry.down(database);
-      // Delete the checkpoint — the migration is no longer applied.
-      raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(entry.key);
-      raw.exec("COMMIT");
-    } catch (err) {
-      raw.exec("ROLLBACK");
-      throw err;
-    }
+    // Execute the down migration — let it manage its own transaction lifecycle.
+    // Many down() functions call BEGIN/COMMIT internally or use PRAGMA statements
+    // that are no-ops inside a transaction.
+    entry.down(database);
+
+    // Delete the checkpoint after down() succeeds — outside any transaction
+    // so it's not affected by down()'s internal transaction management.
+    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(entry.key);
 
     log.info(
       { key: entry.key, version: entry.version },

@@ -1116,26 +1116,86 @@ describe("rollbackMemoryMigration", () => {
     // Remove the trigger for inspection.
     raw.exec(`DROP TRIGGER IF EXISTS fail_on_update_test_rollback`);
 
-    // The checkpoint should still exist (the transaction was rolled back,
-    // so the DELETE FROM memory_checkpoints inside the transaction was undone).
-    // However the checkpoint value was changed to 'rolling_back' BEFORE the
-    // transaction started (outside the BEGIN/COMMIT).
+    // The checkpoint should still exist — down() threw before execution reached
+    // the DELETE FROM memory_checkpoints line. The 'rolling_back' marker was
+    // written before down() was called and is preserved.
     const cp = raw
       .query(
         `SELECT value FROM memory_checkpoints WHERE key = 'test_fail_down_v3000'`,
       )
       .get() as { value: string } | null;
     expect(cp).toBeTruthy();
-    // The checkpoint is preserved (value = 'rolling_back' because the pre-txn
-    // update succeeded but the txn rolled back, leaving checkpoint intact).
     expect(cp!.value).toBe("rolling_back");
 
-    // The data should be unchanged — the UPDATE inside down() was rolled back.
+    // The data should be unchanged — the RAISE(ABORT) trigger aborted the statement.
     const row = raw
       .query(`SELECT value FROM test_rollback_data WHERE id = 'row-1'`)
       .get() as { value: string } | null;
     expect(row).toBeTruthy();
     expect(row!.value).toBe("original");
+  });
+
+  test("down() with its own BEGIN/COMMIT succeeds without nested-transaction errors", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const now = Date.now();
+
+    // Create a table for the down() function to operate on.
+    raw.exec(/*sql*/ `
+      CREATE TABLE IF NOT EXISTS test_self_txn_data (
+        id TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
+    raw.exec(
+      `INSERT INTO test_self_txn_data (id, value) VALUES ('row-1', 'migrated')`,
+    );
+
+    // Register a migration whose down() manages its own transaction —
+    // this previously caused nested-transaction errors when rollbackMemoryMigration
+    // wrapped every down() call in BEGIN/COMMIT.
+    MIGRATION_REGISTRY.push({
+      key: "test_self_txn_down_v3500",
+      version: 3500,
+      description: "test migration with self-transactional down()",
+      down: (database) => {
+        const sqlite = getSqliteFrom(database);
+        sqlite.exec("BEGIN");
+        sqlite.exec(
+          `UPDATE test_self_txn_data SET value = 'original' WHERE id = 'row-1'`,
+        );
+        sqlite.exec("COMMIT");
+      },
+    });
+
+    // Mark as completed.
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_self_txn_down_v3500', '1', ${now})`,
+    );
+
+    // This should succeed — no nested transaction error.
+    const rolledBack = rollbackMemoryMigration(db, 3499);
+
+    expect(rolledBack).toEqual(["test_self_txn_down_v3500"]);
+
+    // Verify the down() function's changes were applied.
+    const row = raw
+      .query(`SELECT value FROM test_self_txn_data WHERE id = 'row-1'`)
+      .get() as { value: string } | null;
+    expect(row).toBeTruthy();
+    expect(row!.value).toBe("original");
+
+    // Checkpoint should be deleted.
+    const cp = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_self_txn_down_v3500'`,
+      )
+      .get();
+    expect(cp).toBeNull();
   });
 
   test("no-op when already at target version", () => {
