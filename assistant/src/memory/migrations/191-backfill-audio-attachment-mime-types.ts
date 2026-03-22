@@ -49,3 +49,16 @@ export function migrateBackfillAudioAttachmentMimeTypes(
     },
   );
 }
+
+/**
+ * Reverse: no-op.
+ *
+ * The forward migration corrected incorrect MIME types (application/octet-stream)
+ * to their proper audio/* values. Restoring the wrong MIME types would break
+ * audio playback and file handling. The corrected values are the desired state.
+ */
+export function migrateBackfillAudioAttachmentMimeTypesDown(
+  _database: DrizzleDb,
+): void {
+  // No-op — see comment above.
+}

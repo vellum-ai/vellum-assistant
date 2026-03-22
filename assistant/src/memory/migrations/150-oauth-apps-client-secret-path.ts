@@ -1,4 +1,5 @@
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -95,4 +96,60 @@ export function migrateOAuthAppsClientSecretPath(database: DrizzleDb): void {
       }
     },
   );
+}
+
+/**
+ * Reverse: drop the client_secret_credential_path column from oauth_apps.
+ *
+ * Rebuilds the table without the column (SQLite doesn't support DROP COLUMN
+ * on older versions). Idempotent — skips if the column doesn't exist.
+ */
+export function migrateOAuthAppsClientSecretPathDown(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  // Guard: table must exist
+  const tableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'oauth_apps'`,
+    )
+    .get();
+  if (!tableExists) return;
+
+  // Guard: if the column doesn't exist, nothing to do
+  const colInfo = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('oauth_apps') WHERE name = 'client_secret_credential_path'`,
+    )
+    .get();
+  if (!colInfo) return;
+
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    raw.exec(/*sql*/ `
+      CREATE TABLE oauth_apps_rollback (
+        id TEXT PRIMARY KEY,
+        provider_key TEXT NOT NULL REFERENCES oauth_providers(provider_key),
+        client_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    raw.exec(/*sql*/ `
+      INSERT INTO oauth_apps_rollback
+      SELECT id, provider_key, client_id, created_at, updated_at
+      FROM oauth_apps
+    `);
+
+    raw.exec(/*sql*/ `DROP TABLE oauth_apps`);
+    raw.exec(/*sql*/ `ALTER TABLE oauth_apps_rollback RENAME TO oauth_apps`);
+
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_apps_provider_client ON oauth_apps(provider_key, client_id)`,
+    );
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
 }

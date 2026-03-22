@@ -1,4 +1,5 @@
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -122,4 +123,16 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
       throw err;
     }
   });
+}
+
+/**
+ * Reverse: no-op.
+ *
+ * Cannot reliably identify which cron_jobs rows were migrated from reminders
+ * versus created natively as schedules. Rows share the same table and there
+ * is no origin marker. Deleting the wrong rows would destroy user-created
+ * schedules.
+ */
+export function migrateRemindersToSchedulesDown(_database: DrizzleDb): void {
+  // No-op — see comment above.
 }

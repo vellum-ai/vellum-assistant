@@ -1,4 +1,5 @@
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -42,5 +43,31 @@ export function migrateRenameThreadStartersCheckpoints(
         /*sql*/ `UPDATE memory_checkpoints SET key = replace(key, 'thread_starters:', 'conversation_starters:') WHERE key LIKE 'thread_starters:%'`,
       );
     },
+  );
+}
+
+/**
+ * Reverse: rename checkpoint keys from "conversation_starters:" back to
+ * "thread_starters:" prefix.
+ *
+ * Mirrors the forward migration but in reverse. Handles collisions the same
+ * way — if an old-prefix key already exists, the new-prefix key is dropped.
+ */
+export function migrateRenameThreadStartersCheckpointsDown(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  // 1. Delete conversation_starters: keys where a corresponding
+  //    thread_starters: key already exists.
+  raw.exec(/*sql*/ `DELETE FROM memory_checkpoints
+     WHERE key LIKE 'conversation_starters:%'
+       AND replace(key, 'conversation_starters:', 'thread_starters:') IN (
+         SELECT key FROM memory_checkpoints WHERE key LIKE 'thread_starters:%'
+       )`);
+
+  // 2. Rename remaining keys back to the old prefix.
+  raw.exec(
+    /*sql*/ `UPDATE memory_checkpoints SET key = replace(key, 'conversation_starters:', 'thread_starters:') WHERE key LIKE 'conversation_starters:%'`,
   );
 }
