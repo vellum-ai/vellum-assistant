@@ -35,6 +35,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairConversationDiskViewMigration,
   migrateToWorkspaceVolumeMigration,
   migrateCredentialsToKeychainMigration,
-  extractFeatureFlagsToProtectedMigration,
   migrateCredentialsFromKeychainMigration,
+  extractFeatureFlagsToProtectedMigration,
 ];
