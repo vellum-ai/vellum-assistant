@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getDeviceIdBaseDir } from "../../util/device-id.js";
@@ -95,6 +101,16 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
       });
     } catch {
       // Best-effort — getDeviceId() will generate a new one if this fails.
+    }
+  },
+  down(_workspaceDir: string): void {
+    // The forward migration seeds deviceId in ~/.vellum/device.json from the
+    // lockfile. Reverse by removing device.json entirely — getDeviceId() will
+    // generate a fresh one on next startup if needed.
+    const base = getDeviceIdBaseDir();
+    const devicePath = join(base, ".vellum", "device.json");
+    if (existsSync(devicePath)) {
+      unlinkSync(devicePath);
     }
   },
 };

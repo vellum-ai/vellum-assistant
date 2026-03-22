@@ -2,6 +2,19 @@ import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
+/**
+ * Reverse v17: no-op — the original separate columns (relationship, importance,
+ * response_expectation, preferred_tone) cannot be reliably restored from the
+ * consolidated notes TEXT column.
+ *
+ * The forward migration concatenated multiple typed fields into a single
+ * free-text notes field and then dropped the original columns. Parsing the
+ * notes back into structured fields would be lossy and error-prone.
+ */
+export function downContactsNotesColumn(_database: DrizzleDb): void {
+  // Lossy — original structured columns cannot be restored from notes text.
+}
+
 const log = getLogger("migration-134");
 
 export function migrateContactsNotesColumn(database: DrizzleDb): void {

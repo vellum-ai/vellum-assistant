@@ -31,3 +31,20 @@ export function migrateDropActiveSearchIndex(database: DrizzleDb): void {
     throw e;
   }
 }
+
+/**
+ * Recreate the old idx_memory_items_active_search index with its original
+ * covering columns (before the migration added status and invalid_at as
+ * indexed columns).
+ */
+export function downDropActiveSearchIndex(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  // Drop the current index if it exists, then recreate with the old column set.
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_memory_items_active_search`);
+  raw.exec(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_items_active_search
+    ON memory_items(last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
+    WHERE status = 'active' AND invalid_at IS NULL
+  `);
+}

@@ -336,3 +336,14 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     throw e;
   }
 }
+
+/**
+ * Reverse v14: no-op — original non-E.164 phone formats are not recoverable.
+ *
+ * The forward migration normalised phone numbers to E.164. The original
+ * formatting (parentheses, dashes, spaces, country-code variants) was
+ * discarded during normalisation and cannot be reconstructed.
+ */
+export function downNormalizePhoneIdentities(_database: DrizzleDb): void {
+  // Lossy — original phone formats are not recoverable.
+}

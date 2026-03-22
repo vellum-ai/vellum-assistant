@@ -22,4 +22,19 @@ export const avatarRenameMigration: WorkspaceMigration = {
       renameSync(oldTraits, newTraits);
     }
   },
+  down(workspaceDir: string): void {
+    const avatarDir = join(workspaceDir, "data", "avatar");
+
+    const newImage = join(avatarDir, "avatar-image.png");
+    const oldImage = join(avatarDir, "custom-avatar.png");
+    if (existsSync(newImage) && !existsSync(oldImage)) {
+      renameSync(newImage, oldImage);
+    }
+
+    const newTraits = join(avatarDir, "character-traits.json");
+    const oldTraits = join(avatarDir, "avatar-components.json");
+    if (existsSync(newTraits) && !existsSync(oldTraits)) {
+      renameSync(newTraits, oldTraits);
+    }
+  },
 };

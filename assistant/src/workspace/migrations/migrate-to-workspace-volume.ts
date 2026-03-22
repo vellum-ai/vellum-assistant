@@ -14,7 +14,13 @@
  * - Skips if the old workspace directory doesn't exist or is empty.
  */
 
-import { cpSync, existsSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -29,6 +35,22 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
   id: "014-migrate-to-workspace-volume",
   description:
     "Copy workspace data from old /data/.vellum/workspace to new WORKSPACE_DIR volume on first boot",
+
+  down(workspaceDir: string): void {
+    // This migration copies data between volumes. Actually reversing the copy
+    // (deleting data from the workspace volume) is dangerous and could cause
+    // data loss. Instead, we just remove the sentinel file so the migration
+    // will re-run and re-evaluate on next startup.
+    const sentinelPath = join(workspaceDir, SENTINEL_FILENAME);
+    if (existsSync(sentinelPath)) {
+      try {
+        unlinkSync(sentinelPath);
+      } catch {
+        // Best-effort — the migration runner's checkpoint removal will
+        // also ensure the migration re-runs.
+      }
+    }
+  },
 
   run(workspaceDir: string): void {
     const workspaceDirOverride = getWorkspaceDirOverride();

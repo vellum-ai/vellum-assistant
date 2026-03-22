@@ -76,6 +76,84 @@ export const appDirRenameMigration: WorkspaceMigration = {
   description:
     "Rename UUID-based app directories and files to human-readable slugified names",
 
+  down(workspaceDir: string): void {
+    const appsDir = join(workspaceDir, "data", "apps");
+    if (!existsSync(appsDir)) return;
+
+    const jsonFiles = readdirSync(appsDir)
+      .filter((f) => f.endsWith(".json"))
+      .sort();
+
+    if (jsonFiles.length === 0) return;
+
+    for (const jsonFile of jsonFiles) {
+      const jsonPath = join(appsDir, jsonFile);
+      let raw: string;
+      try {
+        raw = readFileSync(jsonPath, "utf-8");
+      } catch {
+        continue;
+      }
+
+      let parsed: {
+        id?: string;
+        name?: string;
+        dirName?: string;
+      };
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+
+      const appId = parsed.id;
+      if (!appId || !parsed.dirName || !isValidDirName(parsed.dirName)) {
+        continue;
+      }
+
+      const dirName = parsed.dirName;
+
+      // 1. Rename the app directory: {dirName}/ -> {appId}/
+      const slugDir = join(appsDir, dirName);
+      const uuidDir = join(appsDir, appId);
+      if (existsSync(slugDir) && !existsSync(uuidDir) && slugDir !== uuidDir) {
+        renameSync(slugDir, uuidDir);
+      }
+
+      // 2. Rename the preview file: {dirName}.preview -> {appId}.preview
+      const slugPreview = join(appsDir, `${dirName}.preview`);
+      const uuidPreview = join(appsDir, `${appId}.preview`);
+      if (
+        existsSync(slugPreview) &&
+        !existsSync(uuidPreview) &&
+        slugPreview !== uuidPreview
+      ) {
+        renameSync(slugPreview, uuidPreview);
+      }
+
+      // 3. Remove dirName from JSON and rename file: {dirName}.json -> {appId}.json
+      const updatedParsed = { ...parsed };
+      delete updatedParsed.dirName;
+      const updatedJson = JSON.stringify(updatedParsed, null, 2);
+
+      const uuidJsonFile = `${appId}.json`;
+      const uuidJsonPath = join(appsDir, uuidJsonFile);
+
+      if (jsonFile !== uuidJsonFile) {
+        writeFileSync(uuidJsonPath, updatedJson, "utf-8");
+        if (existsSync(jsonPath) && jsonPath !== uuidJsonPath) {
+          try {
+            unlinkSync(jsonPath);
+          } catch {
+            // Old file cleanup is best-effort
+          }
+        }
+      } else {
+        writeFileSync(uuidJsonPath, updatedJson, "utf-8");
+      }
+    }
+  },
+
   run(workspaceDir: string): void {
     const appsDir = join(workspaceDir, "data", "apps");
     if (!existsSync(appsDir)) return;

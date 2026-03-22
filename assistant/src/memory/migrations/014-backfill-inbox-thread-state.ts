@@ -88,3 +88,13 @@ export function migrateBackfillInboxThreadStateFromBindings(
     throw e;
   }
 }
+
+/**
+ * No-op down: the seeded inbox thread state rows are expected to remain.
+ * The forward migration used INSERT OR IGNORE, so existing rows were never
+ * modified. Removing the seeded rows could leave the inbox empty for
+ * pre-existing conversations, which is worse than keeping them.
+ */
+export function downBackfillInboxThreadState(_database: DrizzleDb): void {
+  // Intentionally empty — seeded data is expected to remain.
+}

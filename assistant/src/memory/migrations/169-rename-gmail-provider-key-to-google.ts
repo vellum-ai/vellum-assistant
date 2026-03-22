@@ -1,4 +1,5 @@
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -61,4 +62,53 @@ export function migrateRenameGmailProviderKeyToGoogle(
       }
     },
   );
+}
+
+/**
+ * Reverse: rename "integration:google" back to "integration:gmail" across
+ * OAuth tables.
+ *
+ * Mirrors the forward migration logic but in the opposite direction. If
+ * `integration:gmail` already exists (shouldn't normally happen on rollback),
+ * deletes the google rows to avoid duplicates.
+ */
+export function migrateRenameGmailProviderKeyToGoogleDown(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    const gmailExists = raw
+      .prepare(
+        /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = 'integration:gmail'`,
+      )
+      .get();
+
+    if (gmailExists) {
+      // Old gmail rows already exist — delete the google ones to avoid duplication.
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = 'integration:google'`,
+      );
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_apps WHERE provider_key = 'integration:google'`,
+      );
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = 'integration:google'`,
+      );
+    } else {
+      // Rename google back to gmail — children first, then parent.
+      raw.exec(
+        /*sql*/ `UPDATE oauth_connections SET provider_key = 'integration:gmail' WHERE provider_key = 'integration:google'`,
+      );
+      raw.exec(
+        /*sql*/ `UPDATE oauth_apps SET provider_key = 'integration:gmail' WHERE provider_key = 'integration:google'`,
+      );
+      raw.exec(
+        /*sql*/ `UPDATE oauth_providers SET provider_key = 'integration:gmail' WHERE provider_key = 'integration:google'`,
+      );
+    }
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
 }
