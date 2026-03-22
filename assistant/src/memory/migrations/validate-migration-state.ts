@@ -85,7 +85,12 @@ export function withCrashRecovery(
   const existing = raw
     .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey) as { value: string } | null;
-  if (existing && existing.value !== "started") return;
+  if (
+    existing &&
+    existing.value !== "started" &&
+    existing.value !== "rolling_back"
+  )
+    return;
 
   raw
     .query(
