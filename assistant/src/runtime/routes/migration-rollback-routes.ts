@@ -127,27 +127,27 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
 
         // Roll back workspace migrations if requested.
         if (targetWorkspaceMigrationId !== undefined) {
+          const workspaceDir = getWorkspaceDir();
+
+          // Compute which migrations are candidates for rollback before
+          // executing, since rollbackWorkspaceMigrations returns void.
+          const targetId = targetWorkspaceMigrationId as string;
+
+          const checkpointsBefore = loadCheckpoints(workspaceDir);
+          const candidateIds = WORKSPACE_MIGRATIONS.slice(
+            resolvedTargetIndex + 1,
+          )
+            .filter((m) => {
+              const entry = checkpointsBefore.applied[m.id];
+              return (
+                entry &&
+                entry.status !== "started" &&
+                entry.status !== "rolling_back"
+              );
+            })
+            .map((m) => m.id);
+
           try {
-            const workspaceDir = getWorkspaceDir();
-
-            // Compute which migrations will be rolled back before executing,
-            // since rollbackWorkspaceMigrations returns void.
-            const targetId = targetWorkspaceMigrationId as string;
-
-            const checkpoints = loadCheckpoints(workspaceDir);
-            const candidateIds = WORKSPACE_MIGRATIONS.slice(
-              resolvedTargetIndex + 1,
-            )
-              .filter((m) => {
-                const entry = checkpoints.applied[m.id];
-                return (
-                  entry &&
-                  entry.status !== "started" &&
-                  entry.status !== "rolling_back"
-                );
-              })
-              .map((m) => m.id);
-
             await rollbackWorkspaceMigrations(
               workspaceDir,
               WORKSPACE_MIGRATIONS,
@@ -156,12 +156,26 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
 
             rolledBack.workspace = candidateIds;
           } catch (err) {
+            // Re-read checkpoints to determine which migrations were actually
+            // rolled back before the error occurred. A candidate whose entry
+            // is no longer present in the checkpoint file was successfully
+            // reverted.
+            const checkpointsAfter = loadCheckpoints(workspaceDir);
+            const actuallyRolledBack = candidateIds.filter(
+              (id) => !checkpointsAfter.applied[id],
+            );
+
             const detail = err instanceof Error ? err.message : "Unknown error";
             return httpError(
               "INTERNAL_ERROR",
               `Workspace migration rollback failed: ${detail}`,
               500,
-              { partialRolledBack: { db: rolledBack.db, workspace: [] } },
+              {
+                partialRolledBack: {
+                  db: rolledBack.db,
+                  workspace: actuallyRolledBack,
+                },
+              },
             );
           }
         }
