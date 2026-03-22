@@ -85,6 +85,24 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
           }
         }
 
+        // Preflight: validate that the workspace migration ID exists in the
+        // registry BEFORE executing any mutations. This prevents the DB
+        // rollback from committing when the workspace target is invalid.
+        let resolvedTargetIndex = -1;
+        if (targetWorkspaceMigrationId !== undefined) {
+          const targetId = targetWorkspaceMigrationId as string;
+          resolvedTargetIndex = WORKSPACE_MIGRATIONS.findIndex(
+            (m) => m.id === targetId,
+          );
+          if (resolvedTargetIndex === -1) {
+            return httpError(
+              "BAD_REQUEST",
+              `Target workspace migration "${targetId}" not found in the registry`,
+              400,
+            );
+          }
+        }
+
         const rolledBack: { db: string[]; workspace: string[] } = {
           db: [],
           workspace: [],
@@ -109,35 +127,27 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
 
         // Roll back workspace migrations if requested.
         if (targetWorkspaceMigrationId !== undefined) {
-          try {
-            const workspaceDir = getWorkspaceDir();
+          const workspaceDir = getWorkspaceDir();
 
-            // Compute which migrations will be rolled back before executing,
-            // since rollbackWorkspaceMigrations returns void.
-            const targetId = targetWorkspaceMigrationId as string;
-            const targetIndex = WORKSPACE_MIGRATIONS.findIndex(
-              (m) => m.id === targetId,
-            );
-            if (targetIndex === -1) {
-              return httpError(
-                "BAD_REQUEST",
-                `Target workspace migration "${targetId}" not found in the registry`,
-                400,
+          // Compute which migrations are candidates for rollback before
+          // executing, since rollbackWorkspaceMigrations returns void.
+          const targetId = targetWorkspaceMigrationId as string;
+
+          const checkpointsBefore = loadCheckpoints(workspaceDir);
+          const candidateIds = WORKSPACE_MIGRATIONS.slice(
+            resolvedTargetIndex + 1,
+          )
+            .filter((m) => {
+              const entry = checkpointsBefore.applied[m.id];
+              return (
+                entry &&
+                entry.status !== "started" &&
+                entry.status !== "rolling_back"
               );
-            }
+            })
+            .map((m) => m.id);
 
-            const checkpoints = loadCheckpoints(workspaceDir);
-            const candidateIds = WORKSPACE_MIGRATIONS.slice(targetIndex + 1)
-              .filter((m) => {
-                const entry = checkpoints.applied[m.id];
-                return (
-                  entry &&
-                  entry.status !== "started" &&
-                  entry.status !== "rolling_back"
-                );
-              })
-              .map((m) => m.id);
-
+          try {
             await rollbackWorkspaceMigrations(
               workspaceDir,
               WORKSPACE_MIGRATIONS,
@@ -146,11 +156,26 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
 
             rolledBack.workspace = candidateIds;
           } catch (err) {
+            // Re-read checkpoints to determine which migrations were actually
+            // rolled back before the error occurred. A candidate whose entry
+            // is no longer present in the checkpoint file was successfully
+            // reverted.
+            const checkpointsAfter = loadCheckpoints(workspaceDir);
+            const actuallyRolledBack = candidateIds.filter(
+              (id) => !checkpointsAfter.applied[id],
+            );
+
             const detail = err instanceof Error ? err.message : "Unknown error";
             return httpError(
               "INTERNAL_ERROR",
               `Workspace migration rollback failed: ${detail}`,
               500,
+              {
+                partialRolledBack: {
+                  db: rolledBack.db,
+                  workspace: actuallyRolledBack,
+                },
+              },
             );
           }
         }
