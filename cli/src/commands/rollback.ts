@@ -23,6 +23,10 @@ import {
   loadBootstrapSecret,
   saveBootstrapSecret,
 } from "../lib/guardian-token";
+import {
+  findLatestPreUpgradeBackup,
+  restoreBackup,
+} from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
 import {
@@ -291,6 +295,29 @@ export async function rollback(): Promise<void> {
     const ready = await waitForReady(entry.runtimeUrl);
 
     if (ready) {
+      // Restore data from pre-upgrade backup if available
+      const latestBackup = findLatestPreUpgradeBackup(entry.assistantId);
+      if (latestBackup) {
+        console.log(`📦 Restoring data from pre-upgrade backup...`);
+        console.log(`   Source: ${latestBackup}`);
+        const restored = await restoreBackup(
+          entry.runtimeUrl,
+          entry.assistantId,
+          latestBackup,
+        );
+        if (restored) {
+          console.log("   ✅ Data restored successfully\n");
+        } else {
+          console.warn(
+            "   ⚠️  Data restore failed (rollback continues without data restoration)\n",
+          );
+        }
+      } else {
+        console.log(
+          "ℹ️  No pre-upgrade backup found, skipping data restoration\n",
+        );
+      }
+
       // Capture new digests from the rolled-back containers
       const newDigests = await captureImageRefs(res);
 
