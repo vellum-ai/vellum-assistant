@@ -96,7 +96,7 @@ enum LogExporter {
             if let conversationId = activeConversation.conversationId {
                 // Setting conversation_id enables cross-project search: find
                 // the daemon error that corresponds to a macOS log report by
-                // querying conversation_id in the vellum-assistant-brain
+                // querying conversation_id in the assistant
                 // Sentry project.
                 // For conversation-scoped exports, conversation_id was already set
                 // to the reported conversation's ID above — don't overwrite it with
@@ -125,7 +125,7 @@ enum LogExporter {
                 }
             }
         }
-        // When routing to the brain project, tag the event so it's clear
+        // When routing to the assistant project, tag the event so it's clear
         // it originated from the macOS client (not the daemon itself).
         if formData.reason == .somethingBroken && errorCategoryString != nil {
             tags["client"] = "macos"
@@ -161,9 +161,17 @@ enum LogExporter {
 
         // Route assistant behavior reports to the assistant Sentry project
         // so they appear alongside daemon issues for triage.
-        let dsn: String? = (formData.reason == .somethingBroken && errorCategoryString != nil)
-            ? MetricKitManager.assistantDSN
-            : nil
+        let dsn: String?
+        if formData.reason == .somethingBroken && errorCategoryString != nil {
+            if MetricKitManager.assistantDSN.isEmpty {
+                log.warning("SENTRY_DSN_ASSISTANT not configured; assistant behavior report will use default Sentry project")
+                dsn = nil
+            } else {
+                dsn = MetricKitManager.assistantDSN
+            }
+        } else {
+            dsn = nil
+        }
 
         // Send lightweight Sentry event (no archive attachment) and capture the event ID
         // for linking to the platform API upload.

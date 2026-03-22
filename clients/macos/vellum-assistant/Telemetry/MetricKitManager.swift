@@ -94,7 +94,7 @@ import os
             let needsDSNSwitch = dsn != nil
             let wasEnabled = SentrySDK.isEnabled
 
-            // When targeting a different DSN (e.g. brain project), close the
+            // When targeting a different DSN (e.g. assistant project), close the
             // current SDK first so we can restart with the alternate DSN.
             if needsDSNSwitch && wasEnabled {
                 SentrySDK.flush(timeout: 5)
