@@ -15,6 +15,7 @@ export const UPGRADE_PROGRESS = {
   REVERTING_MIGRATIONS: "Reverting database changes…",
   RESTORING: "Restoring your data…",
   SWITCHING: "Switching to the previous version…",
+  ALIGNING_SCHEMA: "Aligning database with installed version…",
 } as const;
 
 export function buildStartingEvent(
@@ -184,8 +185,10 @@ export async function rollbackMigrations(
   assistantId: string,
   targetDbVersion?: number,
   targetWorkspaceMigrationId?: string,
+  rollbackToRegistryCeiling?: boolean,
 ): Promise<boolean> {
   if (
+    !rollbackToRegistryCeiling &&
     targetDbVersion === undefined &&
     targetWorkspaceMigrationId === undefined
   ) {
@@ -203,6 +206,7 @@ export async function rollbackMigrations(
     if (targetDbVersion !== undefined) body.targetDbVersion = targetDbVersion;
     if (targetWorkspaceMigrationId !== undefined)
       body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
+    if (rollbackToRegistryCeiling) body.rollbackToRegistryCeiling = true;
 
     const resp = await fetch(`${gatewayUrl}/v1/admin/rollback-migrations`, {
       method: "POST",
