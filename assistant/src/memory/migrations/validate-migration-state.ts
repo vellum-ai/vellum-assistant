@@ -236,7 +236,7 @@ export function validateMigrationState(
  * Iterates eligible migrations in reverse version order. For each:
  * 1. Marks the checkpoint as `"rolling_back"` for crash recovery.
  * 2. Calls `entry.down(database)` — each down() manages its own transactions.
- *    (`down` is required on `MemoryMigrationEntry` at the type level.)
+ *    (`down` is required on `MigrationRegistryEntry` at the type level.)
  * 3. Deletes the checkpoint from `memory_checkpoints`.
  *
  * **Usage**: Pass the target version number you want to roll back *to*. All
