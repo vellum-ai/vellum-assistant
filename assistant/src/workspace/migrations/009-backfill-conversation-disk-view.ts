@@ -7,4 +7,8 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
   run(_workspaceDir: string): void {
     rebuildConversationDiskViewFromDb();
   },
+  // No-op: the disk view is a derived cache that can be regenerated from the
+  // database at any time. Removing it would only cause unnecessary I/O churn
+  // since the next forward migration (or startup rebuild) will recreate it.
+  down(_workspaceDir: string): void {},
 };
