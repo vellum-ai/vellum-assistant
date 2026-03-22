@@ -33,7 +33,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
     return [];
   }
 
-  const crashed = rows.filter((r) => r.value === "started").map((r) => r.key);
+  const crashed = rows
+    .filter((r) => r.value === "started" || r.value === "rolling_back")
+    .map((r) => r.key);
   if (crashed.length === 0) return [];
 
   log.error(
@@ -192,4 +194,84 @@ export function validateMigrationState(
   }
 
   return { crashed, dependencyViolations };
+}
+
+/**
+ * Roll back all completed migrations with version > targetVersion.
+ *
+ * Iterates eligible migrations in reverse version order. For each:
+ * 1. Verifies a `down` function exists (throws if missing).
+ * 2. Marks the checkpoint as `"rolling_back"` for crash recovery.
+ * 3. Calls `entry.down(database)` inside a transaction.
+ * 4. Deletes the checkpoint from `memory_checkpoints`.
+ *
+ * @param database  The Drizzle database instance.
+ * @param targetVersion  Roll back to this version (exclusive — all migrations
+ *   with version > targetVersion are reversed).
+ * @returns The list of rolled-back migration keys.
+ */
+export function rollbackMemoryMigration(
+  database: DrizzleDb,
+  targetVersion: number,
+): string[] {
+  const raw = getSqliteFrom(database);
+
+  // Read completed checkpoints to determine which migrations have been applied.
+  let rows: Array<{ key: string; value: string }>;
+  try {
+    rows = raw
+      .query(`SELECT key, value FROM memory_checkpoints`)
+      .all() as Array<{ key: string; value: string }>;
+  } catch {
+    return [];
+  }
+
+  const completedKeys = new Set(
+    rows
+      .filter((r) => r.value !== "started" && r.value !== "rolling_back")
+      .map((r) => r.key),
+  );
+
+  // Find registry entries with version > targetVersion that have completed checkpoints.
+  const toRollback = MIGRATION_REGISTRY.filter(
+    (entry) => entry.version > targetVersion && completedKeys.has(entry.key),
+  ).sort((a, b) => b.version - a.version); // reverse version order
+
+  const rolledBack: string[] = [];
+
+  for (const entry of toRollback) {
+    if (!entry.down) {
+      throw new IntegrityError(
+        `Cannot roll back migration "${entry.key}" (version ${entry.version}): no down() function defined`,
+      );
+    }
+
+    // Mark as rolling_back for crash recovery — if the process crashes here,
+    // recoverCrashedMigrations will clear this checkpoint on next startup.
+    raw
+      .query(
+        `UPDATE memory_checkpoints SET value = 'rolling_back', updated_at = ? WHERE key = ?`,
+      )
+      .run(Date.now(), entry.key);
+
+    // Execute the down migration inside a transaction.
+    raw.exec("BEGIN");
+    try {
+      entry.down(database);
+      // Delete the checkpoint — the migration is no longer applied.
+      raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(entry.key);
+      raw.exec("COMMIT");
+    } catch (err) {
+      raw.exec("ROLLBACK");
+      throw err;
+    }
+
+    log.info(
+      { key: entry.key, version: entry.version },
+      `Rolled back migration "${entry.key}" (version ${entry.version})`,
+    );
+    rolledBack.push(entry.key);
+  }
+
+  return rolledBack;
 }
