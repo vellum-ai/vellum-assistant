@@ -792,9 +792,9 @@ describe("route policy registration", () => {
 
 describe("integration: existing routes unaffected", () => {
   test("GET /v1/health still works", async () => {
-    const { handleHealth } =
+    const { handleDetailedHealth } =
       await import("../runtime/routes/identity-routes.js");
-    const res = handleHealth();
+    const res = handleDetailedHealth();
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);
