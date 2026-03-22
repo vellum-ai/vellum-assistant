@@ -40,6 +40,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
+    userFile: row.userFile,
   };
 }
 

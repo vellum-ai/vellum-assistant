@@ -130,6 +130,7 @@ export { migrateScheduleQuietFlag } from "./188-schedule-quiet-flag.js";
 export { migrateDropSimplifiedMemory } from "./189-drop-simplified-memory.js";
 export { migrateCallSessionSkipDisclosure } from "./190-call-session-skip-disclosure.js";
 export { migrateBackfillAudioAttachmentMimeTypes } from "./191-backfill-audio-attachment-mime-types.js";
+export { migrateContactsUserFileColumn } from "./192-contacts-user-file-column.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

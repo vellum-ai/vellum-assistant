@@ -36,6 +36,7 @@ import {
   createWatchersAndLogsTables,
   migrateAssistantContactMetadata,
   migrateBackfillAudioAttachmentMimeTypes,
+  migrateContactsUserFileColumn,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
@@ -499,6 +500,9 @@ export function initializeDb(): void {
 
   // 88. Backfill correct MIME types for audio attachments stored as application/octet-stream
   migrateBackfillAudioAttachmentMimeTypes(database);
+
+  // 89. Add user_file column to contacts for per-user persona file mapping
+  migrateContactsUserFileColumn(database);
 
   validateMigrationState(database);
 
