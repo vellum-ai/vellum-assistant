@@ -229,6 +229,10 @@ async function upgradeDocker(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "progress",
+    statusMessage: "Downloading the update…",
+  });
   console.log("📦 Pulling new Docker images...");
   try {
     await exec("docker", ["pull", imageTags.assistant]);
@@ -272,6 +276,10 @@ async function upgradeDocker(
   }
 
   // Create pre-upgrade backup (best-effort, daemon must be running)
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "progress",
+    statusMessage: "Saving a backup of your data…",
+  });
   console.log("📦 Creating pre-upgrade backup...");
   const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
     prefix: `${entry.assistantId}-pre-upgrade`,
@@ -308,6 +316,10 @@ async function upgradeDocker(
   // Brief pause to allow SSE delivery before containers stop.
   await new Promise((r) => setTimeout(r, 500));
 
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "progress",
+    statusMessage: "Installing the update…",
+  });
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
@@ -422,6 +434,11 @@ async function upgradeDocker(
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
     if (previousImageRefs) {
+      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+        type: "progress",
+        statusMessage:
+          "The update didn't work. Reverting to the previous version…",
+      });
       console.log(`\n🔄 Rolling back to previous images...`);
       try {
         await stopContainers(res);
@@ -457,6 +474,10 @@ async function upgradeDocker(
           // backup on disk, which could be from a previous upgrade cycle
           // and contain stale data.
           if (backupPath) {
+            await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+              type: "progress",
+              statusMessage: "Restoring your data…",
+            });
             console.log(`📦 Restoring data from pre-upgrade backup...`);
             console.log(`   Source: ${backupPath}`);
             const restored = await restoreBackup(
