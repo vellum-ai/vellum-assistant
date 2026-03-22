@@ -106,6 +106,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "ces-credential-backend",
+      "scope": "assistant",
+      "key": "feature_flags.ces-credential-backend.enabled",
+      "label": "CES Credential Backend",
+      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-billing",
       "scope": "macos",
       "key": "settings_billing_enabled",
