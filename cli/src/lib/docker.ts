@@ -15,7 +15,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
-import { leaseGuardianToken } from "./guardian-token";
+import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { resolveImageRefs } from "./platform-releases.js";
@@ -467,6 +467,7 @@ async function buildAllImages(
  */
 export function serviceDockerRunArgs(opts: {
   signingKey?: string;
+  bootstrapSecret?: string;
   cesServiceToken?: string;
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
@@ -573,6 +574,9 @@ export function serviceDockerRunArgs(opts: {
         : []),
       ...(opts.signingKey
         ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
+        : []),
+      ...(opts.bootstrapSecret
+        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
         : []),
       imageTags.gateway,
     ],
@@ -758,6 +762,7 @@ export const SERVICE_START_ORDER: ServiceName[] = [
 export async function startContainers(
   opts: {
     signingKey?: string;
+    bootstrapSecret?: string;
     cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
@@ -1123,9 +1128,12 @@ export async function hatchDocker(
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
+    const bootstrapSecret = randomBytes(32).toString("hex");
+    saveBootstrapSecret(instanceName, bootstrapSecret);
     await startContainers(
       {
         signingKey,
+        bootstrapSecret,
         cesServiceToken,
         gatewayPort,
         imageTags,
