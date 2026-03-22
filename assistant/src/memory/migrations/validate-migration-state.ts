@@ -133,7 +133,7 @@ export function validateMigrationState(
       .all() as Array<{ key: string; value: string }>;
   } catch {
     // memory_checkpoints may not exist on a very old database; skip.
-    return { crashed: [], dependencyViolations: [] };
+    return { crashed: [], dependencyViolations: [], unknownCheckpoints: [] };
   }
 
   // Any remaining 'started' or 'rolling_back' checkpoints after recovery +
@@ -203,7 +203,19 @@ export function validateMigrationState(
     );
   }
 
-  return { crashed, dependencyViolations };
+  // Detect checkpoints that exist in the database but have no corresponding
+  // registry entry — these are from a newer version of the daemon.
+  const registryKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
+  const unknownCheckpoints = [...completed].filter((k) => !registryKeys.has(k));
+
+  if (unknownCheckpoints.length > 0) {
+    log.warn(
+      { unknownCheckpoints },
+      `Database contains ${unknownCheckpoints.length} migration checkpoint(s) from a newer version. Data may be incompatible.`,
+    );
+  }
+
+  return { crashed, dependencyViolations, unknownCheckpoints };
 }
 
 /**
