@@ -584,7 +584,11 @@ struct AssistantUpgradeSection: View {
         case "DOCKER_NOT_RUNNING":
             return "Docker doesn't appear to be running. Start Docker Desktop and try again."
         case "IMAGE_PULL_FAILED":
-            return "Failed to download the update. Check your internet connection and try again."
+            let base = "Failed to download the update. Check that Docker is running and you have internet access."
+            if DevModeManager.shared.isDevMode {
+                return base + " Development builds cannot download released versions."
+            }
+            return base
         case "READINESS_TIMEOUT":
             return "The assistant didn't start up in time. Check Docker Desktop for container status, or try rolling back."
         case "ROLLBACK_FAILED":
