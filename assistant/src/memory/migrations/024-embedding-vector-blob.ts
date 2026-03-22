@@ -71,3 +71,77 @@ export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
       .run(checkpointKey, Date.now());
   }
 }
+
+/**
+ * Drop the vector_blob column from memory_embeddings.
+ *
+ * NOTE: Binary embedding data stored in vector_blob is lost on rollback.
+ * Rows that still have vector_json will continue to work; rows that only
+ * had vector_blob will lose their embedding vectors.
+ *
+ * SQLite does not support DROP COLUMN on all versions, so we rebuild the table.
+ */
+export function downEmbeddingVectorBlob(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  // Check if vector_blob column exists
+  const hasColumn = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('memory_embeddings') WHERE name = 'vector_blob'`,
+    )
+    .get();
+  if (!hasColumn) return;
+
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    raw.exec("BEGIN");
+
+    // Get the current columns minus vector_blob
+    const columns = raw
+      .query(`SELECT name FROM pragma_table_info('memory_embeddings')`)
+      .all() as Array<{ name: string }>;
+    const keepColumns = columns
+      .map((c) => c.name)
+      .filter((n) => n !== "vector_blob");
+
+    // Get the current DDL to understand the table structure
+    const ddl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
+      )
+      .get() as { sql: string } | null;
+    if (!ddl) {
+      raw.exec("ROLLBACK");
+      return;
+    }
+
+    // Remove the vector_blob column definition from the DDL
+    const newDdl = ddl.sql
+      .replace(/,\s*vector_blob\s+BLOB/i, "")
+      .replace("memory_embeddings", "memory_embeddings_new");
+
+    raw.exec(newDdl);
+
+    const colList = keepColumns.join(", ");
+    raw.exec(/*sql*/ `
+      INSERT INTO memory_embeddings_new (${colList})
+      SELECT ${colList} FROM memory_embeddings
+    `);
+
+    raw.exec(/*sql*/ `DROP TABLE memory_embeddings`);
+    raw.exec(
+      /*sql*/ `ALTER TABLE memory_embeddings_new RENAME TO memory_embeddings`,
+    );
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
+}
