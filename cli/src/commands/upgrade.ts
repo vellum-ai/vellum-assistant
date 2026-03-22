@@ -635,6 +635,26 @@ async function upgradePlatform(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : null;
+
+  // Record version transition start in workspace git history
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${version ?? "latest"}\n` +
+          `topology: managed`,
+      );
+    } catch {
+      // Best-effort — git failures must not block the upgrade
+    }
+  }
+
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
   );
@@ -703,6 +723,23 @@ async function upgradePlatform(
   // completion signal will come from the client's health-check
   // version-change detection (DaemonConnection.swift) once the new
   // version actually appears after the platform restarts the service group.
+
+  // Record successful upgrade in workspace git history
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${version ?? "latest"}\n` +
+          `result: success\n` +
+          `topology: managed`,
+      );
+    } catch {
+      // Best-effort — git failures must not block the upgrade
+    }
+  }
 
   console.log(`✅ ${result.detail}`);
   if (result.version) {
