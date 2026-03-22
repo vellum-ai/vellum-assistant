@@ -48,7 +48,7 @@ struct AssistantBackupsSection: View {
                                 preUpdateBackupPath = nil
                             }
                         }
-                        VButton(label: "Dismiss", style: .text) {
+                        VButton(label: "Dismiss", style: .ghost) {
                             preUpdateBackupPath = nil
                         }
                     }
