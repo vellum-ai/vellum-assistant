@@ -218,6 +218,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
+      "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
