@@ -14,6 +14,7 @@ export const UPGRADE_PROGRESS = {
   REVERTING: "The update didn't work. Reverting to the previous version…",
   RESTORING: "Restoring your data…",
   SWITCHING: "Switching to the previous version…",
+  REVERTING_MIGRATIONS: "Reverting database changes…",
 } as const;
 
 export function buildStartingEvent(
@@ -171,5 +172,63 @@ export async function broadcastUpgradeEvent(
     });
   } catch {
     // Best-effort — gateway/daemon may already be shutting down or not yet ready
+  }
+}
+
+/**
+ * Roll back DB and workspace migrations to a target state via the gateway.
+ * Best-effort — failures are logged but never block the rollback flow.
+ */
+export async function rollbackMigrations(
+  gatewayUrl: string,
+  assistantId: string,
+  targetDbVersion?: number,
+  targetWorkspaceMigrationId?: string,
+): Promise<boolean> {
+  if (
+    targetDbVersion === undefined &&
+    targetWorkspaceMigrationId === undefined
+  ) {
+    return false;
+  }
+  try {
+    const token = loadGuardianToken(assistantId);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token?.accessToken) {
+      headers["Authorization"] = `Bearer ${token.accessToken}`;
+    }
+    const body: Record<string, unknown> = {};
+    if (targetDbVersion !== undefined) body.targetDbVersion = targetDbVersion;
+    if (targetWorkspaceMigrationId !== undefined)
+      body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
+
+    const resp = await fetch(`${gatewayUrl}/v1/admin/rollback-migrations`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.warn(`⚠️  Migration rollback failed (${resp.status}): ${text}`);
+      return false;
+    }
+    const result = (await resp.json()) as {
+      rolledBack?: { db?: string[]; workspace?: string[] };
+    };
+    const dbCount = result.rolledBack?.db?.length ?? 0;
+    const wsCount = result.rolledBack?.workspace?.length ?? 0;
+    if (dbCount > 0 || wsCount > 0) {
+      console.log(
+        `   Rolled back ${dbCount} DB migration(s) and ${wsCount} workspace migration(s)`,
+      );
+    }
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`⚠️  Migration rollback failed: ${msg}`);
+    return false;
   }
 }
