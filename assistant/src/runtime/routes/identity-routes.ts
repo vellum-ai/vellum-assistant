@@ -151,6 +151,10 @@ export function handleHealth(): Response {
   });
 }
 
+export function handleReadyz(): Response {
+  return Response.json({ status: "ok" });
+}
+
 export function handleGetIdentity(): Response {
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (!existsSync(identityPath)) {
