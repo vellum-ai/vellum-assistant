@@ -190,6 +190,11 @@ enum LogExporter {
             // after the upload completes (or fails).
             let archiveURLCopy = archiveURL
             Task.detached {
+                // Give Sentry a few seconds to index the event before the
+                // platform tries to look it up for feedback URL enrichment.
+                if sentryEventId != nil {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                }
                 await uploadFeedbackToPlatform(
                     archiveURL: archiveURLCopy,
                     formData: formData,
