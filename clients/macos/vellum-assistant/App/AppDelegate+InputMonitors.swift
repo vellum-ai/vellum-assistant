@@ -66,6 +66,12 @@ extension UserDefaults {
         }
         return string(forKey: "newChatShortcut") ?? ""
     }
+    @objc dynamic var currentConversationShortcut: String {
+        if UserDefaults.standard.object(forKey: "currentConversationShortcut") == nil {
+            return "cmd+shift+n"
+        }
+        return string(forKey: "currentConversationShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
@@ -81,6 +87,7 @@ extension AppDelegate {
         registerFnVMonitor()
         registerCmdKMonitor()
         registerNewChatMonitor()
+        registerCurrentConversationMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -89,13 +96,16 @@ extension AppDelegate {
             UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }
         )
         .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
             self?.registerQuickInputMonitor()
             self?.registerSidebarToggleMonitor()
             self?.registerNewChatMonitor()
+            self?.registerCurrentConversationMonitor()
             self?.updateNewChatMenuItemShortcut()
+            self?.updateCurrentConversationMenuItemShortcut()
         }
     }
 
@@ -181,6 +191,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             cmdNLocalMonitor = nil
         }
+        if let monitor = currentConversationLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            currentConversationLocalMonitor = nil
+        }
         if let monitor = navLocalMonitor {
             NSEvent.removeMonitor(monitor)
             navLocalMonitor = nil
@@ -245,6 +259,35 @@ extension AppDelegate {
             return nil
         }
         cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to open the current conversation when the
+    /// configured shortcut (default: Cmd+Shift+N) is pressed. The shortcut is read
+    /// dynamically from UserDefaults so it can be reconfigured without restarting.
+    func registerCurrentConversationMonitor() {
+        if let existing = currentConversationLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            currentConversationLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.openCurrentConversation()
+            }
+            return nil
+        }
+        currentConversationLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.
@@ -378,6 +421,12 @@ extension AppDelegate {
                 if let id = self?.mainWindow?.conversationManager.activeConversationId {
                     self?.mainWindow?.windowState.selection = .conversation(id)
                 }
+            },
+            CommandPaletteAction(id: "current-conversation", icon: VIcon.messageSquare.rawValue, label: "Current Conversation", shortcutHint: {
+                let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
+                return shortcut.isEmpty ? nil : ShortcutHelper.displayString(for: shortcut)
+            }()) { [weak self] in
+                self?.openCurrentConversation()
             },
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.settings)

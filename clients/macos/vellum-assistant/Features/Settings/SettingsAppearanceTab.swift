@@ -12,6 +12,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingQuickInputHotkey = false
     @State private var isRecordingSidebarToggle = false
     @State private var isRecordingNewChat = false
+    @State private var isRecordingCurrentConversation = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
@@ -319,6 +320,39 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Current conversation (configurable)
+                HStack {
+                    Text("Current conversation")
+                        .font(VFont.body)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingCurrentConversation, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.currentConversationShortcut))
+                    }
+
+                    if isRecordingCurrentConversation {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingCurrentConversation()
+                            }
+                            if !store.currentConversationShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.currentConversationShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 // Toggle sidebar (configurable)
                 HStack {
                     Text("Toggle sidebar")
@@ -561,6 +595,13 @@ struct SettingsAppearanceTab: View {
         isRecordingNewChat = true
     }
 
+    private func startRecordingCurrentConversation() {
+        startRecordingShortcut { shortcut, _ in
+            store.currentConversationShortcut = shortcut
+        }
+        isRecordingCurrentConversation = true
+    }
+
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
@@ -606,6 +647,7 @@ struct SettingsAppearanceTab: View {
         isRecordingQuickInputHotkey = false
         isRecordingSidebarToggle = false
         isRecordingNewChat = false
+        isRecordingCurrentConversation = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)

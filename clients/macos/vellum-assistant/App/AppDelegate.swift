@@ -51,7 +51,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
     var cmdNLocalMonitor: Any?
+    var currentConversationLocalMonitor: Any?
     var newChatMenuItem: NSMenuItem?
+    var currentConversationMenuItem: NSMenuItem?
     var fileMenuPatchDelegate: FileMenuPatchDelegate?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
