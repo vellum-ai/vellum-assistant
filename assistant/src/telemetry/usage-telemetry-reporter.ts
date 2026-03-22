@@ -140,7 +140,7 @@ export class UsageTelemetryReporter {
 
       // Resolve auth context — skip flush when neither auth mode is viable
       const client = await VellumPlatformClient.create();
-      if (!client && !getTelemetryAppToken()) {
+      if (!client && (!getTelemetryAppToken() || !getTelemetryPlatformUrl())) {
         return;
       }
 

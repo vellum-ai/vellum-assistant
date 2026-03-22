@@ -88,7 +88,7 @@ const ALLOWED_HOST_PATTERNS: readonly string[] = (() => {
 function isAllowedHost(hostname: string): boolean {
   for (const pattern of ALLOWED_HOST_PATTERNS) {
     if (pattern.startsWith("*.")) {
-      const suffix = pattern.slice(1); // e.g. ".vellum.ai"
+      const suffix = pattern.slice(1); // e.g. ".example.com"
       if (hostname.endsWith(suffix) || hostname === pattern.slice(2)) {
         return true;
       }

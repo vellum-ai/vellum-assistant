@@ -112,6 +112,10 @@ final class VellumCli {
     nonisolated private static let forwardedEnvKeys: [String] = [
         "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL",
+        "TELEMETRY_PLATFORM_URL", "TELEMETRY_APP_TOKEN",
+        "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
+        "CLI_GIT_USER_NAME", "CLI_GIT_USER_EMAIL",
+        "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT", "DOCTOR_SERVICE_URL",
         "SENTRY_DSN_MACOS", "SENTRY_DSN_ASSISTANT", "TMPDIR", "USER", "LANG",
     ] + Array(providerEnvVars.values) + [
         // Cloud provider auth — needed by hatch and retire flows.
