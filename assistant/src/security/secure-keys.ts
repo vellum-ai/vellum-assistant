@@ -3,8 +3,10 @@
  * adapters.
  *
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
- *   - Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
- *   - All other topologies (desktop app, dev, CLI): encrypted file store.
+ *   0. CES RPC client injected via `setCesClient()` (local mode with
+ *      ces-credential-backend flag enabled): delegates to CES via stdio RPC.
+ *   1. Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
+ *   2. All other topologies (desktop app, dev, CLI): encrypted file store.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
  * There are no cross-backend fallbacks or merges.
@@ -17,8 +19,10 @@ import type {
 
 import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json" with { type: "json" };
 import { getIsContainerized } from "../config/env-registry.js";
+import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
+import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
 
@@ -38,9 +42,18 @@ export interface SecureKeyResult {
 
 const log = getLogger("secure-keys");
 
+let _cesClient: CesClient | undefined;
 let _encryptedStore: CredentialBackend | undefined;
 let _resolvedBackend: CredentialBackend | undefined;
 let _resolvePromise: Promise<CredentialBackend> | undefined;
+
+/** Inject a CES RPC client for credential routing. Resets the resolved backend. */
+export function setCesClient(client: CesClient | undefined): void {
+  _cesClient = client;
+  // Reset resolved backend so next call picks up CES
+  _resolvedBackend = undefined;
+  _resolvePromise = undefined;
+}
 
 function getEncryptedStoreBackend(): CredentialBackend {
   if (!_encryptedStore) _encryptedStore = createEncryptedStoreBackend();
@@ -67,6 +80,16 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
+  // 0. CES RPC client (local mode with ces-credential-backend enabled)
+  if (_cesClient) {
+    const cesRpc = new CesRpcCredentialBackend(_cesClient);
+    if (cesRpc.isAvailable()) {
+      _resolvedBackend = cesRpc;
+      return cesRpc;
+    }
+    log.warn("CES RPC client is set but not ready — falling back to local credential store");
+  }
+
   // 1. Containerized + CES (unchanged)
   if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
     const ces = createCesCredentialBackend();
@@ -218,6 +241,7 @@ export async function getMaskedProviderKey(
 
 /** @internal Test-only: reset the cached backends so they're re-created. */
 export function _resetBackend(): void {
+  _cesClient = undefined;
   _encryptedStore = undefined;
   _resolvedBackend = undefined;
   _resolvePromise = undefined;

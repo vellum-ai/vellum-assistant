@@ -19,7 +19,10 @@ import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
-import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
+import {
+  isCesCredentialBackendEnabled,
+  isCesToolsEnabled,
+} from "../credential-execution/feature-gates.js";
 import {
   type CesProcessManager,
   CesUnavailableError,
@@ -70,6 +73,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -157,7 +161,8 @@ export interface CesStartupResult {
 export async function startCesProcess(
   config: AssistantConfig,
 ): Promise<CesStartupResult> {
-  if (!isCesToolsEnabled(config)) {
+  const shouldStartCes = isCesToolsEnabled(config) || isCesCredentialBackendEnabled(config);
+  if (!shouldStartCes) {
     return {
       client: undefined,
       processManager: undefined,
@@ -444,10 +449,30 @@ export async function runDaemon(): Promise<void> {
       log.info("Usage telemetry reporter started");
     }
 
-    // CES lifecycle — fire-and-forget. Kick off early so CES handshake runs
-    // concurrently with provider/tool initialization. The CES sidecar accepts
-    // exactly one bootstrap connection, so startup must happen at the process level.
-    const cesResult = startCesProcess(config);
+    // CES lifecycle — kick off early so CES handshake runs concurrently with
+    // provider/tool initialization. The CES sidecar accepts exactly one
+    // bootstrap connection, so startup must happen at the process level.
+    const cesStartupPromise = startCesProcess(config);
+
+    // When the credential backend flag is enabled, CES startup must complete
+    // BEFORE provider initialization so credential reads can go through CES.
+    // Block with a 3-second timeout — fall back to direct credential store
+    // on timeout.
+    if (isCesCredentialBackendEnabled(config)) {
+      const cesResult = await Promise.race([
+        cesStartupPromise,
+        new Promise<CesStartupResult>((resolve) =>
+          setTimeout(() => {
+            log.warn("CES startup timed out after 3s — falling back to direct credential store");
+            resolve({ client: undefined, processManager: undefined, clientPromise: undefined, abortController: undefined });
+          }, 3000),
+        ),
+      ]);
+      // Inject CES client into secure-keys for credential routing
+      if (cesResult.client) {
+        setCesClient(cesResult.client);
+      }
+    }
 
     await initializeProvidersAndTools(config);
 
@@ -455,7 +480,7 @@ export async function runDaemon(): Promise<void> {
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
-    server.setCes(await cesResult);
+    server.setCes(await cesStartupPromise);
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
