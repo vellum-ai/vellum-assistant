@@ -48,6 +48,7 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
+import { parseVersion } from "../lib/version-compat.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 interface UpgradeArgs {
@@ -218,6 +219,22 @@ async function upgradeDocker(
   } catch {
     // Best-effort — if we can't get migration state, rollback will skip migration reversal
   }
+
+  // Detect if this upgrade is actually a downgrade (user picked an older
+  // version via the version picker). Used after readiness succeeds to align
+  // the DB schema with the now-running old daemon.
+  const currentVersion = entry.serviceGroupVersion;
+  const isDowngrade =
+    currentVersion &&
+    versionTag &&
+    (() => {
+      const current = parseVersion(currentVersion);
+      const target = parseVersion(versionTag);
+      if (!current || !target) return false;
+      if (target.major !== current.major) return target.major < current.major;
+      if (target.minor !== current.minor) return target.minor < current.minor;
+      return target.patch < current.patch;
+    })();
 
   // Persist rollback state to lockfile BEFORE any destructive changes.
   // This enables the `vellum rollback` command to restore the previous version.
@@ -434,6 +451,24 @@ async function upgradeDocker(
       preUpgradeBackupPath: backupPath ?? undefined,
     };
     saveAssistantEntry(updatedEntry);
+
+    // After a downgrade, align the DB schema with the now-running old daemon
+    // by rolling back migrations above its own registry ceiling.
+    if (isDowngrade) {
+      console.log("🔄 Aligning database schema with installed version...");
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildProgressEvent(UPGRADE_PROGRESS.ALIGNING_SCHEMA),
+      );
+      await rollbackMigrations(
+        entry.runtimeUrl,
+        entry.assistantId,
+        undefined,
+        undefined,
+        true,
+      );
+    }
 
     // Notify clients on the new service group that the upgrade succeeded.
     await broadcastUpgradeEvent(
