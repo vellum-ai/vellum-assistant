@@ -35,9 +35,10 @@ export const migrateCredentialsToKeychainMigration: WorkspaceMigration = {
     }
 
     if (!brokerAvailable) {
-      // If the broker is not available, credentials may already be in the
-      // encrypted store or we're in a non-desktop environment — skip silently.
-      return;
+      throw new Error(
+        "Keychain broker not available after waiting — credential rollback " +
+          "will be retried on next startup",
+      );
     }
 
     const { setKey } = await import("../../security/encrypted-store.js");
