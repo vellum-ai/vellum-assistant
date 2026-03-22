@@ -1,4 +1,28 @@
 import type { DrizzleDb } from "../db-connection.js";
+import { downJobDeferrals } from "./001-job-deferrals.js";
+import { downMemoryEntityRelationDedup } from "./004-entity-relation-dedup.js";
+import { downMemoryItemsFingerprintScopeUnique } from "./005-fingerprint-scope-unique.js";
+import { downMemoryItemsScopeSaltedFingerprints } from "./006-scope-salted-fingerprints.js";
+import { downAssistantIdToSelf } from "./007-assistant-id-to-self.js";
+import { downRemoveAssistantIdColumns } from "./008-remove-assistant-id-columns.js";
+import { downLlmUsageEventsDropAssistantId } from "./009-llm-usage-events-drop-assistant-id.js";
+import { downBackfillInboxThreadState } from "./014-backfill-inbox-thread-state.js";
+import { downDropActiveSearchIndex } from "./015-drop-active-search-index.js";
+import { downNotificationTablesSchema } from "./019-notification-tables-schema-migration.js";
+import { downRenameChannelToVellum } from "./020-rename-macos-ios-channel-to-vellum.js";
+import { downEmbeddingVectorBlob } from "./024-embedding-vector-blob.js";
+import { downEmbeddingsNullableVectorJson } from "./026a-embeddings-nullable-vector-json.js";
+import { downNormalizePhoneIdentities } from "./036-normalize-phone-identities.js";
+import { downBackfillGuardianPrincipalId } from "./126-backfill-guardian-principal-id.js";
+import { downGuardianPrincipalIdNotNull } from "./127-guardian-principal-id-not-null.js";
+import { downContactsNotesColumn } from "./134-contacts-notes-column.js";
+import { downBackfillContactInteractionStats } from "./135-backfill-contact-interaction-stats.js";
+import { downDropAssistantIdColumns } from "./136-drop-assistant-id-columns.js";
+import { downBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-accounting.js";
+import { downRenameVerificationTable } from "./141-rename-verification-table.js";
+import { downRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
+import { downRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
+import { downRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
 import { migrateDropAccountsTableDown } from "./145-drop-accounts-table.js";
 import { migrateRemindersToSchedulesDown } from "./147-migrate-reminders-to-schedules.js";
 import { migrateDropRemindersTableDown } from "./148-drop-reminders-table.js";
@@ -44,18 +68,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 1,
     description:
       "Reconcile legacy deferral history from attempts column into deferrals column",
+    down: downJobDeferrals,
   },
   {
     key: "migration_memory_entity_relations_dedup_v1",
     version: 2,
     description:
       "Deduplicate entity relation edges before enforcing the (source, target, relation) unique index",
+    down: downMemoryEntityRelationDedup,
   },
   {
     key: "migration_memory_items_fingerprint_scope_unique_v1",
     version: 3,
     description:
       "Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index",
+    down: downMemoryItemsFingerprintScopeUnique,
   },
   {
     key: "migration_memory_items_scope_salted_fingerprints_v1",
@@ -63,12 +90,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_memory_items_fingerprint_scope_unique_v1"],
     description:
       "Recompute memory item fingerprints to include scope_id prefix after schema change",
+    down: downMemoryItemsScopeSaltedFingerprints,
   },
   {
     key: "migration_normalize_assistant_id_to_self_v1",
     version: 5,
     description:
       'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+    down: downAssistantIdToSelf,
   },
   {
     key: "migration_remove_assistant_id_columns_v1",
@@ -76,6 +105,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
       "Rebuild four tables to drop the assistant_id column after normalization",
+    down: downRemoveAssistantIdColumns,
   },
   {
     key: "migration_remove_assistant_id_lue_v1",
@@ -83,36 +113,42 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
       "Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)",
+    down: downLlmUsageEventsDropAssistantId,
   },
   {
     key: "backfill_inbox_thread_state_from_bindings",
     version: 8,
     description:
       "Seed assistant_inbox_thread_state from external_conversation_bindings",
+    down: downBackfillInboxThreadState,
   },
   {
     key: "drop_active_search_index_v1",
     version: 9,
     description:
       "Drop old idx_memory_items_active_search so it can be recreated with updated covering columns",
+    down: downDropActiveSearchIndex,
   },
   {
     key: "migration_notification_tables_schema_v1",
     version: 10,
     description:
       "Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema",
+    down: downNotificationTablesSchema,
   },
   {
     key: "migration_rename_macos_ios_channel_to_vellum_v1",
     version: 11,
     description:
       "Rename macos and ios channel identifiers to vellum across all tables",
+    down: downRenameChannelToVellum,
   },
   {
     key: "migration_embedding_vector_blob_v1",
     version: 12,
     description:
       "Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage",
+    down: downEmbeddingVectorBlob,
   },
   {
     key: "migration_embeddings_nullable_vector_json_v1",
@@ -120,18 +156,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_embedding_vector_blob_v1"],
     description:
       "Rebuild memory_embeddings to make vector_json nullable (pre-100 DBs had NOT NULL)",
+    down: downEmbeddingsNullableVectorJson,
   },
   {
     key: "migration_normalize_phone_identities_v1",
     version: 14,
     description:
       "Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits",
+    down: downNormalizePhoneIdentities,
   },
   {
     key: "migration_backfill_guardian_principal_id_v3",
     version: 15,
     description:
       "Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests",
+    down: downBackfillGuardianPrincipalId,
   },
   {
     key: "migration_guardian_principal_id_not_null_v1",
@@ -139,18 +178,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_backfill_guardian_principal_id_v3"],
     description:
       "Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill",
+    down: downGuardianPrincipalIdNotNull,
   },
   {
     key: "migration_contacts_notes_column_v1",
     version: 17,
     description:
       "Consolidate relationship/importance/response_expectation/preferred_tone into a single notes TEXT column, then drop the legacy columns",
+    down: downContactsNotesColumn,
   },
   {
     key: "backfill_contact_interaction_stats",
     version: 18,
     description:
       "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
+    down: downBackfillContactInteractionStats,
   },
   {
     key: "migration_drop_assistant_id_columns_v1",
@@ -158,36 +200,42 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
       "Drop assistant_id columns from all 16 daemon tables after normalization to single-tenant identity",
+    down: downDropAssistantIdColumns,
   },
   {
     key: "migration_backfill_usage_cache_accounting_v1",
     version: 20,
     description:
       "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
+    down: downBackfillUsageCacheAccounting,
   },
   {
     key: "migration_rename_verification_table_v1",
     version: 21,
     description:
       "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
+    down: downRenameVerificationTable,
   },
   {
     key: "migration_rename_verification_session_id_column_v1",
     version: 22,
     description:
       "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
+    down: downRenameVerificationSessionIdColumn,
   },
   {
     key: "migration_rename_guardian_verification_values_v1",
     version: 23,
     description:
       "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
+    down: downRenameGuardianVerificationValues,
   },
   {
     key: "migration_rename_voice_to_phone_v1",
     version: 24,
     description:
       'Rename stored "voice" channel values to "phone" across all tables with channel text columns',
+    down: downRenameVoiceToPhone,
   },
   {
     key: "migration_drop_accounts_table_v1",

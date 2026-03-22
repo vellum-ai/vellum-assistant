@@ -54,6 +54,7 @@ mock.module("node:fs", () => ({
 // Import after mocking
 import {
   loadCheckpoints,
+  rollbackWorkspaceMigrations,
   runWorkspaceMigrations,
 } from "../workspace/migrations/runner.js";
 
@@ -68,6 +69,15 @@ function makeMigration(id: string): WorkspaceMigration {
     id,
     description: `Migration ${id}`,
     run: mock(() => {}),
+  };
+}
+
+function makeMigrationWithDown(id: string): WorkspaceMigration {
+  return {
+    id,
+    description: `Migration ${id}`,
+    run: mock(() => {}),
+    down: mock(() => {}),
   };
 }
 
@@ -289,5 +299,135 @@ describe("runWorkspaceMigrations", () => {
     expect(logWarnFn).toHaveBeenCalledWith(
       expect.stringContaining("malformed"),
     );
+  });
+});
+
+describe("rollbackWorkspaceMigrations", () => {
+  beforeEach(() => {
+    mockCheckpointContents = null;
+    readTextFileSyncFn.mockClear();
+    ensureDirFn.mockClear();
+    writeFileSyncFn.mockClear();
+    renameSyncFn.mockClear();
+    logWarnFn.mockClear();
+    logInfoFn.mockClear();
+    logErrorFn.mockClear();
+  });
+
+  test("rolls back migrations in reverse order", async () => {
+    const m1 = makeMigrationWithDown("001");
+    const m2 = makeMigrationWithDown("002");
+    const m3 = makeMigrationWithDown("003");
+
+    // All three migrations are marked as completed in checkpoints
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+        "002": { appliedAt: "2025-01-02T00:00:00.000Z", status: "completed" },
+        "003": { appliedAt: "2025-01-03T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    const callOrder: string[] = [];
+    (m2.down as ReturnType<typeof mock>).mockImplementation(() => {
+      callOrder.push("002");
+    });
+    (m3.down as ReturnType<typeof mock>).mockImplementation(() => {
+      callOrder.push("003");
+    });
+
+    // Roll back to m1 — should reverse m3 then m2, but not m1
+    await rollbackWorkspaceMigrations(WORKSPACE_DIR, [m1, m2, m3], "001");
+
+    expect(m3.down).toHaveBeenCalledTimes(1);
+    expect(m2.down).toHaveBeenCalledTimes(1);
+    expect(m1.down).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(["003", "002"]);
+  });
+
+  test("throws when migration has no down function", async () => {
+    const m1 = makeMigrationWithDown("001");
+    // m2 has no down function
+    const m2 = makeMigration("002");
+
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+        "002": { appliedAt: "2025-01-02T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    await expect(
+      rollbackWorkspaceMigrations(WORKSPACE_DIR, [m1, m2], "001"),
+    ).rejects.toThrow(
+      'Migration "002" does not support rollback (no down() method)',
+    );
+  });
+
+  test("handles crash during rollback (rolling_back status)", async () => {
+    const m1 = makeMigrationWithDown("001");
+
+    // Simulate a crash during a previous rollback — m1 is left in rolling_back state
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": {
+          appliedAt: "2025-01-01T00:00:00.000Z",
+          status: "rolling_back",
+        },
+      },
+    });
+
+    // runWorkspaceMigrations should clear the rolling_back status and re-run forward
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
+
+    // The runner treats "rolling_back" like "started" — it clears the entry and re-runs
+    expect(m1.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("removes checkpoints for rolled-back migrations", async () => {
+    const m1 = makeMigrationWithDown("001");
+    const m2 = makeMigrationWithDown("002");
+    const m3 = makeMigrationWithDown("003");
+
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+        "002": { appliedAt: "2025-01-02T00:00:00.000Z", status: "completed" },
+        "003": { appliedAt: "2025-01-03T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    await rollbackWorkspaceMigrations(WORKSPACE_DIR, [m1, m2, m3], "001");
+
+    // The last checkpoint write should only contain m1 (002 and 003 were rolled back)
+    const lastWriteCall = writeFileSyncFn.mock.calls.at(-1) as unknown[];
+    const finalCheckpoint = JSON.parse(lastWriteCall[1] as string);
+    expect(finalCheckpoint.applied["001"]).toBeDefined();
+    expect(finalCheckpoint.applied["002"]).toBeUndefined();
+    expect(finalCheckpoint.applied["003"]).toBeUndefined();
+  });
+
+  test("no-op when already at target", async () => {
+    const m1 = makeMigrationWithDown("001");
+    const m2 = makeMigrationWithDown("002");
+    const m3 = makeMigrationWithDown("003");
+
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+        "002": { appliedAt: "2025-01-02T00:00:00.000Z", status: "completed" },
+        "003": { appliedAt: "2025-01-03T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    // Target is the last migration — nothing to roll back
+    await rollbackWorkspaceMigrations(WORKSPACE_DIR, [m1, m2, m3], "003");
+
+    expect(m1.down).not.toHaveBeenCalled();
+    expect(m2.down).not.toHaveBeenCalled();
+    expect(m3.down).not.toHaveBeenCalled();
+
+    // No checkpoint writes should have occurred (no rollback happened)
+    expect(writeFileSyncFn).not.toHaveBeenCalled();
   });
 });

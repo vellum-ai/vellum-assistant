@@ -11,7 +11,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -21,7 +21,9 @@ import {
   migrateMemoryEntityRelationDedup,
   migrateMemoryItemsFingerprintScopeUnique,
   MIGRATION_REGISTRY,
+  type MigrationRegistryEntry,
   type MigrationValidationResult,
+  rollbackMemoryMigration,
   validateMigrationState,
 } from "../memory/migrations/index.js";
 import * as schema from "../memory/schema.js";
@@ -875,5 +877,351 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
       }
     ).c;
     expect(countAfter2).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. rollbackMemoryMigration
+// ---------------------------------------------------------------------------
+
+describe("rollbackMemoryMigration", () => {
+  // Track test entries pushed onto MIGRATION_REGISTRY so we can restore after
+  // each test. This avoids polluting the real registry across test runs.
+  let registrySnapshot: MigrationRegistryEntry[];
+
+  function saveRegistry() {
+    registrySnapshot = [...MIGRATION_REGISTRY];
+  }
+
+  function restoreRegistry() {
+    MIGRATION_REGISTRY.length = 0;
+    MIGRATION_REGISTRY.push(...registrySnapshot);
+  }
+
+  afterEach(() => {
+    restoreRegistry();
+  });
+
+  test("rolls back checkpoint-tracked migrations in reverse version order", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    // Track execution order of down() calls.
+    const downCalls: string[] = [];
+
+    const now = Date.now();
+
+    // Use very high version numbers to avoid colliding with real registry entries.
+    const testEntries: MigrationRegistryEntry[] = [
+      {
+        key: "test_rollback_v1000",
+        version: 1000,
+        description: "test migration v1000",
+        down: () => {
+          downCalls.push("test_rollback_v1000");
+        },
+      },
+      {
+        key: "test_rollback_v1001",
+        version: 1001,
+        description: "test migration v1001",
+        down: () => {
+          downCalls.push("test_rollback_v1001");
+        },
+      },
+      {
+        key: "test_rollback_v1002",
+        version: 1002,
+        description: "test migration v1002",
+        down: () => {
+          downCalls.push("test_rollback_v1002");
+        },
+      },
+    ];
+
+    MIGRATION_REGISTRY.push(...testEntries);
+
+    // Simulate all three migrations as completed.
+    for (const entry of testEntries) {
+      raw.exec(
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('${entry.key}', '1', ${now})`,
+      );
+    }
+
+    // Roll back to version 1000 — should roll back v1002 and v1001 (version > 1000).
+    const rolledBack = rollbackMemoryMigration(db, 1000);
+
+    // Verify returned keys.
+    expect(rolledBack).toEqual(["test_rollback_v1002", "test_rollback_v1001"]);
+
+    // Verify down() was called in reverse version order.
+    expect(downCalls).toEqual(["test_rollback_v1002", "test_rollback_v1001"]);
+
+    // Checkpoints for rolled-back migrations should be deleted.
+    const cp1001 = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1001'`,
+      )
+      .get();
+    expect(cp1001).toBeNull();
+
+    const cp1002 = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1002'`,
+      )
+      .get();
+    expect(cp1002).toBeNull();
+
+    // Checkpoint for the migration at target version should still exist.
+    const cp1000 = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'test_rollback_v1000'`,
+      )
+      .get() as { value: string } | null;
+    expect(cp1000).toBeTruthy();
+    expect(cp1000!.value).toBe("1");
+  });
+
+  test("throws when migration has no down function", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const now = Date.now();
+
+    // Register an entry WITHOUT a down function.
+    MIGRATION_REGISTRY.push({
+      key: "test_no_down_v2000",
+      version: 2000,
+      description: "test migration without down()",
+      // no down() defined
+    });
+
+    // Mark it as completed.
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_no_down_v2000', '1', ${now})`,
+    );
+
+    // Attempting to roll back should throw a descriptive error.
+    expect(() => rollbackMemoryMigration(db, 1999)).toThrow(
+      'Cannot roll back migration "test_no_down_v2000"',
+    );
+    expect(() => rollbackMemoryMigration(db, 1999)).toThrow(
+      "no down() function defined",
+    );
+  });
+
+  test("handles transaction failure in down() — rolls back and preserves checkpoint", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const now = Date.now();
+
+    // Create a table that the down() function will try to modify.
+    raw.exec(/*sql*/ `
+      CREATE TABLE IF NOT EXISTS test_rollback_data (
+        id TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
+    raw.exec(
+      `INSERT INTO test_rollback_data (id, value) VALUES ('row-1', 'original')`,
+    );
+
+    // Register a migration whose down() modifies test_rollback_data,
+    // but a trigger will force the modification to fail.
+    MIGRATION_REGISTRY.push({
+      key: "test_fail_down_v3000",
+      version: 3000,
+      description: "test migration with failing down()",
+      down: (database) => {
+        const sqlite = getSqliteFrom(database);
+        // This UPDATE will trigger our failure trigger.
+        sqlite.exec(
+          `UPDATE test_rollback_data SET value = 'rolled-back' WHERE id = 'row-1'`,
+        );
+      },
+    });
+
+    // Mark as completed.
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_fail_down_v3000', '1', ${now})`,
+    );
+
+    // Install a trigger to force the down() function to fail.
+    raw.exec(/*sql*/ `
+      CREATE TRIGGER fail_on_update_test_rollback AFTER UPDATE ON test_rollback_data
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated down() failure');
+      END
+    `);
+
+    // Rollback should throw because down() fails.
+    let threw = false;
+    try {
+      rollbackMemoryMigration(db, 2999);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    // Remove the trigger for inspection.
+    raw.exec(`DROP TRIGGER IF EXISTS fail_on_update_test_rollback`);
+
+    // The checkpoint should still exist (the transaction was rolled back,
+    // so the DELETE FROM memory_checkpoints inside the transaction was undone).
+    // However the checkpoint value was changed to 'rolling_back' BEFORE the
+    // transaction started (outside the BEGIN/COMMIT).
+    const cp = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'test_fail_down_v3000'`,
+      )
+      .get() as { value: string } | null;
+    expect(cp).toBeTruthy();
+    // The checkpoint is preserved (value = 'rolling_back' because the pre-txn
+    // update succeeded but the txn rolled back, leaving checkpoint intact).
+    expect(cp!.value).toBe("rolling_back");
+
+    // The data should be unchanged — the UPDATE inside down() was rolled back.
+    const row = raw
+      .query(`SELECT value FROM test_rollback_data WHERE id = 'row-1'`)
+      .get() as { value: string } | null;
+    expect(row).toBeTruthy();
+    expect(row!.value).toBe("original");
+  });
+
+  test("no-op when already at target version", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const now = Date.now();
+
+    // Register entries with down functions — they should NOT be called.
+    const downCalls: string[] = [];
+
+    MIGRATION_REGISTRY.push(
+      {
+        key: "test_noop_v4000",
+        version: 4000,
+        description: "test noop v4000",
+        down: () => {
+          downCalls.push("test_noop_v4000");
+        },
+      },
+      {
+        key: "test_noop_v4001",
+        version: 4001,
+        description: "test noop v4001",
+        down: () => {
+          downCalls.push("test_noop_v4001");
+        },
+      },
+    );
+
+    // Mark both as completed.
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4000', '1', ${now})`,
+    );
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4001', '1', ${now})`,
+    );
+
+    // Roll back to version >= latest applied migration — should be a no-op.
+    const rolledBack = rollbackMemoryMigration(db, 4001);
+
+    expect(rolledBack).toEqual([]);
+    expect(downCalls).toEqual([]);
+
+    // Both checkpoints should remain.
+    const cp4000 = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4000'`,
+      )
+      .get() as { value: string } | null;
+    const cp4001 = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4001'`,
+      )
+      .get() as { value: string } | null;
+    expect(cp4000!.value).toBe("1");
+    expect(cp4001!.value).toBe("1");
+
+    // Also verify with a target version greater than the latest.
+    const rolledBack2 = rollbackMemoryMigration(db, 9999);
+    expect(rolledBack2).toEqual([]);
+    expect(downCalls).toEqual([]);
+  });
+
+  test("respects dependency ordering on rollback (children rolled back before parents)", () => {
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const now = Date.now();
+    const downCalls: string[] = [];
+
+    // Parent migration at version 5000 — has a down().
+    // Child migration at version 5001 — depends on parent, has a down().
+    // Since the child has a higher version number, rolling back in reverse
+    // version order means the child (v5001) is rolled back BEFORE the parent
+    // (v5000), which is the correct dependency-safe ordering.
+    MIGRATION_REGISTRY.push(
+      {
+        key: "test_parent_v5000",
+        version: 5000,
+        description: "test parent migration",
+        down: () => {
+          downCalls.push("test_parent_v5000");
+        },
+      },
+      {
+        key: "test_child_v5001",
+        version: 5001,
+        dependsOn: ["test_parent_v5000"],
+        description: "test child migration depending on parent",
+        down: () => {
+          downCalls.push("test_child_v5001");
+        },
+      },
+    );
+
+    // Both are completed.
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_parent_v5000', '1', ${now})`,
+    );
+    raw.exec(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_child_v5001', '1', ${now})`,
+    );
+
+    // Roll back to version 4999 — both should be rolled back, child first.
+    const rolledBack = rollbackMemoryMigration(db, 4999);
+
+    expect(rolledBack).toEqual(["test_child_v5001", "test_parent_v5000"]);
+
+    // Verify down() execution order: child before parent.
+    expect(downCalls).toEqual(["test_child_v5001", "test_parent_v5000"]);
+
+    // Both checkpoints should be deleted.
+    const cpParent = raw
+      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_parent_v5000'`)
+      .get();
+    const cpChild = raw
+      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_child_v5001'`)
+      .get();
+    expect(cpParent).toBeNull();
+    expect(cpChild).toBeNull();
   });
 });

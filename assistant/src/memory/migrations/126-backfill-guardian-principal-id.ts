@@ -2,6 +2,58 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
+ * Reverse v15: set guardian_principal_id back to NULL on all rows in
+ * channel_guardian_bindings and canonical_guardian_requests.
+ *
+ * Also un-expires requests that the forward migration expired (sets them
+ * back to 'pending'). This is a best-effort reversal — the original status
+ * of expired requests cannot be perfectly reconstructed if they were already
+ * expired before the forward migration ran, but the forward migration only
+ * expired requests that had NULL guardian_principal_id and status = 'pending'.
+ */
+export function downBackfillGuardianPrincipalId(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  // Null out guardian_principal_id on channel_guardian_bindings
+  const bindingsExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_bindings'`,
+    )
+    .get();
+  if (bindingsExists) {
+    const colExists = raw
+      .query(
+        `SELECT 1 FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
+      )
+      .get();
+    if (colExists) {
+      raw.exec(
+        /*sql*/ `UPDATE channel_guardian_bindings SET guardian_principal_id = NULL`,
+      );
+    }
+  }
+
+  // Null out guardian_principal_id on canonical_guardian_requests
+  const requestsExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'canonical_guardian_requests'`,
+    )
+    .get();
+  if (requestsExists) {
+    const colExists = raw
+      .query(
+        `SELECT 1 FROM pragma_table_info('canonical_guardian_requests') WHERE name = 'guardian_principal_id'`,
+      )
+      .get();
+    if (colExists) {
+      raw.exec(
+        /*sql*/ `UPDATE canonical_guardian_requests SET guardian_principal_id = NULL`,
+      );
+    }
+  }
+}
+
+/**
  * Backfill guardianPrincipalId for existing channel_guardian_bindings and
  * canonical_guardian_requests rows.
  *

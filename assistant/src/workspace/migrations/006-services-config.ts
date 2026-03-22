@@ -134,4 +134,53 @@ export const servicesConfigMigration: WorkspaceMigration = {
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
+  down(workspaceDir: string): void {
+    const configPath = join(workspaceDir, "config.json");
+    if (!existsSync(configPath)) return;
+
+    let config: Record<string, unknown>;
+    try {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      config = raw as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    const services = config.services;
+    if (!services || typeof services !== "object" || Array.isArray(services))
+      return;
+
+    const svc = services as Record<string, Record<string, unknown>>;
+
+    // Extract inference provider and model back to top-level fields.
+    // Note: inferenceMode is lost in this rollback — the original config did
+    // not store a mode field. This is an accepted lossy reversal.
+    if (svc.inference) {
+      if (typeof svc.inference.provider === "string") {
+        config.provider = svc.inference.provider;
+      }
+      if (typeof svc.inference.model === "string") {
+        config.model = svc.inference.model;
+      }
+    }
+
+    // Extract image generation model back to top-level
+    if (svc["image-generation"]) {
+      if (typeof svc["image-generation"].model === "string") {
+        config.imageGenModel = svc["image-generation"].model;
+      }
+    }
+
+    // Extract web search provider back to top-level
+    if (svc["web-search"]) {
+      if (typeof svc["web-search"].provider === "string") {
+        config.webSearchProvider = svc["web-search"].provider;
+      }
+    }
+
+    delete config.services;
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  },
 };

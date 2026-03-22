@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { computeMemoryFingerprint } from "../fingerprint.js";
 
@@ -64,6 +66,54 @@ export function migrateMemoryItemsScopeSaltedFingerprints(
         `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
       )
       .run(checkpointKey, Date.now());
+
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
+  }
+}
+
+/**
+ * Reverse the scope-salted fingerprint migration by recomputing fingerprints
+ * WITHOUT the scope_id prefix.
+ *
+ * Old format: sha256(`${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`)
+ */
+export function downMemoryItemsScopeSaltedFingerprints(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  interface ItemRow {
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+  }
+
+  const items = raw
+    .query(`SELECT id, kind, subject, statement FROM memory_items`)
+    .all() as ItemRow[];
+
+  if (items.length === 0) return;
+
+  try {
+    raw.exec("BEGIN");
+
+    const updateStmt = raw.prepare(
+      `UPDATE memory_items SET fingerprint = ? WHERE id = ?`,
+    );
+
+    for (const item of items) {
+      const normalized = `${item.kind}|${item.subject.toLowerCase()}|${item.statement.toLowerCase()}`;
+      const fingerprint = createHash("sha256").update(normalized).digest("hex");
+      updateStmt.run(fingerprint, item.id);
+    }
 
     raw.exec("COMMIT");
   } catch (e) {
