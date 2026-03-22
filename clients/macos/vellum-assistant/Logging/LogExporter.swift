@@ -159,10 +159,10 @@ enum LogExporter {
             name: formData.name.isEmpty ? nil : formData.name
         )
 
-        // Route assistant behavior reports to the brain Sentry project
+        // Route assistant behavior reports to the assistant Sentry project
         // so they appear alongside daemon issues for triage.
         let dsn: String? = (formData.reason == .somethingBroken && errorCategoryString != nil)
-            ? MetricKitManager.brainDSN
+            ? MetricKitManager.assistantDSN
             : nil
 
         // Send lightweight Sentry event (no archive attachment) and capture the event ID

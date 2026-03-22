@@ -943,7 +943,7 @@ export async function startLocalDaemon(
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
         "RUNTIME_HTTP_PORT",
-        "SENTRY_DSN",
+        "SENTRY_DSN_ASSISTANT",
         "TMPDIR",
         "USER",
         "LANG",

@@ -344,7 +344,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
-        if sendDiagnostics {
+        if sendDiagnostics && !MetricKitManager.macosDSN.isEmpty {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
             let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String

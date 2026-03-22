@@ -24,6 +24,8 @@ set -euo pipefail
 #   SIGN_IDENTITY     Override code signing identity
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
+#   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
+#   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -99,6 +101,26 @@ cd "$SCRIPT_DIR"
 # the same .build directory via symlink) don't race on PCH files.
 # Uses a hash of the repo root's real path to produce a short, stable slug.
 _repo_root="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+
+# Source .env from repo root for local dev convenience (CI sets env vars directly).
+# Existing environment variables take precedence over .env values.
+_dotenv="$_repo_root/.env"
+if [ -f "$_dotenv" ]; then
+    while IFS='=' read -r key value; do
+        # Skip comments and blank lines
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        # Strip surrounding quotes from value
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        # Only set if not already in the environment
+        if [ -z "${!key+x}" ]; then
+            export "$key=$value"
+        fi
+    done < "$_dotenv"
+fi
+
 _cache_slug="$(printf '%s' "$_repo_root" | md5 -q 2>/dev/null || printf '%s' "$_repo_root" | md5sum | cut -d' ' -f1)"
 SPM_MODULE_CACHE="/tmp/spm-module-cache/${_cache_slug}"
 MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE"
@@ -737,14 +759,30 @@ EOF
 fi
 
 LSE_ENVIRONMENT_PLIST=""
+_LSE_ENTRIES=""
 if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
     PLATFORM_URL_OVERRIDE="${VELLUM_PLATFORM_URL%/}"
     echo "Embedding app platform URL override: $PLATFORM_URL_OVERRIDE"
+    _LSE_ENTRIES+="
+        <key>VELLUM_PLATFORM_URL</key>
+        <string>$PLATFORM_URL_OVERRIDE</string>"
+fi
+if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
+    echo "Embedding SENTRY_DSN_MACOS"
+    _LSE_ENTRIES+="
+        <key>SENTRY_DSN_MACOS</key>
+        <string>$SENTRY_DSN_MACOS</string>"
+fi
+if [ -n "${SENTRY_DSN_ASSISTANT:-}" ]; then
+    echo "Embedding SENTRY_DSN_ASSISTANT"
+    _LSE_ENTRIES+="
+        <key>SENTRY_DSN_ASSISTANT</key>
+        <string>$SENTRY_DSN_ASSISTANT</string>"
+fi
+if [ -n "$_LSE_ENTRIES" ]; then
     LSE_ENVIRONMENT_PLIST=$(cat <<EOF
     <key>LSEnvironment</key>
-    <dict>
-        <key>VELLUM_PLATFORM_URL</key>
-        <string>$PLATFORM_URL_OVERRIDE</string>
+    <dict>$_LSE_ENTRIES
     </dict>
 EOF
 )

@@ -61,10 +61,14 @@ import os
     /// provides sufficient headroom.
     nonisolated static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
 
-    /// Default DSN for the macOS app Sentry project.
-    nonisolated static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
-    /// DSN for the assistant/brain Sentry project.
-    nonisolated static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+    /// DSN for the macOS app Sentry project. Read from SENTRY_DSN_MACOS env var;
+    /// empty string disables Sentry.
+    nonisolated static let macosDSN: String =
+        ProcessInfo.processInfo.environment["SENTRY_DSN_MACOS"] ?? ""
+    /// DSN for the assistant Sentry project. Read from SENTRY_DSN_ASSISTANT env var;
+    /// empty string disables Sentry for this project.
+    nonisolated static let assistantDSN: String =
+        ProcessInfo.processInfo.environment["SENTRY_DSN_ASSISTANT"] ?? ""
 
     /// Sends a manual problem report unconditionally, even when the user has
     /// opted out of automatic crash reporting.  The SDK is temporarily started
@@ -83,6 +87,10 @@ import os
     ) {
         sentrySerialQueue.async {
             let targetDSN = dsn ?? macosDSN
+            guard !targetDSN.isEmpty else {
+                completion?(nil)
+                return
+            }
             let needsDSNSwitch = dsn != nil
             let wasEnabled = SentrySDK.isEnabled
 
@@ -215,6 +223,7 @@ import os
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? true
         guard sendDiagnostics else { return }
+        guard !macosDSN.isEmpty else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String

@@ -112,7 +112,7 @@ final class VellumCli {
     nonisolated private static let forwardedEnvKeys: [String] = [
         "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL",
-        "SENTRY_DSN", "TMPDIR", "USER", "LANG",
+        "SENTRY_DSN_MACOS", "SENTRY_DSN_ASSISTANT", "TMPDIR", "USER", "LANG",
     ] + Array(providerEnvVars.values) + [
         // Cloud provider auth — needed by hatch and retire flows.
         "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",

@@ -932,6 +932,8 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
+          SENTRY_DSN_MACOS="${{ secrets.SENTRY_DSN_MACOS }}" \
+          SENTRY_DSN_ASSISTANT="${{ secrets.SENTRY_DSN_ASSISTANT }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           SKIP_BUN_REBUILD=1 \
@@ -1319,6 +1321,8 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
+          SENTRY_DSN_MACOS="${{ secrets.SENTRY_DSN_MACOS }}" \
+          SENTRY_DSN_ASSISTANT="${{ secrets.SENTRY_DSN_ASSISTANT }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch x86_64" \
           SKIP_BUN_REBUILD=1 \

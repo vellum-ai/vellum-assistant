@@ -39,14 +39,17 @@ function redactObject(obj: unknown): unknown {
 }
 
 /**
- * Call after dotenv has loaded so SENTRY_DSN is available.
- * Always initializes Sentry to capture early startup crashes. If the user
- * later opts out via the sendDiagnostics config key (or VELLUM_DEV=1),
- * call closeSentry() after config is loaded to stop future event capturing.
+ * Call after dotenv has loaded so SENTRY_DSN_ASSISTANT is available.
+ * Initializes Sentry when the DSN is set; no-ops when empty/unset so
+ * local dev builds don't send crash reports. If the user later opts out
+ * via the sendDiagnostics config key (or VELLUM_DEV=1), call closeSentry()
+ * after config is loaded to stop future event capturing.
  */
 export function initSentry(): void {
+  const dsn = getSentryDsn();
+  if (!dsn) return;
   Sentry.init({
-    dsn: getSentryDsn(),
+    dsn,
     release: `vellum-assistant@${APP_VERSION}`,
     dist: COMMIT_SHA,
     environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
