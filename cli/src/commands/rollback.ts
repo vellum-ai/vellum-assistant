@@ -212,8 +212,10 @@ export async function rollback(): Promise<void> {
             `to: ${entry.previousServiceGroupVersion ?? "unknown"}\n` +
             `topology: docker`,
         );
-      } catch {
-        // Best-effort — git failures must not block the rollback
+      } catch (err) {
+        console.warn(
+          `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -360,8 +362,10 @@ export async function rollback(): Promise<void> {
               `result: success\n` +
               `topology: docker`,
           );
-        } catch {
-          // Best-effort — git failures must not block success reporting
+        } catch (err) {
+          console.warn(
+            `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 

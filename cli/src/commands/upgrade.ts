@@ -333,8 +333,10 @@ async function upgradeDocker(
           `to: ${versionTag}\n` +
           `topology: docker`,
       );
-    } catch {
-      // Best-effort — git failures must not block the upgrade
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -494,8 +496,10 @@ async function upgradeDocker(
             `result: success\n` +
             `topology: docker`,
         );
-      } catch {
-        // Best-effort — git failures must not block success reporting
+      } catch (err) {
+        console.warn(
+          `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -650,8 +654,10 @@ async function upgradePlatform(
           `to: ${version ?? "latest"}\n` +
           `topology: managed`,
       );
-    } catch {
-      // Best-effort — git failures must not block the upgrade
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -736,8 +742,10 @@ async function upgradePlatform(
           `result: success\n` +
           `topology: managed`,
       );
-    } catch {
-      // Best-effort — git failures must not block the upgrade
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
