@@ -156,6 +156,7 @@ export class ConfigWatcher {
       },
       "feature-flags.json": () => {
         clearFeatureFlagOverridesCache();
+        onConversationEvict();
       },
       "secret-allowlist.json": () => {
         resetAllowlist();
