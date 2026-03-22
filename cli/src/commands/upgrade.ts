@@ -34,6 +34,7 @@ import {
 } from "../lib/guardian-token";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec, execOutput } from "../lib/step-runner";
+import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -242,37 +243,6 @@ export async function broadcastUpgradeEvent(
   } catch {
     // Best-effort — gateway/daemon may already be shutting down or not yet ready
   }
-}
-
-/**
- * Best-effort git commit in the workspace directory.
- * Stages all changes and creates an --allow-empty commit.
- * Mirrors the safety measures from WorkspaceGitService: disables hooks
- * and sets a deterministic committer identity.
- */
-async function commitWorkspaceState(
-  workspaceDir: string,
-  message: string,
-): Promise<void> {
-  const opts = { cwd: workspaceDir };
-  await exec("git", ["add", "-A"], opts);
-  await exec(
-    "git",
-    [
-      "-c",
-      "user.name=vellum-cli",
-      "-c",
-      "user.email=cli@vellum.ai",
-      "-c",
-      "core.hooksPath=/dev/null",
-      "commit",
-      "--no-verify",
-      "--allow-empty",
-      "-m",
-      message,
-    ],
-    opts,
-  );
 }
 
 async function upgradeDocker(

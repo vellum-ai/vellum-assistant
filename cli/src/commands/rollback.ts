@@ -1,7 +1,5 @@
-import { execFile } from "child_process";
 import { randomBytes } from "crypto";
 import { join } from "path";
-import { promisify } from "util";
 
 import {
   findAssistantByName,
@@ -26,6 +24,7 @@ import {
   saveBootstrapSecret,
 } from "../lib/guardian-token";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
+import { commitWorkspaceState } from "../lib/workspace-git.js";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
@@ -123,36 +122,6 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   process.exit(1);
 }
 
-const execFileAsync = promisify(execFile);
-
-/**
- * Best-effort commit of workspace state for rollback audit trail.
- * Stages all changes and creates an --allow-empty commit so the history
- * records every rollback attempt even when no files changed.
- * Hooks are disabled (core.hooksPath=/dev/null, --no-verify) because
- * workspace contents are model-writable and hooks are untrusted.
- */
-async function commitWorkspaceChanges(
-  workspaceDir: string,
-  message: string,
-): Promise<void> {
-  const opts = { cwd: workspaceDir, timeout: 10_000 };
-  await execFileAsync("git", ["add", "-A"], opts);
-  await execFileAsync(
-    "git",
-    [
-      "-c",
-      "core.hooksPath=/dev/null",
-      "commit",
-      "--no-verify",
-      "--allow-empty",
-      "-m",
-      message,
-    ],
-    opts,
-  );
-}
-
 export async function rollback(): Promise<void> {
   const { name } = parseArgs();
   const entry = resolveTargetAssistant(name);
@@ -204,7 +173,7 @@ export async function rollback(): Promise<void> {
     // Record rollback start in workspace git history
     if (workspaceDir) {
       try {
-        await commitWorkspaceChanges(
+        await commitWorkspaceState(
           workspaceDir,
           `[rollback] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${entry.previousServiceGroupVersion ?? "unknown"}\n\n` +
             `assistant: ${entry.assistantId}\n` +
@@ -353,7 +322,7 @@ export async function rollback(): Promise<void> {
       // Record successful rollback in workspace git history
       if (workspaceDir) {
         try {
-          await commitWorkspaceChanges(
+          await commitWorkspaceState(
             workspaceDir,
             `[rollback] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${entry.previousServiceGroupVersion ?? "unknown"}\n\n` +
               `assistant: ${entry.assistantId}\n` +
