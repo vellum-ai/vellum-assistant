@@ -34,3 +34,16 @@ export function migrateDropCapabilityCardState(database: DrizzleDb): void {
     raw.exec(/*sql*/ `DROP TABLE IF EXISTS capability_card_categories`);
   });
 }
+
+/**
+ * Reverse: no-op.
+ *
+ * The forward migration deleted rows (card-type conversation starters,
+ * generate_capability_cards jobs, capability_cards checkpoints) and dropped
+ * the capability_card_categories table. The deleted data cannot be restored
+ * — it was discarded as dead state after the capability card feature was
+ * removed.
+ */
+export function migrateDropCapabilityCardStateDown(_database: DrizzleDb): void {
+  // No-op — see comment above.
+}

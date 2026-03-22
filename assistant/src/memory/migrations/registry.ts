@@ -23,6 +23,20 @@ import { downRenameVerificationTable } from "./141-rename-verification-table.js"
 import { downRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
 import { downRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
 import { downRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
+import { migrateDropAccountsTableDown } from "./145-drop-accounts-table.js";
+import { migrateRemindersToSchedulesDown } from "./147-migrate-reminders-to-schedules.js";
+import { migrateDropRemindersTableDown } from "./148-drop-reminders-table.js";
+import { migrateOAuthAppsClientSecretPathDown } from "./150-oauth-apps-client-secret-path.js";
+import {
+  migrateGuardianTimestampsEpochMsDown,
+  migrateGuardianTimestampsRebuildDown,
+} from "./162-guardian-timestamps-epoch-ms.js";
+import { migrateRenameGmailProviderKeyToGoogleDown } from "./169-rename-gmail-provider-key-to-google.js";
+import { migrateRenameThreadStartersTableDown } from "./174-rename-thread-starters-table.js";
+import { migrateDropCapabilityCardStateDown } from "./176-drop-capability-card-state.js";
+import { migrateBackfillInlineAttachmentsToDiskDown } from "./180-backfill-inline-attachments-to-disk.js";
+import { migrateRenameThreadStartersCheckpointsDown } from "./181-rename-thread-starters-checkpoints.js";
+import { migrateBackfillAudioAttachmentMimeTypesDown } from "./191-backfill-audio-attachment-mime-types.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -228,12 +242,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 25,
     description:
       "Drop the unused legacy accounts table and its leftover indexes after account_manage removal",
+    down: migrateDropAccountsTableDown,
   },
   {
     key: "migration_reminders_to_schedules_v1",
     version: 26,
     description:
       "Copy all existing reminders into cron_jobs as one-shot schedules with correct status and field mapping",
+    down: migrateRemindersToSchedulesDown,
   },
   {
     key: "migration_drop_reminders_table_v1",
@@ -241,18 +257,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_reminders_to_schedules_v1"],
     description:
       "Drop the legacy reminders table and its index after data migration to cron_jobs",
+    down: migrateDropRemindersTableDown,
   },
   {
     key: "migration_oauth_apps_client_secret_path_v1",
     version: 28,
     description:
       "Add client_secret_credential_path column to oauth_apps and backfill existing rows with convention-based paths",
+    down: migrateOAuthAppsClientSecretPathDown,
   },
   {
     key: "migration_guardian_timestamps_epoch_ms_v1",
     version: 29,
     description:
       "Convert guardian table timestamps from ISO 8601 text to epoch ms integers for consistency with all other tables",
+    down: migrateGuardianTimestampsEpochMsDown,
   },
   {
     key: "migration_guardian_timestamps_rebuild_v1",
@@ -260,18 +279,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_guardian_timestamps_epoch_ms_v1"],
     description:
       "Rebuild guardian tables so timestamp columns have INTEGER affinity instead of TEXT",
+    down: migrateGuardianTimestampsRebuildDown,
   },
   {
     key: "migration_rename_gmail_provider_key_to_google_v1",
     version: 31,
     description:
       "Rename integration:gmail provider key to integration:google across oauth_providers, oauth_apps, and oauth_connections",
+    down: migrateRenameGmailProviderKeyToGoogleDown,
   },
   {
     key: "migration_rename_thread_starters_table_v1",
     version: 32,
     description:
       "Rename thread_starters table to conversation_starters and recreate indexes with new names",
+    down: migrateRenameThreadStartersTableDown,
   },
   {
     key: "migration_drop_capability_card_state_v1",
@@ -279,12 +301,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_rename_thread_starters_table_v1"],
     description:
       "Remove deleted capability-card rows, jobs, checkpoints, and category state",
+    down: migrateDropCapabilityCardStateDown,
   },
   {
     key: "migration_backfill_inline_attachments_v1",
     version: 34,
     description:
       "Backfill existing inline base64 attachments to on-disk storage and clear dataBase64",
+    down: migrateBackfillInlineAttachmentsToDiskDown,
   },
   {
     key: "migration_rename_thread_starters_checkpoints_v1",
@@ -292,12 +316,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ["migration_rename_thread_starters_table_v1"],
     description:
       "Rename checkpoint keys from thread_starters: to conversation_starters: prefix so renamed code paths find existing generation state",
+    down: migrateRenameThreadStartersCheckpointsDown,
   },
   {
     key: "migration_backfill_audio_attachment_mime_types_v1",
     version: 36,
     description:
       "Backfill correct MIME types for audio attachments stored as application/octet-stream due to missing extension map entries",
+    down: migrateBackfillAudioAttachmentMimeTypesDown,
   },
 ];
 

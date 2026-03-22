@@ -1,4 +1,5 @@
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
@@ -49,5 +50,50 @@ export function migrateRenameThreadStartersTable(database: DrizzleDb): void {
         /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_starters_card_type ON conversation_starters(card_type, scope_id)`,
       );
     },
+  );
+}
+
+/**
+ * Reverse: rename conversation_starters back to thread_starters and recreate
+ * old index names.
+ *
+ * Idempotent — skips if the old table already exists or the new table is
+ * absent.
+ */
+export function migrateRenameThreadStartersTableDown(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  // Guard: new table must exist
+  const newTableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_starters'`,
+    )
+    .get();
+  if (!newTableExists) return;
+
+  // Guard: old table must not already exist
+  const oldTableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'thread_starters'`,
+    )
+    .get();
+  if (oldTableExists) return;
+
+  // Rename the table back
+  raw.exec(
+    /*sql*/ `ALTER TABLE conversation_starters RENAME TO thread_starters`,
+  );
+
+  // Drop new indexes and recreate with old names
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_conversation_starters_batch`);
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_thread_starters_batch ON thread_starters(generation_batch, created_at)`,
+  );
+
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_conversation_starters_card_type`);
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_thread_starters_card_type ON thread_starters(card_type, scope_id)`,
   );
 }

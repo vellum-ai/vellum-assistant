@@ -64,3 +64,19 @@ export function migrateBackfillInlineAttachmentsToDisk(
     },
   );
 }
+
+/**
+ * Reverse: no-op.
+ *
+ * The forward migration moved attachment data from inline base64 in the
+ * database to on-disk files and cleared the dataBase64 column. The original
+ * base64 data has been deleted from the DB, and re-reading it from disk
+ * back into the database would be unreliable (file paths may have changed,
+ * disk files may have been cleaned up). The on-disk files remain intact
+ * and functional.
+ */
+export function migrateBackfillInlineAttachmentsToDiskDown(
+  _database: DrizzleDb,
+): void {
+  // No-op — see comment above.
+}
