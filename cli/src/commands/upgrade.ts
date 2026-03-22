@@ -239,6 +239,47 @@ async function upgradeDocker(
       return target.patch < current.patch;
     })();
 
+  // For downgrades, fetch the target version's migration ceiling from the
+  // releases API. This tells us exactly which DB migration version and
+  // workspace migration the target version expects, enabling a precise
+  // rollback on the CURRENT (newer) daemon before swapping containers.
+  let targetMigrationCeiling: {
+    dbVersion?: number;
+    workspaceMigrationId?: string;
+  } = {};
+  if (isDowngrade) {
+    try {
+      const platformUrl = getPlatformUrl();
+      const releasesResp = await fetch(
+        `${platformUrl}/v1/releases/?stable=true`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      if (releasesResp.ok) {
+        const releases = (await releasesResp.json()) as Array<{
+          version: string;
+          db_migration_version?: number | null;
+          last_workspace_migration_id?: string;
+        }>;
+        const normalizedTag = versionTag.replace(/^v/, "");
+        const targetRelease = releases.find(
+          (r) => r.version?.replace(/^v/, "") === normalizedTag,
+        );
+        if (
+          targetRelease?.db_migration_version != null ||
+          targetRelease?.last_workspace_migration_id
+        ) {
+          targetMigrationCeiling = {
+            dbVersion: targetRelease.db_migration_version ?? undefined,
+            workspaceMigrationId:
+              targetRelease.last_workspace_migration_id || undefined,
+          };
+        }
+      }
+    } catch {
+      // Best-effort — fall back to rollbackToRegistryCeiling post-swap
+    }
+  }
+
   // Persist rollback state to lockfile BEFORE any destructive changes.
   // This enables the `vellum rollback` command to restore the previous version.
   if (entry.serviceGroupVersion && entry.containerInfo) {
@@ -386,6 +427,33 @@ async function upgradeDocker(
     entry.assistantId,
     buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
   );
+
+  // If we have the target version's migration ceiling, run a PRECISE
+  // rollback on the CURRENT (newer) daemon before stopping it. The current
+  // daemon has the `down()` code for all migrations it applied, so it can
+  // cleanly revert to the target version's ceiling. This is critical for
+  // multi-version downgrades where the old daemon wouldn't know about
+  // migrations introduced after its release.
+  let preSwapRollbackOk = true;
+  if (
+    isDowngrade &&
+    (targetMigrationCeiling.dbVersion !== undefined ||
+      targetMigrationCeiling.workspaceMigrationId !== undefined)
+  ) {
+    console.log("🔄 Reverting database changes for downgrade...");
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
+    );
+    preSwapRollbackOk = await rollbackMigrations(
+      entry.runtimeUrl,
+      entry.assistantId,
+      targetMigrationCeiling.dbVersion,
+      targetMigrationCeiling.workspaceMigrationId,
+    );
+  }
+
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
@@ -455,13 +523,18 @@ async function upgradeDocker(
     };
     saveAssistantEntry(updatedEntry);
 
-    // After a downgrade, ask the now-running old daemon to roll back
-    // migrations above its own registry ceiling.  This may be a no-op when
-    // the old daemon's registry doesn't include the newer migrations, but
-    // it's harmless and correct for single-step rollbacks where the old
-    // daemon did add some of the newer migrations.  rollbackMigrations()
-    // logs the count internally when migrations are actually rolled back.
-    if (isDowngrade) {
+    // After a downgrade, fall back to asking the now-running old daemon
+    // to roll back migrations above its own registry ceiling when either:
+    // (a) no release metadata was available for a precise pre-swap rollback, or
+    // (b) the precise pre-swap rollback failed (timeout, daemon crash, etc.).
+    // This is a no-op for multi-version jumps where the old daemon doesn't
+    // know about the newer migrations, but correct for single-step rollbacks.
+    if (
+      isDowngrade &&
+      (!preSwapRollbackOk ||
+        (targetMigrationCeiling.dbVersion === undefined &&
+          targetMigrationCeiling.workspaceMigrationId === undefined))
+    ) {
       await rollbackMigrations(
         entry.runtimeUrl,
         entry.assistantId,

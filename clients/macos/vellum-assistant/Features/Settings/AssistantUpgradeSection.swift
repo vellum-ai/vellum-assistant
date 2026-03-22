@@ -620,6 +620,8 @@ struct AssistantRelease: Decodable, Identifiable {
     let assistantImageRef: String?
     let gatewayImageRef: String?
     let credentialExecutorImageRef: String?
+    let dbMigrationVersion: Int?
+    let lastWorkspaceMigrationId: String?
 
     var id: String { version }
 }
