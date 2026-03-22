@@ -2,7 +2,6 @@ import { randomBytes } from "crypto";
 import { join } from "node:path";
 
 import cliPkg from "../../package.json";
-import { getWorkspaceGitService } from "../../assistant/src/workspace/git-service.js";
 
 import {
   findAssistantByName,
@@ -245,17 +244,46 @@ export async function broadcastUpgradeEvent(
   }
 }
 
+/**
+ * Best-effort git commit in the workspace directory.
+ * Stages all changes and creates an --allow-empty commit.
+ * Mirrors the safety measures from WorkspaceGitService: disables hooks
+ * and sets a deterministic committer identity.
+ */
+async function commitWorkspaceState(
+  workspaceDir: string,
+  message: string,
+): Promise<void> {
+  const opts = { cwd: workspaceDir };
+  await exec("git", ["add", "-A"], opts);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=vellum-cli",
+      "-c",
+      "user.email=cli@vellum.ai",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "commit",
+      "--no-verify",
+      "--allow-empty",
+      "-m",
+      message,
+    ],
+    opts,
+  );
+}
+
 async function upgradeDocker(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
-  const workspaceDir = join(
-    entry.resources.instanceDir,
-    ".vellum",
-    "workspace",
-  );
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : null;
 
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
@@ -295,17 +323,19 @@ async function upgradeDocker(
   }
 
   // Record version transition start in workspace git history
-  try {
-    const gitService = getWorkspaceGitService(workspaceDir);
-    await gitService.commitChanges(
-      `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
-        `assistant: ${entry.assistantId}\n` +
-        `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-        `to: ${versionTag}\n` +
-        `topology: docker`,
-    );
-  } catch {
-    // Best-effort — git failures must not block the upgrade
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${versionTag}\n` +
+          `topology: docker`,
+      );
+    } catch {
+      // Best-effort — git failures must not block the upgrade
+    }
   }
 
   console.log("💾 Capturing existing container environment...");
@@ -453,18 +483,20 @@ async function upgradeDocker(
     });
 
     // Record successful upgrade in workspace git history
-    try {
-      const gitService = getWorkspaceGitService(workspaceDir);
-      await gitService.commitChanges(
-        `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
-          `assistant: ${entry.assistantId}\n` +
-          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-          `to: ${versionTag}\n` +
-          `result: success\n` +
-          `topology: docker`,
-      );
-    } catch {
-      // Best-effort — git failures must not block success reporting
+    if (workspaceDir) {
+      try {
+        await commitWorkspaceState(
+          workspaceDir,
+          `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
+            `assistant: ${entry.assistantId}\n` +
+            `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+            `to: ${versionTag}\n` +
+            `result: success\n` +
+            `topology: docker`,
+        );
+      } catch {
+        // Best-effort — git failures must not block success reporting
+      }
     }
 
     console.log(
