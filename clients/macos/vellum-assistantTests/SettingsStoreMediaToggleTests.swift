@@ -32,7 +32,7 @@ final class SettingsStoreMediaToggleTests: XCTestCase {
 
     /// Read the persisted config back as a dictionary.
     private func readPersistedConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        SettingsStore.readConfigFromDisk(configPath)
     }
 
     /// Extract the `ui.mediaEmbeds` sub-dictionary from the persisted config.

@@ -25,7 +25,7 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
     }
 
     private func readConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        SettingsStore.readConfigFromDisk(configPath)
     }
 
     func testLoadsValidConfiguredTimezone() {

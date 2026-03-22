@@ -426,27 +426,29 @@ public final class SettingsStore: ObservableObject {
             self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
         }
 
+        // Read workspace config once for all init-time seed values
+        let diskConfig = Self.readConfigFromDisk(configPath)
+
         // Load media embed settings from workspace config
-        let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
+        let mediaSettings = Self.loadMediaEmbedSettings(config: diskConfig)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
-        self.userTimezone = Self.loadUserTimezone(from: configPath)
+        self.userTimezone = Self.loadUserTimezone(config: diskConfig)
 
         // Load permissions settings from workspace config
-        let permissionsConfig = WorkspaceConfigIO.read(from: configPath)["permissions"] as? [String: Any]
+        let permissionsConfig = diskConfig["permissions"] as? [String: Any]
         self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
 
         // Load web search provider from workspace config
-        let config = WorkspaceConfigIO.read(from: configPath)
-        if let services = config["services"] as? [String: Any],
+        if let services = diskConfig["services"] as? [String: Any],
            let webSearch = services["web-search"] as? [String: Any],
            let provider = webSearch["provider"] as? String {
             self.webSearchProvider = provider
         }
 
         // Load service modes (inference, image-generation) from workspace config
-        loadServiceModes()
+        loadServiceModes(config: diskConfig)
 
         // Seed provider catalog with shared defaults so the UI has data before
         // the first daemon fetch completes.
@@ -2098,8 +2100,8 @@ public final class SettingsStore: ObservableObject {
 
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
-    func loadServiceModes() {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    func loadServiceModes(config: [String: Any]? = nil) {
+        let config = config ?? Self.readConfigFromDisk(configPath)
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
@@ -2990,8 +2992,8 @@ public final class SettingsStore: ObservableObject {
     /// When no `enabledSince` is found in the config (missing file, missing
     /// section, or missing/unparseable key), the value defaults to "now" so
     /// that fresh installs only embed new messages going forward.
-    private static func loadMediaEmbedSettings(from configPath: String? = nil) -> MediaEmbedLoadResult {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    private static func loadMediaEmbedSettings(config: [String: Any]? = nil, from configPath: String? = nil) -> MediaEmbedLoadResult {
+        let config = config ?? readConfigFromDisk(configPath)
 
         guard let ui = config["ui"] as? [String: Any],
               let mediaEmbeds = ui["mediaEmbeds"] as? [String: Any] else {
@@ -3061,8 +3063,31 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private static func loadUserTimezone(from configPath: String? = nil) -> String? {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    /// Reads the workspace config JSON from disk.  Used as a synchronous seed
+    /// during init (before the daemon is reachable) and as a fallback in helpers
+    /// that may be called outside an async context.
+    nonisolated static func readConfigFromDisk(_ path: String? = nil) -> [String: Any] {
+        let filePath: String
+        if let path, !path.isEmpty {
+            filePath = path
+        } else if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                  !assistantId.isEmpty,
+                  let assistant = LockfileAssistant.loadByName(assistantId),
+                  let workspaceDir = assistant.workspaceDir, !workspaceDir.isEmpty {
+            filePath = URL(fileURLWithPath: workspaceDir).appendingPathComponent("config.json").path
+        } else {
+            filePath = "\(NSHomeDirectory())/.vellum/workspace/config.json"
+        }
+        guard FileManager.default.fileExists(atPath: filePath),
+              let data = FileManager.default.contents(atPath: filePath), !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
+    }
+
+    private static func loadUserTimezone(config: [String: Any]? = nil, from configPath: String? = nil) -> String? {
+        let config = config ?? readConfigFromDisk(configPath)
         guard let ui = config["ui"] as? [String: Any],
               let raw = ui["userTimezone"] as? String else {
             return nil

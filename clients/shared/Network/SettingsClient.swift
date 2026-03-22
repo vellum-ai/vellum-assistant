@@ -43,6 +43,7 @@ public protocol SettingsClientProtocol {
     func fetchPlatformConfig() async -> PlatformConfigResponseMessage?
     func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage?
     func patchConfig(_ partial: [String: Any]) async -> Bool
+    func fetchConfig() async -> [String: Any]?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -565,6 +566,25 @@ public struct SettingsClient: SettingsClientProtocol {
         } catch {
             log.error("patchConfig error: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    public func fetchConfig() async -> [String: Any]? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+                return nil
+            }
+            return json
+        } catch {
+            log.error("fetchConfig error: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 

@@ -33,7 +33,7 @@ enum AssistantFeatureFlagResolver {
         registry: FeatureFlagRegistry? = nil
     ) -> Bool {
         let resolved = resolvedFlags(
-            config: config ?? WorkspaceConfigIO.read(),
+            config: config ?? SettingsStore.readConfigFromDisk(),
             registry: registry ?? loadFeatureFlagRegistry()
         )
         return resolved[key] ?? true

@@ -12,6 +12,7 @@
  * PUT    /v1/config/embeddings          — set embedding provider/model
  * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
  * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
+ * GET    /v1/config                     — full raw workspace config
  * PATCH  /v1/config                     — deep-merge partial config
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
@@ -295,6 +296,26 @@ export function conversationQueryRouteDefinitions(
         raw.permissions = permissions;
         saveRawConfig(raw);
         return Response.json({ enabled: body.enabled });
+      },
+    },
+
+    // ── Full config read ─────────────────────────────────────────────
+    {
+      endpoint: "config",
+      method: "GET",
+      policyKey: "config",
+      handler: () => {
+        try {
+          const raw = loadRawConfig();
+          return Response.json(raw);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to read config: ${message}`,
+            500,
+          );
+        }
       },
     },
 

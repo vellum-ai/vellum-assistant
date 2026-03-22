@@ -31,7 +31,7 @@ final class SettingsStoreMediaAllowlistTests: XCTestCase {
     }
 
     private func readPersistedConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        SettingsStore.readConfigFromDisk(configPath)
     }
 
     private func readPersistedMediaEmbeds() -> [String: Any]? {

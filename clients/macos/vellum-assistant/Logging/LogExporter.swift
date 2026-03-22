@@ -1268,7 +1268,7 @@ enum LogExporter {
     /// Reads the workspace config.json and writes a sanitized copy with sensitive
     /// values replaced by presence flags. Falls back silently if unreadable.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
-        var config = WorkspaceConfigIO.read()
+        var config = SettingsStore.readConfigFromDisk()
         guard !config.isEmpty else { return }
 
         // Strip API key values — preserve which providers have keys configured

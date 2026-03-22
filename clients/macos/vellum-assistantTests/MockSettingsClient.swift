@@ -181,4 +181,12 @@ final class MockSettingsClient: SettingsClientProtocol {
         patchConfigCalls.append(partial)
         return patchConfigResponse
     }
+
+    var fetchConfigCallCount = 0
+    var fetchConfigResponse: [String: Any]?
+
+    func fetchConfig() async -> [String: Any]? {
+        fetchConfigCallCount += 1
+        return fetchConfigResponse
+    }
 }

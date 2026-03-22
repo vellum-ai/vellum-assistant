@@ -15,7 +15,7 @@ final class AssistantFeatureFlagStore: ObservableObject {
     init(
         notificationCenter: NotificationCenter = .default,
         registry: FeatureFlagRegistry? = loadFeatureFlagRegistry(),
-        readConfig: @escaping () -> [String: Any] = { WorkspaceConfigIO.read() }
+        readConfig: @escaping () -> [String: Any] = { SettingsStore.readConfigFromDisk() }
     ) {
         self.readConfig = readConfig
         self.registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: registry)

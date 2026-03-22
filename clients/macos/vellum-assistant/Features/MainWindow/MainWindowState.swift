@@ -253,7 +253,7 @@ public final class MainWindowState: ObservableObject {
             needsInferenceApiKey = false
             return
         }
-        let config = WorkspaceConfigIO.read()
+        let config = SettingsStore.readConfigFromDisk()
         guard let services = config["services"] as? [String: Any],
               let inference = services["inference"] as? [String: Any],
               let mode = inference["mode"] as? String,
