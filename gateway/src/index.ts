@@ -57,6 +57,11 @@ import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
+import {
+  createMigrationExportProxyHandler,
+  createMigrationImportProxyHandler,
+} from "./http/routes/migration-proxy.js";
+import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import {
   createTrustRulesListHandler,
@@ -285,6 +290,9 @@ async function main() {
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
+  const migrationExportProxy = createMigrationExportProxyHandler(config);
+  const migrationImportProxy = createMigrationImportProxyHandler(config);
+  const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
@@ -748,6 +756,28 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => upgradeBroadcastProxy(req),
+    },
+
+    // ── Migration export/import ──
+    {
+      path: "/v1/migrations/export",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => migrationExportProxy(req),
+    },
+    {
+      path: "/v1/migrations/import",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => migrationImportProxy(req),
+    },
+
+    // ── Workspace commit ──
+    {
+      path: "/v1/admin/workspace-commit",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => workspaceCommitProxy(req),
     },
 
     // ── Channel readiness ──

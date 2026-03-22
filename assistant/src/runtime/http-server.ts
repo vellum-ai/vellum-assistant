@@ -180,6 +180,7 @@ import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-rou
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
+import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
 // Re-export for consumers
@@ -931,6 +932,7 @@ export class RuntimeHttpServer {
       }),
       ...identityRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
+      ...workspaceCommitRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),

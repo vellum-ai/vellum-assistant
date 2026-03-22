@@ -549,6 +549,46 @@ public final class GatewayConnectionManager: ObservableObject {
     }
     #endif
 
+    // MARK: - Post-Sparkle Update Detection
+
+    #if os(macOS)
+    /// Detects whether the app was relaunched after a Sparkle update by checking
+    /// the `preUpdateVersion` UserDefaults flag (set before the update started).
+    /// If the version has changed, broadcasts a `complete` event so the UI shows
+    /// a success toast and creates a workspace git commit recording the update.
+    /// The flag is cleared after processing so this only runs once per update.
+    private func handlePostSparkleUpdate() {
+        guard let preUpdateVersion = UserDefaults.standard.string(forKey: "preUpdateVersion") else { return }
+        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        guard currentVersion != preUpdateVersion else { return }
+
+        // Clear the flag so this only runs once
+        UserDefaults.standard.removeObject(forKey: "preUpdateVersion")
+
+        log.info("Post-Sparkle-update detected: \(preUpdateVersion, privacy: .public) → \(currentVersion, privacy: .public)")
+
+        Task {
+            // 1. Broadcast "complete" so the UI clears the progress spinner and shows the outcome
+            _ = try? await GatewayHTTPClient.post(
+                path: "admin/upgrade-broadcast",
+                json: [
+                    "type": "complete",
+                    "installedVersion": currentVersion,
+                    "success": true
+                ] as [String: Any],
+                timeout: 5
+            )
+
+            // 2. Workspace commit: record successful update
+            _ = try? await GatewayHTTPClient.post(
+                path: "admin/workspace-commit",
+                json: ["message": "[sparkle-update] Complete: \(preUpdateVersion) → \(currentVersion)\n\nresult: success"],
+                timeout: 10
+            )
+        }
+    }
+    #endif
+
     // MARK: - Helpers
 
     private func setConnected(_ connected: Bool) {
@@ -557,6 +597,9 @@ public final class GatewayConnectionManager: ObservableObject {
         isConnecting = false
         if connected {
             NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
+            #if os(macOS)
+            handlePostSparkleUpdate()
+            #endif
         }
         #if os(macOS)
         if !connected {
