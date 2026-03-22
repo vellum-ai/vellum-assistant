@@ -23,10 +23,7 @@ import {
   loadBootstrapSecret,
   saveBootstrapSecret,
 } from "../lib/guardian-token";
-import {
-  findLatestPreUpgradeBackup,
-  restoreBackup,
-} from "../lib/backup-ops.js";
+import { restoreBackup } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
   broadcastUpgradeEvent,
@@ -295,15 +292,19 @@ export async function rollback(): Promise<void> {
     const ready = await waitForReady(entry.runtimeUrl);
 
     if (ready) {
-      // Restore data from pre-upgrade backup if available
-      const latestBackup = findLatestPreUpgradeBackup(entry.assistantId);
-      if (latestBackup) {
+      // Restore data from the backup created for the specific upgrade being
+      // rolled back. We use the persisted preUpgradeBackupPath rather than
+      // scanning for the latest backup on disk — if the most recent upgrade's
+      // backup failed, a global scan would find a stale backup from a prior
+      // cycle and overwrite newer user data.
+      const backupPath = entry.preUpgradeBackupPath as string | undefined;
+      if (backupPath) {
         console.log(`📦 Restoring data from pre-upgrade backup...`);
-        console.log(`   Source: ${latestBackup}`);
+        console.log(`   Source: ${backupPath}`);
         const restored = await restoreBackup(
           entry.runtimeUrl,
           entry.assistantId,
-          latestBackup,
+          backupPath,
         );
         if (restored) {
           console.log("   ✅ Data restored successfully\n");
@@ -314,7 +315,7 @@ export async function rollback(): Promise<void> {
         }
       } else {
         console.log(
-          "ℹ️  No pre-upgrade backup found, skipping data restoration\n",
+          "ℹ️  No pre-upgrade backup was created for this upgrade, skipping data restoration\n",
         );
       }
 
@@ -336,6 +337,8 @@ export async function rollback(): Promise<void> {
         },
         previousServiceGroupVersion: entry.serviceGroupVersion,
         previousContainerInfo: entry.containerInfo,
+        // Clear the backup path — it belonged to the upgrade we just rolled back
+        preUpgradeBackupPath: undefined,
       };
       saveAssistantEntry(updatedEntry);
 

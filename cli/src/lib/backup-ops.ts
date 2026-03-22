@@ -183,25 +183,6 @@ export async function restoreBackup(
 }
 
 /**
- * Find the most recent pre-upgrade backup for an assistant.
- * Looks for files matching `{assistantId}-pre-upgrade-*.vbundle` in the backups dir.
- */
-export function findLatestPreUpgradeBackup(assistantId: string): string | null {
-  const backupsDir = getBackupsDir();
-  if (!existsSync(backupsDir)) return null;
-
-  const prefix = `${assistantId}-pre-upgrade-`;
-  const entries = readdirSync(backupsDir)
-    .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
-    .sort();
-
-  if (entries.length === 0) return null;
-
-  // Lexicographic sort puts ISO timestamps in chronological order; last = most recent
-  return join(backupsDir, entries[entries.length - 1]);
-}
-
-/**
  * Keep only the N most recent pre-upgrade backups for an assistant,
  * deleting older ones. Default: keep 3.
  */

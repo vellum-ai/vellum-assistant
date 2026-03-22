@@ -36,7 +36,7 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
-import { exec } from "../lib/step-runner";
+import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
@@ -285,6 +285,19 @@ async function upgradeDocker(
     console.warn("⚠️  Pre-upgrade backup failed (continuing with upgrade)\n");
   }
 
+  // Persist the backup path so `vellum rollback` can restore the exact backup
+  // created for this upgrade attempt — never a stale backup from a prior cycle.
+  // Re-read the entry to pick up the rollback state saved earlier.
+  {
+    const current = findAssistantByName(entry.assistantId);
+    if (current) {
+      saveAssistantEntry({
+        ...current,
+        preUpgradeBackupPath: backupPath ?? undefined,
+      });
+    }
+  }
+
   // Notify connected clients that an upgrade is about to begin.
   console.log("📢 Notifying connected clients...");
   await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
@@ -371,6 +384,8 @@ async function upgradeDocker(
       },
       previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: entry.containerInfo,
+      // Preserve the backup path so `vellum rollback` can restore it later
+      preUpgradeBackupPath: backupPath ?? undefined,
     };
     saveAssistantEntry(updatedEntry);
 
@@ -491,6 +506,8 @@ async function upgradeDocker(
             },
             previousServiceGroupVersion: undefined,
             previousContainerInfo: undefined,
+            // Clear the backup path — the upgrade that created it just failed
+            preUpgradeBackupPath: undefined,
           };
           saveAssistantEntry(rolledBackEntry);
 

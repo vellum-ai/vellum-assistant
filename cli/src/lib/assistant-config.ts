@@ -90,6 +90,10 @@ export interface AssistantEntry {
   previousServiceGroupVersion?: string;
   /** Docker image metadata from before the last upgrade. Enables rollback to the prior version. */
   previousContainerInfo?: ContainerInfo;
+  /** Path to the .vbundle backup created for the most recent upgrade. Used by rollback to restore
+   *  only the backup from the specific upgrade being rolled back — never a stale backup from a
+   *  previous upgrade cycle. */
+  preUpgradeBackupPath?: string;
   [key: string]: unknown;
 }
 
