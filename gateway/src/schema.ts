@@ -2744,6 +2744,31 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/admin/rollback-migrations": {
+        post: {
+          summary: "Rollback database and workspace migrations",
+          description:
+            "Proxies a rollback-migrations request to the assistant daemon. Rolls back database and workspace migrations to a specified target version. Authenticated with an edge JWT.",
+          operationId: "rollbackMigrations",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Migrations rolled back successfully" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",

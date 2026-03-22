@@ -61,6 +61,7 @@ import {
   createMigrationExportProxyHandler,
   createMigrationImportProxyHandler,
 } from "./http/routes/migration-proxy.js";
+import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import {
@@ -292,6 +293,7 @@ async function main() {
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
   const migrationImportProxy = createMigrationImportProxyHandler(config);
+  const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
@@ -778,6 +780,14 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => workspaceCommitProxy(req),
+    },
+
+    // ── Migration rollback ──
+    {
+      path: "/v1/admin/rollback-migrations",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => migrationRollbackProxy(req),
     },
 
     // ── Channel readiness ──
