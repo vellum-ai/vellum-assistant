@@ -506,10 +506,15 @@ struct InlineVideoAttachmentView: View {
                         await MainActor.run { self.isSaving = false }
                         return
                     }
-                    try? data.write(to: destURL)
-                    await MainActor.run {
-                        self.isSaving = false
-                        Self.showSaveSuccessToast(destURL)
+                    do {
+                        try data.write(to: destURL)
+                        await MainActor.run {
+                            self.isSaving = false
+                            Self.showSaveSuccessToast(destURL)
+                        }
+                    } catch {
+                        log.error("Failed to save video: \(error)")
+                        await MainActor.run { self.isSaving = false }
                     }
                 }
             }

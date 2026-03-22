@@ -470,10 +470,15 @@ struct InlineAudioAttachmentView: View {
                         await MainActor.run { self.isSaving = false }
                         return
                     }
-                    try? data.write(to: destURL)
-                    await MainActor.run {
-                        self.isSaving = false
-                        Self.showSaveSuccessToast(destURL)
+                    do {
+                        try data.write(to: destURL)
+                        await MainActor.run {
+                            self.isSaving = false
+                            Self.showSaveSuccessToast(destURL)
+                        }
+                    } catch {
+                        log.error("Failed to save audio: \(error)")
+                        await MainActor.run { self.isSaving = false }
                     }
                 }
             }
