@@ -33,6 +33,26 @@ struct AssistantBackupsSection: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.contentDefault)
 
+            if let backupPath = UserDefaults.standard.string(forKey: "preUpdateBackupPath"),
+               FileManager.default.fileExists(atPath: backupPath) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("A backup was automatically created before the last update.")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.contentSecondary)
+                    HStack {
+                        VButton(label: "Restore Pre-Update Data", style: .outlined) {
+                            Task {
+                                await performLocalRestore(URL(fileURLWithPath: backupPath))
+                                UserDefaults.standard.removeObject(forKey: "preUpdateBackupPath")
+                            }
+                        }
+                        VButton(label: "Dismiss", style: .text) {
+                            UserDefaults.standard.removeObject(forKey: "preUpdateBackupPath")
+                        }
+                    }
+                }
+            }
+
             if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
                 managedBackupContent
             } else {
