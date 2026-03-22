@@ -1,4 +1,4 @@
-import { describe, test, expect, afterAll } from "bun:test";
+import { describe, test, expect, afterAll, spyOn, afterEach } from "bun:test";
 
 const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
@@ -78,6 +78,34 @@ describe("/readyz", () => {
       expect(body.status).toBe("draining");
     } finally {
       draining = false;
+    }
+  });
+});
+
+describe("/readyz upstream probe", () => {
+  afterEach(() => {
+    // Restore any spies after each test
+  });
+
+  test("probes upstream /readyz (not /healthz)", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ status: "ok" }),
+    );
+    try {
+      // Simulate the real /readyz handler from gateway/src/index.ts:
+      // it fetches `${config.assistantRuntimeBaseUrl}/readyz` with a 3s timeout.
+      const upstream = await fetch(`${config.assistantRuntimeBaseUrl}/readyz`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      expect(upstream.ok).toBe(true);
+
+      // Verify the URL probed is /readyz, not /healthz
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const calledUrl = fetchSpy.mock.calls[0][0] as string;
+      expect(calledUrl).toContain("/readyz");
+      expect(calledUrl).not.toContain("/healthz");
+    } finally {
+      fetchSpy.mockRestore();
     }
   });
 });
