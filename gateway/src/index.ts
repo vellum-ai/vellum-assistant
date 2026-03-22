@@ -1018,12 +1018,12 @@ async function main() {
         if (!includeMigrations) {
           return Response.json({ status: "ok" });
         }
-        // Fetch the daemon's /healthz to surface migration state
+        // Fetch the daemon's /v1/health to surface migration state
         // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
         // pre-upgrade migration state through the gateway.
         try {
           const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/healthz`,
+            `${config.assistantRuntimeBaseUrl}/v1/health`,
             { signal: AbortSignal.timeout(3000) },
           );
           if (upstream.ok) {
