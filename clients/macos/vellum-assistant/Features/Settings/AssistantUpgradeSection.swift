@@ -241,22 +241,21 @@ struct AssistantUpgradeSection: View {
                 }
 
                 if !pickerReleases.isEmpty && topology != .remote && topology != .local {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(!upgradeAvailable ? "Selected:" : (backwardReleasesEnabled && isRollback) ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Picker("", selection: Binding<String>(
+                    VDropdown(
+                        !upgradeAvailable ? "Selected:" : (backwardReleasesEnabled && isRollback) ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:",
+                        placeholder: "Select version",
+                        selection: Binding<String>(
                             get: { selectedVersion ?? latestRelease?.version ?? "" },
                             set: { newValue in
                                 selectedVersion = (newValue == latestRelease?.version) ? nil : newValue
                             }
-                        )) {
-                            ForEach(pickerReleases) { release in
-                                Text(releaseLabel(for: release)).tag(release.version)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
+                        ),
+                        options: pickerReleases.map { release in
+                            (label: releaseLabel(for: release), value: release.version)
+                        },
+                        size: .small,
+                        maxWidth: 240
+                    )
                 }
 
                 if !upgradeAvailable && !isLoadingReleases && !pickerReleases.isEmpty && topology != .local {
@@ -307,7 +306,14 @@ struct AssistantUpgradeSection: View {
                         }
                     }
                 } else if topology != .remote {
-                    // Docker and managed get the upgrade button
+                    VButton(
+                        label: isLoadingReleases ? "Checking..." : "Check for Updates",
+                        style: .outlined
+                    ) {
+                        Task { await loadReleases() }
+                    }
+                    .disabled(isLoadingReleases || isUpgrading)
+
                     VButton(
                         label: isUpgrading
                             ? (isRollback ? (topology == .managed ? "Downgrading..." : "Rolling back...") : "Updating...")
@@ -317,16 +323,6 @@ struct AssistantUpgradeSection: View {
                         showingUpgradeConfirmation = true
                     }
                     .disabled(!upgradeAvailable || isUpgrading || pickerReleases.isEmpty)
-                }
-
-                if topology != .local && topology != .remote {
-                    VButton(
-                        label: isLoadingReleases ? "Checking..." : "Check for Updates",
-                        style: .outlined
-                    ) {
-                        Task { await loadReleases() }
-                    }
-                    .disabled(isLoadingReleases || isUpgrading)
                 }
             }
 
