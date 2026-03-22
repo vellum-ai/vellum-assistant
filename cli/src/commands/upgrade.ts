@@ -229,6 +229,18 @@ async function upgradeDocker(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
+  // Notify connected clients that an upgrade is about to begin.
+  // This must fire BEFORE any progress broadcasts so the UI sets
+  // isUpdateInProgress = true and starts displaying status messages.
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+    type: "starting",
+    targetVersion: versionTag,
+    expectedDowntimeSeconds: 60,
+  });
+  // Brief pause to allow SSE delivery before progress events.
+  await new Promise((r) => setTimeout(r, 500));
+
   await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
     type: "progress",
     statusMessage: "Downloading the update…",
@@ -305,16 +317,6 @@ async function upgradeDocker(
       });
     }
   }
-
-  // Notify connected clients that an upgrade is about to begin.
-  console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "starting",
-    targetVersion: versionTag,
-    expectedDowntimeSeconds: 60,
-  });
-  // Brief pause to allow SSE delivery before containers stop.
-  await new Promise((r) => setTimeout(r, 500));
 
   await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
     type: "progress",
