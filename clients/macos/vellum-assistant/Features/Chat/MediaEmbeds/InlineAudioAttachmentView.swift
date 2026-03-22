@@ -460,6 +460,10 @@ struct InlineAudioAttachmentView: View {
                         await MainActor.run { self.isSaving = false }
                     }
                 }
+            } else if isLazy {
+                // Lazy-load attachment with no valid ID — cannot save
+                self.isSaving = false
+                return
             } else {
                 Task.detached {
                     guard let data = Data(base64Encoded: base64) else {
