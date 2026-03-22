@@ -105,6 +105,77 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
   }
 }
 
+/**
+ * Reverse v13: rebuild memory_embeddings with NOT NULL on vector_json.
+ *
+ * WARNING: Any rows with NULL vector_json will be lost — they cannot satisfy
+ * the NOT NULL constraint. This is acceptable because the forward migration
+ * only relaxed the constraint; rows written after the forward migration may
+ * have NULL vector_json (relying on vector_blob instead).
+ */
+export function downEmbeddingsNullableVectorJson(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  const tableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
+    )
+    .get();
+  if (!tableExists) return;
+
+  // Check if vector_json already has NOT NULL — already rolled back
+  const ddl = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
+    )
+    .get() as { sql: string } | null;
+  if (ddl && isColumnNotNull(ddl.sql, "vector_json")) return;
+
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    raw.exec(/*sql*/ `
+      CREATE TABLE memory_embeddings_new (
+        id TEXT PRIMARY KEY,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dimensions INTEGER NOT NULL,
+        vector_json TEXT NOT NULL,
+        vector_blob BLOB,
+        content_hash TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (target_type, target_id, provider, model)
+      )
+    `);
+    // Only copy rows where vector_json is NOT NULL — rows with NULL cannot
+    // satisfy the restored constraint and are lost.
+    raw.exec(/*sql*/ `
+      INSERT OR IGNORE INTO memory_embeddings_new (
+        id, target_type, target_id, provider, model, dimensions,
+        vector_json, vector_blob, content_hash, created_at, updated_at
+      )
+      SELECT
+        id, target_type, target_id, provider, model, dimensions,
+        vector_json, vector_blob, content_hash, created_at, updated_at
+      FROM memory_embeddings
+      WHERE vector_json IS NOT NULL
+      ORDER BY updated_at DESC
+    `);
+    raw.exec(/*sql*/ `DROP TABLE memory_embeddings`);
+    raw.exec(
+      /*sql*/ `ALTER TABLE memory_embeddings_new RENAME TO memory_embeddings`,
+    );
+
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`,
+    );
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
 /** Check whether a column is declared NOT NULL in a CREATE TABLE DDL string. */
 function isColumnNotNull(ddl: string, column: string): boolean {
   const pattern = new RegExp(`${column}\\s+\\w+.*?NOT\\s+NULL`, "i");

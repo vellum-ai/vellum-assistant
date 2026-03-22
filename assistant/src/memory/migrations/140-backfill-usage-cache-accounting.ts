@@ -8,6 +8,19 @@ import { resolvePricingForUsageWithOverrides } from "../../util/pricing.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
+/**
+ * Reverse v20: no-op — cannot reliably identify which llm_usage_events rows
+ * were updated by the backfill vs already had correct cache accounting.
+ *
+ * The forward migration updated input_tokens, output_tokens, cache token
+ * columns, estimated_cost_usd, and pricing_status based on request logs.
+ * There is no marker distinguishing backfilled rows from naturally-written
+ * ones, so a reversal cannot be performed without risking data corruption.
+ */
+export function downBackfillUsageCacheAccounting(_database: DrizzleDb): void {
+  // Lossy — cannot identify which rows were backfilled.
+}
+
 const log = getLogger("memory-db");
 
 const CHECKPOINT_KEY = "migration_backfill_usage_cache_accounting_v1";
