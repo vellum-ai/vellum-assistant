@@ -3,26 +3,24 @@ import Foundation
 import VellumAssistantShared
 
 /// Caches assistant-scoped feature flags for the app session so SwiftUI views
-/// can read resolved values without disk access during body evaluation.
+/// can read resolved values without evaluating config on every render.
 @MainActor
 final class AssistantFeatureFlagStore: ObservableObject {
     @Published private var resolvedFlags: [String: Bool]
 
     private let registryDefaults: [String: Bool]
-    private let readConfig: () -> [String: Any]
+    private let settingsClient: SettingsClientProtocol
     private var flagChangeCancellable: AnyCancellable?
 
     init(
         notificationCenter: NotificationCenter = .default,
         registry: FeatureFlagRegistry? = loadFeatureFlagRegistry(),
-        readConfig: @escaping () -> [String: Any] = { SettingsStore.readConfigFromDisk() }
+        settingsClient: SettingsClientProtocol = SettingsClient()
     ) {
-        self.readConfig = readConfig
+        self.settingsClient = settingsClient
         self.registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: registry)
-        self.resolvedFlags = AssistantFeatureFlagResolver.resolvedFlags(
-            config: readConfig(),
-            registryDefaults: self.registryDefaults
-        )
+        // Start with registry defaults; daemon config will be applied once fetched.
+        self.resolvedFlags = registryDefaults
 
         flagChangeCancellable = notificationCenter.publisher(for: .assistantFeatureFlagDidChange)
             .receive(on: RunLoop.main)
@@ -35,17 +33,21 @@ final class AssistantFeatureFlagStore: ObservableObject {
                     return
                 }
 
-                self.reloadFromDisk()
+                Task { await self.reloadFromDaemon() }
             }
+
+        // Fetch config from daemon asynchronously to overlay persisted overrides.
+        Task { await self.reloadFromDaemon() }
     }
 
     func isEnabled(_ key: String) -> Bool {
         resolvedFlags[key] ?? registryDefaults[key] ?? true
     }
 
-    func reloadFromDisk() {
+    func reloadFromDaemon() async {
+        let config = await settingsClient.fetchConfig() ?? [:]
         resolvedFlags = AssistantFeatureFlagResolver.resolvedFlags(
-            config: readConfig(),
+            config: config,
             registryDefaults: registryDefaults
         )
     }

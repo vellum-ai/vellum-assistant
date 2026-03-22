@@ -478,7 +478,7 @@ enum LogExporter {
             let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
             if !fileManager.fileExists(atPath: configSnapshotPath.path)
                 && !fileManager.fileExists(atPath: daemonConfigPath.path) {
-                writeSanitizedWorkspaceConfig(to: configSnapshotPath)
+                await writeSanitizedWorkspaceConfig(to: configSnapshotPath)
             }
         }
 
@@ -1265,10 +1265,10 @@ enum LogExporter {
         return val == nil ? "(empty)" : "(set)"
     }
 
-    /// Reads the workspace config.json and writes a sanitized copy with sensitive
-    /// values replaced by presence flags. Falls back silently if unreadable.
-    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
-        var config = SettingsStore.readConfigFromDisk()
+    /// Fetches the workspace config from the daemon and writes a sanitized copy
+    /// with sensitive values replaced by presence flags.
+    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) async {
+        var config = await SettingsClient().fetchConfig() ?? [:]
         guard !config.isEmpty else { return }
 
         // Strip API key values — preserve which providers have keys configured

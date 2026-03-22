@@ -118,7 +118,7 @@ struct IntelligencePanel: View {
             let registryDefaults = Dictionary(
                 uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map { ($0.key, $0.defaultEnabled) }
             )
-            let config = SettingsStore.readConfigFromDisk()
+            let config = await SettingsClient().fetchConfig() ?? [:]
             let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
             let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
             if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {

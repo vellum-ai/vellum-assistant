@@ -426,41 +426,26 @@ public final class SettingsStore: ObservableObject {
             self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
         }
 
-        // Read workspace config once for all init-time seed values
-        let diskConfig = Self.readConfigFromDisk(configPath)
+        // Use defaults for config-dependent properties; the daemon will
+        // provide authoritative values once reachable via loadConfigFromDaemon().
+        let emptyConfig: [String: Any] = [:]
 
-        // Load media embed settings from workspace config
-        let mediaSettings = Self.loadMediaEmbedSettings(config: diskConfig)
+        // Load media embed settings (defaults when config is empty)
+        let mediaSettings = Self.loadMediaEmbedSettings(config: emptyConfig)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
-        self.userTimezone = Self.loadUserTimezone(config: diskConfig)
+        self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
 
-        // Load permissions settings from workspace config
-        let permissionsConfig = diskConfig["permissions"] as? [String: Any]
-        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
+        // Permissions default to false until daemon provides config
+        self.dangerouslySkipPermissions = false
 
-        // Load web search provider from workspace config
-        if let services = diskConfig["services"] as? [String: Any],
-           let webSearch = services["web-search"] as? [String: Any],
-           let provider = webSearch["provider"] as? String {
-            self.webSearchProvider = provider
-        }
-
-        // Load service modes (inference, image-generation) from workspace config
-        loadServiceModes(config: diskConfig)
+        // Service modes use defaults until daemon provides config
+        loadServiceModes(config: emptyConfig)
 
         // Seed provider catalog with shared defaults so the UI has data before
         // the first daemon fetch completes.
         providerCatalog = ProviderCatalogEntry.defaultCatalog
-
-        // When enabledSince was defaulted to "now" (no value on disk),
-        // persist it immediately so subsequent loads produce the same
-        // deterministic timestamp instead of advancing each time.
-        // Skip for remote assistants to avoid creating a local .vellum/ directory.
-        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
-            persistMediaEmbedState()
-        }
 
         // React to Keychain changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
@@ -2091,7 +2076,9 @@ public final class SettingsStore: ObservableObject {
                       let provider = json["provider"] as? [String: Any],
                       let sources = provider["routingSources"] as? [String: String] else { return }
                 self.providerRoutingSources = sources
-                self.loadServiceModes()
+                if let fetchedConfig = await self.settingsClient.fetchConfig() {
+                    self.loadServiceModes(config: fetchedConfig)
+                }
             } catch {
                 log.error("Failed to load provider routing sources: \(error)")
             }
@@ -2100,8 +2087,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
-    func loadServiceModes(config: [String: Any]? = nil) {
-        let config = config ?? Self.readConfigFromDisk(configPath)
+    func loadServiceModes(config: [String: Any]) {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
@@ -2989,11 +2975,10 @@ public final class SettingsStore: ObservableObject {
     /// Reads `ui.mediaEmbeds` from the workspace config and falls back to
     /// `MediaEmbedSettings` defaults for any missing or invalid values.
     ///
-    /// When no `enabledSince` is found in the config (missing file, missing
-    /// section, or missing/unparseable key), the value defaults to "now" so
-    /// that fresh installs only embed new messages going forward.
-    private static func loadMediaEmbedSettings(config: [String: Any]? = nil, from configPath: String? = nil) -> MediaEmbedLoadResult {
-        let config = config ?? readConfigFromDisk(configPath)
+    /// When no `enabledSince` is found in the config (missing section or
+    /// missing/unparseable key), the value defaults to "now" so that fresh
+    /// installs only embed new messages going forward.
+    private static func loadMediaEmbedSettings(config: [String: Any]) -> MediaEmbedLoadResult {
 
         guard let ui = config["ui"] as? [String: Any],
               let mediaEmbeds = ui["mediaEmbeds"] as? [String: Any] else {
@@ -3063,31 +3048,42 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Reads the workspace config JSON from disk.  Used as a synchronous seed
-    /// during init (before the daemon is reachable) and as a fallback in helpers
-    /// that may be called outside an async context.
-    nonisolated static func readConfigFromDisk(_ path: String? = nil) -> [String: Any] {
-        let filePath: String
-        if let path, !path.isEmpty {
-            filePath = path
-        } else if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-                  !assistantId.isEmpty,
-                  let assistant = LockfileAssistant.loadByName(assistantId),
-                  let workspaceDir = assistant.workspaceDir, !workspaceDir.isEmpty {
-            filePath = URL(fileURLWithPath: workspaceDir).appendingPathComponent("config.json").path
-        } else {
-            filePath = "\(NSHomeDirectory())/.vellum/workspace/config.json"
-        }
-        guard FileManager.default.fileExists(atPath: filePath),
-              let data = FileManager.default.contents(atPath: filePath), !data.isEmpty,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [:]
-        }
-        return json
+    /// Fetches the full workspace config from the daemon and applies all
+    /// config-dependent properties. Called after init once the daemon is
+    /// reachable.
+    func loadConfigFromDaemon() async {
+        guard let config = await settingsClient.fetchConfig() else { return }
+        applyDaemonConfig(config)
     }
 
-    private static func loadUserTimezone(config: [String: Any]? = nil, from configPath: String? = nil) -> String? {
-        let config = config ?? readConfigFromDisk(configPath)
+    /// Applies a daemon-fetched workspace config to all config-dependent
+    /// published properties.
+    private func applyDaemonConfig(_ config: [String: Any]) {
+        let mediaSettings = Self.loadMediaEmbedSettings(config: config)
+        self.mediaEmbedsEnabled = mediaSettings.enabled
+        self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
+        self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
+        self.userTimezone = Self.loadUserTimezone(config: config)
+
+        let permissionsConfig = config["permissions"] as? [String: Any]
+        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
+
+        if let services = config["services"] as? [String: Any],
+           let webSearch = services["web-search"] as? [String: Any],
+           let provider = webSearch["provider"] as? String {
+            self.webSearchProvider = provider
+        }
+
+        loadServiceModes(config: config)
+
+        // Persist enabledSince when it was defaulted so subsequent loads
+        // produce a deterministic timestamp.
+        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
+            persistMediaEmbedState()
+        }
+    }
+
+    private static func loadUserTimezone(config: [String: Any]) -> String? {
         guard let ui = config["ui"] as? [String: Any],
               let raw = ui["userTimezone"] as? String else {
             return nil
