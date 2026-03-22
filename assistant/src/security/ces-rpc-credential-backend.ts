@@ -7,8 +7,9 @@
  * graceful fallback.
  */
 
-import type { CesClient } from "../credential-execution/client.js";
 import { CesRpcMethod } from "@vellumai/ces-contracts";
+
+import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";
 import type {
   CredentialBackend,
