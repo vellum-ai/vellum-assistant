@@ -93,6 +93,8 @@ export function ensurePromptFiles(): void {
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
+  userPersona?: string | null;
+  channelPersona?: string | null;
 }
 
 /**
@@ -159,7 +161,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     dynamicParts.push(identity);
   }
   if (soul) dynamicParts.push(soul);
-  if (user && !userIsTemplate) dynamicParts.push(user);
+  if (options?.userPersona) dynamicParts.push(options.userPersona);
+  if (options?.channelPersona) dynamicParts.push(options.channelPersona);
+  if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
