@@ -10,7 +10,7 @@ const log = getLogger("workspace-migrations");
 export type CheckpointFile = {
   applied: Record<
     string,
-    { appliedAt: string; status?: "started" | "completed" }
+    { appliedAt: string; status?: "started" | "completed" | "rolling_back" }
   >;
 };
 
@@ -73,7 +73,7 @@ export async function runWorkspaceMigrations(
   const checkpoints = loadCheckpoints(workspaceDir);
 
   for (const [id, entry] of Object.entries(checkpoints.applied)) {
-    if (entry.status === "started") {
+    if (entry.status === "started" || entry.status === "rolling_back") {
       log.warn(
         `Workspace migration "${id}" was interrupted during a previous run; will re-run`,
       );
@@ -113,5 +113,74 @@ export async function runWorkspaceMigrations(
       status: "completed",
     };
     saveCheckpoints(workspaceDir, checkpoints);
+  }
+}
+
+/**
+ * Roll back workspace migrations in reverse order, stopping before the target migration.
+ *
+ * Migrations after `targetMigrationId` in the array are reversed (the target itself is kept).
+ * Each migration must have a `down()` method; if one is missing, an error is thrown.
+ */
+export async function rollbackWorkspaceMigrations(
+  workspaceDir: string,
+  migrations: WorkspaceMigration[],
+  targetMigrationId: string,
+): Promise<void> {
+  // Find the index of the target migration
+  const targetIndex = migrations.findIndex((m) => m.id === targetMigrationId);
+  if (targetIndex === -1) {
+    throw new Error(
+      `Target migration "${targetMigrationId}" not found in the migrations array`,
+    );
+  }
+
+  // Collect migrations that come after the target, in reverse order
+  const migrationsToRollback = migrations.slice(targetIndex + 1).reverse();
+  if (migrationsToRollback.length === 0) {
+    log.info("No migrations to roll back");
+    return;
+  }
+
+  const checkpoints = loadCheckpoints(workspaceDir);
+
+  for (const migration of migrationsToRollback) {
+    // Only roll back migrations that have been applied
+    if (!checkpoints.applied[migration.id]) {
+      continue;
+    }
+
+    if (!migration.down) {
+      throw new Error(
+        `Migration "${migration.id}" does not support rollback (no down() method)`,
+      );
+    }
+
+    log.info(
+      `Rolling back workspace migration: ${migration.id} — ${migration.description}`,
+    );
+
+    // Mark as rolling_back before execution (for crash recovery)
+    checkpoints.applied[migration.id] = {
+      appliedAt: checkpoints.applied[migration.id]!.appliedAt,
+      status: "rolling_back",
+    };
+    saveCheckpoints(workspaceDir, checkpoints);
+
+    try {
+      await migration.down(workspaceDir);
+    } catch (error) {
+      log.error(
+        { migrationId: migration.id, error },
+        `Workspace migration rollback failed: ${migration.id}`,
+      );
+      throw error;
+    }
+
+    // Remove the migration entry from checkpoints
+    delete checkpoints.applied[migration.id];
+    saveCheckpoints(workspaceDir, checkpoints);
+
+    log.info(`Rolled back workspace migration: ${migration.id}`);
   }
 }
