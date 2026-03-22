@@ -312,6 +312,14 @@
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
+    },
+    {
+      "id": "backward-releases",
+      "scope": "assistant",
+      "key": "feature_flags.backward-releases.enabled",
+      "label": "Backward Releases",
+      "description": "Show older versions in the version picker, allowing rollback to previous releases (unsafe without down-migrations)",
+      "defaultEnabled": false
     }
   ]
 }
