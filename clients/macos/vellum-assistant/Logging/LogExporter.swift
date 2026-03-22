@@ -122,8 +122,6 @@ enum LogExporter {
                     }
                 }
                 if let conversationId = vm.conversationId {
-                    // Prefer the view model's conversationId (most up-to-date)
-                    tags["conversation_id"] = conversationId
                     // For conversation-scoped exports, conversation_id reflects the
                     // reported conversation, not the active one — skip the overwrite.
                     if case .global = formData.scope {
@@ -190,11 +188,6 @@ enum LogExporter {
             // after the upload completes (or fails).
             let archiveURLCopy = archiveURL
             Task.detached {
-                // Give Sentry a few seconds to index the event before the
-                // platform tries to look it up for feedback URL enrichment.
-                if sentryEventId != nil {
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
-                }
                 await uploadFeedbackToPlatform(
                     archiveURL: archiveURLCopy,
                     formData: formData,
