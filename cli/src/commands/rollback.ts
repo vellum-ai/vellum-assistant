@@ -10,7 +10,6 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
-  clearSigningKeyBootstrapLock,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
   migrateCesSecurityFiles,
@@ -268,16 +267,6 @@ export async function rollback(): Promise<void> {
 
     console.log("🔄 Migrating credential files to CES security volume...");
     await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-
-    console.log("🔑 Clearing signing key bootstrap lock...");
-    try {
-      await clearSigningKeyBootstrapLock(res);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
-      );
-    }
 
     console.log("🚀 Starting containers with previous version...");
     await startContainers(

@@ -29,22 +29,6 @@ import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 const log = getLogger("token-service");
 
 // ---------------------------------------------------------------------------
-// Bootstrap sentinel error
-// ---------------------------------------------------------------------------
-
-/**
- * Thrown when the gateway's signing-key bootstrap endpoint returns 403,
- * indicating that bootstrap has already completed (daemon restart case).
- * The caller should fall back to loading the key from disk.
- */
-export class BootstrapAlreadyCompleted extends Error {
-  constructor() {
-    super("Gateway signing key bootstrap already completed");
-    this.name = "BootstrapAlreadyCompleted";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Signing key management
 // ---------------------------------------------------------------------------
 
@@ -111,146 +95,24 @@ export function loadOrCreateSigningKey(): Buffer {
 }
 
 /**
- * Fetch the shared signing key from the gateway's bootstrap endpoint.
- *
- * Used in Docker mode where the gateway owns the signing key and the daemon
- * must fetch it at startup. Retries up to 30 times with 1s intervals to
- * tolerate gateway startup delays.
- *
- * @returns A 32-byte Buffer containing the signing key.
- * @throws {BootstrapAlreadyCompleted} If the gateway returns 403 (bootstrap
- *   already completed — daemon restart case). Caller should fall back to
- *   loading the key from disk.
- * @throws {Error} If the gateway is unreachable after all retry attempts.
- */
-export async function fetchSigningKeyFromGateway(): Promise<Buffer> {
-  const gatewayUrl = process.env.GATEWAY_INTERNAL_URL;
-  if (!gatewayUrl) {
-    throw new Error("GATEWAY_INTERNAL_URL not set — cannot fetch signing key");
-  }
-
-  const maxAttempts = 30;
-  const intervalMs = 1000;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let resp: Response | undefined;
-    try {
-      const headers: Record<string, string> = {};
-      const bootstrapSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
-      if (bootstrapSecret) {
-        headers["x-bootstrap-secret"] = bootstrapSecret;
-      }
-      resp = await fetch(`${gatewayUrl}/internal/signing-key-bootstrap`, {
-        headers,
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch (err) {
-      log.warn(
-        { err, attempt },
-        "Signing key bootstrap: connection failed, retrying",
-      );
-      await Bun.sleep(intervalMs);
-      continue;
-    }
-
-    if (resp.ok) {
-      const body = (await resp.json()) as { key: string };
-      if (!/^[0-9a-f]{64}$/i.test(body.key)) {
-        throw new Error(
-          `Invalid signing key: expected 64 hex characters, got ${body.key.length} chars`,
-        );
-      }
-      const keyBuf = Buffer.from(body.key, "hex");
-      log.info("Signing key fetched from gateway bootstrap endpoint");
-      return keyBuf;
-    }
-
-    if (resp.status === 401) {
-      // Invalid or missing bootstrap secret — configuration mismatch.
-      throw new Error(
-        "Signing key bootstrap rejected: invalid or missing bootstrap secret " +
-          "(GUARDIAN_BOOTSTRAP_SECRET mismatch between daemon and gateway)",
-      );
-    }
-
-    if (resp.status === 403) {
-      // Bootstrap already completed — fall through to file-based load.
-      // This happens on daemon restart when the gateway lockfile persists.
-      log.info(
-        "Gateway signing key bootstrap already completed — loading from disk",
-      );
-      throw new BootstrapAlreadyCompleted();
-    }
-
-    log.warn(
-      { status: resp.status, attempt },
-      "Signing key bootstrap: gateway not ready, retrying",
-    );
-
-    await Bun.sleep(intervalMs);
-  }
-
-  throw new Error("Signing key bootstrap: timed out waiting for gateway");
-}
-
-/**
- * Persist a signing key to disk using an atomic-write pattern.
- * Used after fetching the key from the gateway so daemon restarts can
- * load it from disk when the gateway returns 403.
- */
-function persistSigningKey(key: Buffer): void {
-  const keyPath = getSigningKeyPath();
-  const dir = dirname(keyPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = keyPath + ".tmp." + process.pid;
-  writeFileSync(tmpPath, key, { mode: 0o600 });
-  renameSync(tmpPath, keyPath);
-  chmodSync(keyPath, 0o600);
-}
-
-/**
  * Resolve the signing key for the current environment.
  *
- * In Docker mode (IS_CONTAINERIZED=true + GATEWAY_INTERNAL_URL set), fetches
- * the key from the gateway's bootstrap endpoint and persists it locally for
- * restart resilience. On daemon restart (gateway returns 403), falls back to
- * loading the key from disk.
- *
- * In local mode, delegates to the existing file-based loadOrCreateSigningKey().
+ * Resolution order:
+ *   1. ACTOR_TOKEN_SIGNING_KEY env var (hex-encoded, set by CLI for Docker)
+ *   2. File-based load/create (~/.vellum/protected/actor-token-signing-key)
  */
-export async function resolveSigningKey(): Promise<Buffer> {
-  const isContainerized = process.env.IS_CONTAINERIZED === "true";
-  const gatewayUrl = process.env.GATEWAY_INTERNAL_URL;
-
-  if (isContainerized && gatewayUrl) {
-    try {
-      const key = await fetchSigningKeyFromGateway();
-      // Persist locally so daemon restarts (where gateway returns 403) load from disk.
-      persistSigningKey(key);
-      return key;
-    } catch (err) {
-      if (err instanceof BootstrapAlreadyCompleted) {
-        // Gateway already bootstrapped (daemon restart) — load from disk.
-        // Use load-only: if the key file is missing (e.g. container was
-        // recreated), generating a new key would create a mismatch with
-        // the gateway's already-bootstrapped key. Fail fast instead.
-        const key = loadSigningKey();
-        if (!key) {
-          throw new Error(
-            "Signing key bootstrap already completed but no local key found. " +
-              "The container may have been recreated, losing the persisted key. " +
-              "Restart the gateway to allow re-bootstrap.",
-          );
-        }
-        return key;
-      }
-      throw err;
+export function resolveSigningKey(): Buffer {
+  const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
+  if (envKey) {
+    if (!/^[0-9a-f]{64}$/i.test(envKey)) {
+      throw new Error(
+        `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
+      );
     }
+    log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
+    return Buffer.from(envKey, "hex");
   }
 
-  // Local mode: use file-based load/create (unchanged behavior).
   return loadOrCreateSigningKey();
 }
 

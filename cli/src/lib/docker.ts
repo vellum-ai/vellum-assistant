@@ -15,7 +15,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
-import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
+import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { resolveImageRefs } from "./platform-releases.js";
@@ -466,7 +466,7 @@ async function buildAllImages(
  * can be restarted independently.
  */
 export function serviceDockerRunArgs(opts: {
-  bootstrapSecret?: string;
+  signingKey?: string;
   cesServiceToken?: string;
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
@@ -522,6 +522,9 @@ export function serviceDockerRunArgs(opts: {
       if (cesServiceToken) {
         args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
       }
+      if (opts.signingKey) {
+        args.push("-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`);
+      }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
         "VELLUM_PLATFORM_URL",
@@ -568,8 +571,8 @@ export function serviceDockerRunArgs(opts: {
       ...(cesServiceToken
         ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
         : []),
-      ...(opts.bootstrapSecret
-        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
+      ...(opts.signingKey
+        ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
         : []),
       imageTags.gateway,
     ],
@@ -754,7 +757,7 @@ export const SERVICE_START_ORDER: ServiceName[] = [
 /** Start all three containers in dependency order. */
 export async function startContainers(
   opts: {
-    bootstrapSecret?: string;
+    signingKey?: string;
     cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
@@ -781,26 +784,6 @@ export async function stopContainers(
   await removeContainer(res.assistantContainer);
 }
 
-/**
- * Remove the signing-key-bootstrap lockfile from the gateway security volume.
- * This allows the daemon to re-fetch the signing key from the gateway on the
- * next startup — necessary during upgrades where the gateway may generate a
- * new key.
- */
-export async function clearSigningKeyBootstrapLock(
-  res: ReturnType<typeof dockerResourceNames>,
-): Promise<void> {
-  await exec("docker", [
-    "run",
-    "--rm",
-    "-v",
-    `${res.gatewaySecurityVolume}:/gateway-security`,
-    "busybox",
-    "rm",
-    "-f",
-    "/gateway-security/signing-key-bootstrap.lock",
-  ]);
-}
 
 /** Stop containers without removing them (preserves state for `docker start`). */
 export async function sleepContainers(
@@ -1134,29 +1117,15 @@ export async function hatchDocker(
       "/workspace",
     ]);
 
-    // Clear any stale signing-key bootstrap lockfile so the daemon can
-    // fetch the key from the gateway on first startup.
-    await exec("docker", [
-      "run",
-      "--rm",
-      "-v",
-      `${res.gatewaySecurityVolume}:/gateway-security`,
-      "busybox",
-      "rm",
-      "-f",
-      "/gateway-security/signing-key-bootstrap.lock",
-    ]);
-
     // Write --config key=value pairs to a temp file that gets bind-mounted
     // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
     const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
     const cesServiceToken = randomBytes(32).toString("hex");
-    const bootstrapSecret = randomBytes(32).toString("hex");
-    saveBootstrapSecret(instanceName, bootstrapSecret);
+    const signingKey = randomBytes(32).toString("hex");
     await startContainers(
       {
-        bootstrapSecret,
+        signingKey,
         cesServiceToken,
         gatewayPort,
         imageTags,

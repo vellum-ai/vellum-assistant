@@ -1,23 +1,14 @@
 /**
- * Integration tests for resolveSigningKey() covering the Docker bootstrap
- * lifecycle: fresh fetch from gateway, daemon restart (load from disk),
- * and local mode (file-based load/create).
+ * Tests for resolveSigningKey() covering env var injection (Docker)
+ * and file-based load/create (local mode).
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Temp directory for signing key persistence
-// ---------------------------------------------------------------------------
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "docker-signing-key-test-")));
-
-// ---------------------------------------------------------------------------
-// Mock platform to redirect signing key file to our temp directory
-// ---------------------------------------------------------------------------
+const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
@@ -39,53 +30,23 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// ---------------------------------------------------------------------------
-// Import the functions under test (after mocks are installed)
-// ---------------------------------------------------------------------------
+const { resolveSigningKey } = await import("../runtime/auth/token-service.js");
 
-const {
-  resolveSigningKey,
-  loadOrCreateSigningKey: _loadOrCreateSigningKey,
-  BootstrapAlreadyCompleted: _BootstrapAlreadyCompleted,
-} = await import("../runtime/auth/token-service.js");
+const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 
-// ---------------------------------------------------------------------------
-// Test constants
-// ---------------------------------------------------------------------------
-
-const VALID_32_BYTE_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
-const SIGNING_KEY_PATH = join(testDir, "protected", "actor-token-signing-key");
-
-// ---------------------------------------------------------------------------
-// Environment & fetch state management
-// ---------------------------------------------------------------------------
-
-const originalFetch = globalThis.fetch;
 const savedEnv: Record<string, string | undefined> = {};
 
-function saveEnv(...keys: string[]) {
-  for (const key of keys) {
-    savedEnv[key] = process.env[key];
-  }
-}
-
-function restoreEnv() {
-  for (const [key, val] of Object.entries(savedEnv)) {
-    if (val === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = val;
-    }
-  }
-}
-
 beforeEach(() => {
-  saveEnv("IS_CONTAINERIZED", "GATEWAY_INTERNAL_URL");
+  savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
+  mkdirSync(join(testDir, "protected"), { recursive: true });
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
-  restoreEnv();
+  if (savedEnv.ACTOR_TOKEN_SIGNING_KEY === undefined) {
+    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
+  } else {
+    process.env.ACTOR_TOKEN_SIGNING_KEY = savedEnv.ACTOR_TOKEN_SIGNING_KEY;
+  }
 });
 
 afterAll(() => {
@@ -94,117 +55,44 @@ afterAll(() => {
   } catch {}
 });
 
-// ---------------------------------------------------------------------------
-// Docker mode tests — resolveSigningKey() bootstrap lifecycle
-// ---------------------------------------------------------------------------
+describe("resolveSigningKey", () => {
+  test("reads key from ACTOR_TOKEN_SIGNING_KEY env var", () => {
+    process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
 
-describe("resolveSigningKey — Docker bootstrap lifecycle", () => {
-  test("fresh bootstrap: fetches key from gateway and persists to disk", async () => {
-    process.env.IS_CONTAINERIZED = "true";
-    process.env.GATEWAY_INTERNAL_URL = "http://localhost:19876";
+    const key = resolveSigningKey();
 
-    // Mock fetch to return a known 32-byte key on first call.
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ key: VALID_32_BYTE_KEY }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })) as unknown as typeof fetch;
-
-    const key = await resolveSigningKey();
-
-    // Verify the returned key is a 32-byte buffer with the expected content.
     expect(key).toBeInstanceOf(Buffer);
     expect(key.length).toBe(32);
-    expect(key.toString("hex")).toBe(VALID_32_BYTE_KEY);
-
-    // Verify the key was persisted to disk.
-    const persisted = readFileSync(SIGNING_KEY_PATH);
-    expect(persisted.length).toBe(32);
-    expect(Buffer.from(persisted).equals(key)).toBe(true);
+    expect(key.toString("hex")).toBe(VALID_HEX_KEY);
   });
 
-  test("daemon restart: gateway returns 403, loads persisted key from disk", async () => {
-    process.env.IS_CONTAINERIZED = "true";
-    process.env.GATEWAY_INTERNAL_URL = "http://localhost:19876";
+  test("rejects invalid ACTOR_TOKEN_SIGNING_KEY", () => {
+    process.env.ACTOR_TOKEN_SIGNING_KEY = "tooshort";
 
-    // Seed the persisted key so this test is self-contained (no dependency
-    // on the previous test having run first).
-    mkdirSync(join(testDir, "protected"), { recursive: true });
-    writeFileSync(SIGNING_KEY_PATH, Buffer.from(VALID_32_BYTE_KEY, "hex"));
-
-    // Simulate a daemon restart where the gateway returns 403
-    // (bootstrap already completed).
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "Bootstrap already completed" }), {
-        status: 403,
-      })) as unknown as typeof fetch;
-
-    const key = await resolveSigningKey();
-
-    // Should have loaded the previously persisted key from disk.
-    expect(key).toBeInstanceOf(Buffer);
-    expect(key.length).toBe(32);
-    expect(key.toString("hex")).toBe(VALID_32_BYTE_KEY);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Local mode tests — resolveSigningKey() file-based path
-// ---------------------------------------------------------------------------
-
-describe("resolveSigningKey — local mode", () => {
-  test("uses file-based loadOrCreateSigningKey without calling fetch", async () => {
-    // Ensure Docker env vars are unset.
-    delete process.env.IS_CONTAINERIZED;
-    delete process.env.GATEWAY_INTERNAL_URL;
-
-    let fetchCalled = false;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
-      return new Response("should not be called", { status: 500 });
-    }) as unknown as typeof fetch;
-
-    const key = await resolveSigningKey();
-
-    // Should return a valid 32-byte key (loaded from disk or newly created).
-    expect(key).toBeInstanceOf(Buffer);
-    expect(key.length).toBe(32);
-
-    // Crucially, fetch should NOT have been called.
-    expect(fetchCalled).toBe(false);
+    expect(() => resolveSigningKey()).toThrow("Invalid ACTOR_TOKEN_SIGNING_KEY");
   });
 
-  test("IS_CONTAINERIZED=false does not trigger gateway fetch", async () => {
-    process.env.IS_CONTAINERIZED = "false";
-    process.env.GATEWAY_INTERNAL_URL = "http://localhost:19876";
+  test("falls back to file-based load/create when env var is not set", () => {
+    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
-    let fetchCalled = false;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
-      return new Response("should not be called", { status: 500 });
-    }) as unknown as typeof fetch;
-
-    const key = await resolveSigningKey();
+    const key = resolveSigningKey();
 
     expect(key).toBeInstanceOf(Buffer);
     expect(key.length).toBe(32);
-    expect(fetchCalled).toBe(false);
   });
 
-  test("IS_CONTAINERIZED=true without GATEWAY_INTERNAL_URL uses local path", async () => {
-    process.env.IS_CONTAINERIZED = "true";
-    delete process.env.GATEWAY_INTERNAL_URL;
+  test("env var takes priority over file on disk", () => {
+    process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
 
-    let fetchCalled = false;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
-      return new Response("should not be called", { status: 500 });
-    }) as unknown as typeof fetch;
+    // First call creates a file-based key
+    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
+    const fileKey = resolveSigningKey();
 
-    const key = await resolveSigningKey();
+    // Second call with env var should use the env var, not the file
+    process.env.ACTOR_TOKEN_SIGNING_KEY = "cd".repeat(32);
+    const envKey = resolveSigningKey();
 
-    expect(key).toBeInstanceOf(Buffer);
-    expect(key.length).toBe(32);
-    expect(fetchCalled).toBe(false);
+    expect(envKey.toString("hex")).toBe("cd".repeat(32));
+    expect(envKey.toString("hex")).not.toBe(fileKey.toString("hex"));
   });
 });

@@ -41,10 +41,25 @@ export function getSigningKeyPath(): string {
 }
 
 /**
- * Load a signing key from disk or generate and persist a new one.
- * Uses atomic-write + chmod 0o600 for safe secret storage.
+ * Resolve the signing key for the gateway.
+ *
+ * Resolution order:
+ *   1. ACTOR_TOKEN_SIGNING_KEY env var (hex-encoded, set by CLI for Docker)
+ *   2. Load from disk (GATEWAY_SECURITY_DIR/actor-token-signing-key)
+ *   3. Generate a new key and persist to disk (local mode)
  */
 export function loadOrCreateSigningKey(): Buffer {
+  const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
+  if (envKey) {
+    if (!/^[0-9a-f]{64}$/i.test(envKey)) {
+      throw new Error(
+        `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
+      );
+    }
+    log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
+    return Buffer.from(envKey, "hex");
+  }
+
   const keyPath = getSigningKeyPath();
 
   if (existsSync(keyPath)) {

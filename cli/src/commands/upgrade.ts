@@ -12,7 +12,6 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
-  clearSigningKeyBootstrapLock,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
   migrateCesSecurityFiles,
@@ -352,16 +351,6 @@ async function upgradeDocker(
   console.log("🔄 Migrating credential files to CES security volume...");
   await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
-  console.log("🔑 Clearing signing key bootstrap lock...");
-  try {
-    await clearSigningKeyBootstrapLock(res);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
-    );
-  }
-
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
@@ -445,14 +434,6 @@ async function upgradeDocker(
 
         await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
         await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-        try {
-          await clearSigningKeyBootstrapLock(res);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(
-            `⚠️  Failed to clear signing key bootstrap lock (${message}), continuing...`,
-          );
-        }
 
         await startContainers(
           {
