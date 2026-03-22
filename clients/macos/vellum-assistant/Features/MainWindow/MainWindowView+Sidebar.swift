@@ -474,7 +474,7 @@ extension MainWindowView {
             }
             sidebarSectionDivider()
 
-            SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Conversation", isActive: false, isExpanded: false) {
                 startNewConversation()
             }
 
