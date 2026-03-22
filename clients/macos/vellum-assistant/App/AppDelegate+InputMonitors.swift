@@ -60,6 +60,12 @@ extension UserDefaults {
         }
         return string(forKey: "sidebarToggleShortcut") ?? ""
     }
+    @objc dynamic var newChatShortcut: String {
+        if UserDefaults.standard.object(forKey: "newChatShortcut") == nil {
+            return "cmd+n"
+        }
+        return string(forKey: "newChatShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
@@ -74,7 +80,7 @@ extension AppDelegate {
         registerQuickInputMonitor()
         registerFnVMonitor()
         registerCmdKMonitor()
-        registerCmdNMonitor()
+        registerNewChatMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -82,11 +88,14 @@ extension AppDelegate {
             UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () },
             UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }
         )
+        .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
             self?.registerQuickInputMonitor()
             self?.registerSidebarToggleMonitor()
+            self?.registerNewChatMonitor()
+            self?.updateNewChatMenuItemShortcut()
         }
     }
 
@@ -209,17 +218,29 @@ extension AppDelegate {
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+N as a local shortcut to create a new conversation.
-    func registerCmdNMonitor() {
+    /// Registers a local event monitor to create a new conversation when the
+    /// configured shortcut (default: Cmd+N) is pressed. The shortcut is read
+    /// dynamically from UserDefaults so it can be reconfigured without restarting.
+    func registerNewChatMonitor() {
+        if let existing = cmdNLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            cmdNLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 45, // kVK_ANSI_N
-                  mods == [.command] else {
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
                 guard self?.isBootstrapping != true else { return }
-                self?.createNewConversation()
+                self?.openNewChat()
             }
             return nil
         }
@@ -348,7 +369,10 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: {
+                let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+                return shortcut.isEmpty ? nil : ShortcutHelper.displayString(for: shortcut)
+            }()) { [weak self] in
                 self?.mainWindow?.conversationManager.createConversation()
                 SoundManager.shared.play(.newConversation)
                 if let id = self?.mainWindow?.conversationManager.activeConversationId {

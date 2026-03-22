@@ -74,7 +74,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
 }));
 
 // ── Import after mocks ───────────────────────────────────────────────

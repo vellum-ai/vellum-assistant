@@ -15,7 +15,19 @@ import {
   setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
-import { loadConfig } from "../config/loader.js";
+import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/schema.js";
+import type { CesClient } from "../credential-execution/client.js";
+import { createCesClient } from "../credential-execution/client.js";
+import {
+  isCesCredentialBackendEnabled,
+  isCesToolsEnabled,
+} from "../credential-execution/feature-gates.js";
+import {
+  type CesProcessManager,
+  CesUnavailableError,
+  createCesProcessManager,
+} from "../credential-execution/process-manager.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -49,6 +61,7 @@ import { backfillManualTokenConnections } from "../oauth/manual-token-connection
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -60,6 +73,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -99,6 +113,7 @@ import {
   switchConversation,
   undoLastMessage,
 } from "./handlers/conversations.js";
+import { installAssistantSymlink } from "./install-symlink.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -125,6 +140,103 @@ const log = getLogger("lifecycle");
 
 function loadDotEnv(): void {
   dotenvConfig({ path: join(getRootDir(), ".env"), quiet: true });
+}
+
+export interface CesStartupResult {
+  client: CesClient | undefined;
+  processManager: CesProcessManager | undefined;
+  clientPromise: Promise<CesClient | undefined> | undefined;
+  abortController: AbortController | undefined;
+}
+
+/**
+ * Start the CES (Credential Execution Service) process and perform the RPC
+ * handshake. Returns a promise that resolves with the CES client and process
+ * manager. Callers can fire-and-forget — the daemon does not need to await
+ * this for startup to continue.
+ *
+ * The managed sidecar accepts exactly one bootstrap connection, so this must
+ * be called at the process level (not per-conversation).
+ */
+export async function startCesProcess(
+  config: AssistantConfig,
+): Promise<CesStartupResult> {
+  const shouldStartCes = isCesToolsEnabled(config) || isCesCredentialBackendEnabled(config);
+  if (!shouldStartCes) {
+    return {
+      client: undefined,
+      processManager: undefined,
+      clientPromise: undefined,
+      abortController: undefined,
+    };
+  }
+
+  const pm = createCesProcessManager({ assistantConfig: config });
+  const abortController = new AbortController();
+  let clientRef: CesClient | undefined;
+
+  const clientPromise = (async (): Promise<CesClient | undefined> => {
+    try {
+      const transport = await pm.start();
+      if (abortController.signal.aborted) {
+        throw new Error("CES initialization aborted during shutdown");
+      }
+      const client = createCesClient(transport);
+      clientRef = client;
+      // Resolve the assistant API key so CES can use it for platform
+      // credential materialisation. In managed mode the key is provisioned
+      // after hatch and stored in the credential store — CES can't read
+      // the env var, so we pass it via the handshake.
+      const proxyCtx = await resolveManagedProxyContext();
+      const { accepted, reason } = await client.handshake(
+        proxyCtx.assistantApiKey
+          ? { assistantApiKey: proxyCtx.assistantApiKey }
+          : undefined,
+      );
+      if (abortController.signal.aborted) {
+        client.close();
+        throw new Error("CES initialization aborted during shutdown");
+      }
+      if (accepted) {
+        log.info(
+          "CES client initialized and handshake accepted (server-level)",
+        );
+        return client;
+      }
+      log.warn(
+        { reason },
+        "CES handshake rejected — CES tools will be unavailable",
+      );
+      client.close();
+      clientRef = undefined;
+      await pm.stop();
+      return undefined;
+    } catch (err) {
+      if (err instanceof CesUnavailableError) {
+        log.info(
+          { reason: err.message },
+          "CES is not available — CES tools will be unavailable",
+        );
+      } else {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "Failed to initialize CES client — CES tools will be unavailable",
+        );
+      }
+      await pm.stop().catch(() => {});
+      clientRef = undefined;
+      return undefined;
+    }
+  })();
+
+  return {
+    get client() {
+      return clientRef;
+    },
+    processManager: pm,
+    clientPromise,
+    abortController,
+  };
 }
 
 // Entry point for the daemon process itself
@@ -292,6 +404,11 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Call recovery failed — continuing startup");
     }
 
+    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
+    // into the workspace config file before the first loadConfig() call so
+    // onboarding preferences are persisted alongside schema defaults.
+    mergeDefaultWorkspaceConfig();
+
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
@@ -332,12 +449,43 @@ export async function runDaemon(): Promise<void> {
       log.info("Usage telemetry reporter started");
     }
 
+    // CES lifecycle — kick off early so CES handshake runs concurrently with
+    // provider/tool initialization. The CES sidecar accepts exactly one
+    // bootstrap connection, so startup must happen at the process level.
+    const cesStartupPromise = startCesProcess(config);
+
+    // When the credential backend flag is enabled, CES startup must complete
+    // BEFORE provider initialization so credential reads can go through CES.
+    // Block with a 3-second timeout — fall back to direct credential store
+    // on timeout.
+    if (isCesCredentialBackendEnabled(config)) {
+      const cesResult = await cesStartupPromise;
+      // startCesProcess() returns immediately — the actual handshake runs
+      // inside clientPromise. Await it (with a 3s timeout) so the CES client
+      // is available before provider initialization.
+      if (cesResult.clientPromise) {
+        const client = await Promise.race([
+          cesResult.clientPromise,
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => {
+              log.warn("CES handshake timed out after 3s — falling back to direct credential store");
+              resolve(undefined);
+            }, 3000),
+          ),
+        ]);
+        if (client) {
+          setCesClient(client);
+        }
+      }
+    }
+
     await initializeProvidersAndTools(config);
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
+    server.setCes(await cesStartupPromise);
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
@@ -868,6 +1016,14 @@ export async function runDaemon(): Promise<void> {
 
     writePid(process.pid);
     log.info({ pid: process.pid }, "Daemon started");
+
+    // Install the `assistant` CLI symlink idempotently on every daemon start.
+    // Non-blocking — failures are logged but don't affect startup.
+    try {
+      installAssistantSymlink();
+    } catch (err) {
+      log.warn({ err }, "Assistant symlink installation failed — continuing");
+    }
 
     const hookManager = getHookManager();
     hookManager.watch();

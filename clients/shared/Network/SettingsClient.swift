@@ -42,6 +42,8 @@ public protocol SettingsClientProtocol {
     func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage?
     func fetchPlatformConfig() async -> PlatformConfigResponseMessage?
     func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage?
+    func patchConfig(_ partial: [String: Any]) async -> Bool
+    func fetchConfig() async -> [String: Any]?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -61,7 +63,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("vercel_api_config_response", into: response.data)
             return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("fetchVercelConfig error: \(error.localizedDescription)")
+            log.error("fetchVercelConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -79,7 +81,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("vercel_api_config_response", into: response.data)
             return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("saveVercelConfig error: \(error.localizedDescription)")
+            log.error("saveVercelConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -97,7 +99,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("vercel_api_config_response", into: response.data)
             return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("deleteVercelConfig error: \(error.localizedDescription)")
+            log.error("deleteVercelConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -114,7 +116,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("model_info", into: response.data)
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
-            log.error("fetchModelInfo error: \(error.localizedDescription)")
+            log.error("fetchModelInfo error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -133,7 +135,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("model_info", into: response.data)
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
-            log.error("setModel error: \(error.localizedDescription)")
+            log.error("setModel error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -150,7 +152,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("model_info", into: response.data)
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
-            log.error("setImageGenModel error: \(error.localizedDescription)")
+            log.error("setImageGenModel error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -166,7 +168,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return try JSONDecoder().decode(EmbeddingConfigMessage.self, from: response.data)
         } catch {
-            log.error("fetchEmbeddingConfig error: \(error.localizedDescription)")
+            log.error("fetchEmbeddingConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -184,7 +186,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return try JSONDecoder().decode(EmbeddingConfigMessage.self, from: response.data)
         } catch {
-            log.error("setEmbeddingConfig error: \(error.localizedDescription)")
+            log.error("setEmbeddingConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -201,7 +203,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("telegram_config_response", into: response.data)
             return try JSONDecoder().decode(TelegramConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("fetchTelegramConfig error: \(error.localizedDescription)")
+            log.error("fetchTelegramConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -235,7 +237,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("telegram_config_response", into: response.data)
             return try JSONDecoder().decode(TelegramConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("setTelegramConfig error: \(error.localizedDescription)")
+            log.error("setTelegramConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -255,7 +257,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return enabled
         } catch {
-            log.error("fetchDangerouslySkipPermissions error: \(error.localizedDescription)")
+            log.error("fetchDangerouslySkipPermissions error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -272,7 +274,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return true
         } catch {
-            log.error("setDangerouslySkipPermissions error: \(error.localizedDescription)")
+            log.error("setDangerouslySkipPermissions error: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -291,7 +293,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return true
         } catch {
-            log.error("setSlackWebhookConfig error: \(error.localizedDescription)")
+            log.error("setSlackWebhookConfig error: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -304,13 +306,13 @@ public struct SettingsClient: SettingsClientProtocol {
                 timeout: 10
             )
             guard response.isSuccess else {
-                log.error("fetchChannelVerificationStatus(\(channel)) failed (HTTP \(response.statusCode))")
+                log.error("fetchChannelVerificationStatus(\(channel, privacy: .public)) failed (HTTP \(response.statusCode))")
                 return nil
             }
             let patched = injectType("channel_verification_session_response", into: response.data)
             return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
         } catch {
-            log.error("fetchChannelVerificationStatus(\(channel)) error: \(error.localizedDescription)")
+            log.error("fetchChannelVerificationStatus(\(channel, privacy: .public)) error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -356,13 +358,13 @@ public struct SettingsClient: SettingsClientProtocol {
             }
 
             guard response.isSuccess else {
-                log.error("sendChannelVerificationSession(\(action), \(channel ?? "nil")) failed (HTTP \(response.statusCode))")
+                log.error("sendChannelVerificationSession(\(action, privacy: .public), \(channel ?? "nil", privacy: .public)) failed (HTTP \(response.statusCode))")
                 return decodeErrorResponse(from: response.data, channel: channel)
             }
             let patched = injectType("channel_verification_session_response", into: response.data)
             return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
         } catch {
-            log.error("sendChannelVerificationSession(\(action)) error: \(error.localizedDescription)")
+            log.error("sendChannelVerificationSession(\(action, privacy: .public)) error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -405,7 +407,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return true
         } catch {
-            log.error("updateVoiceConfig error: \(error.localizedDescription)")
+            log.error("updateVoiceConfig error: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -424,7 +426,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return true
         } catch {
-            log.error("startOAuthConnect error: \(error.localizedDescription)")
+            log.error("startOAuthConnect error: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -447,7 +449,7 @@ public struct SettingsClient: SettingsClientProtocol {
             }
             return true
         } catch {
-            log.error("registerDeviceToken error: \(error.localizedDescription)")
+            log.error("registerDeviceToken error: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -465,7 +467,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("ingress_config_response", into: response.data)
             return try JSONDecoder().decode(IngressConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("fetchIngressConfig error: \(error.localizedDescription)")
+            log.error("fetchIngressConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -487,7 +489,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("ingress_config_response", into: response.data)
             return try JSONDecoder().decode(IngressConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("updateIngressConfig error: \(error.localizedDescription)")
+            log.error("updateIngressConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -509,7 +511,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let enriched = try JSONSerialization.data(withJSONObject: json)
             return try JSONDecoder().decode(SuggestionResponseMessage.self, from: enriched)
         } catch {
-            log.error("fetchSuggestion error: \(error.localizedDescription)")
+            log.error("fetchSuggestion error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -528,7 +530,7 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("platform_config_response", into: response.data)
             return try JSONDecoder().decode(PlatformConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("fetchPlatformConfig error: \(error.localizedDescription)")
+            log.error("fetchPlatformConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -546,7 +548,42 @@ public struct SettingsClient: SettingsClientProtocol {
             let patched = injectType("platform_config_response", into: response.data)
             return try JSONDecoder().decode(PlatformConfigResponseMessage.self, from: patched)
         } catch {
-            log.error("setPlatformConfig error: \(error.localizedDescription)")
+            log.error("setPlatformConfig error: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    public func patchConfig(_ partial: [String: Any]) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.patch(
+                path: "config", json: partial, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("patchConfig failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("patchConfig error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func fetchConfig() async -> [String: Any]? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+                return nil
+            }
+            return json
+        } catch {
+            log.error("fetchConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

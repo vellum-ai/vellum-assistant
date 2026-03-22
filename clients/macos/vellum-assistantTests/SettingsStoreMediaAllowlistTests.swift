@@ -31,7 +31,12 @@ final class SettingsStoreMediaAllowlistTests: XCTestCase {
     }
 
     private func readPersistedConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        let url = URL(fileURLWithPath: configPath)
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
     }
 
     private func readPersistedMediaEmbeds() -> [String: Any]? {

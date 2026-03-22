@@ -192,10 +192,15 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
+type DaemonStartOptions = {
+  foreground?: boolean;
+  defaultWorkspaceConfigPath?: string;
+};
+
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
-  options?: { foreground?: boolean },
+  options?: DaemonStartOptions,
 ): Promise<void> {
   const foreground = options?.foreground ?? false;
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
@@ -260,6 +265,7 @@ async function startDaemonFromSource(
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    VELLUM_CLOUD: "local",
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -267,6 +273,10 @@ async function startDaemonFromSource(
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
+  }
+  if (options?.defaultWorkspaceConfigPath) {
+    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+      options.defaultWorkspaceConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -306,6 +316,7 @@ async function startDaemonFromSource(
 async function startDaemonWatchFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
+  options?: DaemonStartOptions,
 ): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
@@ -380,6 +391,10 @@ async function startDaemonWatchFromSource(
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
+  }
+  if (options?.defaultWorkspaceConfigPath) {
+    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+      options.defaultWorkspaceConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -819,7 +834,7 @@ export function isGatewayWatchModeAvailable(): boolean {
 export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
-  options?: { foreground?: boolean },
+  options?: DaemonStartOptions,
 ): Promise<void> {
   const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
@@ -939,6 +954,10 @@ export async function startLocalDaemon(
           daemonEnv[key] = process.env[key]!;
         }
       }
+      if (options?.defaultWorkspaceConfigPath) {
+        daemonEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+          options.defaultWorkspaceConfigPath;
+      }
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
       if (resources) {
@@ -1006,9 +1025,9 @@ export async function startLocalDaemon(
         // Kill the bundled daemon to avoid two processes competing for the same port
         await stopProcessByPidFile(pidFile, "bundled daemon");
         if (watch) {
-          await startDaemonWatchFromSource(assistantIndex, resources);
+          await startDaemonWatchFromSource(assistantIndex, resources, options);
         } else {
-          await startDaemonFromSource(assistantIndex, resources);
+          await startDaemonFromSource(assistantIndex, resources, options);
         }
         daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       }
@@ -1032,7 +1051,7 @@ export async function startLocalDaemon(
       );
     }
     if (watch) {
-      await startDaemonWatchFromSource(assistantIndex, resources);
+      await startDaemonWatchFromSource(assistantIndex, resources, options);
 
       const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       if (daemonReady) {
@@ -1043,7 +1062,7 @@ export async function startLocalDaemon(
         );
       }
     } else {
-      await startDaemonFromSource(assistantIndex, resources, { foreground });
+      await startDaemonFromSource(assistantIndex, resources, options);
 
       const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       if (daemonReady) {

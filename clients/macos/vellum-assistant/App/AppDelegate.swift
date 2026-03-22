@@ -51,6 +51,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
     var cmdNLocalMonitor: Any?
+    var newChatMenuItem: NSMenuItem?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
@@ -138,11 +139,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hasRequestedNotificationAuthorizationFromConversationSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
-
-    /// Structured error from the most recent assistant startup failure.
-    /// Read by the UI to show a contextual error view instead of a
-    /// generic failure message.
-    @Published var daemonStartupError: DaemonStartupError?
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local assistant hatching is skipped.

@@ -253,7 +253,13 @@ public final class MainWindowState: ObservableObject {
             needsInferenceApiKey = false
             return
         }
-        let config = WorkspaceConfigIO.read()
+        Task {
+            let config = await SettingsClient().fetchConfig() ?? [:]
+            await MainActor.run { applyInferenceApiKeyConfig(config) }
+        }
+    }
+
+    private func applyInferenceApiKeyConfig(_ config: [String: Any]) {
         guard let services = config["services"] as? [String: Any],
               let inference = services["inference"] as? [String: Any],
               let mode = inference["mode"] as? String,

@@ -25,6 +25,12 @@
  *
  * **Lifecycle**
  * - `update_managed_credential` — Push an updated API key to CES after hatch
+ *
+ * **Credential CRUD**
+ * - `get_credential` — Retrieve a credential by account name
+ * - `set_credential` — Store or update a credential
+ * - `delete_credential` — Delete a credential by account name
+ * - `list_credentials` — List all credential account names
  */
 
 import { z } from "zod/v4";
@@ -51,6 +57,14 @@ export const CesRpcMethod = {
   ListAuditRecords: "list_audit_records",
   /** Push an updated assistant credential to CES after post-hatch provisioning. */
   UpdateManagedCredential: "update_managed_credential",
+  /** Retrieve a single credential by account name. */
+  GetCredential: "get_credential",
+  /** Store or update a credential by account name. */
+  SetCredential: "set_credential",
+  /** Delete a credential by account name. */
+  DeleteCredential: "delete_credential",
+  /** List all credential account names. */
+  ListCredentials: "list_credentials",
 } as const;
 
 export type CesRpcMethod =
@@ -422,6 +436,79 @@ export type UpdateManagedCredentialResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// get_credential
+// ---------------------------------------------------------------------------
+
+export const GetCredentialSchema = z.object({
+  /** The account name to look up. */
+  account: z.string(),
+});
+export type GetCredential = z.infer<typeof GetCredentialSchema>;
+
+export const GetCredentialResponseSchema = z.object({
+  /** Whether the credential was found. */
+  found: z.boolean(),
+  /** The credential value (present only when found). */
+  value: z.string().optional(),
+});
+export type GetCredentialResponse = z.infer<
+  typeof GetCredentialResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
+// set_credential
+// ---------------------------------------------------------------------------
+
+export const SetCredentialSchema = z.object({
+  /** The account name to store the credential under. */
+  account: z.string(),
+  /** The credential value to store. */
+  value: z.string(),
+});
+export type SetCredential = z.infer<typeof SetCredentialSchema>;
+
+export const SetCredentialResponseSchema = z.object({
+  /** Whether the credential was successfully stored. */
+  ok: z.boolean(),
+});
+export type SetCredentialResponse = z.infer<
+  typeof SetCredentialResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
+// delete_credential
+// ---------------------------------------------------------------------------
+
+export const DeleteCredentialSchema = z.object({
+  /** The account name to delete. */
+  account: z.string(),
+});
+export type DeleteCredential = z.infer<typeof DeleteCredentialSchema>;
+
+export const DeleteCredentialResponseSchema = z.object({
+  /** The result of the delete operation. */
+  result: z.enum(["deleted", "not-found", "error"]),
+});
+export type DeleteCredentialResponse = z.infer<
+  typeof DeleteCredentialResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
+// list_credentials
+// ---------------------------------------------------------------------------
+
+export const ListCredentialsSchema = z.object({});
+export type ListCredentials = z.infer<typeof ListCredentialsSchema>;
+
+export const ListCredentialsResponseSchema = z.object({
+  /** The account names of all stored credentials. */
+  accounts: z.array(z.string()),
+});
+export type ListCredentialsResponse = z.infer<
+  typeof ListCredentialsResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Full RPC contract type map
 // ---------------------------------------------------------------------------
 
@@ -466,6 +553,22 @@ export interface CesRpcContract {
     request: UpdateManagedCredential;
     response: UpdateManagedCredentialResponse;
   };
+  [CesRpcMethod.GetCredential]: {
+    request: GetCredential;
+    response: GetCredentialResponse;
+  };
+  [CesRpcMethod.SetCredential]: {
+    request: SetCredential;
+    response: SetCredentialResponse;
+  };
+  [CesRpcMethod.DeleteCredential]: {
+    request: DeleteCredential;
+    response: DeleteCredentialResponse;
+  };
+  [CesRpcMethod.ListCredentials]: {
+    request: ListCredentials;
+    response: ListCredentialsResponse;
+  };
 }
 
 /**
@@ -507,5 +610,21 @@ export const CesRpcSchemas = {
   [CesRpcMethod.UpdateManagedCredential]: {
     request: UpdateManagedCredentialSchema,
     response: UpdateManagedCredentialResponseSchema,
+  },
+  [CesRpcMethod.GetCredential]: {
+    request: GetCredentialSchema,
+    response: GetCredentialResponseSchema,
+  },
+  [CesRpcMethod.SetCredential]: {
+    request: SetCredentialSchema,
+    response: SetCredentialResponseSchema,
+  },
+  [CesRpcMethod.DeleteCredential]: {
+    request: DeleteCredentialSchema,
+    response: DeleteCredentialResponseSchema,
+  },
+  [CesRpcMethod.ListCredentials]: {
+    request: ListCredentialsSchema,
+    response: ListCredentialsResponseSchema,
   },
 } as const;

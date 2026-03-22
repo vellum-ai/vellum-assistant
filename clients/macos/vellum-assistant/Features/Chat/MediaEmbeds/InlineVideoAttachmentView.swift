@@ -450,54 +450,83 @@ struct InlineVideoAttachmentView: View {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let destURL = panel.url else { return }
-
-        isSaving = true
-        if let sourceURL = localFileURL ?? cachedFileURL {
-            Task.detached {
-                do {
-                    // Copy to a temp location first, then atomically replace the destination so the
-                    // original file is never removed before we have a working replacement in hand.
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(UUID().uuidString)
-                        .appendingPathExtension(destURL.pathExtension)
-                    try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-                    if FileManager.default.fileExists(atPath: destURL.path) {
-                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
-                    } else {
-                        try FileManager.default.moveItem(at: tempURL, to: destURL)
+        // Use begin() instead of runModal() — runModal() fails on macOS Tahoe
+        // with "failed to connect to the open and save panel service".
+        let sourceURL = localFileURL ?? cachedFileURL
+        let isLazy = attachment.isLazyLoad
+        let attachmentId = attachment.id.isEmpty ? nil : attachment.id
+        let gatewayBaseUrl = isLazy ? resolveGatewayBaseUrl() : ""
+        let base64 = attachment.data
+        panel.begin { response in
+            guard response == .OK, let destURL = panel.url else { return }
+            self.isSaving = true
+            if let sourceURL {
+                Task.detached {
+                    var succeeded = false
+                    do {
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                            .appendingPathExtension(destURL.pathExtension)
+                        try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                        if FileManager.default.fileExists(atPath: destURL.path) {
+                            _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                        } else {
+                            try FileManager.default.moveItem(at: tempURL, to: destURL)
+                        }
+                        succeeded = true
+                    } catch {
+                        log.error("Failed to save video: \(error)")
                     }
-                } catch {
-                    log.error("Failed to save video: \(error)")
+                    let didSucceed = succeeded
+                    await MainActor.run {
+                        self.isSaving = false
+                        if didSucceed { Self.showSaveSuccessToast(destURL) }
+                    }
                 }
-                await MainActor.run { isSaving = false }
-            }
-        } else if attachment.isLazyLoad {
-            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
-                isSaving = false
+            } else if isLazy, let attachmentId {
+                Task {
+                    do {
+                        let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
+                        try data.write(to: destURL)
+                        await MainActor.run {
+                            self.isSaving = false
+                            Self.showSaveSuccessToast(destURL)
+                        }
+                    } catch {
+                        await MainActor.run { self.isSaving = false }
+                    }
+                }
+            } else if isLazy {
+                // Lazy-load attachment with no valid ID — cannot save
+                self.isSaving = false
                 return
-            }
-            let gatewayBaseUrl = resolveGatewayBaseUrl()
-            Task {
-                do {
-                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
-                    try data.write(to: destURL)
-                    await MainActor.run { isSaving = false }
-                } catch {
-                    await MainActor.run { isSaving = false }
+            } else {
+                Task.detached {
+                    guard let data = Data(base64Encoded: base64) else {
+                        await MainActor.run { self.isSaving = false }
+                        return
+                    }
+                    do {
+                        try data.write(to: destURL)
+                        await MainActor.run {
+                            self.isSaving = false
+                            Self.showSaveSuccessToast(destURL)
+                        }
+                    } catch {
+                        log.error("Failed to save video: \(error)")
+                        await MainActor.run { self.isSaving = false }
+                    }
                 }
-            }
-        } else {
-            let base64 = attachment.data
-            Task.detached {
-                guard let data = Data(base64Encoded: base64) else {
-                    await MainActor.run { isSaving = false }
-                    return
-                }
-                try? data.write(to: destURL)
-                await MainActor.run { isSaving = false }
             }
         }
+    }
+
+    @MainActor
+    private static func showSaveSuccessToast(_ url: URL) {
+        AppDelegate.shared?.mainWindow?.windowState.showToast(
+            message: "Saved to \(url.lastPathComponent)",
+            style: .success
+        )
     }
 
     private func openInExternalPlayer() {

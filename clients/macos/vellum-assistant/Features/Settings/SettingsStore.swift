@@ -80,6 +80,7 @@ public final class SettingsStore: ObservableObject {
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
     @Published var sidebarToggleShortcut: String
+    @Published var newChatShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -419,40 +420,32 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.sidebarToggleShortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "newChatShortcut") == nil {
+            self.newChatShortcut = "cmd+n"
+        } else {
+            self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
+        }
 
-        // Load media embed settings from workspace config
-        let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
+        // Use defaults for config-dependent properties; the daemon will
+        // provide authoritative values once reachable via loadConfigFromDaemon().
+        let emptyConfig: [String: Any] = [:]
+
+        // Load media embed settings (defaults when config is empty)
+        let mediaSettings = Self.loadMediaEmbedSettings(config: emptyConfig)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
-        self.userTimezone = Self.loadUserTimezone(from: configPath)
+        self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
 
-        // Load permissions settings from workspace config
-        let permissionsConfig = WorkspaceConfigIO.read(from: configPath)["permissions"] as? [String: Any]
-        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
+        // Permissions default to false until daemon provides config
+        self.dangerouslySkipPermissions = false
 
-        // Load web search provider from workspace config
-        let config = WorkspaceConfigIO.read(from: configPath)
-        if let services = config["services"] as? [String: Any],
-           let webSearch = services["web-search"] as? [String: Any],
-           let provider = webSearch["provider"] as? String {
-            self.webSearchProvider = provider
-        }
-
-        // Load service modes (inference, image-generation) from workspace config
-        loadServiceModes()
+        // Service modes use defaults until daemon provides config
+        loadServiceModes(config: emptyConfig)
 
         // Seed provider catalog with shared defaults so the UI has data before
         // the first daemon fetch completes.
         providerCatalog = ProviderCatalogEntry.defaultCatalog
-
-        // When enabledSince was defaulted to "now" (no value on disk),
-        // persist it immediately so subsequent loads produce the same
-        // deterministic timestamp instead of advancing each time.
-        // Skip for remote assistants to avoid creating a local .vellum/ directory.
-        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
-            persistMediaEmbedState()
-        }
 
         // React to Keychain changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
@@ -460,34 +453,6 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Re-sync all API keys and refresh remote state when the daemon reconnects.
-        // This also covers the first-launch case where SettingsStore is initialized
-        // before onboarding sets connectedAssistantId.
-        NotificationCenter.default.publisher(for: .daemonDidReconnect)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.syncAllKeysToDaemon()
-                self?.refreshVercelKeyState()
-                self?.refreshModelInfo()
-                self?.refreshTelegramStatus()
-                self?.refreshTwilioStatus()
-                self?.refreshChannelVerificationStatus(channel: "telegram")
-                self?.refreshChannelVerificationStatus(channel: "phone")
-                self?.refreshChannelVerificationStatus(channel: "slack")
-                self?.loadProviderRoutingSources()
-                self?.refreshEmbeddingConfig()
-                self?.refreshDangerouslySkipPermissions()
-            }
-            .store(in: &cancellables)
-
-        // Refresh routing sources when local assistant bootstrap completes
-        // (e.g. after sign-in provisions an API key into the daemon)
-        NotificationCenter.default.publisher(for: .localBootstrapCompleted)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.loadProviderRoutingSources()
-            }
-            .store(in: &cancellables)
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
@@ -540,6 +505,11 @@ public final class SettingsStore: ObservableObject {
             .sink { value in UserDefaults.standard.set(value, forKey: "sidebarToggleShortcut") }
             .store(in: &cancellables)
 
+        $newChatShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "newChatShortcut") }
+            .store(in: &cancellables)
+
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
         connectionManager?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
@@ -573,28 +543,6 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
-        // Only fetch remote state when an assistant is already connected.
-        // During initial setup there is no assistant yet, so these calls
-        // would all fail with "No connected assistant" errors.
-        let hasConnectedAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") != nil
-        if hasConnectedAssistant {
-            refreshVercelKeyState()
-            refreshModelInfo()
-            refreshTelegramStatus()
-            refreshTwilioStatus()
-            refreshChannelVerificationStatus(channel: "telegram")
-            refreshChannelVerificationStatus(channel: "phone")
-            refreshChannelVerificationStatus(channel: "slack")
-
-            // Fetch provider routing sources (managed vs BYO) on init
-            loadProviderRoutingSources()
-
-            // Fetch embedding config on init
-            refreshEmbeddingConfig()
-
-            // Fetch skip-permissions state for Docker assistants on init
-            refreshDangerouslySkipPermissions()
-        }
     }
 
     // MARK: - API Key Actions
@@ -2128,7 +2076,9 @@ public final class SettingsStore: ObservableObject {
                       let provider = json["provider"] as? [String: Any],
                       let sources = provider["routingSources"] as? [String: String] else { return }
                 self.providerRoutingSources = sources
-                self.loadServiceModes()
+                if let fetchedConfig = await self.settingsClient.fetchConfig() {
+                    self.loadServiceModes(config: fetchedConfig)
+                }
             } catch {
                 log.error("Failed to load provider routing sources: \(error)")
             }
@@ -2137,8 +2087,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
-    func loadServiceModes() {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    func loadServiceModes(config: [String: Any]) {
         guard let services = config["services"] as? [String: Any] else { return }
         if let inference = services["inference"] as? [String: Any] {
             if let mode = inference["mode"] as? String { self.inferenceMode = mode }
@@ -2180,16 +2129,13 @@ public final class SettingsStore: ObservableObject {
 
     func setInferenceMode(_ mode: String) {
         inferenceMode = mode
-        guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["mode"] = mode
-        services["inference"] = inference
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for inference mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["inference": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for inference mode")
+            }
         }
         scheduleRoutingSourceRefresh()
         NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
@@ -2197,54 +2143,45 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenMode(_ mode: String) {
         imageGenMode = mode
-        guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var imageGen = services["image-generation"] as? [String: Any] ?? [:]
-        imageGen["mode"] = mode
-        services["image-generation"] = imageGen
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for image-generation mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["image-generation": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for image-generation mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
 
     func setWebSearchMode(_ mode: String) {
         webSearchMode = mode
-        guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        webSearch["mode"] = mode
-        services["web-search"] = webSearch
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for web search mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["web-search": ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for web search mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
 
     func setManagedOAuthMode(_ mode: String, providerKey: String) {
         managedOAuthMode[providerKey] = mode
-        guard !isCurrentAssistantRemote else { return }
         // Derive the config service key deterministically from providerKey so it
         // matches the key that loadServiceModes() reads on startup. Previously
         // this depended on provider metadata being loaded, which caused a race:
         // if metadata hadn't arrived yet the fallback wrote under the wrong key.
         let slug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
         let serviceKey = "\(slug)-oauth"
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var svc = services[serviceKey] as? [String: Any] ?? [:]
-        svc["mode"] = mode
-        services[serviceKey] = svc
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for \(serviceKey) mode: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": [serviceKey: ["mode": mode]]
+            ])
+            if !success {
+                log.error("Failed to patch config for \(serviceKey) mode")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
@@ -2661,32 +2598,26 @@ public final class SettingsStore: ObservableObject {
 
     func setWebSearchProvider(_ provider: String) {
         webSearchProvider = provider
-        guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        webSearch["provider"] = provider
-        services["web-search"] = webSearch
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for web search provider: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["web-search": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for web search provider")
+            }
         }
         scheduleRoutingSourceRefresh()
     }
 
     func setInferenceProvider(_ provider: String) {
         selectedInferenceProvider = provider
-        guard !isCurrentAssistantRemote else { return }
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["provider"] = provider
-        services["inference"] = inference
-        do {
-            try WorkspaceConfigIO.merge(["services": services], into: configPath)
-        } catch {
-            log.error("Failed to persist inference provider: \(error.localizedDescription)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["inference": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for inference provider")
+            }
         }
         scheduleRoutingSourceRefresh()
         NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
@@ -2979,32 +2910,15 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setDangerouslySkipPermissions(_ enabled: Bool) {
-        // Docker assistants: use the HTTP API (workspace is on a Docker volume,
-        // not directly writable from the host).
-        if isCurrentAssistantDocker {
-            skipPermissionsToggleGeneration &+= 1
-            let requestGeneration = skipPermissionsToggleGeneration
-            dangerouslySkipPermissions = enabled
-            Task { @MainActor in
-                let success = await settingsClient.setDangerouslySkipPermissions(enabled)
-                if !success, self.skipPermissionsToggleGeneration == requestGeneration {
-                    // Revert optimistic toggle on failure only if no newer toggle has fired
-                    self.dangerouslySkipPermissions = !enabled
-                }
-            }
-            return
-        }
-        // Truly remote (managed/cloud) assistants: not supported.
-        guard !isCurrentAssistantRemote else { return }
-        // Local assistants: write directly to workspace config file.
+        skipPermissionsToggleGeneration &+= 1
+        let requestGeneration = skipPermissionsToggleGeneration
         dangerouslySkipPermissions = enabled
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var permissions = existingConfig["permissions"] as? [String: Any] ?? [:]
-        permissions["dangerouslySkipPermissions"] = enabled
-        do {
-            try WorkspaceConfigIO.merge(["permissions": permissions], into: configPath)
-        } catch {
-            log.error("Failed to persist dangerouslySkipPermissions: \(error)")
+        Task { @MainActor in
+            let success = await settingsClient.setDangerouslySkipPermissions(enabled)
+            if !success, self.skipPermissionsToggleGeneration == requestGeneration {
+                // Revert optimistic toggle on failure only if no newer toggle has fired
+                self.dangerouslySkipPermissions = !enabled
+            }
         }
     }
 
@@ -3014,27 +2928,19 @@ public final class SettingsStore: ObservableObject {
         let normalized = MediaEmbedSettings.normalizeDomains(domains)
         mediaEmbedVideoAllowlistDomains = normalized
 
-        guard !isCurrentAssistantRemote else { return }
-
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
-
-        existingMediaEmbeds["videoAllowlistDomains"] = normalized
-        existingUI["mediaEmbeds"] = existingMediaEmbeds
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for video allowlist domains: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["mediaEmbeds": ["videoAllowlistDomains": normalized]]
+            ])
+            if !success {
+                log.error("Failed to patch config for video allowlist domains")
+            }
         }
     }
 
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
     /// the workspace config under `ui.mediaEmbeds`.
     private func persistMediaEmbedState() {
-        guard !isCurrentAssistantRemote else { return }
-
         var mediaEmbedsDict: [String: Any] = [
             "enabled": mediaEmbedsEnabled,
         ]
@@ -3044,21 +2950,13 @@ public final class SettingsStore: ObservableObject {
             mediaEmbedsDict["enabledSince"] = formatter.string(from: since)
         }
 
-        // Read existing config to preserve sibling keys inside ui and ui.mediaEmbeds
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
-
-        // Merge our changes on top of whatever is already in mediaEmbeds
-        for (key, value) in mediaEmbedsDict {
-            existingMediaEmbeds[key] = value
-        }
-        existingUI["mediaEmbeds"] = existingMediaEmbeds
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for media embed state: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["mediaEmbeds": mediaEmbedsDict]
+            ])
+            if !success {
+                log.error("Failed to patch config for media embed state")
+            }
         }
     }
 
@@ -3077,11 +2975,10 @@ public final class SettingsStore: ObservableObject {
     /// Reads `ui.mediaEmbeds` from the workspace config and falls back to
     /// `MediaEmbedSettings` defaults for any missing or invalid values.
     ///
-    /// When no `enabledSince` is found in the config (missing file, missing
-    /// section, or missing/unparseable key), the value defaults to "now" so
-    /// that fresh installs only embed new messages going forward.
-    private static func loadMediaEmbedSettings(from configPath: String? = nil) -> MediaEmbedLoadResult {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    /// When no `enabledSince` is found in the config (missing section or
+    /// missing/unparseable key), the value defaults to "now" so that fresh
+    /// installs only embed new messages going forward.
+    private static func loadMediaEmbedSettings(config: [String: Any]) -> MediaEmbedLoadResult {
 
         guard let ui = config["ui"] as? [String: Any],
               let mediaEmbeds = ui["mediaEmbeds"] as? [String: Any] else {
@@ -3135,25 +3032,58 @@ public final class SettingsStore: ObservableObject {
     // MARK: - User Timezone Loading/Persistence
 
     private func persistUserTimezone() {
-        guard !isCurrentAssistantRemote else { return }
+        // Send the timezone string, or "" to clear it. An empty string avoids
+        // sending JSON null (which would fail Zod's string().optional()
+        // validation) while loadUserTimezone() already treats "" as nil via
+        // its `guard !trimmed.isEmpty` check.
+        let tzValue = userTimezone ?? ""
 
-        let existingConfig = WorkspaceConfigIO.read(from: configPath)
-        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
-        if let timezone = userTimezone {
-            existingUI["userTimezone"] = timezone
-        } else {
-            existingUI.removeValue(forKey: "userTimezone")
-        }
-
-        do {
-            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
-        } catch {
-            log.error("Failed to merge workspace config for user timezone: \(error)")
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["userTimezone": tzValue]
+            ])
+            if !success {
+                log.error("Failed to patch config for user timezone")
+            }
         }
     }
 
-    private static func loadUserTimezone(from configPath: String? = nil) -> String? {
-        let config = WorkspaceConfigIO.read(from: configPath)
+    /// Fetches the full workspace config from the daemon and applies all
+    /// config-dependent properties. Called after init once the daemon is
+    /// reachable.
+    func loadConfigFromDaemon() async {
+        guard let config = await settingsClient.fetchConfig() else { return }
+        applyDaemonConfig(config)
+    }
+
+    /// Applies a daemon-fetched workspace config to all config-dependent
+    /// published properties.
+    private func applyDaemonConfig(_ config: [String: Any]) {
+        let mediaSettings = Self.loadMediaEmbedSettings(config: config)
+        self.mediaEmbedsEnabled = mediaSettings.enabled
+        self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
+        self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
+        self.userTimezone = Self.loadUserTimezone(config: config)
+
+        let permissionsConfig = config["permissions"] as? [String: Any]
+        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
+
+        if let services = config["services"] as? [String: Any],
+           let webSearch = services["web-search"] as? [String: Any],
+           let provider = webSearch["provider"] as? String {
+            self.webSearchProvider = provider
+        }
+
+        loadServiceModes(config: config)
+
+        // Persist enabledSince when it was defaulted so subsequent loads
+        // produce a deterministic timestamp.
+        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
+            persistMediaEmbedState()
+        }
+    }
+
+    private static func loadUserTimezone(config: [String: Any]) -> String? {
         guard let ui = config["ui"] as? [String: Any],
               let raw = ui["userTimezone"] as? String else {
             return nil

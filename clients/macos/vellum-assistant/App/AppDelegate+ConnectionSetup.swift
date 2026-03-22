@@ -55,7 +55,6 @@ extension AppDelegate {
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
-        let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Managed assistant: platform proxy with session token auth.
         if let assistant, assistant.isManaged {
@@ -463,10 +462,6 @@ extension AppDelegate {
             installSymlink(commandName: "vellum", target: cliBinary.path)
         }
 
-        let assistantBinary = macosDir.appendingPathComponent("vellum-assistant")
-        if FileManager.default.fileExists(atPath: assistantBinary.path) {
-            installSymlink(commandName: "assistant", target: assistantBinary.path)
-        }
     }
 
     /// Creates a symlink at /usr/local/bin/<commandName> pointing to the

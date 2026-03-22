@@ -101,7 +101,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

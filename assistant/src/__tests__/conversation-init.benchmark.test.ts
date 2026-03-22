@@ -111,10 +111,8 @@ mock.module("../util/platform.js", () => ({
   getTCPPort: () => 8765,
   isIOSPairingEnabled: () => false,
   isTCPEnabled: () => false,
-  readLockfile: () => null,
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  writeLockfile: () => {},
   ensureDataDir: () => {},
 }));
 

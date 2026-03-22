@@ -3,7 +3,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -45,25 +44,6 @@ export function getClipboardCommand(): string | null {
   return null;
 }
 
-/**
- * Read and parse the lockfile (~/.vellum.lock.json).
- * Respects BASE_DATA_DIR for non-standard home directories.
- * Returns null if the file doesn't exist or is malformed.
- */
-export function readLockfile(): Record<string, unknown> | null {
-  const base = getBaseDataDir() || homedir();
-  const lockPath = join(base, ".vellum.lock.json");
-  if (!existsSync(lockPath)) return null;
-  try {
-    const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      return raw as Record<string, unknown>;
-    }
-  } catch {
-    // malformed JSON
-  }
-  return null;
-}
 
 /**
  * Resolve the instance data directory from the lockfile.
@@ -155,45 +135,18 @@ export function resolveInstanceDataDir(): string | undefined {
  * (see migration 007-assistant-id-to-self). However, the desktop UI
  * sends the real assistant ID (e.g., "vellum-true-eel") while the
  * inbound call path resolves phone numbers to config keys (typically
- * "self"). This function maps any known lockfile assistant ID to "self"
+ * "self"). This function maps the current assistant's ID to "self"
  * so both sides use a consistent DB key.
- *
- * Multi-instance safety: each daemon process runs with a scoped
- * BASE_DATA_DIR, so readLockfile() only sees the lockfile for this
- * instance. The mapping to "self" is correct because each daemon is
- * single-tenant — it only manages its own instance's data.
  */
 export function normalizeAssistantId(assistantId: string): string {
   if (assistantId === "self") return "self";
 
-  try {
-    const lockData = readLockfile();
-    const assistants = lockData?.assistants as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (assistants) {
-      for (const entry of assistants) {
-        if (entry.assistantId === assistantId) return "self";
-      }
-    }
-  } catch {
-    // lockfile unreadable — return as-is
-  }
+  const ownName = process.env.VELLUM_ASSISTANT_NAME;
+  if (ownName && assistantId === ownName) return "self";
 
   return assistantId;
 }
 
-/**
- * Write data to the primary lockfile (~/.vellum.lock.json).
- * Respects BASE_DATA_DIR for non-standard home directories.
- */
-export function writeLockfile(data: Record<string, unknown>): void {
-  const base = getBaseDataDir() || homedir();
-  writeFileSync(
-    join(base, ".vellum.lock.json"),
-    JSON.stringify(data, null, 2) + "\n",
-  );
-}
 
 /**
  * Returns the root ~/.vellum directory. User-facing files (config, prompt

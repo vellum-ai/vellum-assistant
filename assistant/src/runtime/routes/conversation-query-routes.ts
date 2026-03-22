@@ -12,13 +12,20 @@
  * PUT    /v1/config/embeddings          — set embedding provider/model
  * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
  * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
+ * GET    /v1/config                     — full raw workspace config
+ * PATCH  /v1/config                     — deep-merge partial config
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
-import { getConfig, loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import {
+  deepMergeOverwrite,
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
@@ -289,6 +296,61 @@ export function conversationQueryRouteDefinitions(
         raw.permissions = permissions;
         saveRawConfig(raw);
         return Response.json({ enabled: body.enabled });
+      },
+    },
+
+    // ── Full config read ─────────────────────────────────────────────
+    {
+      endpoint: "config",
+      method: "GET",
+      policyKey: "config",
+      handler: () => {
+        try {
+          const raw = loadRawConfig();
+          return Response.json(raw);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to read config: ${message}`,
+            500,
+          );
+        }
+      },
+    },
+
+    // ── Generic config patch ──────────────────────────────────────────
+    {
+      endpoint: "config",
+      method: "PATCH",
+      policyKey: "config",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as Record<string, unknown>;
+        if (
+          body == null ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          Object.keys(body).length === 0
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            "Body must be a non-empty JSON object",
+            400,
+          );
+        }
+        try {
+          const raw = loadRawConfig();
+          deepMergeOverwrite(raw, body);
+          saveRawConfig(raw);
+          return Response.json({ ok: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to patch config: ${message}`,
+            500,
+          );
+        }
       },
     },
 

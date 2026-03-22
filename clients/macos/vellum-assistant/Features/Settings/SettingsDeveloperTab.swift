@@ -23,7 +23,6 @@ struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject private var devModeManager = DevModeManager.shared
     var connectionManager: GatewayConnectionManager?
-    var identityClient: IdentityClientProtocol = IdentityClient()
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     var authManager: AuthManager
     var onClose: () -> Void
@@ -34,7 +33,6 @@ struct SettingsDeveloperTab: View {
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
     @State private var identity: IdentityInfo?
-    @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
     @State private var showingHatchConfirmation: Bool = false
@@ -159,19 +157,15 @@ struct SettingsDeveloperTab: View {
             sentryTestingSection
         }
         .onAppear {
+            // Fetch skip-permissions state for Docker assistants
+            store.refreshDangerouslySkipPermissions()
+
             // Assistant info setup
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             Task { await refreshAwakeStates() }
             refreshDisplayNames()
             identity = IdentityInfo.load()
-            if identity == nil,
-               let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isRemote {
-                Task {
-                    remoteIdentity = await identityClient.fetchRemoteIdentity()
-                }
-            }
             resolvePlatformUuid()
             Task { await fetchHealthz() }
 

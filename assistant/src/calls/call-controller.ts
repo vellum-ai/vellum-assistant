@@ -673,9 +673,10 @@ export class CallController {
     // encoding and is forwarded to Twilio as it arrives.
     if (useFishAudio && fishAudioTextBuffer.trim().length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
+      let handle: ReturnType<typeof createStreamingEntry> | null = null;
       try {
         const format = config.fishAudio.format ?? "mp3";
-        const handle = createStreamingEntry(format as "mp3" | "wav" | "opus");
+        handle = createStreamingEntry(format as "mp3" | "wav" | "opus");
         const baseUrl = getPublicBaseUrl(config);
         const url = `${baseUrl}/v1/audio/${handle.audioId}`;
         this.relay.sendPlayUrl(url);
@@ -685,19 +686,19 @@ export class CallController {
           fishAudioTextBuffer.trim(),
           config.fishAudio,
           {
-            onChunk: (chunk) => handle.push(chunk),
+            onChunk: (chunk) => handle!.push(chunk),
             signal: abortController.signal,
           },
         );
-        handle.finalize();
-        this.activeFishAbort = null;
       } catch (err) {
-        this.activeFishAbort = null;
         if (err instanceof DOMException && err.name === "AbortError") {
           log.debug("Fish Audio synthesis aborted (barge-in)");
         } else {
           log.error({ err }, "Fish Audio synthesis failed — skipping");
         }
+      } finally {
+        this.activeFishAbort = null;
+        handle?.finalize();
       }
     }
 

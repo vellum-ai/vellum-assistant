@@ -73,7 +73,17 @@ private enum ImageActions {
             }
             guard let dataToWrite else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                try? dataToWrite.write(to: url)
+                do {
+                    try dataToWrite.write(to: url)
+                    DispatchQueue.main.async {
+                        AppDelegate.shared?.mainWindow?.windowState.showToast(
+                            message: "Saved to \(url.lastPathComponent)",
+                            style: .success
+                        )
+                    }
+                } catch {
+                    // Write failed — no toast
+                }
             }
         }
     }

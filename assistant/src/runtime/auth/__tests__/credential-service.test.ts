@@ -17,7 +17,6 @@ mock.module("../../../util/platform.js", () => ({
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, "test.db"),
   normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  readLockfile: () => ({ assistants: [{ assistantId: "vellum-test-eel" }] }),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",

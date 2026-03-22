@@ -39,6 +39,7 @@ import type { RemoteHost, Species } from "../lib/constants";
 import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
+import { buildNestedConfig, writeInitialConfig } from "../lib/config-utils";
 import {
   startLocalDaemon,
   startGateway,
@@ -100,6 +101,7 @@ export async function buildStartupScript(
   providerApiKeys: Record<string, string>,
   instanceName: string,
   cloud: RemoteHost,
+  configValues: Record<string, string> = {},
 ): Promise<string> {
   const platformUrl = getPlatformUrl();
   const logPath =
@@ -131,6 +133,22 @@ export async function buildStartupScript(
     .map((envVar) => `${envVar}=\$${envVar}`)
     .join("\n");
 
+  // Write --config key=value pairs to a temp JSON file on the remote host
+  // and export the env var so the daemon reads it on first boot.
+  let configWriteBlock = "";
+  if (Object.keys(configValues).length > 0) {
+    const configJson = JSON.stringify(buildNestedConfig(configValues), null, 2);
+    configWriteBlock = `
+echo "Writing default workspace config..."
+VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH="/tmp/vellum-initial-config-$$.json"
+cat > "\$VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH" << 'VELLUM_CONFIG_EOF'
+${configJson}
+VELLUM_CONFIG_EOF
+export VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH
+echo "Default workspace config written to \$VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH"
+`;
+  }
+
   return `#!/bin/bash
 set -e
 
@@ -147,9 +165,10 @@ RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
 
 ${ownershipFixup}
-
+${configWriteBlock}
 export VELLUM_SSH_USER="\$SSH_USER"
 export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
+export VELLUM_CLOUD="${cloud}"
 echo "Downloading install script from ${platformUrl}/install.sh..."
 curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
 echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes)"
@@ -169,6 +188,7 @@ interface HatchArgs {
   remote: RemoteHost;
   restart: boolean;
   watch: boolean;
+  configValues: Record<string, string>;
 }
 
 function parseArgs(): HatchArgs {
@@ -180,6 +200,7 @@ function parseArgs(): HatchArgs {
   let remote: RemoteHost = DEFAULT_REMOTE;
   let restart = false;
   let watch = false;
+  const configValues: Record<string, string> = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -206,6 +227,9 @@ function parseArgs(): HatchArgs {
       );
       console.log(
         "  --keep-alive              Stay alive after hatch, exit when gateway stops",
+      );
+      console.log(
+        "  --config <key=value>      Set a workspace config value (repeatable)",
       );
       process.exit(0);
     } else if (arg === "-d") {
@@ -242,11 +266,28 @@ function parseArgs(): HatchArgs {
       }
       remote = next as RemoteHost;
       i++;
+    } else if (arg === "--config") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --config requires a key=value argument");
+        process.exit(1);
+      }
+      const eqIndex = next.indexOf("=");
+      if (eqIndex <= 0) {
+        console.error(
+          `Error: --config value must be in key=value format, got '${next}'`,
+        );
+        process.exit(1);
+      }
+      const key = next.slice(0, eqIndex);
+      const value = next.slice(eqIndex + 1);
+      configValues[key] = value;
+      i++;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -260,6 +301,7 @@ function parseArgs(): HatchArgs {
     remote,
     restart,
     watch,
+    configValues,
   };
 }
 
@@ -570,6 +612,7 @@ async function hatchLocal(
   restart: boolean = false,
   watch: boolean = false,
   keepAlive: boolean = false,
+  configValues: Record<string, string> = {},
 ): Promise<void> {
   if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
     console.error(
@@ -701,7 +744,9 @@ async function hatchLocal(
     process.env.APP_VERSION = cliPkg.version;
   }
 
-  await startLocalDaemon(watch, resources);
+  const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
+
+  await startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath });
 
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
@@ -817,8 +862,16 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, keepAlive, name, remote, restart, watch } =
-    parseArgs();
+  const {
+    species,
+    detached,
+    keepAlive,
+    name,
+    remote,
+    restart,
+    watch,
+    configValues,
+  } = parseArgs();
 
   if (restart && remote !== "local") {
     console.error(
@@ -835,22 +888,29 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, restart, watch, keepAlive);
+    await hatchLocal(species, name, restart, watch, keepAlive, configValues);
     return;
   }
 
   if (remote === "gcp") {
-    await hatchGcp(species, detached, name, buildStartupScript, watchHatching);
+    await hatchGcp(
+      species,
+      detached,
+      name,
+      buildStartupScript,
+      watchHatching,
+      configValues,
+    );
     return;
   }
 
   if (remote === "aws") {
-    await hatchAws(species, detached, name);
+    await hatchAws(species, detached, name, configValues);
     return;
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch);
+    await hatchDocker(species, detached, name, watch, configValues);
     return;
   }
 

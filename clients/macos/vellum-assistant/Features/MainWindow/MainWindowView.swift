@@ -62,9 +62,6 @@ struct MainWindowView: View {
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
-    /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
-    /// daemon loading overlay when a structured error arrives or is cleared.
-    @State private var daemonStartupError: DaemonStartupError?
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
@@ -385,13 +382,12 @@ struct MainWindowView: View {
         return "\(label) (\(display))"
     }
 
-    /// Daemon loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
-    private var daemonLoadingOverlayIfNeeded: some View {
+    private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
-            DaemonLoadingOverlayContent(
-                error: daemonStartupError,
-                onRetry: { handleDaemonRetry() },
+            AssistantLoadingOverlayContent(
+                onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
                 onGoToDeveloper: {
                     settingsStore.pendingSettingsTab = .developer
@@ -400,13 +396,6 @@ struct MainWindowView: View {
             )
             .transition(.opacity)
         }
-    }
-
-    private func handleDaemonRetry() {
-        daemonStartupError = nil
-        AppDelegate.shared?.daemonStartupError = nil
-        showDaemonLoading = true
-        retryDaemonStartup()
     }
 
     /// Top bar extracted to break up type-checker complexity.
@@ -699,7 +688,6 @@ struct MainWindowView: View {
     private func applyLifecycleModifiers<Content: View>(to content: Content) -> some View {
         content
             .onAppear { handleCoreLayoutAppear() }
-            .task { await observeDaemonStartupErrors() }
             .onDisappear { handleCoreLayoutDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
@@ -800,7 +788,6 @@ struct MainWindowView: View {
             windowState.persistentConversationId = activeId
         }
         eventStreamClient.startSSE()
-        daemonStartupError = AppDelegate.shared?.daemonStartupError
 
         // Show toast for update outcomes emitted while the main window was not visible.
         // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
@@ -811,10 +798,13 @@ struct MainWindowView: View {
         }
     }
 
-    private func observeDaemonStartupErrors() async {
-        guard let appDelegate = AppDelegate.shared else { return }
-        for await error in appDelegate.$daemonStartupError.values {
-            daemonStartupError = error
+    /// Restarts the current assistant's daemon by sleeping then waking it.
+    private func rewakeAssistant() {
+        Task {
+            guard let appDelegate = AppDelegate.shared,
+                  let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+            try? await appDelegate.vellumCli.sleep(name: assistantName)
+            try? await appDelegate.vellumCli.wake(name: assistantName)
         }
     }
 
@@ -1061,7 +1051,7 @@ struct MainWindowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
-                        daemonLoadingOverlayIfNeeded
+                        assistantLoadingOverlayIfNeeded
                     }
             }
             .padding(16)
@@ -1212,45 +1202,6 @@ struct MainWindowView: View {
             }
         }
     }
-
-    /// Restart the daemon process without re-hatching a new assistant.
-    /// Stops the existing daemon, then re-hatches with the restart flag
-    /// to avoid creating a duplicate assistant entry.
-    private func retryDaemonStartup() {
-        Task {
-            let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.vellumCli.stop(name: assistantName)
-            do {
-                try await appDelegate.vellumCli.hatch(
-                    name: assistantName,
-                    restart: true
-                )
-            } catch let error as VellumCli.CLIError {
-                let startupError: DaemonStartupError
-                if case .daemonStartupFailed(let parsed) = error {
-                    startupError = parsed
-                } else {
-                    startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                }
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            } catch {
-                let startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
-                appDelegate.daemonStartupError = startupError
-                daemonStartupError = startupError
-                MetricKitManager.reportDaemonStartupFailure(startupError)
-                return
-            }
-            // Reconnect the daemon client after a successful restart
-            if !appDelegate.connectionManager.isConnected && !appDelegate.connectionManager.isConnecting {
-                try? await appDelegate.connectionManager.connect()
-            }
-        }
-    }
-
 }
 
 // MARK: - Error Toast Overlay
@@ -1315,15 +1266,13 @@ private struct ErrorToastOverlay: View {
     }
 }
 
-// MARK: - Daemon Loading Overlay Content
+// MARK: - Assistant Loading Overlay Content
 
-/// Standalone view for the daemon loading overlay that shows either a
-/// structured error view, a connection timeout error, or the default
-/// skeleton placeholder.
+/// Standalone view for the assistant loading overlay that shows either a
+/// connection timeout error or the default skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
-private struct DaemonLoadingOverlayContent: View {
-    let error: DaemonStartupError?
+private struct AssistantLoadingOverlayContent: View {
     let onRetry: () -> Void
     let onSendLogs: () -> Void
     let onGoToDeveloper: () -> Void
@@ -1334,24 +1283,11 @@ private struct DaemonLoadingOverlayContent: View {
     @State private var timedOut = false
 
     var body: some View {
-        if let error {
+        if timedOut {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonStartupErrorView(
-                    error: error,
-                    onRetry: {
-                        timedOut = false
-                        onRetry()
-                    },
-                    onSendLogs: onSendLogs
-                )
-            }
-        } else if timedOut {
-            ZStack {
-                VColor.surfaceBase
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                DaemonConnectionTimeoutView(
+                AssistantConnectionTimeoutView(
                     onRetry: {
                         timedOut = false
                         onRetry()

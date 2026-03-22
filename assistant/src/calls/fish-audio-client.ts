@@ -5,6 +5,12 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("fish-audio-client");
 
+/** Timeout waiting for the first chunk from Fish Audio (ms). */
+const FIRST_CHUNK_TIMEOUT_MS = 10_000;
+
+/** Timeout waiting between consecutive chunks (ms). */
+const IDLE_TIMEOUT_MS = 5_000;
+
 // ---------------------------------------------------------------------------
 // Fish Audio REST API (POST /v1/tts)
 // ---------------------------------------------------------------------------
@@ -79,11 +85,20 @@ export async function synthesizeWithFishAudio(
 
   const chunks: Uint8Array[] = [];
   const reader = response.body.getReader();
+  let isFirstChunk = true;
 
   while (true) {
-    const { done, value } = await reader.read();
+    const timeoutMs = isFirstChunk ? FIRST_CHUNK_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      ),
+    );
+    const { done, value } = await Promise.race([reader.read(), timeout]);
     if (done) break;
     if (value) {
+      isFirstChunk = false;
       chunks.push(value);
       options?.onChunk?.(value);
     }

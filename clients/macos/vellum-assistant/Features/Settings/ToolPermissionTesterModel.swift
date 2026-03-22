@@ -110,15 +110,13 @@ final class ToolPermissionTesterModel: ObservableObject {
             .store(in: &cancellables)
 
         // Re-fetch tool names whenever the daemon (re)connects.
-        if let dc = connectionManager as? GatewayConnectionManager {
-            dc.$isConnected
-                .removeDuplicates()
-                .filter { $0 }
-                .sink { [weak self] _ in
-                    self?.fetchToolNames()
-                }
-                .store(in: &cancellables)
-        }
+        connectionManager.$isConnected
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                self?.fetchToolNames()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Tool Names Fetching

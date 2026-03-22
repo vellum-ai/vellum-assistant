@@ -269,7 +269,7 @@ struct IdentityPanel: View {
                 idRow(label: "Created at", value: formatDate(date))
             }
 
-            idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
+            idRow(label: "Origin system", value: lockfileAssistant?.cloud ?? "local")
         }
     }
 

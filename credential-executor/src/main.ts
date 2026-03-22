@@ -261,6 +261,27 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     auditStore,
   }) as typeof handlers[string];
 
+  // Register credential CRUD handlers
+  handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
+    const value = await secureKeyBackend.get(req.account);
+    return { found: value !== undefined, value };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+    const ok = await secureKeyBackend.set(req.account, req.value);
+    return { ok };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+    const result = await secureKeyBackend.delete(req.account);
+    return { result };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.ListCredentials] = (async () => {
+    const accounts = await secureKeyBackend.list();
+    return { accounts };
+  }) as typeof handlers[string];
+
   return handlers;
 }
 

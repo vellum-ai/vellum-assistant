@@ -397,17 +397,6 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // Set service modes to "managed" on the first authenticated
-                // bootstrap so default schema defaults ("your-own")
-                // are replaced. On subsequent launches, pass force: false so
-                // user-chosen service modes (e.g. "your-own") are preserved.
-                let flagKey = "managedServiceModesInitialized"
-                let alreadyInitialized = UserDefaults.standard.bool(forKey: flagKey)
-                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: !alreadyInitialized)
-                if !alreadyInitialized {
-                    UserDefaults.standard.set(true, forKey: flagKey)
-                }
-
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)

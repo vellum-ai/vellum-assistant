@@ -25,7 +25,12 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
     }
 
     private func readConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        let url = URL(fileURLWithPath: configPath)
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
     }
 
     func testLoadsValidConfiguredTimezone() {

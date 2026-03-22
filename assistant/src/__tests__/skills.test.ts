@@ -40,8 +40,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   readSessionToken: () => null,
   normalizeAssistantId: (id: string) => id,
-  readLockfile: () => null,
-  writeLockfile: () => {},
 }));
 
 const noopLogger = {

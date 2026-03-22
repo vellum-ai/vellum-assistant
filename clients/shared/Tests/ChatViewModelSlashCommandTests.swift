@@ -60,6 +60,8 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? { nil }
         func fetchPlatformConfig() async -> PlatformConfigResponseMessage? { nil }
         func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
+        func patchConfig(_ partial: [String: Any]) async -> Bool { false }
+        func fetchConfig() async -> [String: Any]? { nil }
     }
 
     private var connectionManager: GatewayConnectionManager!

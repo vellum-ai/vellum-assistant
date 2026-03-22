@@ -17,7 +17,7 @@ struct MemoryItemCreateView: View {
         Form {
             Section("Kind") {
                 Picker("Kind", selection: $kind) {
-                    ForEach(MemoryKind.allCases) { memoryKind in
+                    ForEach(MemoryKind.userCreatableKinds) { memoryKind in
                         Text(memoryKind.label).tag(memoryKind.rawValue)
                     }
                 }

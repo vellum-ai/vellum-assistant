@@ -12,6 +12,7 @@ import { renameConversationDiskViewDirsMigration } from "./012-rename-conversati
 import { repairConversationDiskViewMigration } from "./013-repair-conversation-disk-view.js";
 import { migrateCredentialsToKeychainMigration } from "./015-migrate-credentials-to-keychain.js";
 import { extractFeatureFlagsToProtectedMigration } from "./016-extract-feature-flags-to-protected.js";
+import { migrateCredentialsFromKeychainMigration } from "./016-migrate-credentials-from-keychain.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -35,4 +36,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   migrateToWorkspaceVolumeMigration,
   migrateCredentialsToKeychainMigration,
   extractFeatureFlagsToProtectedMigration,
+  migrateCredentialsFromKeychainMigration,
 ];

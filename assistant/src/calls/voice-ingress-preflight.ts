@@ -29,18 +29,6 @@ function fail(error: string): VoiceIngressPreflightFailure {
   };
 }
 
-function buildGatewayUnhealthyMessage(
-  target: string,
-  error: string | undefined,
-  afterRecoveryAttempt: boolean,
-): string {
-  const detail = error ?? "Unknown gateway health check failure";
-  if (afterRecoveryAttempt) {
-    return `Voice callback gateway is still unhealthy at ${target} after a local recovery attempt: ${detail}`;
-  }
-  return `Voice callback gateway is unhealthy at ${target}: ${detail}`;
-}
-
 export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResult> {
   const ingressConfig = loadConfig();
 
@@ -63,36 +51,6 @@ export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResu
       msg ||
         "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl).",
     );
-  }
-
-  const { ensureLocalGatewayReady, probeLocalGatewayHealth } =
-    await import("../runtime/local-gateway-health.js");
-
-  const initialHealth = await probeLocalGatewayHealth();
-  if (!initialHealth.healthy && !initialHealth.localDeployment) {
-    return fail(
-      buildGatewayUnhealthyMessage(
-        initialHealth.target,
-        initialHealth.error,
-        false,
-      ),
-    );
-  }
-
-  if (initialHealth.localDeployment) {
-    const recovery = await ensureLocalGatewayReady();
-    // Re-probe after the wake flow so the dial path only continues when the
-    // current gateway process is demonstrably serving the callback stack.
-    const confirmedHealth = await probeLocalGatewayHealth();
-    if (!confirmedHealth.healthy) {
-      return fail(
-        buildGatewayUnhealthyMessage(
-          confirmedHealth.target,
-          confirmedHealth.error ?? recovery.error,
-          recovery.recoveryAttempted,
-        ),
-      );
-    }
   }
 
   return {

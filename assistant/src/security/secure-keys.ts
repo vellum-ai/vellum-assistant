@@ -3,12 +3,12 @@
  * adapters.
  *
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
- *   - Containerized (IS_CONTAINERIZED + CES_CREDENTIAL_URL set): CES HTTP client.
- *   - Desktop app (VELLUM_DESKTOP_APP=1, non-dev): keychain backend always,
- *     with up to 5 s wait for the broker socket to appear. Even if the broker
- *     never becomes available, we commit to keychain so operations fail visibly
- *     rather than silently writing to a different store.
- *   - Dev mode or non-desktop topology: encrypted file store always.
+ *   1. CES RPC (primary) — injected via `setCesClient()`: delegates credential
+ *      operations to the CES process over stdio RPC. This is the default path
+ *      for all local modes (desktop app, dev, CLI).
+ *   2. CES HTTP — containerized mode (IS_CONTAINERIZED + CES_CREDENTIAL_URL):
+ *      delegates to the CES sidecar over HTTP. Used in Docker/managed mode.
+ *   3. Encrypted file store (fallback) — used when CES is unavailable.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
  * There are no cross-backend fallbacks or merges.
@@ -21,13 +21,12 @@ import type {
 
 import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json" with { type: "json" };
 import { getIsContainerized } from "../config/env-registry.js";
+import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
+import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
-import {
-  createEncryptedStoreBackend,
-  createKeychainBackend,
-} from "./credential-backend.js";
+import { createEncryptedStoreBackend } from "./credential-backend.js";
 
 export type { DeleteResult } from "./credential-backend.js";
 
@@ -45,17 +44,17 @@ export interface SecureKeyResult {
 
 const log = getLogger("secure-keys");
 
-const BROKER_WAIT_INTERVAL_MS = 500;
-const BROKER_WAIT_MAX_ATTEMPTS = 10; // 5 seconds total
-
-let _keychain: CredentialBackend | undefined;
+let _cesClient: CesClient | undefined;
 let _encryptedStore: CredentialBackend | undefined;
 let _resolvedBackend: CredentialBackend | undefined;
 let _resolvePromise: Promise<CredentialBackend> | undefined;
 
-function getKeychainBackend(): CredentialBackend {
-  if (!_keychain) _keychain = createKeychainBackend();
-  return _keychain;
+/** Inject a CES RPC client for credential routing. Resets the resolved backend. */
+export function setCesClient(client: CesClient | undefined): void {
+  _cesClient = client;
+  // Reset resolved backend so next call picks up CES
+  _resolvedBackend = undefined;
+  _resolvePromise = undefined;
 }
 
 function getEncryptedStoreBackend(): CredentialBackend {
@@ -63,25 +62,13 @@ function getEncryptedStoreBackend(): CredentialBackend {
   return _encryptedStore;
 }
 
-async function waitForBrokerAvailability(): Promise<boolean> {
-  const keychain = getKeychainBackend();
-  for (let i = 0; i < BROKER_WAIT_MAX_ATTEMPTS; i++) {
-    if (keychain.isAvailable()) return true;
-    await new Promise((r) => setTimeout(r, BROKER_WAIT_INTERVAL_MS));
-  }
-  return false;
-}
-
 /**
  * Resolve the primary credential backend for this process (async).
  *
  * Priority:
- *   1. Containerized + CES_CREDENTIAL_URL → CES HTTP client (skip keychain
- *      and encrypted store entirely — the sidecar owns credential storage).
- *   2. Desktop app (VELLUM_DESKTOP_APP=1, non-dev) → keychain always, with
- *      up to 5 s wait for the broker socket. Even if the broker never becomes
- *      available, we commit to keychain so operations fail visibly.
- *   3. Dev mode or non-desktop topology → encrypted file store always.
+ *   1. CES RPC client → primary path for all local modes.
+ *   2. Containerized + CES_CREDENTIAL_URL → CES HTTP client (Docker/managed).
+ *   3. Encrypted file store → fallback when CES is unavailable.
  *
  * Once resolved, the backend does not change during the process lifetime.
  * Call `_resetBackend()` in tests to clear the cached resolution.
@@ -95,7 +82,17 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
-  // 1. Containerized + CES (unchanged)
+  // 1. CES RPC — primary credential backend for all local modes
+  if (_cesClient) {
+    const cesRpc = new CesRpcCredentialBackend(_cesClient);
+    if (cesRpc.isAvailable()) {
+      _resolvedBackend = cesRpc;
+      return cesRpc;
+    }
+    log.warn("CES RPC client is set but not ready — falling back to local credential store");
+  }
+
+  // 2. CES HTTP — containerized / Docker / managed mode
   if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
     const ces = createCesCredentialBackend();
     if (ces.isAvailable()) {
@@ -108,23 +105,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     );
   }
 
-  // 2. Mac production: wait for keychain broker, commit to it even if
-  //    the wait times out (operations will fail with unreachable errors).
-  if (
-    process.env.VELLUM_DESKTOP_APP === "1" &&
-    process.env.VELLUM_DEV !== "1"
-  ) {
-    const available = await waitForBrokerAvailability();
-    if (!available) {
-      log.warn(
-        "Keychain broker not available after waiting — credential operations will fail until the Vellum app is restarted",
-      );
-    }
-    _resolvedBackend = getKeychainBackend();
-    return _resolvedBackend;
-  }
-
-  // 3. Dev mode or non-desktop topology
+  // 3. Encrypted file store — fallback when CES is unavailable
   _resolvedBackend = getEncryptedStoreBackend();
   return _resolvedBackend;
 }
@@ -262,7 +243,7 @@ export async function getMaskedProviderKey(
 
 /** @internal Test-only: reset the cached backends so they're re-created. */
 export function _resetBackend(): void {
-  _keychain = undefined;
+  _cesClient = undefined;
   _encryptedStore = undefined;
   _resolvedBackend = undefined;
   _resolvePromise = undefined;

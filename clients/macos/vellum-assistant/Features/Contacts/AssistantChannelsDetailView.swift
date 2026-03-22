@@ -75,6 +75,8 @@ struct AssistantChannelsDetailView: View {
             Text("This will disconnect the channel. You can set it up again later.")
         }
         .onAppear {
+            store.refreshTelegramStatus()
+            store.refreshTwilioStatus()
             store.fetchChannelSetupStatus()
             if isEmailEnabled {
                 store.refreshAssistantEmail()

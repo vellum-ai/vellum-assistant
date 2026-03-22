@@ -20,13 +20,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
-import { createCesClient } from "../credential-execution/client.js";
-import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
-import {
-  type CesProcessManager,
-  CesUnavailableError,
-  createCesProcessManager,
-} from "../credential-execution/process-manager.js";
+import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -45,7 +39,6 @@ import {
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -259,8 +252,8 @@ export class DaemonServer {
   private configWatcher = new ConfigWatcher();
 
   // CES (Credential Execution Service) — process-level singleton.
-  // The CES sidecar accepts exactly one bootstrap connection, so we must
-  // hold that connection at the server level rather than per-conversation.
+  // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
+  // receives the result via setCes().
   private cesProcessManager?: CesProcessManager;
   private cesClientPromise?: Promise<CesClient | undefined>;
   private cesInitAbortController?: AbortController;
@@ -270,6 +263,31 @@ export class DaemonServer {
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID;
+
+  /**
+   * Inject the CES client and process manager from the caller (lifecycle.ts).
+   * Must be called before start().
+   */
+  setCes(result: {
+    client: CesClient | undefined;
+    processManager: CesProcessManager | undefined;
+    clientPromise: Promise<CesClient | undefined> | undefined;
+    abortController: AbortController | undefined;
+  }): void {
+    this.cesClientRef = result.client;
+    this.cesProcessManager = result.processManager;
+    this.cesInitAbortController = result.abortController;
+
+    // Wrap the external promise so that cesClientRef stays in sync once the
+    // handshake completes — the async work runs in lifecycle.ts but the
+    // server needs the resolved client reference for getCesClient().
+    if (result.clientPromise) {
+      this.cesClientPromise = result.clientPromise.then((client) => {
+        this.cesClientRef = client;
+        return client;
+      });
+    }
+  }
 
   /**
    * Return the CES client reference (if available).
@@ -534,73 +552,6 @@ export class DaemonServer {
     this.unsubscribeContactChange = onContactChange(() => {
       this.broadcast({ type: "contacts_changed" });
     });
-
-    // CES lifecycle — start the CES process and perform the RPC handshake
-    // once at server level. The managed sidecar accepts exactly one bootstrap
-    // connection, so this must be a process-level singleton.
-    if (isCesToolsEnabled(config)) {
-      const pm = createCesProcessManager({ assistantConfig: config });
-      this.cesProcessManager = pm;
-      const abortController = new AbortController();
-      this.cesInitAbortController = abortController;
-      this.cesClientPromise = (async () => {
-        try {
-          const transport = await pm.start();
-          if (abortController.signal.aborted) {
-            throw new Error("CES initialization aborted during shutdown");
-          }
-          const client = createCesClient(transport);
-          this.cesClientRef = client;
-          // Resolve the assistant API key so CES can use it for platform
-          // credential materialisation. In managed mode the key is provisioned
-          // after hatch and stored in the credential store — CES can't read
-          // the env var, so we pass it via the handshake.
-          const proxyCtx = await resolveManagedProxyContext();
-          const { accepted, reason } = await client.handshake(
-            proxyCtx.assistantApiKey
-              ? { assistantApiKey: proxyCtx.assistantApiKey }
-              : undefined,
-          );
-          if (abortController.signal.aborted) {
-            client.close();
-            throw new Error("CES initialization aborted during shutdown");
-          }
-          if (accepted) {
-            log.info(
-              "CES client initialized and handshake accepted (server-level)",
-            );
-            return client;
-          }
-          log.warn(
-            { reason },
-            "CES handshake rejected — CES tools will be unavailable",
-          );
-          client.close();
-          this.cesClientRef = undefined;
-          await pm.stop();
-          // Reset so next session can retry initialization
-          this.cesClientPromise = undefined;
-          return undefined;
-        } catch (err) {
-          if (err instanceof CesUnavailableError) {
-            log.info(
-              { reason: err.message },
-              "CES is not available — CES tools will be unavailable",
-            );
-          } else {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "Failed to initialize CES client — CES tools will be unavailable",
-            );
-          }
-          await pm.stop().catch(() => {});
-          // Reset so next session can retry initialization
-          this.cesClientRef = undefined;
-          this.cesClientPromise = undefined;
-          return undefined;
-        }
-      })();
-    }
 
     log.info("DaemonServer started (HTTP-only mode)");
   }

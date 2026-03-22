@@ -184,18 +184,23 @@ enum LogExporter {
                 }
             }
 
-            // --- Phase 2: Upload archive to platform API ---
+            // --- Phase 2: Upload archive to platform API (background) ---
+            // Fire-and-forget so the user sees "Feedback Sent" immediately
+            // after the Sentry event is captured. The archive is cleaned up
+            // after the upload completes (or fails).
+            let archiveURLCopy = archiveURL
+            Task.detached {
+                await uploadFeedbackToPlatform(
+                    archiveURL: archiveURLCopy,
+                    formData: formData,
+                    sentryEventId: sentryEventId,
+                    connectedAssistantId: connectedAssistantId,
+                    connectedAssistant: connectedAssistantForTags
+                )
 
-            await uploadFeedbackToPlatform(
-                archiveURL: archiveURL,
-                formData: formData,
-                sentryEventId: sentryEventId,
-                connectedAssistantId: connectedAssistantId,
-                connectedAssistant: connectedAssistantForTags
-            )
-
-            // Clean up the archive temp file after platform upload completes (or fails).
-            try? fileManager.removeItem(at: archiveURL)
+                // Clean up the archive temp file after platform upload completes (or fails).
+                try? FileManager.default.removeItem(at: archiveURLCopy)
+            }
 
             // Re-activate before showing the alert in case the app reverted
             // to .accessory policy after the log report window was dismissed.
@@ -473,7 +478,7 @@ enum LogExporter {
             let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
             if !fileManager.fileExists(atPath: configSnapshotPath.path)
                 && !fileManager.fileExists(atPath: daemonConfigPath.path) {
-                writeSanitizedWorkspaceConfig(to: configSnapshotPath)
+                await writeSanitizedWorkspaceConfig(to: configSnapshotPath)
             }
         }
 
@@ -1260,10 +1265,10 @@ enum LogExporter {
         return val == nil ? "(empty)" : "(set)"
     }
 
-    /// Reads the workspace config.json and writes a sanitized copy with sensitive
-    /// values replaced by presence flags. Falls back silently if unreadable.
-    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
-        var config = WorkspaceConfigIO.read()
+    /// Fetches the workspace config from the daemon and writes a sanitized copy
+    /// with sensitive values replaced by presence flags.
+    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) async {
+        var config = await SettingsClient().fetchConfig() ?? [:]
         guard !config.isEmpty else { return }
 
         // Strip API key values — preserve which providers have keys configured

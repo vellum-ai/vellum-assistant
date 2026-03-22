@@ -51,6 +51,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     var updateIngressConfigResponse: IngressConfigResponseMessage?
     var fetchSuggestionCalls: [(conversationId: String, requestId: String)] = []
     var fetchSuggestionResponse: SuggestionResponseMessage?
+    var patchConfigCalls: [[String: Any]] = []
+    var patchConfigResponse: Bool = true
 
     // MARK: - Protocol Methods
 
@@ -174,4 +176,17 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     func fetchPlatformConfig() async -> PlatformConfigResponseMessage? { nil }
     func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
+
+    func patchConfig(_ partial: [String: Any]) async -> Bool {
+        patchConfigCalls.append(partial)
+        return patchConfigResponse
+    }
+
+    var fetchConfigCallCount = 0
+    var fetchConfigResponse: [String: Any]?
+
+    func fetchConfig() async -> [String: Any]? {
+        fetchConfigCallCount += 1
+        return fetchConfigResponse
+    }
 }

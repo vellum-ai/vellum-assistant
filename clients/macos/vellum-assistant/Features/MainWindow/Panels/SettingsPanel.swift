@@ -63,7 +63,7 @@ struct SettingsPanel: View {
 
         // Pre-compute the sounds flag so deep-link validation below uses
         // the actual config value instead of the @State default (true).
-        let soundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
+        let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
 
         // Derive the initial tab from the pending deep-link at construction
@@ -181,13 +181,8 @@ struct SettingsPanel: View {
         }
         .onAppear {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
-            isSoundsEnabled = AssistantFeatureFlagResolver.isEnabled(Self.soundsFeatureFlagKey)
-            isSchedulesEnabled = AssistantFeatureFlagResolver.isEnabled(Self.schedulesFeatureFlagKey)
-            store.refreshAPIKeyState()
-            store.loadProviderRoutingSources()
-            store.refreshTelegramStatus()
-            store.refreshTwilioStatus()
-            store.refreshIngressConfig()
+            isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
+            isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -488,6 +483,13 @@ struct SettingsPanel: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            store.refreshAPIKeyState()
+            store.refreshVercelKeyState()
+            store.refreshModelInfo()
+            store.loadProviderRoutingSources()
+            store.refreshEmbeddingConfig()
+        }
     }
 
     // MARK: - Permissions & Privacy Tab

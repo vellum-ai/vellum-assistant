@@ -110,6 +110,7 @@ extension AppDelegate {
         newChatItem.keyEquivalentModifierMask = .command
         newChatItem.target = self
         fileMenu.addItem(newChatItem)
+        self.newChatMenuItem = newChatItem
 
         let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
         currentConversationItem.target = self
@@ -152,6 +153,24 @@ extension AppDelegate {
             editMenuItem.submenu = editMenu
             mainMenu.insertItem(editMenuItem, at: 2)
         }
+
+        updateNewChatMenuItemShortcut()
+    }
+
+    /// Updates the File > New Chat menu item's key equivalent to match the
+    /// current `newChatShortcut` preference. Called once at setup and again
+    /// whenever the preference changes via the KVO observer.
+    func updateNewChatMenuItemShortcut() {
+        guard let item = newChatMenuItem else { return }
+        let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+        guard !shortcut.isEmpty else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = modifiers
     }
 
     // MARK: - Menu Item Validation
@@ -288,7 +307,16 @@ extension AppDelegate {
         currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
         menu.addItem(currentConversationItem)
 
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+        let newChatItem: NSMenuItem = {
+            let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+            guard !shortcut.isEmpty else {
+                return NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
+            }
+            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+            let item = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            return item
+        }()
         newChatItem.target = self
         newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)

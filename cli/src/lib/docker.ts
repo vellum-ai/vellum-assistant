@@ -12,6 +12,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
+import { writeInitialConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
@@ -470,11 +471,13 @@ export function serviceDockerRunArgs(opts: {
   extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
+  defaultWorkspaceConfigPath?: string;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
   const {
     cesServiceToken,
+    defaultWorkspaceConfigPath,
     extraAssistantEnv,
     gatewayPort,
     imageTags,
@@ -497,6 +500,8 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
+        "VELLUM_CLOUD=docker",
+        "-e",
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "WORKSPACE_DIR=/workspace",
@@ -505,6 +510,15 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
       ];
+      if (defaultWorkspaceConfigPath) {
+        const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
+        args.push(
+          "-v",
+          `${defaultWorkspaceConfigPath}:${containerPath}:ro`,
+          "-e",
+          `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${containerPath}`,
+        );
+      }
       if (cesServiceToken) {
         args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
       }
@@ -745,6 +759,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
+    defaultWorkspaceConfigPath?: string;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
   },
@@ -1029,6 +1044,7 @@ export async function hatchDocker(
   detached: boolean,
   name: string | null,
   watch: boolean = false,
+  configValues: Record<string, string> = {},
 ): Promise<void> {
   resetLogFile("hatch.log");
 
@@ -1131,6 +1147,10 @@ export async function hatchDocker(
       "/gateway-security/signing-key-bootstrap.lock",
     ]);
 
+    // Write --config key=value pairs to a temp file that gets bind-mounted
+    // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
+    const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
+
     const cesServiceToken = randomBytes(32).toString("hex");
     const bootstrapSecret = randomBytes(32).toString("hex");
     saveBootstrapSecret(instanceName, bootstrapSecret);
@@ -1140,6 +1160,7 @@ export async function hatchDocker(
         cesServiceToken,
         gatewayPort,
         imageTags,
+        defaultWorkspaceConfigPath,
         instanceName,
         res,
       },

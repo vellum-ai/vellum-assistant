@@ -32,7 +32,12 @@ final class SettingsStoreMediaToggleTests: XCTestCase {
 
     /// Read the persisted config back as a dictionary.
     private func readPersistedConfig() -> [String: Any] {
-        WorkspaceConfigIO.read(from: configPath)
+        let url = URL(fileURLWithPath: configPath)
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
     }
 
     /// Extract the `ui.mediaEmbeds` sub-dictionary from the persisted config.

@@ -23,7 +23,7 @@ struct MemoryItemCreateSheet: View {
                     VDropdown(
                         placeholder: "Kind",
                         selection: $kind,
-                        options: MemoryKind.allCases.map { ($0.label, $0.rawValue) }
+                        options: MemoryKind.userCreatableKinds.map { ($0.label, $0.rawValue) }
                     )
                 }
 

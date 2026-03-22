@@ -15,7 +15,6 @@ import type {
   ReadinessCheckResult,
   SetupStatus,
 } from "./channel-readiness-types.js";
-import { probeLocalGatewayHealth } from "./local-gateway-health.js";
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -82,7 +81,7 @@ const voiceProbe: ChannelProbe = {
     const hasPhone = !!resolveTwilioPhoneNumber();
     const ingress = checkIngress();
 
-    const checks: ReadinessCheckResult[] = [
+    return [
       check(
         "twilio_credentials",
         hasCreds,
@@ -97,20 +96,6 @@ const voiceProbe: ChannelProbe = {
       ),
       ingress,
     ];
-
-    if (ingress.passed) {
-      const gw = await probeLocalGatewayHealth();
-      checks.push(
-        check(
-          "gateway_health",
-          gw.healthy,
-          `Local gateway is serving requests at ${gw.target}`,
-          `Local gateway is not serving requests at ${gw.target}${gw.error ? `: ${gw.error}` : ""}`,
-        ),
-      );
-    }
-
-    return checks;
   },
 };
 
