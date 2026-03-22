@@ -252,6 +252,12 @@ export async function rollback(): Promise<void> {
     // Brief pause to allow SSE delivery before containers stop.
     await new Promise((r) => setTimeout(r, 500));
 
+    // Progress: switching version (must be sent BEFORE stopContainers)
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "progress",
+      statusMessage: "Switching to the previous version…",
+    });
+
     console.log("🛑 Stopping existing containers...");
     await stopContainers(res);
     console.log("✅ Containers stopped\n");
@@ -299,6 +305,12 @@ export async function rollback(): Promise<void> {
       // cycle and overwrite newer user data.
       const backupPath = entry.preUpgradeBackupPath as string | undefined;
       if (backupPath) {
+        // Progress: restoring data (gateway is back up at this point)
+        await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+          type: "progress",
+          statusMessage: "Restoring your data…",
+        });
+
         console.log(`📦 Restoring data from pre-upgrade backup...`);
         console.log(`   Source: ${backupPath}`);
         const restored = await restoreBackup(
