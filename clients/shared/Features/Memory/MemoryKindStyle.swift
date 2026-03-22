@@ -12,6 +12,12 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    /// Kinds that users may select when creating or editing memory items.
+    /// Excludes system-managed kinds like `.capability` (Skill).
+    public static var userCreatableKinds: [MemoryKind] {
+        allCases.filter { $0 != .capability }
+    }
+
     /// Capitalised display label for the kind.
     public var label: String {
         switch self {

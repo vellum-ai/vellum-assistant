@@ -131,7 +131,7 @@ extension MemoryItemDetailSheet {
                 VDropdown(
                     placeholder: "Kind",
                     selection: $editKind,
-                    options: MemoryKind.allCases.map { ($0.label, $0.rawValue) }
+                    options: MemoryKind.userCreatableKinds.map { ($0.label, $0.rawValue) }
                 )
             }
 
