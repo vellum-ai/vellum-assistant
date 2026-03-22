@@ -15,7 +15,8 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { invalidateConfigCache } from "../../config/loader.js";
-import { resetDb } from "../../memory/db-connection.js";
+import { getDb, resetDb } from "../../memory/db-connection.js";
+import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -437,6 +438,21 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     // Invalidate in-process caches so imported settings.json and trust.json take effect
     invalidateConfigCache();
     clearTrustCache();
+
+    // Check whether the imported database contains migration checkpoints from
+    // a newer version. This is non-blocking — the import has already
+    // succeeded — but we surface a warning so the caller knows some data may
+    // not be fully compatible with this daemon's schema.
+    try {
+      const migrationValidation = validateMigrationState(getDb());
+      if (migrationValidation.unknownCheckpoints.length > 0) {
+        result.report.warnings.push(
+          `Imported data contains ${migrationValidation.unknownCheckpoints.length} migration(s) from a newer version. Some data may not be fully compatible.`,
+        );
+      }
+    } catch {
+      // Don't fail the import if validation itself errors
+    }
 
     return Response.json(result.report);
   } catch (err) {
