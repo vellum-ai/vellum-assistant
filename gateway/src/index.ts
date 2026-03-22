@@ -9,6 +9,7 @@ import {
 import {
   validateEdgeToken,
   mintBrowserRelayToken,
+  mintServiceToken,
 } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
@@ -1024,7 +1025,10 @@ async function main() {
         try {
           const upstream = await fetch(
             `${config.assistantRuntimeBaseUrl}/v1/health`,
-            { signal: AbortSignal.timeout(3000) },
+            {
+              signal: AbortSignal.timeout(3000),
+              headers: { authorization: `Bearer ${mintServiceToken()}` },
+            },
           );
           if (upstream.ok) {
             const body = (await upstream.json()) as {
