@@ -185,24 +185,29 @@ export async function restoreBackup(
 /**
  * Keep only the N most recent pre-upgrade backups for an assistant,
  * deleting older ones. Default: keep 3.
+ * Never throws — failures are silently ignored.
  */
 export function pruneOldBackups(assistantId: string, keep: number = 3): void {
-  const backupsDir = getBackupsDir();
-  if (!existsSync(backupsDir)) return;
+  try {
+    const backupsDir = getBackupsDir();
+    if (!existsSync(backupsDir)) return;
 
-  const prefix = `${assistantId}-pre-upgrade-`;
-  const entries = readdirSync(backupsDir)
-    .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
-    .sort();
+    const prefix = `${assistantId}-pre-upgrade-`;
+    const entries = readdirSync(backupsDir)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
+      .sort();
 
-  if (entries.length <= keep) return;
+    if (entries.length <= keep) return;
 
-  const toDelete = entries.slice(0, entries.length - keep);
-  for (const file of toDelete) {
-    try {
-      unlinkSync(join(backupsDir, file));
-    } catch {
-      // Best-effort cleanup — ignore errors
+    const toDelete = entries.slice(0, entries.length - keep);
+    for (const file of toDelete) {
+      try {
+        unlinkSync(join(backupsDir, file));
+      } catch {
+        // Best-effort cleanup — ignore individual file errors
+      }
     }
+  } catch {
+    // Best-effort cleanup — never block the upgrade
   }
 }
