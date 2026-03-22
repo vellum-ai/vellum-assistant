@@ -748,6 +748,14 @@ export async function upgrade(): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`\n❌ Upgrade failed: ${detail}`);
+    // Best-effort: notify connected clients that the upgrade failed.
+    // A `starting` event may have been sent inside upgradeDocker/upgradePlatform
+    // before the error was thrown, so we must close with `complete`.
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "complete",
+      installedVersion: entry.serviceGroupVersion ?? "unknown",
+      success: false,
+    });
     emitCliError(categorizeUpgradeError(err), "Upgrade failed", detail);
     process.exit(1);
   }
