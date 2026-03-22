@@ -85,7 +85,7 @@ async function fetchPlatformImageRefs(
     const gatewayImage = release.gateway_image_ref;
     let credentialExecutorImage = release.credential_executor_image_ref;
 
-    // All three images must be present for a valid resolution
+    // Assistant and gateway images are required; credential-executor falls back to DockerHub
     if (!assistantImage || !gatewayImage) {
       log?.("Platform release missing required image refs");
       return null;
