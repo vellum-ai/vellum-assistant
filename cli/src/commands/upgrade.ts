@@ -198,6 +198,26 @@ async function upgradeDocker(
     );
   }
 
+  // Capture current migration state for rollback targeting.
+  // Must happen while daemon is still running (before containers are stopped).
+  let preMigrationState: {
+    dbVersion?: number;
+    lastWorkspaceMigrationId?: string;
+  } = {};
+  try {
+    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (healthResp.ok) {
+      const health = (await healthResp.json()) as {
+        migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
+      };
+      preMigrationState = health.migrations ?? {};
+    }
+  } catch {
+    // Best-effort — if we can't get migration state, rollback will skip migration reversal
+  }
+
   // Persist rollback state to lockfile BEFORE any destructive changes.
   // This enables the `vellum rollback` command to restore the previous version.
   if (entry.serviceGroupVersion && entry.containerInfo) {
@@ -205,6 +225,8 @@ async function upgradeDocker(
       ...entry,
       previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: { ...entry.containerInfo },
+      previousDbMigrationVersion: preMigrationState.dbVersion,
+      previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };
     saveAssistantEntry(rollbackEntry);
     console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
@@ -405,6 +427,8 @@ async function upgradeDocker(
       },
       previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: entry.containerInfo,
+      previousDbMigrationVersion: preMigrationState.dbVersion,
+      previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
       // Preserve the backup path so `vellum rollback` can restore it later
       preUpgradeBackupPath: backupPath ?? undefined,
     };
@@ -533,6 +557,8 @@ async function upgradeDocker(
             },
             previousServiceGroupVersion: undefined,
             previousContainerInfo: undefined,
+            previousDbMigrationVersion: undefined,
+            previousWorkspaceMigrationId: undefined,
             // Clear the backup path — the upgrade that created it just failed
             preUpgradeBackupPath: undefined,
           };

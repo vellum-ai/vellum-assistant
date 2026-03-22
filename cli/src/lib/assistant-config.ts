@@ -94,6 +94,10 @@ export interface AssistantEntry {
    *  only the backup from the specific upgrade being rolled back — never a stale backup from a
    *  previous upgrade cycle. */
   preUpgradeBackupPath?: string;
+  /** Pre-upgrade DB migration version — used by rollback to know how far back to revert. */
+  previousDbMigrationVersion?: number;
+  /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */
+  previousWorkspaceMigrationId?: string;
   [key: string]: unknown;
 }
 
