@@ -1013,6 +1013,29 @@ async function main() {
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
+        // Also fetch the daemon's /healthz to surface migration state
+        // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
+        // pre-upgrade migration state through the gateway.
+        try {
+          const upstream = await fetch(
+            `${config.assistantRuntimeBaseUrl}/healthz`,
+            { signal: AbortSignal.timeout(3000) },
+          );
+          if (upstream.ok) {
+            const body = (await upstream.json()) as {
+              migrations?: {
+                dbVersion?: number;
+                lastWorkspaceMigrationId?: string;
+              };
+            };
+            return Response.json({
+              status: "ok",
+              ...(body.migrations ? { migrations: body.migrations } : {}),
+            });
+          }
+        } catch {
+          // Daemon unreachable — graceful degradation, still return ok
+        }
         return Response.json({ status: "ok" });
       }
 
