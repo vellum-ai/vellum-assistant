@@ -27,8 +27,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Import after mocking
-import { CesRpcCredentialBackend } from "../security/ces-rpc-credential-backend.js";
 import type { CesClient } from "../credential-execution/client.js";
+import { CesRpcCredentialBackend } from "../security/ces-rpc-credential-backend.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
