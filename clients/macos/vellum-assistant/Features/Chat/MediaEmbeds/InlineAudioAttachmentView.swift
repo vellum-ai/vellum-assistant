@@ -97,7 +97,7 @@ struct InlineAudioAttachmentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // Right: time display or save button
-            if isHovering && failure == nil {
+            if isHovering {
                 Button(action: saveAudio) {
                     if isSaving {
                         ProgressView()
