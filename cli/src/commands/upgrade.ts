@@ -253,6 +253,11 @@ async function upgradeDocker(
   } catch (pullErr) {
     const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);
     console.error(`\n❌ Failed to pull Docker images: ${detail}`);
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "complete",
+      installedVersion: entry.serviceGroupVersion ?? "unknown",
+      success: false,
+    });
     emitCliError("IMAGE_PULL_FAILED", "Failed to pull Docker images", detail);
     process.exit(1);
   }
