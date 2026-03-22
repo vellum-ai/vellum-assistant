@@ -205,8 +205,20 @@ export function validateMigrationState(
 
   // Detect checkpoints that exist in the database but have no corresponding
   // registry entry — these are from a newer version of the daemon.
+  //
+  // The memory_checkpoints table is a general-purpose key-value store also
+  // used by non-migration subsystems (e.g., "identity:intro:text",
+  // "conversation_starters:item_count_at_last_gen"). Filter to only keys
+  // that follow migration naming conventions before comparing against the
+  // registry to avoid false-positive warnings.
   const registryKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
-  const unknownCheckpoints = [...completed].filter((k) => !registryKeys.has(k));
+  const isMigrationKey = (k: string): boolean =>
+    k.startsWith("migration_") ||
+    k.startsWith("backfill_") ||
+    k.startsWith("drop_");
+  const unknownCheckpoints = [...completed].filter(
+    (k) => isMigrationKey(k) && !registryKeys.has(k),
+  );
 
   if (unknownCheckpoints.length > 0) {
     log.warn(
