@@ -8,10 +8,12 @@
  */
 
 import { getDb } from "../../memory/db-connection.js";
+import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import { rollbackMemoryMigration } from "../../memory/migrations/validate-migration-state.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import {
+  getLastWorkspaceMigrationId,
   loadCheckpoints,
   rollbackWorkspaceMigrations,
 } from "../../workspace/migrations/runner.js";
@@ -39,15 +41,35 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        const { targetDbVersion, targetWorkspaceMigrationId } = body as {
+        const {
+          targetDbVersion,
+          targetWorkspaceMigrationId,
+          rollbackToRegistryCeiling,
+        } = body as {
           targetDbVersion?: unknown;
           targetWorkspaceMigrationId?: unknown;
+          rollbackToRegistryCeiling?: unknown;
         };
+
+        // When rollbackToRegistryCeiling is true, auto-determine targets
+        // from this daemon's own migration registry ceilings.
+        let effectiveDbVersion = targetDbVersion as number | undefined;
+        let effectiveWorkspaceMigrationId = targetWorkspaceMigrationId as
+          | string
+          | undefined;
+
+        if (rollbackToRegistryCeiling === true) {
+          if (effectiveDbVersion === undefined)
+            effectiveDbVersion = getMaxMigrationVersion();
+          if (effectiveWorkspaceMigrationId === undefined)
+            effectiveWorkspaceMigrationId =
+              getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS) ?? undefined;
+        }
 
         // At least one rollback target must be specified.
         if (
-          targetDbVersion === undefined &&
-          targetWorkspaceMigrationId === undefined
+          effectiveDbVersion === undefined &&
+          effectiveWorkspaceMigrationId === undefined
         ) {
           return httpError(
             "BAD_REQUEST",
@@ -56,12 +78,12 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        // Validate targetDbVersion when provided.
-        if (targetDbVersion !== undefined) {
+        // Validate effectiveDbVersion when provided.
+        if (effectiveDbVersion !== undefined) {
           if (
-            typeof targetDbVersion !== "number" ||
-            !Number.isInteger(targetDbVersion) ||
-            targetDbVersion < 0
+            typeof effectiveDbVersion !== "number" ||
+            !Number.isInteger(effectiveDbVersion) ||
+            effectiveDbVersion < 0
           ) {
             return httpError(
               "BAD_REQUEST",
@@ -71,11 +93,11 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
           }
         }
 
-        // Validate targetWorkspaceMigrationId when provided.
-        if (targetWorkspaceMigrationId !== undefined) {
+        // Validate effectiveWorkspaceMigrationId when provided.
+        if (effectiveWorkspaceMigrationId !== undefined) {
           if (
-            typeof targetWorkspaceMigrationId !== "string" ||
-            targetWorkspaceMigrationId.length === 0
+            typeof effectiveWorkspaceMigrationId !== "string" ||
+            effectiveWorkspaceMigrationId.length === 0
           ) {
             return httpError(
               "BAD_REQUEST",
@@ -89,8 +111,8 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
         // registry BEFORE executing any mutations. This prevents the DB
         // rollback from committing when the workspace target is invalid.
         let resolvedTargetIndex = -1;
-        if (targetWorkspaceMigrationId !== undefined) {
-          const targetId = targetWorkspaceMigrationId as string;
+        if (effectiveWorkspaceMigrationId !== undefined) {
+          const targetId = effectiveWorkspaceMigrationId as string;
           resolvedTargetIndex = WORKSPACE_MIGRATIONS.findIndex(
             (m) => m.id === targetId,
           );
@@ -109,11 +131,11 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
         };
 
         // Roll back DB migrations if requested.
-        if (targetDbVersion !== undefined) {
+        if (effectiveDbVersion !== undefined) {
           try {
             rolledBack.db = rollbackMemoryMigration(
               getDb(),
-              targetDbVersion as number,
+              effectiveDbVersion,
             );
           } catch (err) {
             const detail = err instanceof Error ? err.message : "Unknown error";
@@ -126,12 +148,12 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
         }
 
         // Roll back workspace migrations if requested.
-        if (targetWorkspaceMigrationId !== undefined) {
+        if (effectiveWorkspaceMigrationId !== undefined) {
           const workspaceDir = getWorkspaceDir();
 
           // Compute which migrations are candidates for rollback before
           // executing, since rollbackWorkspaceMigrations returns void.
-          const targetId = targetWorkspaceMigrationId as string;
+          const targetId = effectiveWorkspaceMigrationId;
 
           const checkpointsBefore = loadCheckpoints(workspaceDir);
           const candidateIds = WORKSPACE_MIGRATIONS.slice(

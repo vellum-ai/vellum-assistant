@@ -48,7 +48,7 @@ export interface MigrationRegistryEntry {
   /** Human-readable description for diagnostics and future authorship guidance. */
   description: string;
   /** Reverse the migration. Must be idempotent — safe to re-run. */
-  down?: (database: DrizzleDb) => void;
+  down: (database: DrizzleDb) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,4 +336,6 @@ export interface MigrationValidationResult {
   crashed: string[];
   /** Pairs where a completed migration's declared prerequisite is missing from checkpoints. */
   dependencyViolations: Array<{ migration: string; missingDependency: string }>;
+  /** Checkpoint keys present in the database but absent from the migration registry — likely from a newer version. */
+  unknownCheckpoints: string[];
 }

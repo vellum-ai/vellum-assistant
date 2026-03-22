@@ -1013,7 +1013,12 @@ async function main() {
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
-        // Also fetch the daemon's /healthz to surface migration state
+        const includeMigrations =
+          url.searchParams.get("include") === "migrations";
+        if (!includeMigrations) {
+          return Response.json({ status: "ok" });
+        }
+        // Fetch the daemon's /healthz to surface migration state
         // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
         // pre-upgrade migration state through the gateway.
         try {

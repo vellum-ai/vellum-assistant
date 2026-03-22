@@ -133,7 +133,7 @@ export function validateMigrationState(
       .all() as Array<{ key: string; value: string }>;
   } catch {
     // memory_checkpoints may not exist on a very old database; skip.
-    return { crashed: [], dependencyViolations: [] };
+    return { crashed: [], dependencyViolations: [], unknownCheckpoints: [] };
   }
 
   // Any remaining 'started' or 'rolling_back' checkpoints after recovery +
@@ -203,17 +203,41 @@ export function validateMigrationState(
     );
   }
 
-  return { crashed, dependencyViolations };
+  // Detect checkpoints that exist in the database but have no corresponding
+  // registry entry — these are from a newer version of the daemon.
+  //
+  // The memory_checkpoints table is a general-purpose key-value store also
+  // used by non-migration subsystems (e.g., "identity:intro:text",
+  // "conversation_starters:item_count_at_last_gen"). Filter to only keys
+  // that follow migration naming conventions before comparing against the
+  // registry to avoid false-positive warnings.
+  const registryKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
+  const isMigrationKey = (k: string): boolean =>
+    k.startsWith("migration_") ||
+    k.startsWith("backfill_") ||
+    k.startsWith("drop_");
+  const unknownCheckpoints = [...completed].filter(
+    (k) => isMigrationKey(k) && !registryKeys.has(k),
+  );
+
+  if (unknownCheckpoints.length > 0) {
+    log.warn(
+      { unknownCheckpoints },
+      `Database contains ${unknownCheckpoints.length} migration checkpoint(s) from a newer version. Data may be incompatible.`,
+    );
+  }
+
+  return { crashed, dependencyViolations, unknownCheckpoints };
 }
 
 /**
  * Roll back all completed memory (database) migrations with version > targetVersion.
  *
  * Iterates eligible migrations in reverse version order. For each:
- * 1. Verifies a `down` function exists (throws if missing).
- * 2. Marks the checkpoint as `"rolling_back"` for crash recovery.
- * 3. Calls `entry.down(database)` — each down() manages its own transactions.
- * 4. Deletes the checkpoint from `memory_checkpoints`.
+ * 1. Marks the checkpoint as `"rolling_back"` for crash recovery.
+ * 2. Calls `entry.down(database)` — each down() manages its own transactions.
+ *    (`down` is required on `MemoryMigrationEntry` at the type level.)
+ * 3. Deletes the checkpoint from `memory_checkpoints`.
  *
  * **Usage**: Pass the target version number you want to roll back *to*. All
  * migrations with a higher version number that have been applied will be
@@ -225,11 +249,10 @@ export function validateMigrationState(
  * `"rolling_back"` marker is detected and cleared by
  * `recoverCrashedMigrations` on the next startup.
  *
- * **Warning — data loss**: Some migrations are irreversible (e.g., DROP TABLE,
- * data backfills that discard the original format). These migrations do not
- * define a `down()` function and will throw an `IntegrityError` if rollback
- * is attempted. Always check the migration registry for `down` support before
- * calling this function programmatically.
+ * **Warning — data loss**: Some down() migrations may not fully restore the
+ * original state (e.g., DROP TABLE migrations recreate the table but cannot
+ * recover the original data). Review each migration's down() implementation
+ * before calling this function programmatically.
  *
  * **Important**: Stop the assistant before running rollbacks. Rolling back
  * migrations while the assistant is running may cause schema mismatches,
@@ -270,12 +293,6 @@ export function rollbackMemoryMigration(
   const rolledBack: string[] = [];
 
   for (const entry of toRollback) {
-    if (!entry.down) {
-      throw new IntegrityError(
-        `Cannot roll back migration "${entry.key}" (version ${entry.version}): no down() function defined`,
-      );
-    }
-
     // Mark as rolling_back for crash recovery — if the process crashes here,
     // recoverCrashedMigrations will clear this checkpoint on next startup.
     raw

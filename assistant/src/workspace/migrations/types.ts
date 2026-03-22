@@ -11,5 +11,5 @@ export interface WorkspaceMigration {
   /** Reverse the migration. Receives the workspace directory path.
    *  Must be idempotent — safe to re-run if it was interrupted.
    *  Both synchronous and asynchronous rollbacks are supported. */
-  down?(workspaceDir: string): void | Promise<void>;
+  down(workspaceDir: string): void | Promise<void>;
 }

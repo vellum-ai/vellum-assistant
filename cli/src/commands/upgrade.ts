@@ -48,6 +48,7 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
+import { parseVersion } from "../lib/version-compat.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 interface UpgradeArgs {
@@ -206,9 +207,12 @@ async function upgradeDocker(
     lastWorkspaceMigrationId?: string;
   } = {};
   try {
-    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const healthResp = await fetch(
+      `${entry.runtimeUrl}/healthz?include=migrations`,
+      {
+        signal: AbortSignal.timeout(5000),
+      },
+    );
     if (healthResp.ok) {
       const health = (await healthResp.json()) as {
         migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
@@ -218,6 +222,22 @@ async function upgradeDocker(
   } catch {
     // Best-effort — if we can't get migration state, rollback will skip migration reversal
   }
+
+  // Detect if this upgrade is actually a downgrade (user picked an older
+  // version via the version picker). Used after readiness succeeds to align
+  // the DB schema with the now-running old daemon.
+  const currentVersion = entry.serviceGroupVersion;
+  const isDowngrade =
+    currentVersion &&
+    versionTag &&
+    (() => {
+      const current = parseVersion(currentVersion);
+      const target = parseVersion(versionTag);
+      if (!current || !target) return false;
+      if (target.major !== current.major) return target.major < current.major;
+      if (target.minor !== current.minor) return target.minor < current.minor;
+      return target.patch < current.patch;
+    })();
 
   // Persist rollback state to lockfile BEFORE any destructive changes.
   // This enables the `vellum rollback` command to restore the previous version.
@@ -434,6 +454,22 @@ async function upgradeDocker(
       preUpgradeBackupPath: backupPath ?? undefined,
     };
     saveAssistantEntry(updatedEntry);
+
+    // After a downgrade, ask the now-running old daemon to roll back
+    // migrations above its own registry ceiling.  This may be a no-op when
+    // the old daemon's registry doesn't include the newer migrations, but
+    // it's harmless and correct for single-step rollbacks where the old
+    // daemon did add some of the newer migrations.  rollbackMigrations()
+    // logs the count internally when migrations are actually rolled back.
+    if (isDowngrade) {
+      await rollbackMigrations(
+        entry.runtimeUrl,
+        entry.assistantId,
+        undefined,
+        undefined,
+        true,
+      );
+    }
 
     // Notify clients on the new service group that the upgrade succeeded.
     await broadcastUpgradeEvent(
