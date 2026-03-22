@@ -55,9 +55,31 @@ struct AssistantUpgradeSection: View {
     @State private var isTakingLongerThanExpected = false
     @State private var escalationTask: Task<Void, Never>?
     @State private var dockerUpgradeTask: Task<Void, Never>?
+    @State private var backwardReleasesEnabled = false
+    private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
+    }
+
+    /// Releases that are newer than (or equal to) the current version.
+    /// Hides older versions to prevent unsafe downgrades (no down-migrations).
+    private var forwardReleases: [AssistantRelease] {
+        guard let current = currentVersion, !current.isEmpty,
+              let currentParsed = VersionCompat.parse(current) else {
+            return availableReleases
+        }
+        return availableReleases.filter { release in
+            guard let parsed = VersionCompat.parse(release.version) else { return true }
+            if parsed.major != currentParsed.major { return parsed.major > currentParsed.major }
+            if parsed.minor != currentParsed.minor { return parsed.minor > currentParsed.minor }
+            if parsed.patch != currentParsed.patch { return parsed.patch > currentParsed.patch }
+            return true // same version — keep it
+        }
+    }
+
+    private var pickerReleases: [AssistantRelease] {
+        backwardReleasesEnabled ? availableReleases : forwardReleases
     }
 
     private var effectiveSelectedVersion: String? {
@@ -218,9 +240,9 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if !availableReleases.isEmpty && topology != .remote && topology != .local {
+                if !pickerReleases.isEmpty && topology != .remote && topology != .local {
                     HStack(spacing: VSpacing.sm) {
-                        Text(!upgradeAvailable ? "Selected:" : isRollback ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
+                        Text(!upgradeAvailable ? "Selected:" : (backwardReleasesEnabled && isRollback) ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                         Picker("", selection: Binding<String>(
@@ -229,7 +251,7 @@ struct AssistantUpgradeSection: View {
                                 selectedVersion = (newValue == latestRelease?.version) ? nil : newValue
                             }
                         )) {
-                            ForEach(availableReleases) { release in
+                            ForEach(pickerReleases) { release in
                                 Text(releaseLabel(for: release)).tag(release.version)
                             }
                         }
@@ -237,7 +259,7 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty && topology != .local {
+                if !upgradeAvailable && !isLoadingReleases && !pickerReleases.isEmpty && topology != .local {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleCheck, size: 12)
                             .foregroundColor(VColor.systemPositiveStrong)
@@ -249,7 +271,7 @@ struct AssistantUpgradeSection: View {
                     }
                 }
 
-                if availableReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
+                if pickerReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
                     Text("No releases available.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
@@ -349,6 +371,11 @@ struct AssistantUpgradeSection: View {
             }
         }
         .task { await loadReleases() }
+        .task {
+            if let flags = try? await featureFlagClient.getFeatureFlags() {
+                backwardReleasesEnabled = flags.first(where: { $0.key == "feature_flags.backward-releases.enabled" })?.enabled ?? false
+            }
+        }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
         }
