@@ -18,14 +18,20 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     @Published public private(set) var isDeferredUpdateReady = false
     @Published public private(set) var availableUpdateVersion: String?
 
+    /// The version string of the update that Sparkle has found and is about to
+    /// install.  Set in `didFindValidUpdate` so the pre-update hook can include
+    /// the target version in progress broadcasts and workspace commits.
+    @Published public var pendingUpdateVersion: String?
+
     /// Whether a newer service group release is available for Docker/managed topologies.
     @Published public private(set) var isServiceGroupUpdateAvailable = false
     /// The version string of the available service group update, if any.
     @Published public private(set) var serviceGroupUpdateVersion: String?
 
     /// Called before the app is replaced — stop the daemon so the new version
-    /// can launch its own bundled daemon cleanly.
-    var onWillInstallUpdate: (() -> Void)?
+    /// can launch its own bundled daemon cleanly.  Async to allow best-effort
+    /// backup and progress broadcasts before shutdown.
+    var onWillInstallUpdate: (() async -> Void)?
 
     /// Timer for periodic service group update checks (Docker/managed topologies).
     private var serviceGroupCheckTimer: Timer?
@@ -118,8 +124,10 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         guard let handler else { return }
         isDeferredUpdateReady = false
         log.info("Installing deferred update now")
-        onWillInstallUpdate?()
-        handler()
+        Task { @MainActor in
+            await onWillInstallUpdate?()
+            handler()
+        }
     }
 
     // MARK: - Service Group Update Check
@@ -231,7 +239,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             // Skip the daemon stop if we have a deferred update — the daemon
             // will be stopped when the deferred handler is invoked at quit.
             guard !self.hasDeferredUpdate else { return }
-            self.onWillInstallUpdate?()
+            await self.onWillInstallUpdate?()
         }
     }
 
@@ -264,6 +272,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             log.info("Found valid update: \(item.displayVersionString, privacy: .public)")
             self.isUpdateAvailable = true
             self.availableUpdateVersion = item.displayVersionString
+            self.pendingUpdateVersion = item.displayVersionString
         }
     }
 
