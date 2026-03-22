@@ -57,8 +57,11 @@ final class ChatBottomPinCoordinator {
 
     // MARK: - Scroll to Bottom
 
+    /// Active initial-load retry task, cancelled on detach or conversation switch.
+    private var initialLoadTask: Task<Void, Never>?
+
     /// Requests a single synchronous scroll-to-bottom. Used by the
-    /// "Scroll to latest" button and initial load positioning.
+    /// "Scroll to latest" button.
     ///
     /// When the user is detached, the request is silently suppressed.
     @discardableResult
@@ -74,12 +77,37 @@ final class ChatBottomPinCoordinator {
         return pinned
     }
 
+    /// Scroll to bottom with bounded retries for initial load positioning.
+    /// Layout may not be ready on the first attempt after a conversation switch,
+    /// so retries up to 3 times with 50ms intervals (150ms total window).
+    func scrollToBottomWithRetry() {
+        initialLoadTask?.cancel()
+
+        // Try immediately first
+        if scrollToBottom() { return }
+
+        // Retry asynchronously if the first attempt failed
+        initialLoadTask = Task { [weak self] in
+            for attempt in 1...3 {
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                guard !Task.isCancelled else { return }
+                guard let self, self.isFollowingBottom else { return }
+                if self.scrollToBottom() {
+                    log.debug("[BottomPin] initialLoad succeeded on retry \(attempt)")
+                    return
+                }
+            }
+        }
+    }
+
     // MARK: - Follow/Detach State Machine
 
     /// Transitions to the detached state, suppressing all scroll-to-bottom requests.
     func detach() {
         let wasFollowing = isFollowingBottom
         isFollowingBottom = false
+        initialLoadTask?.cancel()
+        initialLoadTask = nil
 
         if wasFollowing {
             log.debug("[BottomPin] detach isFollowingBottom=false")
@@ -100,6 +128,8 @@ final class ChatBottomPinCoordinator {
 
     /// Resets all state, typically called on conversation switch.
     func reset() {
+        initialLoadTask?.cancel()
+        initialLoadTask = nil
         isFollowingBottom = true
         onFollowStateChanged?(true)
     }

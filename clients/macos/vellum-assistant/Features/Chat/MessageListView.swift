@@ -569,9 +569,10 @@ struct MessageListView: View {
         scrollTracking.avatarLastAppliedAt = nil
         scrollTracking.lastTailAnchorY = .infinity
 
-        // One-shot scroll to bottom for initial load positioning.
+        // Scroll to bottom for initial load positioning with bounded retries.
+        // Layout may not be ready on the first attempt after a conversation switch.
         if anchorMessageId == nil {
-            bottomPinCoordinator.scrollToBottom()
+            bottomPinCoordinator.scrollToBottomWithRetry()
         }
     }
 
