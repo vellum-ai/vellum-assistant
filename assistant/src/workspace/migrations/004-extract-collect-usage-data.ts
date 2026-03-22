@@ -47,4 +47,37 @@ export const extractCollectUsageDataMigration: WorkspaceMigration = {
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
+  down(workspaceDir: string): void {
+    const configPath = join(workspaceDir, "config.json");
+    if (!existsSync(configPath)) return;
+
+    let config: Record<string, unknown>;
+    try {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      config = raw as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    // Only reverse if collectUsageData was explicitly set to false
+    // (the forward migration only persisted false).
+    if (!("collectUsageData" in config)) return;
+    const value = config.collectUsageData;
+    if (typeof value !== "boolean") return;
+
+    // Restore the feature flag value
+    const FLAG_KEY = "feature_flags.collect-usage-data.enabled";
+    const flagValues = (config.assistantFeatureFlagValues ?? {}) as Record<
+      string,
+      unknown
+    >;
+    flagValues[FLAG_KEY] = value;
+    config.assistantFeatureFlagValues = flagValues;
+
+    // Remove the extracted top-level key
+    delete config.collectUsageData;
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  },
 };

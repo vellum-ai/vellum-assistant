@@ -9,4 +9,7 @@ export const addSendDiagnosticsMigration: WorkspaceMigration = {
     // will sync the UserDefaults value on first startup. This migration exists
     // as a checkpoint marker for future reference.
   },
+  down(_workspaceDir: string): void {
+    // No-op — the forward migration is a checkpoint marker with no data changes.
+  },
 };

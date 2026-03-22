@@ -1,4 +1,11 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { eq } from "drizzle-orm";
@@ -16,6 +23,27 @@ export const seedPersonaDirsMigration: WorkspaceMigration = {
   id: "017-seed-persona-dirs",
   description:
     "Create users/ and channels/ persona directories and migrate customized USER.md",
+
+  down(workspaceDir: string): void {
+    // Remove the seeded persona directories only if they are empty.
+    // We don't delete user-created content — only clean up the empty
+    // directories that the forward migration created.
+    const usersDir = join(workspaceDir, "users");
+    const channelsDir = join(workspaceDir, "channels");
+
+    for (const dir of [usersDir, channelsDir]) {
+      if (!existsSync(dir)) continue;
+      try {
+        const entries = readdirSync(dir);
+        if (entries.length === 0) {
+          rmdirSync(dir);
+        }
+      } catch {
+        // Best-effort: skip if we can't read or remove
+      }
+    }
+  },
+
   run(workspaceDir: string): void {
     // Create persona directories
     mkdirSync(join(workspaceDir, "users"), { recursive: true });

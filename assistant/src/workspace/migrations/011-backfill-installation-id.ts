@@ -14,6 +14,17 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
   id: "011-backfill-installation-id",
   description:
     "Backfill installationId into lockfile from SQLite checkpoint and clean up stale row",
+
+  down(_workspaceDir: string): void {
+    // The forward migration moved an installationId from a SQLite checkpoint
+    // into the lockfile entry. Rolling back by removing installationId from
+    // the lockfile would break telemetry continuity and the field is harmless
+    // to leave in place. The SQLite checkpoint was already deleted and
+    // cannot be restored.
+    //
+    // No-op: leaving installationId in the lockfile is safe and non-disruptive.
+  },
+
   run(_workspaceDir: string): void {
     // a. Read existing installation ID from SQLite, or generate a new one.
     //    On fresh installs the memory_checkpoints table may not exist yet,

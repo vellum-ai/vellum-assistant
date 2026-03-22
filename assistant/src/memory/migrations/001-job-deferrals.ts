@@ -49,3 +49,22 @@ export function migrateJobDeferrals(database: DrizzleDb): void {
     throw e;
   }
 }
+
+/**
+ * Reverse the deferral reconciliation by moving `deferrals` back into `attempts`
+ * for pending embed jobs. Best-effort: jobs that accumulated real deferral counts
+ * after the forward migration ran cannot be distinguished from migrated ones.
+ */
+export function downJobDeferrals(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+  raw.exec(/*sql*/ `
+    UPDATE memory_jobs
+    SET attempts = deferrals,
+        deferrals = 0,
+        updated_at = ${Date.now()}
+    WHERE status = 'pending'
+      AND deferrals > 0
+      AND attempts = 0
+      AND type IN ('embed_segment', 'embed_item', 'embed_summary')
+  `);
+}

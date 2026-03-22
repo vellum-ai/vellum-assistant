@@ -82,3 +82,15 @@ export function migrateNotificationTablesSchema(database: DrizzleDb): void {
     }
   }
 }
+
+/**
+ * No-op down: the old enum-based notification tables cannot be recreated
+ * without the original schema definitions (column names, types, constraints,
+ * and enum values). The forward migration dropped these tables entirely.
+ * Any data that was in them is permanently lost. The new signal-contract
+ * schema tables are structurally incompatible with the old enum-based ones.
+ */
+export function downNotificationTablesSchema(_database: DrizzleDb): void {
+  // Intentionally empty — old enum-based tables cannot be recreated without
+  // the original schema, and any data they contained is permanently lost.
+}
