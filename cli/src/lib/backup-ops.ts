@@ -26,7 +26,7 @@ export function formatSize(bytes: number): string {
 }
 
 /** Obtain a valid guardian access token (cached or fresh lease) */
-export async function getGuardianAccessToken(
+async function getGuardianAccessToken(
   runtimeUrl: string,
   assistantId: string,
 ): Promise<string> {
