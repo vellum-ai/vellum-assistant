@@ -20,6 +20,8 @@ struct AssistantBackupsSection: View {
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
+    @AppStorage("preUpdateBackupPath") private var preUpdateBackupPath: String?
+
     // Managed assistant state
     @State private var managedBackups: [ManagedBackup] = []
     @State private var isLoadingBackups = false
@@ -33,7 +35,7 @@ struct AssistantBackupsSection: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.contentDefault)
 
-            if let backupPath = UserDefaults.standard.string(forKey: "preUpdateBackupPath"),
+            if let backupPath = preUpdateBackupPath,
                FileManager.default.fileExists(atPath: backupPath) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("A backup was automatically created before the last update.")
@@ -43,11 +45,11 @@ struct AssistantBackupsSection: View {
                         VButton(label: "Restore Pre-Update Data", style: .outlined) {
                             Task {
                                 await performLocalRestore(URL(fileURLWithPath: backupPath))
-                                UserDefaults.standard.removeObject(forKey: "preUpdateBackupPath")
+                                preUpdateBackupPath = nil
                             }
                         }
                         VButton(label: "Dismiss", style: .text) {
-                            UserDefaults.standard.removeObject(forKey: "preUpdateBackupPath")
+                            preUpdateBackupPath = nil
                         }
                     }
                 }
