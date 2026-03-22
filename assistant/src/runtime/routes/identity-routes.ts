@@ -89,7 +89,7 @@ interface CpuInfo {
   maxCores: number;
 }
 
-// Track CPU usage over a rolling window so /healthz reports near-real-time
+// Track CPU usage over a rolling window so /v1/health reports near-real-time
 // utilization instead of a lifetime average (total CPU time / total uptime).
 const CPU_SAMPLE_INTERVAL_MS = 5_000;
 let _lastCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
