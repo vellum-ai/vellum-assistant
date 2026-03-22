@@ -316,7 +316,7 @@ struct AssistantUpgradeSection: View {
                     ) {
                         showingUpgradeConfirmation = true
                     }
-                    .disabled(!upgradeAvailable || isUpgrading)
+                    .disabled(!upgradeAvailable || isUpgrading || pickerReleases.isEmpty)
                 }
 
                 if topology != .local && topology != .remote {
