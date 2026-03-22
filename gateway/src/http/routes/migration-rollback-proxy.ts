@@ -14,6 +14,9 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("migration-rollback-proxy");
 
+/** Timeout for migration rollback requests (120 seconds) — rollbacks can be slow when many migrations have complex down() functions. */
+const MIGRATION_ROLLBACK_TIMEOUT_MS = 120_000;
+
 export function createMigrationRollbackProxyHandler(config: GatewayConfig) {
   return async function handleMigrationRollback(
     req: Request,
@@ -38,7 +41,7 @@ export function createMigrationRollbackProxyHandler(config: GatewayConfig) {
           "TimeoutError",
         ),
       );
-    }, config.runtimeTimeoutMs);
+    }, MIGRATION_ROLLBACK_TIMEOUT_MS);
 
     let response: Response;
     try {
