@@ -222,7 +222,7 @@ async function startDaemonFromSource(
         console.log(
           "   Assistant is starting — waiting for it to become ready...",
         );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+        if (await waitForDaemonReady(resources.gatewayPort, 60000)) {
           console.log("   Assistant is ready\n");
           return;
         }
@@ -339,7 +339,7 @@ async function startDaemonWatchFromSource(
         console.log(
           "   Assistant is starting — waiting for it to become ready...",
         );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+        if (await waitForDaemonReady(resources.gatewayPort, 60000)) {
           console.log("   Assistant is ready\n");
           return;
         }
@@ -862,7 +862,7 @@ export async function startLocalDaemon(
           console.log(
             "   Assistant is starting — waiting for it to become ready...",
           );
-          if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+          if (await waitForDaemonReady(resources.gatewayPort, 60000)) {
             console.log("   Assistant is ready\n");
             ensureBunInstalled();
             return;
@@ -1010,36 +1010,6 @@ export async function startLocalDaemon(
       ensureBunInstalled();
     }
 
-    // Wait for daemon to respond on HTTP (up to 60s — fresh installs
-    // may need 30-60s for Qdrant download, migrations, and first-time init)
-    let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-
-    // Dev fallback: if the bundled daemon did not become ready in time,
-    // fall back to source daemon startup so local `./build.sh run` still works.
-    if (!daemonReady) {
-      const assistantIndex = resolveAssistantIndexPath();
-      if (assistantIndex) {
-        console.log(
-          "   Bundled assistant not ready after 60s — falling back to source assistant...",
-        );
-        // Kill the bundled daemon to avoid two processes competing for the same port
-        await stopProcessByPidFile(pidFile, "bundled daemon");
-        if (watch) {
-          await startDaemonWatchFromSource(assistantIndex, resources, options);
-        } else {
-          await startDaemonFromSource(assistantIndex, resources, options);
-        }
-        daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      }
-    }
-
-    if (daemonReady) {
-      console.log("   Assistant ready\n");
-    } else {
-      console.log(
-        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-      );
-    }
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1052,26 +1022,8 @@ export async function startLocalDaemon(
     }
     if (watch) {
       await startDaemonWatchFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     } else {
       await startDaemonFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     }
   }
 }

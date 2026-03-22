@@ -45,3 +45,26 @@ export async function waitForDaemonReady(
   }
   return false;
 }
+
+/**
+ * Poll the gateway's `/readyz` endpoint until it responds with 200 or the
+ * timeout is reached.
+ *
+ * Returns true if the gateway became ready within the timeout, false otherwise.
+ */
+export async function waitForGatewayReady(
+  port: number,
+  timeoutMs = 60000,
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/readyz`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (response.ok) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}

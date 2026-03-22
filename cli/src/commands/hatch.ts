@@ -47,7 +47,7 @@ import {
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { getPlatformUrl } from "../lib/platform-client";
-import { httpHealthCheck } from "../lib/http-client";
+import { httpHealthCheck, waitForGatewayReady } from "../lib/http-client";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
@@ -637,9 +637,9 @@ async function hatchLocal(
     const daemonPid = isProcessAlive(join(vellumDir, "vellum.pid"));
     const gatewayPid = isProcessAlive(join(vellumDir, "gateway.pid"));
     if (daemonPid.alive || gatewayPid.alive) {
-      // Check if the daemon is actually healthy before killing it.
-      // Default port 7821 is used when there's no lockfile entry.
-      const defaultPort = parseInt(process.env.RUNTIME_HTTP_PORT || "7821", 10);
+      // Check if the gateway is actually healthy before killing it.
+      // Default port 7830 is used when there's no lockfile entry.
+      const defaultPort = parseInt(process.env.GATEWAY_PORT || "7830", 10);
       const healthy = await httpHealthCheck(defaultPort);
       if (!healthy) {
         console.log(
@@ -662,7 +662,7 @@ async function hatchLocal(
     const existingResources = findAssistantByName(instanceName);
     const expectedPort =
       existingResources?.cloud === "local" && existingResources.resources
-        ? existingResources.resources.daemonPort
+        ? existingResources.resources.gatewayPort
         : undefined;
     const daemonAlreadyHealthy = expectedPort
       ? await httpHealthCheck(expectedPort)
@@ -746,19 +746,28 @@ async function hatchLocal(
 
   const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
-  await startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath });
+  const [, runtimeUrl] = await Promise.all([
+    startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath }),
+    (async () => {
+      try {
+        return await startGateway(watch, resources);
+      } catch (error) {
+        console.error(
+          `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+        );
+        await stopLocalProcesses(resources);
+        throw error;
+      }
+    })(),
+  ]);
 
-  let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-  try {
-    runtimeUrl = await startGateway(watch, resources);
-  } catch (error) {
-    // Gateway failed — stop the daemon we just started so we don't leave
-    // orphaned processes with no lock file entry.
-    console.error(
-      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+  const ready = await waitForGatewayReady(resources.gatewayPort, 60000);
+  if (ready) {
+    console.log("   Assistant ready\n");
+  } else {
+    console.log(
+      "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
     );
-    await stopLocalProcesses(resources);
-    throw error;
   }
 
   // Lease a guardian token so the desktop app can import it on first launch
