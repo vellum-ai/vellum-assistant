@@ -250,18 +250,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
-    /// Remove the system-provided search field from the Help menu.
-    /// macOS automatically inserts it for any menu registered as the app's
-    /// helpMenu, but it's non-functional without an Apple Help Book.
-    func stripHelpMenuSearchField() {
-        NSApp.helpMenu = nil
-        // SwiftUI may re-register the help menu after launch; retry on
-        // the next run-loop pass to catch late registration.
-        DispatchQueue.main.async {
-            NSApp.helpMenu = nil
-        }
-    }
-
     /// Install the `FileMenuPatchDelegate` on the SwiftUI-managed File menu.
     /// SwiftUI may not have created the menu yet at launch time, so we retry
     /// with delays (same pattern as Help menu and app-name patching).
@@ -427,7 +415,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
         patchAppMenuTitles()
-        stripHelpMenuSearchField()
         installFileMenuDelegate()
         setupHotKey()
 
@@ -500,7 +487,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         setupFileMenu()
         patchAppMenuTitles()
-        stripHelpMenuSearchField()
         registerNavigationMonitor()
         registerZoomMonitor()
         registerSidebarToggleMonitor()
