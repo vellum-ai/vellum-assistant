@@ -38,7 +38,13 @@ import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
+  buildCompleteEvent,
+  buildProgressEvent,
+  buildStartingEvent,
+  buildUpgradeCommitMessage,
   captureContainerEnv,
+  CONTAINER_ENV_EXCLUDE_KEYS,
+  UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
@@ -209,11 +215,14 @@ async function upgradeDocker(
     try {
       await commitWorkspaceState(
         workspaceDir,
-        `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
-          `assistant: ${entry.assistantId}\n` +
-          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-          `to: ${versionTag}\n` +
-          `topology: docker`,
+        buildUpgradeCommitMessage({
+          action: "upgrade",
+          phase: "starting",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: versionTag,
+          topology: "docker",
+          assistantId: entry.assistantId,
+        }),
       );
     } catch (err) {
       console.warn(
@@ -232,18 +241,19 @@ async function upgradeDocker(
   // This must fire BEFORE any progress broadcasts so the UI sets
   // isUpdateInProgress = true and starts displaying status messages.
   console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "starting",
-    targetVersion: versionTag,
-    expectedDowntimeSeconds: 60,
-  });
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildStartingEvent(versionTag),
+  );
   // Brief pause to allow SSE delivery before progress events.
   await new Promise((r) => setTimeout(r, 500));
 
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "progress",
-    statusMessage: "Downloading the update…",
-  });
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildProgressEvent(UPGRADE_PROGRESS.DOWNLOADING),
+  );
   console.log("📦 Pulling new Docker images...");
   try {
     await exec("docker", ["pull", imageTags.assistant]);
@@ -252,11 +262,11 @@ async function upgradeDocker(
   } catch (pullErr) {
     const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);
     console.error(`\n❌ Failed to pull Docker images: ${detail}`);
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: entry.serviceGroupVersion ?? "unknown",
-      success: false,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+    );
     emitCliError("IMAGE_PULL_FAILED", "Failed to pull Docker images", detail);
     process.exit(1);
   }
@@ -297,10 +307,11 @@ async function upgradeDocker(
     capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
   // Create pre-upgrade backup (best-effort, daemon must be running)
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "progress",
-    statusMessage: "Saving a backup of your data…",
-  });
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildProgressEvent(UPGRADE_PROGRESS.BACKING_UP),
+  );
   console.log("📦 Creating pre-upgrade backup...");
   const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
     prefix: `${entry.assistantId}-pre-upgrade`,
@@ -327,10 +338,11 @@ async function upgradeDocker(
     }
   }
 
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "progress",
-    statusMessage: "Installing the update…",
-  });
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
+  );
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
@@ -338,13 +350,7 @@ async function upgradeDocker(
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
   // serviceDockerRunArgs are excluded to avoid duplicates.
-  const envKeysSetByRunArgs = new Set([
-    "CES_SERVICE_TOKEN",
-    "VELLUM_ASSISTANT_NAME",
-    "RUNTIME_HTTP_HOST",
-    "PATH",
-    "ACTOR_TOKEN_SIGNING_KEY",
-  ]);
+  const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
   // Only exclude keys that serviceDockerRunArgs will actually set
   for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {
@@ -405,23 +411,26 @@ async function upgradeDocker(
     saveAssistantEntry(updatedEntry);
 
     // Notify clients on the new service group that the upgrade succeeded.
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: versionTag,
-      success: true,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(versionTag, true),
+    );
 
     // Record successful upgrade in workspace git history
     if (workspaceDir) {
       try {
         await commitWorkspaceState(
           workspaceDir,
-          `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}\n\n` +
-            `assistant: ${entry.assistantId}\n` +
-            `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-            `to: ${versionTag}\n` +
-            `result: success\n` +
-            `topology: docker`,
+          buildUpgradeCommitMessage({
+            action: "upgrade",
+            phase: "complete",
+            from: entry.serviceGroupVersion ?? "unknown",
+            to: versionTag,
+            topology: "docker",
+            assistantId: entry.assistantId,
+            result: "success",
+          }),
         );
       } catch (err) {
         console.warn(
@@ -437,11 +446,11 @@ async function upgradeDocker(
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
     if (previousImageRefs) {
-      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-        type: "progress",
-        statusMessage:
-          "The update didn't work. Reverting to the previous version…",
-      });
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildProgressEvent(UPGRADE_PROGRESS.REVERTING),
+      );
       console.log(`\n🔄 Rolling back to previous images...`);
       try {
         await stopContainers(res);
@@ -470,10 +479,11 @@ async function upgradeDocker(
           // backup on disk, which could be from a previous upgrade cycle
           // and contain stale data.
           if (backupPath) {
-            await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-              type: "progress",
-              statusMessage: "Restoring your data…",
-            });
+            await broadcastUpgradeEvent(
+              entry.runtimeUrl,
+              entry.assistantId,
+              buildProgressEvent(UPGRADE_PROGRESS.RESTORING),
+            );
             console.log(`📦 Restoring data from pre-upgrade backup...`);
             console.log(`   Source: ${backupPath}`);
             const restored = await restoreBackup(
@@ -529,12 +539,15 @@ async function upgradeDocker(
           saveAssistantEntry(rolledBackEntry);
 
           // Notify clients that the upgrade failed and rolled back.
-          await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-            type: "complete",
-            installedVersion: entry.serviceGroupVersion ?? "unknown",
-            success: false,
-            rolledBackToVersion: entry.serviceGroupVersion,
-          });
+          await broadcastUpgradeEvent(
+            entry.runtimeUrl,
+            entry.assistantId,
+            buildCompleteEvent(
+              entry.serviceGroupVersion ?? "unknown",
+              false,
+              entry.serviceGroupVersion,
+            ),
+          );
 
           console.log(
             `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
@@ -550,11 +563,11 @@ async function upgradeDocker(
           console.log(
             `   Check logs with: docker logs -f ${res.assistantContainer}`,
           );
-          await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-            type: "complete",
-            installedVersion: entry.serviceGroupVersion ?? "unknown",
-            success: false,
-          });
+          await broadcastUpgradeEvent(
+            entry.runtimeUrl,
+            entry.assistantId,
+            buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+          );
           emitCliError(
             "ROLLBACK_FAILED",
             "Rollback also failed after readiness timeout. Manual intervention required.",
@@ -570,11 +583,11 @@ async function upgradeDocker(
         console.log(
           `   Check logs with: docker logs -f ${res.assistantContainer}`,
         );
-        await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-          type: "complete",
-          installedVersion: entry.serviceGroupVersion ?? "unknown",
-          success: false,
-        });
+        await broadcastUpgradeEvent(
+          entry.runtimeUrl,
+          entry.assistantId,
+          buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+        );
         emitCliError(
           "ROLLBACK_FAILED",
           "Auto-rollback failed after readiness timeout. Manual intervention required.",
@@ -586,11 +599,11 @@ async function upgradeDocker(
       console.log(
         `   Check logs with: docker logs -f ${res.assistantContainer}`,
       );
-      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-        type: "complete",
-        installedVersion: entry.serviceGroupVersion ?? "unknown",
-        success: false,
-      });
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
       emitCliError(
         "ROLLBACK_NO_STATE",
         "Containers failed to become ready and no previous images available for rollback.",
@@ -619,11 +632,14 @@ async function upgradePlatform(
     try {
       await commitWorkspaceState(
         workspaceDir,
-        `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
-          `assistant: ${entry.assistantId}\n` +
-          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-          `to: ${version ?? "latest"}\n` +
-          `topology: managed`,
+        buildUpgradeCommitMessage({
+          action: "upgrade",
+          phase: "starting",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: version ?? "latest",
+          topology: "managed",
+          assistantId: entry.assistantId,
+        }),
       );
     } catch (err) {
       console.warn(
@@ -658,11 +674,11 @@ async function upgradePlatform(
   // Notify connected clients that an upgrade is about to begin.
   const targetVersion = version ?? `v${cliPkg.version}`;
   console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-    type: "starting",
-    targetVersion,
-    expectedDowntimeSeconds: 90,
-  });
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildStartingEvent(targetVersion, 90),
+  );
 
   const response = await fetch(url, {
     method: "POST",
@@ -684,11 +700,11 @@ async function upgradePlatform(
       `Platform upgrade failed (${response.status})`,
       text,
     );
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: entry.serviceGroupVersion ?? "unknown",
-      success: false,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+    );
     process.exit(1);
   }
 
@@ -706,12 +722,15 @@ async function upgradePlatform(
     try {
       await commitWorkspaceState(
         workspaceDir,
-        `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
-          `assistant: ${entry.assistantId}\n` +
-          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-          `to: ${version ?? "latest"}\n` +
-          `result: success\n` +
-          `topology: managed`,
+        buildUpgradeCommitMessage({
+          action: "upgrade",
+          phase: "complete",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: version ?? "latest",
+          topology: "managed",
+          assistantId: entry.assistantId,
+          result: "success",
+        }),
       );
     } catch (err) {
       console.warn(
@@ -747,11 +766,11 @@ export async function upgrade(): Promise<void> {
     // Best-effort: notify connected clients that the upgrade failed.
     // A `starting` event may have been sent inside upgradeDocker/upgradePlatform
     // before the error was thrown, so we must close with `complete`.
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: entry.serviceGroupVersion ?? "unknown",
-      success: false,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+    );
     emitCliError(categorizeUpgradeError(err), "Upgrade failed", detail);
     process.exit(1);
   }

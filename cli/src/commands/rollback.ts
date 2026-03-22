@@ -26,7 +26,13 @@ import { restoreBackup } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
   broadcastUpgradeEvent,
+  buildCompleteEvent,
+  buildProgressEvent,
+  buildStartingEvent,
+  buildUpgradeCommitMessage,
   captureContainerEnv,
+  CONTAINER_ENV_EXCLUDE_KEYS,
+  UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
@@ -175,11 +181,14 @@ export async function rollback(): Promise<void> {
       try {
         await commitWorkspaceState(
           workspaceDir,
-          `[rollback] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${entry.previousServiceGroupVersion ?? "unknown"}\n\n` +
-            `assistant: ${entry.assistantId}\n` +
-            `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-            `to: ${entry.previousServiceGroupVersion ?? "unknown"}\n` +
-            `topology: docker`,
+          buildUpgradeCommitMessage({
+            action: "rollback",
+            phase: "starting",
+            from: entry.serviceGroupVersion ?? "unknown",
+            to: entry.previousServiceGroupVersion ?? "unknown",
+            topology: "docker",
+            assistantId: entry.assistantId,
+          }),
         );
       } catch (err) {
         console.warn(
@@ -215,13 +224,7 @@ export async function rollback(): Promise<void> {
       capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
     // Build extra env vars, excluding keys managed by serviceDockerRunArgs
-    const envKeysSetByRunArgs = new Set([
-      "CES_SERVICE_TOKEN",
-      "VELLUM_ASSISTANT_NAME",
-      "RUNTIME_HTTP_HOST",
-      "PATH",
-      "ACTOR_TOKEN_SIGNING_KEY",
-    ]);
+    const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
     for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
       if (process.env[envVar]) {
         envKeysSetByRunArgs.add(envVar);
@@ -248,19 +251,20 @@ export async function rollback(): Promise<void> {
 
     // Notify connected clients that a rollback is about to begin (best-effort)
     console.log("📢 Notifying connected clients...");
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "starting",
-      targetVersion: entry.previousServiceGroupVersion,
-      expectedDowntimeSeconds: 60,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildStartingEvent(entry.previousServiceGroupVersion),
+    );
     // Brief pause to allow SSE delivery before containers stop.
     await new Promise((r) => setTimeout(r, 500));
 
     // Progress: switching version (must be sent BEFORE stopContainers)
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "progress",
-      statusMessage: "Switching to the previous version…",
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildProgressEvent(UPGRADE_PROGRESS.SWITCHING),
+    );
 
     console.log("🛑 Stopping existing containers...");
     await stopContainers(res);
@@ -301,10 +305,11 @@ export async function rollback(): Promise<void> {
       const backupPath = entry.preUpgradeBackupPath as string | undefined;
       if (backupPath) {
         // Progress: restoring data (gateway is back up at this point)
-        await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-          type: "progress",
-          statusMessage: "Restoring your data…",
-        });
+        await broadcastUpgradeEvent(
+          entry.runtimeUrl,
+          entry.assistantId,
+          buildProgressEvent(UPGRADE_PROGRESS.RESTORING),
+        );
 
         console.log(`📦 Restoring data from pre-upgrade backup...`);
         console.log(`   Source: ${backupPath}`);
@@ -350,23 +355,26 @@ export async function rollback(): Promise<void> {
       saveAssistantEntry(updatedEntry);
 
       // Notify clients that the rollback succeeded
-      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-        type: "complete",
-        installedVersion: entry.previousServiceGroupVersion,
-        success: true,
-      });
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.previousServiceGroupVersion, true),
+      );
 
       // Record successful rollback in workspace git history
       if (workspaceDir) {
         try {
           await commitWorkspaceState(
             workspaceDir,
-            `[rollback] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${entry.previousServiceGroupVersion ?? "unknown"}\n\n` +
-              `assistant: ${entry.assistantId}\n` +
-              `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
-              `to: ${entry.previousServiceGroupVersion ?? "unknown"}\n` +
-              `result: success\n` +
-              `topology: docker`,
+            buildUpgradeCommitMessage({
+              action: "rollback",
+              phase: "complete",
+              from: entry.serviceGroupVersion ?? "unknown",
+              to: entry.previousServiceGroupVersion ?? "unknown",
+              topology: "docker",
+              assistantId: entry.assistantId,
+              result: "success",
+            }),
           );
         } catch (err) {
           console.warn(
@@ -385,11 +393,14 @@ export async function rollback(): Promise<void> {
       console.log(
         `   Check logs with: docker logs -f ${res.assistantContainer}`,
       );
-      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-        type: "complete",
-        installedVersion: entry.previousServiceGroupVersion ?? "unknown",
-        success: false,
-      });
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(
+          entry.previousServiceGroupVersion ?? "unknown",
+          false,
+        ),
+      );
       emitCliError(
         "READINESS_TIMEOUT",
         "Rolled-back containers failed to become ready within the timeout.",
@@ -399,11 +410,11 @@ export async function rollback(): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`\n❌ Rollback failed: ${detail}`);
-    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
-      type: "complete",
-      installedVersion: entry.serviceGroupVersion ?? "unknown",
-      success: false,
-    });
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+    );
     emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
     process.exit(1);
   }

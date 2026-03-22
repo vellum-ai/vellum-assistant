@@ -2,6 +2,83 @@ import { DOCKER_READY_TIMEOUT_MS } from "./docker.js";
 import { loadGuardianToken } from "./guardian-token.js";
 import { execOutput } from "./step-runner.js";
 
+// ---------------------------------------------------------------------------
+// Shared constants & builders for upgrade / rollback lifecycle events
+// ---------------------------------------------------------------------------
+
+/** User-facing progress messages shared across upgrade and rollback flows. */
+export const UPGRADE_PROGRESS = {
+  DOWNLOADING: "Downloading the update…",
+  BACKING_UP: "Saving a backup of your data…",
+  INSTALLING: "Installing the update…",
+  REVERTING: "The update didn't work. Reverting to the previous version…",
+  RESTORING: "Restoring your data…",
+  SWITCHING: "Switching to the previous version…",
+} as const;
+
+export function buildStartingEvent(
+  targetVersion: string,
+  expectedDowntimeSeconds = 60,
+) {
+  return { type: "starting" as const, targetVersion, expectedDowntimeSeconds };
+}
+
+export function buildProgressEvent(statusMessage: string) {
+  return { type: "progress" as const, statusMessage };
+}
+
+export function buildCompleteEvent(
+  installedVersion: string,
+  success: boolean,
+  rolledBackToVersion?: string,
+) {
+  return {
+    type: "complete" as const,
+    installedVersion,
+    success,
+    ...(rolledBackToVersion ? { rolledBackToVersion } : {}),
+  };
+}
+
+export function buildUpgradeCommitMessage(options: {
+  action: "upgrade" | "rollback";
+  phase: "starting" | "complete";
+  from: string;
+  to: string;
+  topology: "docker" | "managed";
+  assistantId: string;
+  result?: "success" | "failure";
+}): string {
+  const { action, phase, from, to, topology, assistantId, result } = options;
+  const header =
+    phase === "starting"
+      ? `[${action}] Starting: ${from} → ${to}`
+      : `[${action}] Complete: ${from} → ${to}`;
+  const lines = [
+    header,
+    "",
+    `assistant: ${assistantId}`,
+    `from: ${from}`,
+    `to: ${to}`,
+  ];
+  if (result) lines.push(`result: ${result}`);
+  lines.push(`topology: ${topology}`);
+  return lines.join("\n");
+}
+
+/**
+ * Environment variable keys that are set by CLI run arguments and should
+ * not be replayed from a captured container environment during upgrades
+ * or rollbacks. Shared between upgrade.ts and rollback.ts.
+ */
+export const CONTAINER_ENV_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
+  "CES_SERVICE_TOKEN",
+  "VELLUM_ASSISTANT_NAME",
+  "RUNTIME_HTTP_HOST",
+  "PATH",
+  "ACTOR_TOKEN_SIGNING_KEY",
+]);
+
 /**
  * Capture environment variables from a running Docker container so they
  * can be replayed onto the replacement container after upgrade.
