@@ -2719,6 +2719,31 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/admin/workspace-commit": {
+        post: {
+          summary: "Commit workspace changes",
+          description:
+            "Proxies a workspace-commit request to the assistant daemon. Creates a git commit of the current workspace state with the provided message. Authenticated with an edge JWT.",
+          operationId: "workspaceCommit",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Workspace commit created successfully" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",

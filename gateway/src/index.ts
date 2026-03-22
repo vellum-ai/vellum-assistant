@@ -61,6 +61,7 @@ import {
   createMigrationExportProxyHandler,
   createMigrationImportProxyHandler,
 } from "./http/routes/migration-proxy.js";
+import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import {
   createTrustRulesListHandler,
@@ -291,6 +292,7 @@ async function main() {
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
   const migrationImportProxy = createMigrationImportProxyHandler(config);
+  const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
@@ -768,6 +770,14 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => migrationImportProxy(req),
+    },
+
+    // ── Workspace commit ──
+    {
+      path: "/v1/admin/workspace-commit",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => workspaceCommitProxy(req),
     },
 
     // ── Channel readiness ──
