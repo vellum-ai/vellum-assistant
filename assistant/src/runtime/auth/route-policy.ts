@@ -516,3 +516,8 @@ registerPolicy("admin/upgrade-broadcast", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
+
+registerPolicy("admin/workspace-commit", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
