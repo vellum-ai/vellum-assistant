@@ -81,6 +81,7 @@ public final class SettingsStore: ObservableObject {
     @Published var quickInputHotkeyKeyCode: Int
     @Published var sidebarToggleShortcut: String
     @Published var newChatShortcut: String
+    @Published var currentConversationShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -425,6 +426,11 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "currentConversationShortcut") == nil {
+            self.currentConversationShortcut = "cmd+shift+n"
+        } else {
+            self.currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? ""
+        }
 
         // Use defaults for config-dependent properties; the daemon will
         // provide authoritative values once reachable via loadConfigFromDaemon().
@@ -508,6 +514,11 @@ public final class SettingsStore: ObservableObject {
         $newChatShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "newChatShortcut") }
+            .store(in: &cancellables)
+
+        $currentConversationShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "currentConversationShortcut") }
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons

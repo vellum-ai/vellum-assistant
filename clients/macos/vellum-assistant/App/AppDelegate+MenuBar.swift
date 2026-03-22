@@ -77,7 +77,15 @@ final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
         newChatItem.tag = Self.injectedTag
         menu.insertItem(newChatItem, at: 0)
 
-        let currentItem = NSMenuItem(title: "Current Conversation", action: #selector(AppDelegate.openCurrentConversation), keyEquivalent: "")
+        let currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
+        let currentItem: NSMenuItem
+        if currentConversationShortcut.isEmpty {
+            currentItem = NSMenuItem(title: "Current Conversation", action: #selector(AppDelegate.openCurrentConversation), keyEquivalent: "")
+        } else {
+            let (ccModifiers, ccKey) = ShortcutHelper.parseShortcut(currentConversationShortcut)
+            currentItem = NSMenuItem(title: "Current Conversation", action: #selector(AppDelegate.openCurrentConversation), keyEquivalent: ccKey)
+            currentItem.keyEquivalentModifierMask = ccModifiers
+        }
         currentItem.target = appDelegate
         currentItem.tag = Self.injectedTag
         menu.insertItem(currentItem, at: 1)
@@ -176,6 +184,7 @@ extension AppDelegate {
         }
 
         updateNewChatMenuItemShortcut()
+        updateCurrentConversationMenuItemShortcut()
     }
 
     /// Updates the File > New Conversation menu item's key equivalent to match
@@ -184,6 +193,22 @@ extension AppDelegate {
     func updateNewChatMenuItemShortcut() {
         guard let item = newChatMenuItem else { return }
         let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+        guard !shortcut.isEmpty else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = modifiers
+    }
+
+    /// Updates the File > Current Conversation menu item's key equivalent to
+    /// match the current `currentConversationShortcut` preference. Called once
+    /// at setup and again whenever the preference changes via the KVO observer.
+    func updateCurrentConversationMenuItemShortcut() {
+        guard let item = currentConversationMenuItem else { return }
+        let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
         guard !shortcut.isEmpty else {
             item.keyEquivalent = ""
             item.keyEquivalentModifierMask = []
@@ -323,7 +348,16 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
+        let currentConversationItem: NSMenuItem = {
+            let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
+            guard !shortcut.isEmpty else {
+                return NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
+            }
+            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+            let item = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            return item
+        }()
         currentConversationItem.target = self
         currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
         menu.addItem(currentConversationItem)
