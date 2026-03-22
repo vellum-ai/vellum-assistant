@@ -202,14 +202,11 @@ export function getPlatformInternalApiKey(): string {
 // ── Telemetry ──────────────────────────────────────────────────────────────────
 
 export function getTelemetryPlatformUrl(): string {
-  return str("TELEMETRY_PLATFORM_URL") ?? "https://platform.vellum.ai";
+  return str("TELEMETRY_PLATFORM_URL") ?? "";
 }
 
 export function getTelemetryAppToken(): string {
-  return (
-    str("TELEMETRY_APP_TOKEN") ??
-    "e01cf85768cc3617e986f0a7f1966b72e25316526c5db54c8b94a9c3c5c9eaed"
-  );
+  return str("TELEMETRY_APP_TOKEN") ?? "";
 }
 
 // ── Startup validation ──────────────────────────────────────────────────────

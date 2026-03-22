@@ -951,10 +951,13 @@ jobs:
         continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'vellum' }}
+          SENTRY_PROJECT_MACOS: ${{ vars.SENTRY_PROJECT_MACOS || 'vellum-assistant-macos' }}
+          SENTRY_PROJECT_ASSISTANT: ${{ vars.SENTRY_PROJECT_ASSISTANT || 'vellum-assistant-brain' }}
         run: |
           npm install -g @sentry/cli@2.42.2
-          sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
-          sentry-cli debug-files upload --org vellum --project vellum-assistant-brain dist/*.dSYM
+          sentry-cli debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT_MACOS" dist/*.dSYM
+          sentry-cli debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT_ASSISTANT" dist/*.dSYM
 
       - name: Free disk space
         run: |
@@ -1343,10 +1346,13 @@ jobs:
         continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'vellum' }}
+          SENTRY_PROJECT_MACOS: ${{ vars.SENTRY_PROJECT_MACOS || 'vellum-assistant-macos' }}
+          SENTRY_PROJECT_ASSISTANT: ${{ vars.SENTRY_PROJECT_ASSISTANT || 'vellum-assistant-brain' }}
         run: |
           npm install -g @sentry/cli@2.42.2
-          sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
-          sentry-cli debug-files upload --org vellum --project vellum-assistant-brain dist/*.dSYM
+          sentry-cli debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT_MACOS" dist/*.dSYM
+          sentry-cli debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT_ASSISTANT" dist/*.dSYM
 
       - name: Free disk space
         run: |

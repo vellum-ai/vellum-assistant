@@ -753,8 +753,11 @@ export class WorkspaceGitService {
    * Must be called with the mutex lock held.
    */
   private async ensureCommitIdentityLocked(): Promise<void> {
-    await this.execGit(["config", "user.name", "Vellum Assistant"]);
-    await this.execGit(["config", "user.email", "assistant@vellum.ai"]);
+    const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
+    const gitEmail =
+      process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
+    await this.execGit(["config", "user.name", gitName]);
+    await this.execGit(["config", "user.email", gitEmail]);
   }
 
   /**

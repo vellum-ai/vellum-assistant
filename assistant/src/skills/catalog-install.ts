@@ -88,11 +88,7 @@ function getConfigPlatformUrl(): string | undefined {
 }
 
 function getPlatformUrl(): string {
-  return (
-    process.env.VELLUM_PLATFORM_URL ??
-    getConfigPlatformUrl() ??
-    "https://platform.vellum.ai"
-  );
+  return process.env.VELLUM_PLATFORM_URL ?? getConfigPlatformUrl() ?? "";
 }
 
 function buildHeaders(): Record<string, string> {
