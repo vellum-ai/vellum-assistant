@@ -571,12 +571,7 @@ struct MessageListView: View {
 
         // One-shot scroll to bottom for initial load positioning.
         if anchorMessageId == nil {
-            let convId = conversationId ?? Self.bootstrapConversationId
-            bottomPinCoordinator.requestPin(
-                reason: .initialRestore,
-                conversationId: convId,
-                animated: false
-            )
+            bottomPinCoordinator.scrollToBottom()
         }
     }
 
@@ -585,9 +580,9 @@ struct MessageListView: View {
     private func triggerPagination(proxy: ScrollViewProxy) {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
-        // Pagination scroll-position restore is higher priority — cancel any
-        // active pin session so the coordinator doesn't fight the restore.
-        bottomPinCoordinator.cancelActiveSession(reason: .paginationRestore)
+        // Pagination scroll-position restore is higher priority — detach
+        // the coordinator so it doesn't fight the restore.
+        bottomPinCoordinator.detach()
         let anchorId = visibleMessages.first?.id
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
@@ -735,31 +730,10 @@ struct MessageListView: View {
     }
 
     /// Routes an automatic bottom-follow request through the coordinator.
-    /// The coordinator decides whether to suppress (user is detached), coalesce
-    /// (duplicate request within an active session), or start a new bounded
-    /// retry session. Anchor-message jumps and pagination restoration bypass
-    /// this helper entirely — they are higher-priority flows.
-    /// Sentinel UUID used for pin requests before the daemon assigns a real
-    /// conversation ID. Lets bootstrap-window requests coalesce normally.
-    private static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-
-    private func requestBottomPin(
-        reason: BottomPinRequestReason,
-        proxy: ScrollViewProxy,
-        animated: Bool = false
-    ) {
-        let convId = conversationId ?? Self.bootstrapConversationId
-        bottomPinCoordinator.requestPin(
-            reason: reason,
-            conversationId: convId,
-            animated: animated
-        )
-    }
-
     /// Configures the coordinator's callbacks to wire pin requests back to
     /// the scroll view proxy and follow-state changes back to `isNearBottom`.
     private func configureBottomPinCoordinator(proxy: ScrollViewProxy) {
-        bottomPinCoordinator.onPinRequested = { [self] reason, animated in
+        bottomPinCoordinator.onPinRequested = { [self] in
             // Circuit breaker: suppress scroll-to when a scroll loop was detected.
             // The guard re-arms after a quiet cooldown window elapses.
             let convIdString = conversationId?.uuidString ?? "unknown"
@@ -769,19 +743,10 @@ struct MessageListView: View {
                 return false
             }
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                        "target=bottomAnchor reason=coordinator-%{public}s", reason.rawValue)
+                        "target=bottomAnchor reason=coordinator-scrollToBottom")
             recordScrollLoopEvent(.scrollToRequested)
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            } else {
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-            }
+            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             // Check if the pin succeeded (anchor within viewport).
-            // Use `verify()` so that `geometryUnavailable` returns false
-            // (wait for the next finite preference update) instead of being
-            // treated as an immediate failed pin that triggers retry churn.
             let outcome = MessageListBottomAnchorPolicy.verify(
                 anchorMinY: anchorTracker.lastMinY,
                 viewportHeight: scrollViewportHeight
@@ -1163,7 +1128,7 @@ struct MessageListView: View {
                         hasReceivedScrollEvent = true
                         // Signal the coordinator to reattach and scroll to bottom.
                         bottomPinCoordinator.handleUserAction(.jumpToLatest)
-                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
+                        bottomPinCoordinator.scrollToBottom()
                     }) {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.arrowDown, size: 10)
@@ -1226,7 +1191,7 @@ struct MessageListView: View {
                             anchorSetTime = nil
                             anchorTimeoutTask = nil
                             bottomPinCoordinator.reattach()
-                            requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
+                            bottomPinCoordinator.scrollToBottom()
                         }
                     }
                 } else {
@@ -1252,9 +1217,8 @@ struct MessageListView: View {
                 scrollTracking.snapshotDebounceTask?.cancel()
                 scrollTracking.snapshotDebounceTask = nil
                 highlightedMessageId = nil
-                // Cancel any active pin session to prevent the coordinator's
-                // sessionTask from calling scrollTo on a stale ScrollViewProxy.
-                bottomPinCoordinator.cancelActiveSession(reason: .conversationSwitch)
+                // Clear the coordinator's callback to prevent it from calling
+                // scrollTo on a stale ScrollViewProxy.
                 bottomPinCoordinator.onPinRequested = nil
             }
             .onChange(of: isSending) {
@@ -1303,7 +1267,7 @@ struct MessageListView: View {
                     os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
                     recordScrollLoopEvent(.scrollToRequested)
                     // Anchor jumps bypass the coordinator — they are higher priority.
-                    bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
+                    bottomPinCoordinator.detach()
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
@@ -1332,7 +1296,7 @@ struct MessageListView: View {
                         anchorTimeoutTask?.cancel()
                         anchorTimeoutTask = nil
                         bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                        bottomPinCoordinator.scrollToBottom()
                         return
                     }
                 }
@@ -1354,9 +1318,8 @@ struct MessageListView: View {
                 paginationTask = nil
                 isPaginationInFlight = false
                 wasPaginationTriggerInRange = false
-                // Reset the coordinator for the new conversation — cancels any
-                // active pin session and resets to following state.
-                bottomPinCoordinator.reset(newConversationId: conversationId)
+                // Reset the coordinator for the new conversation.
+                bottomPinCoordinator.reset()
                 isNearBottom = true
                 highlightedMessageId = nil
                 highlightDismissTask?.cancel()
@@ -1402,8 +1365,8 @@ struct MessageListView: View {
             }
             .onChange(of: anchorMessageId) {
                 if anchorMessageId != nil {
-                    // Anchor jumps are higher priority — cancel any active pin session.
-                    bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
+                    // Anchor jumps are higher priority — detach the coordinator.
+                    bottomPinCoordinator.detach()
                 }
                 // Record the timestamp when a new anchor is set so the
                 // pagination-exhaustion guard can measure elapsed time.
@@ -1443,7 +1406,7 @@ struct MessageListView: View {
                         anchorSetTime = nil
                         anchorTimeoutTask = nil
                         bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
+                        bottomPinCoordinator.scrollToBottom()
                     }
                 }
             }
