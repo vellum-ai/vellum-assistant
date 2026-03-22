@@ -521,3 +521,8 @@ registerPolicy("admin/workspace-commit", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
+
+registerPolicy("admin/rollback-migrations", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
