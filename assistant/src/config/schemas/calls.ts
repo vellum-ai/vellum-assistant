@@ -60,7 +60,7 @@ export const CallsVoiceConfigSchema = z
       .describe("Speech-to-text provider used for call transcription"),
     speechModel: z
       .string({ error: "calls.voice.speechModel must be a string" })
-      .default("nova-3")
+      .optional()
       .describe(
         "ASR model to use for speech recognition (e.g. nova-3, nova-2-phonecall for Deepgram; telephony, long for Google)",
       ),

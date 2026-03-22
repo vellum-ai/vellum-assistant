@@ -62,7 +62,9 @@ export function resolveVoiceQualityProfile(
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
-    speechModel: voice.speechModel,
+    speechModel:
+      voice.speechModel ??
+      (voice.transcriptionProvider === "Google" ? undefined : "nova-3"),
     ttsProvider: fishAudio ? "Google" : "ElevenLabs",
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
