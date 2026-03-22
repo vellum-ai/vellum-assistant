@@ -126,13 +126,24 @@ struct ComposerView: View {
         .disabled(!hasAPIKey || !isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
-            composerFocus = isInteractionEnabled
+            // Delay focus slightly so the NSTextView field editor is fully
+            // installed before we request first-responder status. Setting
+            // @FocusState synchronously during an animated layout pass
+            // (e.g. the empty-state fade-in) can give logical focus without
+            // rendering the blinking caret.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                composerFocus = isInteractionEnabled
+            }
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
         }
         .onChange(of: conversationId) {
             guard isInteractionEnabled, !hasPendingConfirmation else { return }
-            composerFocus = true
+            // Same delay: the conversation switch may trigger a view rebuild
+            // (new empty state) whose layout isn't settled yet.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                composerFocus = true
+            }
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
