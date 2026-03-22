@@ -433,7 +433,6 @@ struct MainWindowView: View {
                     label: updateManager.isDeferredUpdateReady
                         ? "Restart to update"
                         : (connectionManager.versionMismatch ? "Compatibility update" : "Update"),
-                    leftIcon: VIcon.arrowUp.rawValue,
                     style: updateManager.isDeferredUpdateReady ? .primary : (connectionManager.versionMismatch ? .outlined : .primary),
                     size: .pill,
                     tooltip: updateManager.isDeferredUpdateReady
@@ -444,6 +443,10 @@ struct MainWindowView: View {
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
+                    } else if updateManager.isServiceGroupUpdateAvailable && !updateManager.isUpdateAvailable {
+                        // Service group update only — navigate to Settings where the upgrade controls live
+                        settingsStore.pendingSettingsTab = .general
+                        windowState.selection = .panel(.settings)
                     } else {
                         AppDelegate.shared?.checkForUpdates()
                     }
