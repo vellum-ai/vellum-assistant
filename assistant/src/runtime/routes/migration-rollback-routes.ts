@@ -85,6 +85,24 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
           }
         }
 
+        // Preflight: validate that the workspace migration ID exists in the
+        // registry BEFORE executing any mutations. This prevents the DB
+        // rollback from committing when the workspace target is invalid.
+        let resolvedTargetIndex = -1;
+        if (targetWorkspaceMigrationId !== undefined) {
+          const targetId = targetWorkspaceMigrationId as string;
+          resolvedTargetIndex = WORKSPACE_MIGRATIONS.findIndex(
+            (m) => m.id === targetId,
+          );
+          if (resolvedTargetIndex === -1) {
+            return httpError(
+              "BAD_REQUEST",
+              `Target workspace migration "${targetId}" not found in the registry`,
+              400,
+            );
+          }
+        }
+
         const rolledBack: { db: string[]; workspace: string[] } = {
           db: [],
           workspace: [],
@@ -115,19 +133,11 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
             // Compute which migrations will be rolled back before executing,
             // since rollbackWorkspaceMigrations returns void.
             const targetId = targetWorkspaceMigrationId as string;
-            const targetIndex = WORKSPACE_MIGRATIONS.findIndex(
-              (m) => m.id === targetId,
-            );
-            if (targetIndex === -1) {
-              return httpError(
-                "BAD_REQUEST",
-                `Target workspace migration "${targetId}" not found in the registry`,
-                400,
-              );
-            }
 
             const checkpoints = loadCheckpoints(workspaceDir);
-            const candidateIds = WORKSPACE_MIGRATIONS.slice(targetIndex + 1)
+            const candidateIds = WORKSPACE_MIGRATIONS.slice(
+              resolvedTargetIndex + 1,
+            )
               .filter((m) => {
                 const entry = checkpoints.applied[m.id];
                 return (
@@ -151,6 +161,7 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
               "INTERNAL_ERROR",
               `Workspace migration rollback failed: ${detail}`,
               500,
+              { partialRolledBack: { db: rolledBack.db, workspace: [] } },
             );
           }
         }
