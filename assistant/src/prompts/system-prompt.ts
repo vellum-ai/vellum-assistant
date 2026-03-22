@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -9,7 +9,11 @@ import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspacePromptPath, isMacOS } from "../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+  isMacOS,
+} from "../util/platform.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
@@ -77,6 +81,26 @@ export function ensurePromptFiles(): void {
         );
       }
     }
+  }
+
+  // Seed users/default.md persona template
+  try {
+    const usersDir = join(getWorkspaceDir(), "users");
+    mkdirSync(usersDir, { recursive: true });
+    const defaultPersonaSrc = join(templatesDir, "users", "default.md");
+    const defaultPersonaDest = join(usersDir, "default.md");
+    if (!existsSync(defaultPersonaDest) && existsSync(defaultPersonaSrc)) {
+      copyFileSync(defaultPersonaSrc, defaultPersonaDest);
+      log.info(
+        { file: "users/default.md", dest: defaultPersonaDest },
+        "Created default persona file from template",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, file: "users/default.md" },
+      "Failed to create default persona file from template",
+    );
   }
 }
 
