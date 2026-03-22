@@ -5,7 +5,7 @@ import VellumAssistantShared
 
 /// Backup and restore UI for the Settings Account tab.
 ///
-/// For local assistants, creates/restores `.vbundle` archives via the assistant's
+/// For local assistants, creates/restores `.vbundle` archives via the gateway's
 /// migration endpoints (`POST /v1/migrations/export` and `POST /v1/migrations/import`).
 ///
 /// For managed/remote assistants, uses the platform API endpoints
@@ -186,47 +186,19 @@ struct AssistantBackupsSection: View {
         isExporting = true
         defer { isExporting = false }
 
-        guard let baseURL = assistant.runtimeUrl else {
-            errorMessage = "No runtime URL configured for this assistant"
-            return
-        }
-        let token = ActorTokenManager.getToken()
-
-        guard let url = URL(string: "\(baseURL)/v1/migrations/export") else {
-            errorMessage = "Invalid assistant URL"
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        if let token, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response from assistant"
+            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 120)
+
+            guard response.isSuccess else {
+                errorMessage = "Export failed (HTTP \(response.statusCode))"
                 return
             }
 
-            guard httpResponse.statusCode == 200 else {
-                errorMessage = "Export failed (HTTP \(httpResponse.statusCode))"
-                return
-            }
-
-            // Extract filename from Content-Disposition header, or generate one
-            let filename: String
-            if let disposition = httpResponse.value(forHTTPHeaderField: "Content-Disposition"),
-               let nameMatch = disposition.range(of: "filename=\"", options: .caseInsensitive),
-               let endQuote = disposition[nameMatch.upperBound...].firstIndex(of: "\"") {
-                filename = String(disposition[nameMatch.upperBound..<endQuote])
-            } else {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-                filename = "export-\(formatter.string(from: Date())).vbundle"
-            }
+            // Generate a timestamped filename (Content-Disposition header is not
+            // available through GatewayHTTPClient.Response).
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+            let filename = "export-\(formatter.string(from: Date())).vbundle"
 
             // Show save panel — don't set allowedContentTypes since the filename
             // already includes .vbundle; setting it causes NSSavePanel to append
@@ -238,8 +210,10 @@ struct AssistantBackupsSection: View {
             let panelResult = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first!)
             guard panelResult == .OK, let saveURL = panel.url else { return }
 
-            try data.write(to: saveURL)
+            try response.data.write(to: saveURL)
             successMessage = "Backup saved to \(saveURL.lastPathComponent)"
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Export failed: \(error.localizedDescription)"
         }
@@ -365,37 +339,12 @@ extension AssistantBackupsSection {
         isImporting = true
         defer { isImporting = false }
 
-        guard let baseURL = assistant.runtimeUrl else {
-            errorMessage = "No runtime URL configured for this assistant"
-            return
-        }
-        let token = ActorTokenManager.getToken()
-
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import") else {
-            errorMessage = "Invalid assistant URL"
-            return
-        }
-
         do {
             let fileData = try Data(contentsOf: fileURL)
+            let response = try await GatewayHTTPClient.post(path: "migrations/import", body: fileData, timeout: 120)
 
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 60
-            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            if let token, !token.isEmpty {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = fileData
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response from assistant"
-                return
-            }
-
-            if httpResponse.statusCode == 200 {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            if response.isSuccess {
+                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                    let success = json["success"] as? Bool, success {
                     successMessage = "Backup restored. Restarting assistant..."
 
@@ -416,11 +365,13 @@ extension AssistantBackupsSection {
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."
                 }
-            } else if httpResponse.statusCode == 413 {
+            } else if response.statusCode == 413 {
                 errorMessage = "Backup file is too large. Please upgrade the assistant to restore this backup."
             } else {
-                errorMessage = "Import failed (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Import failed (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Import failed: \(error.localizedDescription)"
         }
