@@ -282,6 +282,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         Task { @MainActor in
             self.isUpdateAvailable = false
             self.availableUpdateVersion = nil
+            self.pendingUpdateVersion = nil
         }
     }
 
@@ -298,6 +299,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
                 log.info("User skipped update \(updateItem.displayVersionString, privacy: .public)")
                 self.isUpdateAvailable = false
                 self.availableUpdateVersion = nil
+                self.pendingUpdateVersion = nil
             }
         }
     }
