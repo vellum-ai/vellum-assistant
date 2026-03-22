@@ -7,6 +7,12 @@ import type { WorkspaceMigration } from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
+export function getLastWorkspaceMigrationId(
+  migrations: WorkspaceMigration[],
+): string | null {
+  return migrations.length > 0 ? migrations[migrations.length - 1].id : null;
+}
+
 export type CheckpointFile = {
   applied: Record<
     string,

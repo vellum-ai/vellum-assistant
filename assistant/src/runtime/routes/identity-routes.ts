@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
+import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
+import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
+import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
@@ -140,6 +143,11 @@ export function handleHealth(): Response {
     disk: getDiskSpaceInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
+    migrations: {
+      dbVersion: getMaxMigrationVersion(),
+      lastWorkspaceMigrationId:
+        getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
+    },
   });
 }
 
