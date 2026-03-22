@@ -416,6 +416,7 @@ export function buildCoreIdentityContext(
     // before onboarding completes.  Only skip IDENTITY.md and USER.md when
     // they are still unmodified templates (matching buildSystemPrompt).
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    if (file === "USER.md" && opts?.userPersona) continue;
     parts.push(content);
   }
   if (opts?.userPersona) parts.push(opts.userPersona);
