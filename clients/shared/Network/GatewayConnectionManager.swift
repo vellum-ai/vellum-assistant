@@ -36,7 +36,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public internal(set) var versionMismatch: Bool = false
     @Published public internal(set) var isUpdateInProgress: Bool = false
     @Published public internal(set) var updateTargetVersion: String?
-    @Published public var updateStatusMessage: String?
+    @Published public internal(set) var updateStatusMessage: String?
     var updateExpiresAt: Date?
     private var outcomeEmittedForCurrentCycle = false
     @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
@@ -231,6 +231,7 @@ public final class GatewayConnectionManager: ObservableObject {
         versionMismatch = false
         isUpdateInProgress = false
         updateTargetVersion = nil
+        updateStatusMessage = nil
         updateExpiresAt = nil
         lastUpdateOutcome = nil
         keyFingerprint = nil
