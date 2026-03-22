@@ -431,6 +431,7 @@ async function upgradeDocker(
   // cleanly revert to the target version's ceiling. This is critical for
   // multi-version downgrades where the old daemon wouldn't know about
   // migrations introduced after its release.
+  let preSwapRollbackOk = true;
   if (
     isDowngrade &&
     (targetMigrationCeiling.dbVersion !== undefined ||
@@ -442,7 +443,7 @@ async function upgradeDocker(
       entry.assistantId,
       buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
     );
-    await rollbackMigrations(
+    preSwapRollbackOk = await rollbackMigrations(
       entry.runtimeUrl,
       entry.assistantId,
       targetMigrationCeiling.dbVersion,
@@ -519,15 +520,17 @@ async function upgradeDocker(
     };
     saveAssistantEntry(updatedEntry);
 
-    // After a downgrade, if the precise pre-swap rollback wasn't available
-    // (no release metadata), fall back to asking the now-running old daemon
-    // to roll back migrations above its own registry ceiling. This is a
-    // no-op for multi-version jumps where the old daemon doesn't know about
-    // the newer migrations, but correct for single-step rollbacks.
+    // After a downgrade, fall back to asking the now-running old daemon
+    // to roll back migrations above its own registry ceiling when either:
+    // (a) no release metadata was available for a precise pre-swap rollback, or
+    // (b) the precise pre-swap rollback failed (timeout, daemon crash, etc.).
+    // This is a no-op for multi-version jumps where the old daemon doesn't
+    // know about the newer migrations, but correct for single-step rollbacks.
     if (
       isDowngrade &&
-      targetMigrationCeiling.dbVersion === undefined &&
-      targetMigrationCeiling.workspaceMigrationId === undefined
+      (!preSwapRollbackOk ||
+        (targetMigrationCeiling.dbVersion === undefined &&
+          targetMigrationCeiling.workspaceMigrationId === undefined))
     ) {
       await rollbackMigrations(
         entry.runtimeUrl,
