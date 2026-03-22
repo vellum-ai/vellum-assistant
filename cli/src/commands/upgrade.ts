@@ -260,7 +260,10 @@ async function upgradeDocker(
           db_migration_version?: number | null;
           last_workspace_migration_id?: string;
         }>;
-        const targetRelease = releases.find((r) => r.version === versionTag);
+        const normalizedTag = versionTag.replace(/^v/, "");
+        const targetRelease = releases.find(
+          (r) => r.version?.replace(/^v/, "") === normalizedTag,
+        );
         if (
           targetRelease?.db_migration_version != null ||
           targetRelease?.last_workspace_migration_id
