@@ -378,6 +378,11 @@ export async function rollback(): Promise<void> {
       console.log(
         `   Check logs with: docker logs -f ${res.assistantContainer}`,
       );
+      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+        type: "complete",
+        installedVersion: entry.previousServiceGroupVersion ?? "unknown",
+        success: false,
+      });
       emitCliError(
         "READINESS_TIMEOUT",
         "Rolled-back containers failed to become ready within the timeout.",
@@ -387,6 +392,11 @@ export async function rollback(): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`\n❌ Rollback failed: ${detail}`);
+    await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+      type: "complete",
+      installedVersion: entry.serviceGroupVersion ?? "unknown",
+      success: false,
+    });
     emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
     process.exit(1);
   }

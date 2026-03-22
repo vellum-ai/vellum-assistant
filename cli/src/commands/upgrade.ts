@@ -533,6 +533,11 @@ async function upgradeDocker(
           console.log(
             `   Check logs with: docker logs -f ${res.assistantContainer}`,
           );
+          await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+            type: "complete",
+            installedVersion: entry.serviceGroupVersion ?? "unknown",
+            success: false,
+          });
           emitCliError(
             "ROLLBACK_FAILED",
             "Rollback also failed after readiness timeout. Manual intervention required.",
@@ -548,6 +553,11 @@ async function upgradeDocker(
         console.log(
           `   Check logs with: docker logs -f ${res.assistantContainer}`,
         );
+        await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+          type: "complete",
+          installedVersion: entry.serviceGroupVersion ?? "unknown",
+          success: false,
+        });
         emitCliError(
           "ROLLBACK_FAILED",
           "Auto-rollback failed after readiness timeout. Manual intervention required.",
@@ -559,6 +569,11 @@ async function upgradeDocker(
       console.log(
         `   Check logs with: docker logs -f ${res.assistantContainer}`,
       );
+      await broadcastUpgradeEvent(entry.runtimeUrl, entry.assistantId, {
+        type: "complete",
+        installedVersion: entry.serviceGroupVersion ?? "unknown",
+        success: false,
+      });
       emitCliError(
         "ROLLBACK_NO_STATE",
         "Containers failed to become ready and no previous images available for rollback.",
