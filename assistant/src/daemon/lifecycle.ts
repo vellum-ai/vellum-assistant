@@ -56,9 +56,9 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
