@@ -162,13 +162,9 @@ struct MessageListView: View {
     /// between Task launch and the first `await` (before isLoadingMoreMessages is set).
     @State private var isPaginationInFlight: Bool = false
     @State private var paginationTask: Task<Void, Never>?
-    /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
-    /// restores scroll position, preventing a jump back to the bottom.
-    @State private var isSuppressingBottomScroll: Bool = false
     @State private var isAppActive: Bool = NSApp.isActive
     @State private var conversationSwitchSuppressionTask: Task<Void, Never>?
     @State private var suppressScrollbarDuringConversationSwitch: Bool = false
-    @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
@@ -180,8 +176,7 @@ struct MessageListView: View {
     /// trigger re-renders.
     @StateObject private var anchorTracker = AnchorVisibilityTracker()
     /// Whether a physical scroll event (wheel/trackpad) has been received since
-    /// the current conversation loaded. Used by `restoreScrollToBottom` to skip
-    /// retries once the user has interacted, and by the scroll-bottom-anchor's
+    /// the current conversation loaded. Used by the scroll-bottom-anchor's
     /// `onAppear` to avoid premature re-tethering during LazyVStack prefetch.
     @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
@@ -197,13 +192,8 @@ struct MessageListView: View {
     /// Last container width that triggered a resize scroll handler, used to
     /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
     @State private var lastHandledContainerWidth: CGFloat = 0
-    /// In-flight resize scroll stabilization task; cancelled on each new resize.
-    @State private var resizeScrollTask: Task<Void, Never>?
     /// Task that clears the highlight flash after the animation duration.
     @State private var highlightDismissTask: Task<Void, Never>?
-    /// In-flight staged scroll-to-bottom task used after conversation switches and
-    /// app restarts to reliably anchor the viewport once layout settles.
-    @State private var scrollRestoreTask: Task<Void, Never>?
     /// Whether the AnchorMinYKey preference has fired since the last scroll
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
     /// rather than the manual reset applied on conversation switch.
@@ -560,19 +550,16 @@ struct MessageListView: View {
         }
     }
 
-    /// Staged scroll-to-bottom that retries after increasing delays to handle
-    /// cases where SwiftUI hasn't committed the new content's layout yet (e.g.
-    /// after a conversation switch or app restart). Cancelled by user scroll-up,
-    /// user scroll-to-bottom, anchor message set, or view disappearance.
-    private func restoreScrollToBottom(proxy: ScrollViewProxy) {
-        scrollRestoreTask?.cancel()
+    /// Resets avatar follower state and issues a one-shot scroll-to-bottom
+    /// for initial load / conversation switch positioning. No staged retries.
+    private func resetAvatarAndScrollToBottom(proxy: ScrollViewProxy) {
         hasFreshAnchorMeasurement = false
 
         // Reset avatar follower state so the avatar starts hidden and only
         // appears once the conversation tail anchor reports a fresh position
         // after the scroll settles. Without this, the avatar can flash at a
         // stale Y from a previous layout pass (e.g. app re-launch where
-        // onAppear calls restoreScrollToBottom without resetting avatar state).
+        // onAppear calls this without resetting avatar state).
         avatarSmoothingTask?.cancel()
         avatarSmoothingTask = nil
         scrollTracking.avatarTargetY = .infinity
@@ -582,55 +569,19 @@ struct MessageListView: View {
         scrollTracking.avatarLastAppliedAt = nil
         scrollTracking.lastTailAnchorY = .infinity
 
-        // Route the initial restore through the coordinator for bounded retries.
+        // One-shot scroll to bottom for initial load positioning.
         if anchorMessageId == nil {
-            requestBottomPin(reason: .initialRestore, proxy: proxy)
-        }
-
-        scrollRestoreTask = Task { @MainActor in
-            guard !Task.isCancelled else { return }
-            // Stage 0: immediate — the coordinator fires its first attempt above.
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=0")
-            log.debug("Scroll restore: stage 0 (immediate, coordinator-driven)")
-
-            // Stage 1: ~3 frames — handles most conversation switches.
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=1")
-            if anchorMessageId == nil {
-                requestBottomPin(reason: .initialRestore, proxy: proxy)
-            }
-            log.debug("Scroll restore: stage 1 (50ms)")
-
-            // Stage 2: ~9 frames — catches slower layout/materialization.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            // Only retry when the anchor genuinely drifted off-screen.
-            // `geometryUnavailable` means layout hasn't measured yet —
-            // the coordinator will pick up the next finite preference update
-            // instead of spinning retries on missing geometry.
-            let restoreOutcome = MessageListBottomAnchorPolicy.verify(
-                anchorMinY: anchorTracker.lastMinY,
-                viewportHeight: scrollViewportHeight
+            let convId = conversationId ?? Self.bootstrapConversationId
+            bottomPinCoordinator.requestPin(
+                reason: .initialRestore,
+                conversationId: convId,
+                animated: false
             )
-            if anchorMessageId == nil
-                && !hasReceivedScrollEvent
-                && restoreOutcome == .needsRepin
-            {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
-                requestBottomPin(reason: .initialRestore, proxy: proxy)
-                log.debug("Scroll restore: stage 2 (200ms) — retrying via coordinator")
-            } else {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId)) scrollEvent=\(hasReceivedScrollEvent))")
-            }
-
-            if !Task.isCancelled { scrollRestoreTask = nil }
         }
     }
 
     /// Fires a single pagination load, restores the scroll anchor, and
-    /// manages the `isPaginationInFlight` / `isSuppressingBottomScroll` guards.
+    /// manages the `isPaginationInFlight` guard.
     private func triggerPagination(proxy: ScrollViewProxy) {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
@@ -652,24 +603,15 @@ struct MessageListView: View {
             let hadMore = await loadPreviousMessagePage?() ?? false
             log.debug("[pagination] loadPreviousMessagePage returned hadMore=\(hadMore)")
             if hadMore, let id = anchorId {
-                // Suppress bottom auto-scroll for the brief layout window so the
-                // restored anchor position is not immediately overridden.
-                isSuppressingBottomScroll = true
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=pagination")
                 // Wait ~6 frames for SwiftUI to complete layout before restoring position.
                 // 100ms gives video embed cards (which animate height over 0.25s) enough
                 // time to settle so the scroll restoration lands at the right position.
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                guard !Task.isCancelled else {
-                    isSuppressingBottomScroll = false
-                    return
-                }
+                guard !Task.isCancelled else { return }
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
                 recordScrollLoopEvent(.scrollToRequested)
                 proxy.scrollTo(id, anchor: .top)
                 log.debug("[pagination] scroll restored to anchor \(id)")
-                isSuppressingBottomScroll = false
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "off reason=paginationDone")
             }
         }
     }
@@ -771,7 +713,7 @@ struct MessageListView: View {
             isNearBottom: isNearBottom,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
-            suppressionReason: isSuppressingBottomScroll ? "bottomScrollSuppressed" : nil,
+            suppressionReason: nil,
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
             anchorMinY: safeAnchorMinY,
@@ -818,7 +760,6 @@ struct MessageListView: View {
     /// the scroll view proxy and follow-state changes back to `isNearBottom`.
     private func configureBottomPinCoordinator(proxy: ScrollViewProxy) {
         bottomPinCoordinator.onPinRequested = { [self] reason, animated in
-            guard !isSuppressingBottomScroll else { return false }
             // Circuit breaker: suppress scroll-to when a scroll loop was detected.
             // The guard re-arms after a quiet cooldown window elapses.
             let convIdString = conversationId?.uuidString ?? "unknown"
@@ -1078,38 +1019,10 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .environment(\.suppressAutoScroll, { [self] in
-                expandSuppressionTask?.cancel()
-                if isNearBottom {
-                    // Clear any stale suppression left by a canceled off-bottom expansion,
-                    // but only when the resize guard isn't actively suppressing scroll.
-                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
-                    if !resizeActive {
-                        isSuppressingBottomScroll = false
-                    }
-                    // Route expansion bottom-follow through the coordinator for
-                    // bounded staged retries instead of per-frame repinning.
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
-                    recordScrollLoopEvent(.suppressionFlip)
-                    requestBottomPin(reason: .expansion, proxy: proxy, animated: false)
-                } else {
-                    // When scrolled away from bottom, suppress auto-scroll so the
-                    // expansion doesn't yank the viewport to the bottom.
-                    isSuppressingBottomScroll = true
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
-                    recordScrollLoopEvent(.suppressionFlip)
-                    expandSuppressionTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        guard !Task.isCancelled else { return }
-                        // Only clear if no other mechanism (resize, pagination) still needs suppression.
-                        let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
-                        let paginationActive = isPaginationInFlight
-                        if !resizeActive && !paginationActive {
-                            isSuppressingBottomScroll = false
-                            os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "off reason=expansionExpired")
-                        }
-                    }
-                }
+            .environment(\.suppressAutoScroll, {
+                // No-op: auto-scroll during content expansion has been removed.
+                // This environment callback is kept so child views calling
+                // suppressAutoScroll don't crash on a nil closure.
             })
             .background {
                 GeometryReader { geo in
@@ -1117,21 +1030,12 @@ struct MessageListView: View {
                 }
                 ScrollWheelDetector(
                     onScrollUp: {
-
-                        scrollRestoreTask?.cancel()
-                        scrollRestoreTask = nil
-                        expandSuppressionTask?.cancel()
-                        expandSuppressionTask = nil
-                        isSuppressingBottomScroll = false
                         // Signal the coordinator to detach — this sets isNearBottom
                         // to false and cancels any active pin session.
                         bottomPinCoordinator.handleUserAction(.scrollUp)
                         hasReceivedScrollEvent = true
                     },
                     onScrollToBottom: {
-                        scrollRestoreTask?.cancel()
-                        scrollRestoreTask = nil
-                        isSuppressingBottomScroll = false
                         // Signal the coordinator to reattach — this sets isNearBottom
                         // to true and allows future pin requests.
                         bottomPinCoordinator.handleUserAction(.scrollToBottom)
@@ -1326,7 +1230,7 @@ struct MessageListView: View {
                         }
                     }
                 } else {
-                    restoreScrollToBottom(proxy: proxy)
+                    resetAvatarAndScrollToBottom(proxy: proxy)
                 }
                 // When anchorMessageId is set but the target message isn't loaded
                 // yet, skip scrolling entirely — onChange(of: messages.count) will
@@ -1338,12 +1242,6 @@ struct MessageListView: View {
                 suppressScrollbarDuringConversationSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
-                resizeScrollTask?.cancel()
-                resizeScrollTask = nil
-                expandSuppressionTask?.cancel()
-                expandSuppressionTask = nil
-                scrollRestoreTask?.cancel()
-                scrollRestoreTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
                 isPaginationInFlight = false
@@ -1362,24 +1260,6 @@ struct MessageListView: View {
             .onChange(of: isSending) {
                 if isSending {
                     hasReceivedScrollEvent = true
-                    // Reattach and pin to bottom for user-initiated actions (send,
-                    // regenerate, retry). Skip reattach only when the daemon resumes
-                    // from a tool confirmation (not a user action during confirmation).
-                    //
-                    // Detection: when the daemon resumes, it sets both isSending=true
-                    // AND assistantActivityPhase="thinking" in the same mutation. When
-                    // the user sends/regenerates during confirmation, only isSending
-                    // changes — assistantActivityPhase stays "awaiting_confirmation"
-                    // until the daemon processes the new request.
-                    let isDaemonConfirmationResume =
-                        phaseWhenSendingStopped == "awaiting_confirmation"
-                        && assistantActivityPhase != "awaiting_confirmation"
-                    if isDaemonConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
-                        // Daemon resumed from confirmation while user was scrolled up.
-                    } else {
-                        bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
-                    }
                 } else {
                     // Capture the activity phase at the moment sending stops.
                     // "awaiting_confirmation" marks a mid-turn pause; any other value
@@ -1456,65 +1336,16 @@ struct MessageListView: View {
                         return
                     }
                 }
-                if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
-                    requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
-                } else if isSuppressingBottomScroll {
-                    log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
-                }
             }
             .onChange(of: containerWidth) {
                 // Ignore sub-pixel jitter and initial zero value.
-                // Use a tight 2pt threshold so scroll suppression activates on
-                // any meaningful width change during divider drag — the previous
-                // 20pt dead-zone let intermediate reflows through without suppression,
-                // causing scroll position desync and disappearing messages.
                 guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 2 else { return }
                 lastHandledContainerWidth = containerWidth
-
-                // Cancel competing scroll tasks to prevent jitter during resize
-                resizeScrollTask?.cancel()
-
-                resizeScrollTask = Task { @MainActor in
-                    // Temporarily suppress bottom auto-scroll so streaming/message-count
-                    // handlers don't fight with the resize stabilization.
-                    isSuppressingBottomScroll = true
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=resize")
-                    defer {
-                        if !Task.isCancelled {
-                            isSuppressingBottomScroll = false
-                            os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "off reason=resizeDone")
-                            resizeScrollTask = nil
-                        }
-                    }
-                    // Wait for layout to settle (~100ms ≈ 6 frames)
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    guard !Task.isCancelled else { return }
-
-                    if isNearBottom && anchorMessageId == nil {
-                        // Pin to bottom without animation to avoid visual bounce.
-                        // Skip when an anchor is pending (deep-link / notification)
-                        // to avoid yanking the viewport away from the target message.
-                        // Only repin for genuinely off-screen anchors — transient
-                        // missing geometry waits for the next finite preference update.
-                        let resizeOutcome = MessageListBottomAnchorPolicy.verify(
-                            anchorMinY: anchorTracker.lastMinY,
-                            viewportHeight: scrollViewportHeight
-                        )
-                        if resizeOutcome == .needsRepin {
-                            requestBottomPin(reason: .resize, proxy: proxy)
-                        }
-                    }
-                    // If not near bottom or anchor is set, preserve viewport.
-                }
             }
             .onChange(of: conversationId) { oldConversationId, _ in
                 // Keep the underlying NSScrollView instance stable across conversation
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
-                resizeScrollTask?.cancel()
-                resizeScrollTask = nil
-                expandSuppressionTask?.cancel()
-                expandSuppressionTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 scrollTracking.snapshotDebounceTask?.cancel()
@@ -1523,7 +1354,6 @@ struct MessageListView: View {
                 paginationTask = nil
                 isPaginationInFlight = false
                 wasPaginationTriggerInRange = false
-                isSuppressingBottomScroll = false
                 // Reset the coordinator for the new conversation — cancels any
                 // active pin session and resets to following state.
                 bottomPinCoordinator.reset(newConversationId: conversationId)
@@ -1566,17 +1396,12 @@ struct MessageListView: View {
                 }
                 hasPlayedTailEntryAnimation = false
                 // Avatar state (scrollTracking.avatarTargetY, avatarDisplayY, scrollTracking)
-                // is reset inside
-                // restoreScrollToBottom so the reset is shared with onAppear.
-                restoreScrollToBottom(proxy: proxy)
+                // is reset inside resetAvatarAndScrollToBottom so the reset is
+                // shared with onAppear.
+                resetAvatarAndScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
-                // Only cancel scroll restore when a new anchor is set (non-nil).
-                // The nil transition fires during conversation switches (stale anchor
-                // cleanup) and must not cancel the restore just started.
                 if anchorMessageId != nil {
-                    scrollRestoreTask?.cancel()
-                    scrollRestoreTask = nil
                     // Anchor jumps are higher priority — cancel any active pin session.
                     bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
                 }
