@@ -79,6 +79,11 @@ export interface LocalDiscoverySuccess {
   executablePath: string;
 }
 
+export interface LocalSourceDiscoverySuccess {
+  mode: "local-source";
+  sourcePath: string;
+}
+
 export interface ManagedDiscoverySuccess {
   mode: "managed";
   socketPath: string;
@@ -91,6 +96,7 @@ export interface DiscoveryFailure {
 
 export type DiscoveryResult =
   | LocalDiscoverySuccess
+  | LocalSourceDiscoverySuccess
   | ManagedDiscoverySuccess
   | DiscoveryFailure;
 
@@ -101,11 +107,16 @@ export type DiscoveryResult =
 /**
  * Discover the local CES executable.
  *
- * Searches well-known paths for the `credential-executor` binary. Returns
- * a structured result — never throws. If the binary is not found, returns
+ * Searches well-known paths for the `credential-executor` binary. If the
+ * compiled binary is not found, falls back to the TypeScript source entry
+ * point in the monorepo. Returns a structured result — never throws. If
+ * neither the binary nor the source entry point is found, returns
  * `{ mode: "unavailable" }` so the caller can fail closed.
  */
-export function discoverLocalCes(): LocalDiscoverySuccess | DiscoveryFailure {
+export function discoverLocalCes():
+  | LocalDiscoverySuccess
+  | LocalSourceDiscoverySuccess
+  | DiscoveryFailure {
   const searchPaths = getLocalBinarySearchPaths();
 
   for (const candidate of searchPaths) {
@@ -115,7 +126,20 @@ export function discoverLocalCes(): LocalDiscoverySuccess | DiscoveryFailure {
     }
   }
 
-  const reason = `CES executable not found. Searched: ${searchPaths.join(", ")}`;
+  // Fallback: check for source entry point in the monorepo
+  const monorepoRoot = join(import.meta.dir, "..", "..", "..", "..");
+  const sourceEntry = join(
+    monorepoRoot,
+    "credential-executor",
+    "src",
+    "main.ts",
+  );
+  if (existsSync(sourceEntry)) {
+    log.info({ path: sourceEntry }, "Found local CES source entry point");
+    return { mode: "local-source", sourcePath: sourceEntry };
+  }
+
+  const reason = `CES executable not found. Searched: ${searchPaths.join(", ")}; also checked source at ${sourceEntry}`;
   log.warn(reason);
   return { mode: "unavailable", reason };
 }

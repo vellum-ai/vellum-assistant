@@ -38,6 +38,7 @@ import {
   discoverLocalCes,
   type DiscoveryResult,
   type LocalDiscoverySuccess,
+  type LocalSourceDiscoverySuccess,
   type ManagedDiscoverySuccess,
 } from "./executable-discovery.js";
 import { isCesManagedSidecarEnabled } from "./feature-gates.js";
@@ -156,6 +157,12 @@ export function createCesProcessManager(
         return transport;
       }
 
+      if (discoveryResult.mode === "local-source") {
+        const transport = await startLocalSourceProcess(discoveryResult);
+        running = true;
+        return transport;
+      }
+
       // managed mode
       const transport = await connectManagedSocket(discoveryResult);
       running = true;
@@ -231,6 +238,37 @@ export function createCesProcessManager(
     childProcess = proc;
 
     log.info({ pid: proc.pid }, "CES child process started");
+
+    return createStdioTransport(proc);
+  }
+
+  // -------------------------------------------------------------------------
+  // Local source mode — child process over stdio (bun run)
+  // -------------------------------------------------------------------------
+
+  async function startLocalSourceProcess(
+    discovery: LocalSourceDiscoverySuccess,
+  ): Promise<CesTransport> {
+    log.info(
+      { sourcePath: discovery.sourcePath },
+      "Spawning CES child process from source",
+    );
+
+    const proc = Bun.spawn({
+      cmd: ["bun", "run", discovery.sourcePath],
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "ignore",
+      env: {
+        ...process.env,
+        // Signal to CES that it was launched by the assistant
+        CES_LAUNCHED_BY: "assistant",
+      },
+    });
+
+    childProcess = proc;
+
+    log.info({ pid: proc.pid }, "CES child process started (from source)");
 
     return createStdioTransport(proc);
   }
