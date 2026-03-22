@@ -36,6 +36,10 @@ mock.module("../notifications/conversation-candidates.js", () => ({
   serializeCandidatesForPrompt: () => undefined,
 }));
 
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => null,
+}));
+
 // ── Identity context mock ─────────────────────────────────────────────
 
 let mockIdentityContext: string | null = null;
