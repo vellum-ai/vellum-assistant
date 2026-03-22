@@ -48,7 +48,7 @@ export interface MigrationRegistryEntry {
   /** Human-readable description for diagnostics and future authorship guidance. */
   description: string;
   /** Reverse the migration. Must be idempotent — safe to re-run. */
-  down?: (database: DrizzleDb) => void;
+  down: (database: DrizzleDb) => void;
 }
 
 // ---------------------------------------------------------------------------

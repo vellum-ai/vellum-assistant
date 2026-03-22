@@ -1025,37 +1025,6 @@ describe("rollbackMemoryMigration", () => {
     expect(cp1000!.value).toBe("1");
   });
 
-  test("throws when migration has no down function", () => {
-    saveRegistry();
-
-    const db = createTestDb();
-    const raw = getRaw(db);
-    bootstrapCheckpointsTable(raw);
-
-    const now = Date.now();
-
-    // Register an entry WITHOUT a down function.
-    MIGRATION_REGISTRY.push({
-      key: "test_no_down_v2000",
-      version: 2000,
-      description: "test migration without down()",
-      // no down() defined
-    });
-
-    // Mark it as completed.
-    raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_no_down_v2000', '1', ${now})`,
-    );
-
-    // Attempting to roll back should throw a descriptive error.
-    expect(() => rollbackMemoryMigration(db, 1999)).toThrow(
-      'Cannot roll back migration "test_no_down_v2000"',
-    );
-    expect(() => rollbackMemoryMigration(db, 1999)).toThrow(
-      "no down() function defined",
-    );
-  });
-
   test("handles transaction failure in down() — rolls back and preserves checkpoint", () => {
     saveRegistry();
 

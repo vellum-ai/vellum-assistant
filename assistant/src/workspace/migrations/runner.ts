@@ -191,12 +191,6 @@ export async function rollbackWorkspaceMigrations(
       continue;
     }
 
-    if (!migration.down) {
-      throw new Error(
-        `Migration "${migration.id}" does not support rollback (no down() method)`,
-      );
-    }
-
     log.info(
       `Rolling back workspace migration: ${migration.id} — ${migration.description}`,
     );
