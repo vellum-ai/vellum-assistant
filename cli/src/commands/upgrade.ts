@@ -1,4 +1,6 @@
 import { randomBytes } from "crypto";
+import { existsSync } from "fs";
+import { join } from "path";
 
 import cliPkg from "../../package.json";
 
@@ -33,6 +35,36 @@ import {
 } from "../lib/guardian-token";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec, execOutput } from "../lib/step-runner";
+
+/**
+ * Best-effort git commit in a workspace directory.
+ * Stages all changes and creates a commit (even if the workspace is clean).
+ * Failures are silently ignored so they never block the upgrade flow.
+ */
+async function workspaceGitCommit(
+  workspaceDir: string,
+  message: string,
+): Promise<void> {
+  if (!existsSync(join(workspaceDir, ".git"))) {
+    return;
+  }
+  const opts = { cwd: workspaceDir };
+  await exec("git", ["add", "-A"], opts);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=vellum-cli",
+      "-c",
+      "user.email=cli@vellum.ai",
+      "commit",
+      "--allow-empty",
+      "-m",
+      message,
+    ],
+    opts,
+  );
+}
 
 interface UpgradeArgs {
   name: string | null;
@@ -567,6 +599,26 @@ async function upgradePlatform(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : undefined;
+
+  // Record version transition start in workspace git history
+  if (workspaceDir) {
+    try {
+      await workspaceGitCommit(
+        workspaceDir,
+        `[upgrade] Starting: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${version ?? "latest"}\n` +
+          `topology: managed`,
+      );
+    } catch {
+      // Best-effort — git failures must not block the upgrade
+    }
+  }
+
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
   );
@@ -635,6 +687,23 @@ async function upgradePlatform(
   // completion signal will come from the client's health-check
   // version-change detection (DaemonConnection.swift) once the new
   // version actually appears after the platform restarts the service group.
+
+  // Record successful upgrade in workspace git history
+  if (workspaceDir) {
+    try {
+      await workspaceGitCommit(
+        workspaceDir,
+        `[upgrade] Complete: ${entry.serviceGroupVersion ?? "unknown"} → ${version ?? "latest"}\n\n` +
+          `assistant: ${entry.assistantId}\n` +
+          `from: ${entry.serviceGroupVersion ?? "unknown"}\n` +
+          `to: ${version ?? "latest"}\n` +
+          `result: success\n` +
+          `topology: managed`,
+      );
+    } catch {
+      // Best-effort — git failures must not block the upgrade
+    }
+  }
 
   console.log(`✅ ${result.detail}`);
   if (result.version) {
