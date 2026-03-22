@@ -34,6 +34,10 @@ mock.module("../notifications/conversation-candidates.js", () => ({
   serializeCandidatesForPrompt: () => undefined,
 }));
 
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => null,
+}));
+
 let configuredProvider: { sendMessage: () => Promise<unknown> } | null = null;
 let extractedToolUse: unknown = null;
 
