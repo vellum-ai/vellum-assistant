@@ -10,16 +10,56 @@
  *     migration system detects and handles it gracefully.
  */
 
+import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
+import { downJobDeferrals } from "../memory/migrations/001-job-deferrals.js";
+import { downMemoryEntityRelationDedup } from "../memory/migrations/004-entity-relation-dedup.js";
+import { downMemoryItemsFingerprintScopeUnique } from "../memory/migrations/005-fingerprint-scope-unique.js";
+import { downMemoryItemsScopeSaltedFingerprints } from "../memory/migrations/006-scope-salted-fingerprints.js";
+import { downAssistantIdToSelf } from "../memory/migrations/007-assistant-id-to-self.js";
+import { downRemoveAssistantIdColumns } from "../memory/migrations/008-remove-assistant-id-columns.js";
+import { downLlmUsageEventsDropAssistantId } from "../memory/migrations/009-llm-usage-events-drop-assistant-id.js";
+import { downBackfillInboxThreadState } from "../memory/migrations/014-backfill-inbox-thread-state.js";
+import { downDropActiveSearchIndex } from "../memory/migrations/015-drop-active-search-index.js";
+import { downNotificationTablesSchema } from "../memory/migrations/019-notification-tables-schema-migration.js";
+import { downRenameChannelToVellum } from "../memory/migrations/020-rename-macos-ios-channel-to-vellum.js";
+import { downEmbeddingVectorBlob } from "../memory/migrations/024-embedding-vector-blob.js";
+import { downEmbeddingsNullableVectorJson } from "../memory/migrations/026a-embeddings-nullable-vector-json.js";
+import { downNormalizePhoneIdentities } from "../memory/migrations/036-normalize-phone-identities.js";
+import { downBackfillGuardianPrincipalId } from "../memory/migrations/126-backfill-guardian-principal-id.js";
+import { downGuardianPrincipalIdNotNull } from "../memory/migrations/127-guardian-principal-id-not-null.js";
+import { downContactsNotesColumn } from "../memory/migrations/134-contacts-notes-column.js";
+import { downBackfillContactInteractionStats } from "../memory/migrations/135-backfill-contact-interaction-stats.js";
+import { downDropAssistantIdColumns } from "../memory/migrations/136-drop-assistant-id-columns.js";
+import { downBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
+import { downRenameVerificationTable } from "../memory/migrations/141-rename-verification-table.js";
+import { downRenameVerificationSessionIdColumn } from "../memory/migrations/142-rename-verification-session-id-column.js";
+import { downRenameGuardianVerificationValues } from "../memory/migrations/143-rename-guardian-verification-values.js";
+import { downRenameVoiceToPhone } from "../memory/migrations/144-rename-voice-to-phone.js";
+import { migrateDropAccountsTableDown } from "../memory/migrations/145-drop-accounts-table.js";
+import { migrateRemindersToSchedulesDown } from "../memory/migrations/147-migrate-reminders-to-schedules.js";
+import { migrateDropRemindersTableDown } from "../memory/migrations/148-drop-reminders-table.js";
+import { migrateOAuthAppsClientSecretPathDown } from "../memory/migrations/150-oauth-apps-client-secret-path.js";
+import {
+  migrateGuardianTimestampsEpochMsDown,
+  migrateGuardianTimestampsRebuildDown,
+} from "../memory/migrations/162-guardian-timestamps-epoch-ms.js";
+import { migrateRenameGmailProviderKeyToGoogleDown } from "../memory/migrations/169-rename-gmail-provider-key-to-google.js";
+import { migrateRenameThreadStartersTableDown } from "../memory/migrations/174-rename-thread-starters-table.js";
+import { migrateDropCapabilityCardStateDown } from "../memory/migrations/176-drop-capability-card-state.js";
+import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations/180-backfill-inline-attachments-to-disk.js";
+import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
+import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
 import {
   migrateJobDeferrals,
   migrateMemoryEntityRelationDedup,
   migrateMemoryItemsFingerprintScopeUnique,
+  migrateMemoryItemsScopeSaltedFingerprints,
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
@@ -1223,5 +1263,1602 @@ describe("rollbackMemoryMigration", () => {
       .get();
     expect(cpParent).toBeNull();
     expect(cpChild).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Memory migration down() functions
+// ---------------------------------------------------------------------------
+
+describe("memory migration down() functions", () => {
+  // ── v1: downJobDeferrals ─────────────────────────────────────────────
+
+  describe("v1: downJobDeferrals", () => {
+    test("round-trip: forward + down restores original state", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+      bootstrapMemoryJobsTable(raw);
+
+      const now = Date.now();
+      raw.exec(`
+        INSERT INTO memory_jobs (id, type, payload, status, attempts, deferrals, run_after, last_error, created_at, updated_at)
+        VALUES ('job-rt', 'embed_segment', '{}', 'pending', 3, 0, ${now}, NULL, ${now}, ${now})
+      `);
+
+      // Snapshot pre-migration state.
+      const before = raw
+        .query(
+          `SELECT attempts, deferrals FROM memory_jobs WHERE id = 'job-rt'`,
+        )
+        .get() as { attempts: number; deferrals: number };
+      expect(before.attempts).toBe(3);
+      expect(before.deferrals).toBe(0);
+
+      // Forward migration: moves attempts -> deferrals.
+      migrateJobDeferrals(db);
+
+      const afterForward = raw
+        .query(
+          `SELECT attempts, deferrals FROM memory_jobs WHERE id = 'job-rt'`,
+        )
+        .get() as { attempts: number; deferrals: number };
+      expect(afterForward.attempts).toBe(0);
+      expect(afterForward.deferrals).toBe(3);
+
+      // Down: moves deferrals -> attempts.
+      downJobDeferrals(db);
+
+      const afterDown = raw
+        .query(
+          `SELECT attempts, deferrals FROM memory_jobs WHERE id = 'job-rt'`,
+        )
+        .get() as { attempts: number; deferrals: number };
+      expect(afterDown.attempts).toBe(3);
+      expect(afterDown.deferrals).toBe(0);
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+      bootstrapMemoryJobsTable(raw);
+
+      const now = Date.now();
+      raw.exec(`
+        INSERT INTO memory_jobs (id, type, payload, status, attempts, deferrals, run_after, last_error, created_at, updated_at)
+        VALUES ('job-idem2', 'embed_item', '{}', 'pending', 0, 5, ${now}, NULL, ${now}, ${now})
+      `);
+
+      downJobDeferrals(db);
+      const after1 = raw
+        .query(
+          `SELECT attempts, deferrals FROM memory_jobs WHERE id = 'job-idem2'`,
+        )
+        .get() as { attempts: number; deferrals: number };
+
+      // Second call — should be a no-op (deferrals already 0).
+      downJobDeferrals(db);
+      const after2 = raw
+        .query(
+          `SELECT attempts, deferrals FROM memory_jobs WHERE id = 'job-idem2'`,
+        )
+        .get() as { attempts: number; deferrals: number };
+
+      expect(after1.attempts).toBe(5);
+      expect(after1.deferrals).toBe(0);
+      expect(after2.attempts).toBe(after1.attempts);
+      expect(after2.deferrals).toBe(after1.deferrals);
+    });
+  });
+
+  // ── v2: downMemoryEntityRelationDedup (no-op) ────────────────────────
+
+  describe("v2: downMemoryEntityRelationDedup (no-op)", () => {
+    test("does not throw and does not modify data", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapEntityRelationsTable(raw);
+
+      const now = Date.now();
+      raw.exec(
+        `INSERT INTO memory_entity_relations VALUES ('r1', 'e1', 'e2', 'knows', 'ev', ${now}, ${now})`,
+      );
+
+      const countBefore = (
+        raw
+          .query(`SELECT COUNT(*) AS c FROM memory_entity_relations`)
+          .get() as { c: number }
+      ).c;
+
+      downMemoryEntityRelationDedup(db);
+
+      const countAfter = (
+        raw
+          .query(`SELECT COUNT(*) AS c FROM memory_entity_relations`)
+          .get() as { c: number }
+      ).c;
+      expect(countAfter).toBe(countBefore);
+    });
+
+    test("idempotency: calling twice does not throw", () => {
+      const db = createTestDb();
+      downMemoryEntityRelationDedup(db);
+      downMemoryEntityRelationDedup(db);
+    });
+  });
+
+  // ── v3: downMemoryItemsFingerprintScopeUnique ────────────────────────
+
+  describe("v3: downMemoryItemsFingerprintScopeUnique", () => {
+    test("round-trip: forward + down restores column-level UNIQUE", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+      bootstrapOldMemoryItemsTable(raw);
+
+      const now = Date.now();
+      raw.exec(`
+        INSERT INTO memory_items (id, kind, subject, statement, status, confidence, fingerprint,
+                                   first_seen_at, last_seen_at, scope_id)
+        VALUES ('item-rt', 'fact', 'User', 'likes coffee', 'active', 0.9, 'fp-rt1', ${now}, ${now}, 'default')
+      `);
+
+      // Old schema has UNIQUE on fingerprint.
+      const ddlBefore =
+        (
+          raw
+            .query(
+              `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+            )
+            .get() as { sql: string }
+        )?.sql ?? "";
+      expect(ddlBefore).toMatch(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i);
+
+      // Forward migration: remove column-level UNIQUE.
+      migrateMemoryItemsFingerprintScopeUnique(db);
+
+      const ddlAfterForward =
+        (
+          raw
+            .query(
+              `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+            )
+            .get() as { sql: string }
+        )?.sql ?? "";
+      expect(ddlAfterForward).not.toMatch(
+        /fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i,
+      );
+
+      // Down: restore column-level UNIQUE.
+      downMemoryItemsFingerprintScopeUnique(db);
+
+      const ddlAfterDown =
+        (
+          raw
+            .query(
+              `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+            )
+            .get() as { sql: string }
+        )?.sql ?? "";
+      expect(ddlAfterDown).toMatch(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i);
+
+      // Data preserved.
+      const item = raw
+        .query(`SELECT id FROM memory_items WHERE id = 'item-rt'`)
+        .get();
+      expect(item).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+      bootstrapOldMemoryItemsTable(raw);
+
+      migrateMemoryItemsFingerprintScopeUnique(db);
+      downMemoryItemsFingerprintScopeUnique(db);
+      // Second call — column-level UNIQUE already restored.
+      downMemoryItemsFingerprintScopeUnique(db);
+
+      const ddl =
+        (
+          raw
+            .query(
+              `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+            )
+            .get() as { sql: string }
+        )?.sql ?? "";
+      expect(ddl).toMatch(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i);
+    });
+  });
+
+  // ── v4: downMemoryItemsScopeSaltedFingerprints ───────────────────────
+
+  describe("v4: downMemoryItemsScopeSaltedFingerprints", () => {
+    test("round-trip: forward + down restores unsalted fingerprints", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+
+      // Use modern schema (no column-level UNIQUE).
+      raw.exec(/*sql*/ `
+        CREATE TABLE IF NOT EXISTS memory_items (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          status TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          fingerprint TEXT NOT NULL,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          last_used_at INTEGER,
+          scope_id TEXT NOT NULL DEFAULT 'default'
+        )
+      `);
+
+      // Compute the old (unsalted) fingerprint.
+      const kind = "fact";
+      const subject = "User";
+      const statement = "likes coffee";
+      const oldNormalized = `${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
+      const oldFingerprint = createHash("sha256")
+        .update(oldNormalized)
+        .digest("hex");
+
+      const now = Date.now();
+      raw.exec(`
+        INSERT INTO memory_items (id, kind, subject, statement, status, confidence, fingerprint,
+                                   first_seen_at, last_seen_at, scope_id)
+        VALUES ('item-salt', '${kind}', '${subject}', '${statement}', 'active', 0.9, '${oldFingerprint}', ${now}, ${now}, 'default')
+      `);
+
+      // Write fingerprint_scope_unique checkpoint so forward migration runs.
+      raw.exec(
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_memory_items_fingerprint_scope_unique_v1', '1', ${now})`,
+      );
+
+      // Forward migration: recompute with scope_id prefix.
+      migrateMemoryItemsScopeSaltedFingerprints(db);
+
+      const afterForward = raw
+        .query(`SELECT fingerprint FROM memory_items WHERE id = 'item-salt'`)
+        .get() as { fingerprint: string };
+      expect(afterForward.fingerprint).not.toBe(oldFingerprint);
+
+      // Down: recompute WITHOUT scope_id prefix (old format).
+      downMemoryItemsScopeSaltedFingerprints(db);
+
+      const afterDown = raw
+        .query(`SELECT fingerprint FROM memory_items WHERE id = 'item-salt'`)
+        .get() as { fingerprint: string };
+      expect(afterDown.fingerprint).toBe(oldFingerprint);
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE IF NOT EXISTS memory_items (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          status TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          fingerprint TEXT NOT NULL,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          scope_id TEXT NOT NULL DEFAULT 'default'
+        )
+      `);
+
+      const now = Date.now();
+      raw.exec(`
+        INSERT INTO memory_items (id, kind, subject, statement, status, confidence, fingerprint,
+                                   first_seen_at, last_seen_at, scope_id)
+        VALUES ('item-idem', 'fact', 'User', 'likes tea', 'active', 0.8, 'some-fp', ${now}, ${now}, 'default')
+      `);
+
+      downMemoryItemsScopeSaltedFingerprints(db);
+      const fp1 = (
+        raw
+          .query(`SELECT fingerprint FROM memory_items WHERE id = 'item-idem'`)
+          .get() as { fingerprint: string }
+      ).fingerprint;
+
+      downMemoryItemsScopeSaltedFingerprints(db);
+      const fp2 = (
+        raw
+          .query(`SELECT fingerprint FROM memory_items WHERE id = 'item-idem'`)
+          .get() as { fingerprint: string }
+      ).fingerprint;
+
+      expect(fp1).toBe(fp2);
+    });
+  });
+
+  // ── No-op down functions (v5, v7/assistant-id-to-self, v8, v10, v14, v17, v18/contacts-notes, v20, v26, v33, v34, v36) ──
+
+  describe("no-op down() functions", () => {
+    const noOpFunctions = [
+      { name: "v5: downAssistantIdToSelf", fn: downAssistantIdToSelf },
+      {
+        name: "v8: downBackfillInboxThreadState",
+        fn: downBackfillInboxThreadState,
+      },
+      {
+        name: "v10: downNotificationTablesSchema",
+        fn: downNotificationTablesSchema,
+      },
+      {
+        name: "v14: downNormalizePhoneIdentities",
+        fn: downNormalizePhoneIdentities,
+      },
+      { name: "v17: downContactsNotesColumn", fn: downContactsNotesColumn },
+      {
+        name: "v20: downBackfillUsageCacheAccounting",
+        fn: downBackfillUsageCacheAccounting,
+      },
+      {
+        name: "v26: migrateRemindersToSchedulesDown",
+        fn: migrateRemindersToSchedulesDown,
+      },
+      {
+        name: "v33: migrateDropCapabilityCardStateDown",
+        fn: migrateDropCapabilityCardStateDown,
+      },
+      {
+        name: "v34: migrateBackfillInlineAttachmentsToDiskDown",
+        fn: migrateBackfillInlineAttachmentsToDiskDown,
+      },
+      {
+        name: "v36: migrateBackfillAudioAttachmentMimeTypesDown",
+        fn: migrateBackfillAudioAttachmentMimeTypesDown,
+      },
+    ];
+
+    for (const { name, fn } of noOpFunctions) {
+      test(`${name}: does not throw`, () => {
+        const db = createTestDb();
+        expect(() => fn(db)).not.toThrow();
+      });
+
+      test(`${name}: idempotency — calling twice does not throw`, () => {
+        const db = createTestDb();
+        fn(db);
+        fn(db);
+      });
+    }
+  });
+
+  // ── v6: downRemoveAssistantIdColumns (re-add via ALTER TABLE) ────────
+
+  describe("v6: downRemoveAssistantIdColumns", () => {
+    test("adds assistant_id column back to tables that lack it", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      // Create tables WITHOUT assistant_id (post-forward-migration state).
+      raw.exec(/*sql*/ `
+        CREATE TABLE conversations (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+        CREATE TABLE conversation_keys (id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL UNIQUE, conversation_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+        CREATE TABLE attachments (id TEXT PRIMARY KEY, original_filename TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, kind TEXT NOT NULL, data_base64 TEXT NOT NULL, content_hash TEXT, thumbnail_base64 TEXT, created_at INTEGER NOT NULL);
+        CREATE TABLE channel_inbound_events (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL, external_chat_id TEXT NOT NULL, external_message_id TEXT NOT NULL, conversation_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+        CREATE TABLE messages (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+        CREATE TABLE message_runs (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      `);
+
+      downRemoveAssistantIdColumns(db);
+
+      // Verify assistant_id column was added to the 4 affected tables.
+      for (const table of [
+        "conversation_keys",
+        "attachments",
+        "channel_inbound_events",
+        "message_runs",
+      ]) {
+        const col = raw
+          .query(
+            `SELECT 1 FROM pragma_table_info('${table}') WHERE name = 'assistant_id'`,
+          )
+          .get();
+        expect(col).toBeTruthy();
+      }
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE conversations (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+        CREATE TABLE conversation_keys (id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL, conversation_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+        CREATE TABLE attachments (id TEXT PRIMARY KEY, original_filename TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, kind TEXT NOT NULL, data_base64 TEXT NOT NULL, content_hash TEXT, created_at INTEGER NOT NULL);
+        CREATE TABLE channel_inbound_events (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL, external_chat_id TEXT NOT NULL, external_message_id TEXT NOT NULL, conversation_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+        CREATE TABLE message_runs (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      `);
+
+      downRemoveAssistantIdColumns(db);
+      downRemoveAssistantIdColumns(db);
+    });
+  });
+
+  // ── v7: downLlmUsageEventsDropAssistantId (re-add via ALTER TABLE) ──
+
+  describe("v7: downLlmUsageEventsDropAssistantId", () => {
+    test("adds assistant_id column back to llm_usage_events", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE llm_usage_events (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          actor TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          pricing_status TEXT NOT NULL
+        )
+      `);
+
+      downLlmUsageEventsDropAssistantId(db);
+
+      const col = raw
+        .query(
+          `SELECT 1 FROM pragma_table_info('llm_usage_events') WHERE name = 'assistant_id'`,
+        )
+        .get();
+      expect(col).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE llm_usage_events (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          actor TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          pricing_status TEXT NOT NULL
+        )
+      `);
+
+      downLlmUsageEventsDropAssistantId(db);
+      downLlmUsageEventsDropAssistantId(db);
+    });
+  });
+
+  // ── v9: downDropActiveSearchIndex ────────────────────────────────────
+
+  describe("v9: downDropActiveSearchIndex", () => {
+    test("recreates the old index", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapOldMemoryItemsTable(raw);
+
+      downDropActiveSearchIndex(db);
+
+      const idx = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_memory_items_active_search'`,
+        )
+        .get();
+      expect(idx).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapOldMemoryItemsTable(raw);
+
+      downDropActiveSearchIndex(db);
+      downDropActiveSearchIndex(db);
+    });
+  });
+
+  // ── v11: downRenameChannelToVellum (value rename) ───────────────────
+
+  describe("v11: downRenameChannelToVellum", () => {
+    test("renames 'vellum' values back to 'macos'", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE guardian_action_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL);
+        INSERT INTO guardian_action_deliveries VALUES ('d1', 'vellum');
+        INSERT INTO guardian_action_deliveries VALUES ('d2', 'sms');
+      `);
+
+      downRenameChannelToVellum(db);
+
+      const row = raw
+        .query(
+          `SELECT destination_channel FROM guardian_action_deliveries WHERE id = 'd1'`,
+        )
+        .get() as { destination_channel: string };
+      expect(row.destination_channel).toBe("macos");
+
+      // Non-vellum values are unchanged.
+      const row2 = raw
+        .query(
+          `SELECT destination_channel FROM guardian_action_deliveries WHERE id = 'd2'`,
+        )
+        .get() as { destination_channel: string };
+      expect(row2.destination_channel).toBe("sms");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE guardian_action_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `INSERT INTO guardian_action_deliveries VALUES ('d1', 'vellum')`,
+      );
+
+      downRenameChannelToVellum(db);
+      downRenameChannelToVellum(db);
+
+      const row = raw
+        .query(
+          `SELECT destination_channel FROM guardian_action_deliveries WHERE id = 'd1'`,
+        )
+        .get() as { destination_channel: string };
+      expect(row.destination_channel).toBe("macos");
+    });
+  });
+
+  // ── v19: downDropAssistantIdColumns (16-table column re-add) ────────
+
+  describe("v19: downDropAssistantIdColumns", () => {
+    test("adds assistant_id column to tables that lack it", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      // Create a subset of the 16 tables without assistant_id.
+      raw.exec(
+        `CREATE TABLE contacts (id TEXT PRIMARY KEY, name TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE notification_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)`,
+      );
+
+      downDropAssistantIdColumns(db);
+
+      for (const table of ["contacts", "notification_events"]) {
+        const col = raw
+          .query(
+            `SELECT 1 FROM pragma_table_info('${table}') WHERE name = 'assistant_id'`,
+          )
+          .get();
+        expect(col).toBeTruthy();
+      }
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE contacts (id TEXT PRIMARY KEY, name TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+
+      downDropAssistantIdColumns(db);
+      downDropAssistantIdColumns(db);
+    });
+  });
+
+  // ── v21: downRenameVerificationTable (table rename) ─────────────────
+
+  describe("v21: downRenameVerificationTable", () => {
+    test("renames channel_verification_sessions back to channel_guardian_verification_challenges", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      // Setup: new table name (post-forward-migration).
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_verification_sessions (
+          id TEXT PRIMARY KEY,
+          channel TEXT NOT NULL,
+          challenge_hash TEXT,
+          status TEXT NOT NULL,
+          expected_external_user_id TEXT,
+          expected_chat_id TEXT,
+          destination_address TEXT,
+          bootstrap_token_hash TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(
+        /*sql*/ `CREATE INDEX idx_verification_sessions_lookup ON channel_verification_sessions(channel, challenge_hash, status)`,
+      );
+
+      downRenameVerificationTable(db);
+
+      // Old table name should exist.
+      const oldTable = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_verification_challenges'`,
+        )
+        .get();
+      expect(oldTable).toBeTruthy();
+
+      // New table name should no longer exist.
+      const newTable = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
+        )
+        .get();
+      expect(newTable).toBeNull();
+
+      // Old-style indexes should exist.
+      const oldIdx = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_channel_guardian_challenges_lookup'`,
+        )
+        .get();
+      expect(oldIdx).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE channel_verification_sessions (id TEXT PRIMARY KEY, channel TEXT NOT NULL, challenge_hash TEXT, status TEXT NOT NULL, expected_external_user_id TEXT, expected_chat_id TEXT, destination_address TEXT, bootstrap_token_hash TEXT, created_at INTEGER NOT NULL)`,
+      );
+
+      downRenameVerificationTable(db);
+      downRenameVerificationTable(db);
+    });
+  });
+
+  // ── v22: downRenameVerificationSessionIdColumn ──────────────────────
+
+  describe("v22: downRenameVerificationSessionIdColumn", () => {
+    test("renames verification_session_id back to guardian_verification_session_id", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE call_sessions (
+          id TEXT PRIMARY KEY,
+          verification_session_id TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `);
+
+      downRenameVerificationSessionIdColumn(db);
+
+      const columns = raw
+        .query(`PRAGMA table_info(call_sessions)`)
+        .all() as Array<{ name: string }>;
+      const hasOld = columns.some(
+        (c) => c.name === "guardian_verification_session_id",
+      );
+      const hasNew = columns.some((c) => c.name === "verification_session_id");
+      expect(hasOld).toBe(true);
+      expect(hasNew).toBe(false);
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE call_sessions (id TEXT PRIMARY KEY, verification_session_id TEXT, created_at INTEGER NOT NULL)`,
+      );
+
+      downRenameVerificationSessionIdColumn(db);
+      downRenameVerificationSessionIdColumn(db);
+    });
+  });
+
+  // ── v23: downRenameGuardianVerificationValues ───────────────────────
+
+  describe("v23: downRenameGuardianVerificationValues", () => {
+    test("restores guardian_ prefix on call_mode and event_type values", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE call_sessions (id TEXT PRIMARY KEY, call_mode TEXT NOT NULL);
+        CREATE TABLE call_events (id TEXT PRIMARY KEY, event_type TEXT NOT NULL);
+        INSERT INTO call_sessions VALUES ('s1', 'verification');
+        INSERT INTO call_events VALUES ('e1', 'voice_verification_started');
+        INSERT INTO call_events VALUES ('e2', 'outbound_voice_verification_succeeded');
+      `);
+
+      downRenameGuardianVerificationValues(db);
+
+      const session = raw
+        .query(`SELECT call_mode FROM call_sessions WHERE id = 's1'`)
+        .get() as { call_mode: string };
+      expect(session.call_mode).toBe("guardian_verification");
+
+      const event1 = raw
+        .query(`SELECT event_type FROM call_events WHERE id = 'e1'`)
+        .get() as { event_type: string };
+      expect(event1.event_type).toBe("guardian_voice_verification_started");
+
+      const event2 = raw
+        .query(`SELECT event_type FROM call_events WHERE id = 'e2'`)
+        .get() as { event_type: string };
+      expect(event2.event_type).toBe(
+        "outbound_guardian_voice_verification_succeeded",
+      );
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE call_sessions (id TEXT PRIMARY KEY, call_mode TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE call_events (id TEXT PRIMARY KEY, event_type TEXT NOT NULL)`,
+      );
+      raw.exec(`INSERT INTO call_sessions VALUES ('s1', 'verification')`);
+
+      downRenameGuardianVerificationValues(db);
+      downRenameGuardianVerificationValues(db);
+    });
+  });
+
+  // ── v24: downRenameVoiceToPhone (value rename) ──────────────────────
+
+  describe("v24: downRenameVoiceToPhone", () => {
+    test("renames 'phone' values back to 'voice'", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE contact_channels (id TEXT PRIMARY KEY, type TEXT NOT NULL);
+        CREATE TABLE conversations (id TEXT PRIMARY KEY, origin_channel TEXT, origin_interface TEXT);
+        CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT);
+        CREATE TABLE assistant_ingress_invites (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL);
+        CREATE TABLE assistant_inbox_thread_state (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL);
+        CREATE TABLE guardian_action_requests (id TEXT PRIMARY KEY, source_channel TEXT, answered_by_channel TEXT);
+        CREATE TABLE channel_verification_sessions (id TEXT PRIMARY KEY, channel TEXT NOT NULL);
+        CREATE TABLE channel_guardian_approval_requests (id TEXT PRIMARY KEY, channel TEXT NOT NULL);
+        CREATE TABLE channel_guardian_rate_limits (id TEXT PRIMARY KEY, channel TEXT NOT NULL, actor_external_user_id TEXT, actor_chat_id TEXT);
+        CREATE TABLE notification_events (id TEXT PRIMARY KEY, source_channel TEXT);
+        CREATE TABLE notification_deliveries (id TEXT PRIMARY KEY, channel TEXT);
+        CREATE TABLE external_conversation_bindings (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL);
+        CREATE TABLE channel_inbound_events (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL);
+        CREATE TABLE conversation_attention_events (id TEXT PRIMARY KEY, source_channel TEXT);
+        CREATE TABLE conversation_assistant_attention_state (id TEXT PRIMARY KEY, last_seen_source_channel TEXT);
+        CREATE TABLE canonical_guardian_requests (id TEXT PRIMARY KEY, source_channel TEXT);
+        CREATE TABLE canonical_guardian_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL);
+        CREATE TABLE guardian_action_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL);
+        CREATE TABLE scoped_approval_grants (id TEXT PRIMARY KEY, request_channel TEXT NOT NULL, decision_channel TEXT NOT NULL, execution_channel TEXT);
+        CREATE TABLE sequences (id TEXT PRIMARY KEY, channel TEXT);
+        CREATE TABLE followups (id TEXT PRIMARY KEY, channel TEXT);
+      `);
+
+      raw.exec(`INSERT INTO contact_channels VALUES ('cc1', 'phone')`);
+      raw.exec(`INSERT INTO conversations VALUES ('c1', 'phone', 'phone')`);
+
+      downRenameVoiceToPhone(db);
+
+      const cc = raw
+        .query(`SELECT type FROM contact_channels WHERE id = 'cc1'`)
+        .get() as { type: string };
+      expect(cc.type).toBe("voice");
+
+      const conv = raw
+        .query(
+          `SELECT origin_channel, origin_interface FROM conversations WHERE id = 'c1'`,
+        )
+        .get() as { origin_channel: string; origin_interface: string };
+      expect(conv.origin_channel).toBe("voice");
+      expect(conv.origin_interface).toBe("voice");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE contact_channels (id TEXT PRIMARY KEY, type TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE conversations (id TEXT PRIMARY KEY, origin_channel TEXT, origin_interface TEXT)`,
+      );
+      raw.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
+      raw.exec(
+        `CREATE TABLE assistant_ingress_invites (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE assistant_inbox_thread_state (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE guardian_action_requests (id TEXT PRIMARY KEY, source_channel TEXT, answered_by_channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE channel_verification_sessions (id TEXT PRIMARY KEY, channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE channel_guardian_approval_requests (id TEXT PRIMARY KEY, channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE channel_guardian_rate_limits (id TEXT PRIMARY KEY, channel TEXT NOT NULL, actor_external_user_id TEXT, actor_chat_id TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE notification_events (id TEXT PRIMARY KEY, source_channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE notification_deliveries (id TEXT PRIMARY KEY, channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE external_conversation_bindings (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE channel_inbound_events (id TEXT PRIMARY KEY, source_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE conversation_attention_events (id TEXT PRIMARY KEY, source_channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE conversation_assistant_attention_state (id TEXT PRIMARY KEY, last_seen_source_channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE canonical_guardian_requests (id TEXT PRIMARY KEY, source_channel TEXT)`,
+      );
+      raw.exec(
+        `CREATE TABLE canonical_guardian_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE guardian_action_deliveries (id TEXT PRIMARY KEY, destination_channel TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE scoped_approval_grants (id TEXT PRIMARY KEY, request_channel TEXT NOT NULL, decision_channel TEXT NOT NULL, execution_channel TEXT)`,
+      );
+      raw.exec(`CREATE TABLE sequences (id TEXT PRIMARY KEY, channel TEXT)`);
+      raw.exec(`CREATE TABLE followups (id TEXT PRIMARY KEY, channel TEXT)`);
+
+      downRenameVoiceToPhone(db);
+      downRenameVoiceToPhone(db);
+    });
+  });
+
+  // ── v25: migrateDropAccountsTableDown (table recreation) ────────────
+
+  describe("v25: migrateDropAccountsTableDown", () => {
+    test("recreates the accounts table with correct schema", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      migrateDropAccountsTableDown(db);
+
+      const table = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'accounts'`,
+        )
+        .get();
+      expect(table).toBeTruthy();
+
+      // Check indexes.
+      const idxService = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_accounts_service'`,
+        )
+        .get();
+      expect(idxService).toBeTruthy();
+
+      const idxStatus = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_accounts_status'`,
+        )
+        .get();
+      expect(idxStatus).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      migrateDropAccountsTableDown(db);
+      migrateDropAccountsTableDown(db);
+    });
+  });
+
+  // ── v27: migrateDropRemindersTableDown (table recreation) ───────────
+
+  describe("v27: migrateDropRemindersTableDown", () => {
+    test("recreates the reminders table with correct schema", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      migrateDropRemindersTableDown(db);
+
+      const table = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reminders'`,
+        )
+        .get();
+      expect(table).toBeTruthy();
+
+      // Verify index.
+      const idx = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_reminders_status_fire_at'`,
+        )
+        .get();
+      expect(idx).toBeTruthy();
+
+      // Verify columns include routing_intent and routing_hints_json.
+      const cols = raw.query(`PRAGMA table_info(reminders)`).all() as Array<{
+        name: string;
+      }>;
+      const colNames = cols.map((c) => c.name);
+      expect(colNames).toContain("routing_intent");
+      expect(colNames).toContain("routing_hints_json");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      migrateDropRemindersTableDown(db);
+      migrateDropRemindersTableDown(db);
+    });
+  });
+
+  // ── v28: migrateOAuthAppsClientSecretPathDown (column drop) ─────────
+
+  describe("v28: migrateOAuthAppsClientSecretPathDown", () => {
+    test("drops client_secret_credential_path column from oauth_apps", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE oauth_providers (provider_key TEXT PRIMARY KEY, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+        CREATE TABLE oauth_apps (
+          id TEXT PRIMARY KEY,
+          provider_key TEXT NOT NULL REFERENCES oauth_providers(provider_key),
+          client_id TEXT NOT NULL,
+          client_secret_credential_path TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+
+      migrateOAuthAppsClientSecretPathDown(db);
+
+      const col = raw
+        .query(
+          `SELECT 1 FROM pragma_table_info('oauth_apps') WHERE name = 'client_secret_credential_path'`,
+        )
+        .get();
+      expect(col).toBeNull();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE oauth_providers (provider_key TEXT PRIMARY KEY, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE oauth_apps (id TEXT PRIMARY KEY, provider_key TEXT NOT NULL, client_id TEXT NOT NULL, client_secret_credential_path TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+
+      migrateOAuthAppsClientSecretPathDown(db);
+      migrateOAuthAppsClientSecretPathDown(db);
+    });
+  });
+
+  // ── v31: migrateRenameGmailProviderKeyToGoogleDown ──────────────────
+
+  describe("v31: migrateRenameGmailProviderKeyToGoogleDown", () => {
+    test("renames integration:google back to integration:gmail", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE oauth_providers (provider_key TEXT PRIMARY KEY);
+        CREATE TABLE oauth_apps (id TEXT PRIMARY KEY, provider_key TEXT NOT NULL);
+        CREATE TABLE oauth_connections (id TEXT PRIMARY KEY, provider_key TEXT NOT NULL);
+        INSERT INTO oauth_providers VALUES ('integration:google');
+        INSERT INTO oauth_apps VALUES ('app1', 'integration:google');
+        INSERT INTO oauth_connections VALUES ('conn1', 'integration:google');
+      `);
+
+      migrateRenameGmailProviderKeyToGoogleDown(db);
+
+      const provider = raw
+        .query(
+          `SELECT provider_key FROM oauth_providers WHERE provider_key = 'integration:gmail'`,
+        )
+        .get();
+      expect(provider).toBeTruthy();
+
+      const app = raw
+        .query(`SELECT provider_key FROM oauth_apps WHERE id = 'app1'`)
+        .get() as { provider_key: string };
+      expect(app.provider_key).toBe("integration:gmail");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(`CREATE TABLE oauth_providers (provider_key TEXT PRIMARY KEY)`);
+      raw.exec(
+        `CREATE TABLE oauth_apps (id TEXT PRIMARY KEY, provider_key TEXT NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE oauth_connections (id TEXT PRIMARY KEY, provider_key TEXT NOT NULL)`,
+      );
+      raw.exec(`INSERT INTO oauth_providers VALUES ('integration:google')`);
+
+      migrateRenameGmailProviderKeyToGoogleDown(db);
+      migrateRenameGmailProviderKeyToGoogleDown(db);
+    });
+  });
+
+  // ── v32: migrateRenameThreadStartersTableDown ───────────────────────
+
+  describe("v32: migrateRenameThreadStartersTableDown", () => {
+    test("renames conversation_starters back to thread_starters", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE conversation_starters (
+          id TEXT PRIMARY KEY,
+          generation_batch TEXT,
+          card_type TEXT,
+          scope_id TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(
+        `CREATE INDEX idx_conversation_starters_batch ON conversation_starters(generation_batch, created_at)`,
+      );
+      raw.exec(
+        `CREATE INDEX idx_conversation_starters_card_type ON conversation_starters(card_type, scope_id)`,
+      );
+
+      migrateRenameThreadStartersTableDown(db);
+
+      const oldTable = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'thread_starters'`,
+        )
+        .get();
+      expect(oldTable).toBeTruthy();
+
+      const newTable = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_starters'`,
+        )
+        .get();
+      expect(newTable).toBeNull();
+
+      // Old-style indexes should exist.
+      const batchIdx = raw
+        .query(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_thread_starters_batch'`,
+        )
+        .get();
+      expect(batchIdx).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE conversation_starters (id TEXT PRIMARY KEY, generation_batch TEXT, card_type TEXT, scope_id TEXT, created_at INTEGER NOT NULL)`,
+      );
+
+      migrateRenameThreadStartersTableDown(db);
+      migrateRenameThreadStartersTableDown(db);
+    });
+  });
+
+  // ── v35: migrateRenameThreadStartersCheckpointsDown ─────────────────
+
+  describe("v35: migrateRenameThreadStartersCheckpointsDown", () => {
+    test("renames conversation_starters: checkpoint keys back to thread_starters:", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+
+      const now = Date.now();
+      raw.exec(
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('conversation_starters:gen_batch_1', '1', ${now})`,
+      );
+      raw.exec(
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('conversation_starters:gen_batch_2', '1', ${now})`,
+      );
+
+      migrateRenameThreadStartersCheckpointsDown(db);
+
+      const newPrefixCount = (
+        raw
+          .query(
+            `SELECT COUNT(*) AS c FROM memory_checkpoints WHERE key LIKE 'conversation_starters:%'`,
+          )
+          .get() as { c: number }
+      ).c;
+      expect(newPrefixCount).toBe(0);
+
+      const oldPrefixCount = (
+        raw
+          .query(
+            `SELECT COUNT(*) AS c FROM memory_checkpoints WHERE key LIKE 'thread_starters:%'`,
+          )
+          .get() as { c: number }
+      ).c;
+      expect(oldPrefixCount).toBe(2);
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      bootstrapCheckpointsTable(raw);
+
+      const now = Date.now();
+      raw.exec(
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('conversation_starters:gen_batch_1', '1', ${now})`,
+      );
+
+      migrateRenameThreadStartersCheckpointsDown(db);
+      migrateRenameThreadStartersCheckpointsDown(db);
+    });
+  });
+
+  // ── v18: downBackfillContactInteractionStats ────────────────────────
+
+  describe("v18: downBackfillContactInteractionStats", () => {
+    test("clears last_interaction column", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE contacts (
+          id TEXT PRIMARY KEY,
+          last_interaction INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+
+      const now = Date.now();
+      raw.exec(`INSERT INTO contacts VALUES ('c1', ${now}, ${now}, ${now})`);
+
+      downBackfillContactInteractionStats(db);
+
+      const contact = raw
+        .query(`SELECT last_interaction FROM contacts WHERE id = 'c1'`)
+        .get() as { last_interaction: number | null };
+      expect(contact.last_interaction).toBeNull();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE contacts (id TEXT PRIMARY KEY, last_interaction INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      raw.exec(
+        `INSERT INTO contacts VALUES ('c1', ${Date.now()}, ${Date.now()}, ${Date.now()})`,
+      );
+
+      downBackfillContactInteractionStats(db);
+      downBackfillContactInteractionStats(db);
+    });
+  });
+
+  // ── v12: downEmbeddingVectorBlob (column drop) ──────────────────────
+
+  describe("v12: downEmbeddingVectorBlob", () => {
+    test("drops vector_blob column from memory_embeddings", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE memory_embeddings (
+          id TEXT PRIMARY KEY,
+          target_type TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dimensions INTEGER NOT NULL,
+          vector_json TEXT,
+          vector_blob BLOB,
+          content_hash TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (target_type, target_id, provider, model)
+        )
+      `);
+
+      downEmbeddingVectorBlob(db);
+
+      const col = raw
+        .query(
+          `SELECT 1 FROM pragma_table_info('memory_embeddings') WHERE name = 'vector_blob'`,
+        )
+        .get();
+      expect(col).toBeNull();
+
+      // Other columns should still exist.
+      const vectorJson = raw
+        .query(
+          `SELECT 1 FROM pragma_table_info('memory_embeddings') WHERE name = 'vector_json'`,
+        )
+        .get();
+      expect(vectorJson).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(/*sql*/ `
+        CREATE TABLE memory_embeddings (
+          id TEXT PRIMARY KEY,
+          target_type TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dimensions INTEGER NOT NULL,
+          vector_json TEXT,
+          vector_blob BLOB,
+          content_hash TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+
+      downEmbeddingVectorBlob(db);
+      downEmbeddingVectorBlob(db);
+    });
+  });
+
+  // ── v13: downEmbeddingsNullableVectorJson ───────────────────────────
+
+  describe("v13: downEmbeddingsNullableVectorJson", () => {
+    test("restores NOT NULL on vector_json column", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      // Post-forward-migration schema: vector_json is nullable.
+      raw.exec(/*sql*/ `
+        CREATE TABLE memory_embeddings (
+          id TEXT PRIMARY KEY,
+          target_type TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dimensions INTEGER NOT NULL,
+          vector_json TEXT,
+          vector_blob BLOB,
+          content_hash TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (target_type, target_id, provider, model)
+        )
+      `);
+
+      const now = Date.now();
+      raw.exec(
+        `INSERT INTO memory_embeddings VALUES ('e1', 'item', 'item-1', 'openai', 'text-embedding-3-small', 1536, '[0.1,0.2]', NULL, 'hash1', ${now}, ${now})`,
+      );
+
+      downEmbeddingsNullableVectorJson(db);
+
+      // Check that vector_json is now NOT NULL.
+      const ddl =
+        (
+          raw
+            .query(
+              `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
+            )
+            .get() as { sql: string }
+        )?.sql ?? "";
+      expect(ddl).toMatch(/vector_json\s+TEXT\s+NOT\s+NULL/i);
+
+      // Data with non-null vector_json should be preserved.
+      const row = raw
+        .query(`SELECT id FROM memory_embeddings WHERE id = 'e1'`)
+        .get();
+      expect(row).toBeTruthy();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(/*sql*/ `
+        CREATE TABLE memory_embeddings (
+          id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+          provider TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL,
+          vector_json TEXT, vector_blob BLOB, content_hash TEXT,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          UNIQUE (target_type, target_id, provider, model)
+        )
+      `);
+
+      downEmbeddingsNullableVectorJson(db);
+      downEmbeddingsNullableVectorJson(db);
+    });
+  });
+
+  // ── v15: downBackfillGuardianPrincipalId ─────────────────────────────
+
+  describe("v15: downBackfillGuardianPrincipalId", () => {
+    test("nulls out guardian_principal_id on channel_guardian_bindings", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_guardian_bindings (
+          id TEXT PRIMARY KEY,
+          assistant_id TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          guardian_external_user_id TEXT NOT NULL,
+          guardian_delivery_chat_id TEXT NOT NULL,
+          guardian_principal_id TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          verified_at INTEGER NOT NULL,
+          verified_via TEXT NOT NULL DEFAULT 'challenge',
+          metadata_json TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+
+      const now = Date.now();
+      raw.exec(
+        `INSERT INTO channel_guardian_bindings VALUES ('b1', 'self', 'vellum', 'user1', 'chat1', 'principal1', 'active', ${now}, 'challenge', NULL, ${now}, ${now})`,
+      );
+
+      downBackfillGuardianPrincipalId(db);
+
+      const row = raw
+        .query(
+          `SELECT guardian_principal_id FROM channel_guardian_bindings WHERE id = 'b1'`,
+        )
+        .get() as { guardian_principal_id: string | null };
+      expect(row.guardian_principal_id).toBeNull();
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE channel_guardian_bindings (id TEXT PRIMARY KEY, guardian_principal_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+
+      downBackfillGuardianPrincipalId(db);
+      downBackfillGuardianPrincipalId(db);
+    });
+  });
+
+  // ── v16: downGuardianPrincipalIdNotNull ──────────────────────────────
+
+  describe("v16: downGuardianPrincipalIdNotNull", () => {
+    test("makes guardian_principal_id nullable again", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_guardian_bindings (
+          id TEXT PRIMARY KEY,
+          assistant_id TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          guardian_external_user_id TEXT NOT NULL,
+          guardian_delivery_chat_id TEXT NOT NULL,
+          guardian_principal_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          verified_at INTEGER NOT NULL,
+          verified_via TEXT NOT NULL DEFAULT 'challenge',
+          metadata_json TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+
+      // Confirm NOT NULL before down.
+      const colBefore = raw
+        .query(
+          `SELECT "notnull" FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
+        )
+        .get() as { notnull: number };
+      expect(colBefore.notnull).toBe(1);
+
+      downGuardianPrincipalIdNotNull(db);
+
+      // After down, should be nullable.
+      const colAfter = raw
+        .query(
+          `SELECT "notnull" FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
+        )
+        .get() as { notnull: number };
+      expect(colAfter.notnull).toBe(0);
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_guardian_bindings (
+          id TEXT PRIMARY KEY, assistant_id TEXT NOT NULL, channel TEXT NOT NULL,
+          guardian_external_user_id TEXT NOT NULL, guardian_delivery_chat_id TEXT NOT NULL,
+          guardian_principal_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+          verified_at INTEGER NOT NULL, verified_via TEXT NOT NULL DEFAULT 'challenge',
+          metadata_json TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        )
+      `);
+
+      downGuardianPrincipalIdNotNull(db);
+      downGuardianPrincipalIdNotNull(db);
+    });
+  });
+
+  // ── v29: migrateGuardianTimestampsEpochMsDown ───────────────────────
+
+  describe("v29: migrateGuardianTimestampsEpochMsDown", () => {
+    test("converts epoch ms integers back to ISO 8601 strings", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE canonical_guardian_requests (
+          id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_type TEXT NOT NULL,
+          source_channel TEXT, status TEXT NOT NULL DEFAULT 'pending',
+          expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE canonical_guardian_deliveries (
+          id TEXT PRIMARY KEY, request_id TEXT NOT NULL, destination_channel TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE scoped_approval_grants (
+          id TEXT PRIMARY KEY, scope_mode TEXT NOT NULL, request_channel TEXT NOT NULL,
+          decision_channel TEXT NOT NULL, status TEXT NOT NULL,
+          expires_at INTEGER NOT NULL, consumed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+      `);
+
+      // Insert with epoch ms values (post-forward-migration state).
+      const epochMs = 1700000000000; // 2023-11-14T22:13:20.000Z
+      raw.exec(
+        `INSERT INTO canonical_guardian_requests VALUES ('r1', 'approval', 'desktop', 'vellum', 'pending', NULL, ${epochMs}, ${epochMs})`,
+      );
+      raw.exec(
+        `INSERT INTO canonical_guardian_deliveries VALUES ('d1', 'r1', 'vellum', 'pending', ${epochMs}, ${epochMs})`,
+      );
+      raw.exec(
+        `INSERT INTO scoped_approval_grants VALUES ('g1', 'once', 'vellum', 'vellum', 'active', ${epochMs}, NULL, ${epochMs}, ${epochMs})`,
+      );
+
+      migrateGuardianTimestampsEpochMsDown(db);
+
+      // Verify created_at is now a text ISO 8601 string.
+      const req = raw
+        .query(
+          `SELECT created_at, typeof(created_at) AS t FROM canonical_guardian_requests WHERE id = 'r1'`,
+        )
+        .get() as { created_at: string; t: string };
+      expect(req.t).toBe("text");
+      expect(req.created_at).toContain("2023-11-14");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+      raw.exec(
+        `CREATE TABLE canonical_guardian_requests (id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_type TEXT NOT NULL, source_channel TEXT, status TEXT NOT NULL, expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE canonical_guardian_deliveries (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, destination_channel TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      raw.exec(
+        `CREATE TABLE scoped_approval_grants (id TEXT PRIMARY KEY, scope_mode TEXT NOT NULL, request_channel TEXT NOT NULL, decision_channel TEXT NOT NULL, status TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+
+      const epochMs = 1700000000000;
+      raw.exec(
+        `INSERT INTO canonical_guardian_requests VALUES ('r1', 'approval', 'desktop', 'vellum', 'pending', NULL, ${epochMs}, ${epochMs})`,
+      );
+
+      migrateGuardianTimestampsEpochMsDown(db);
+      // Second call — values are already text, typeof check skips them.
+      migrateGuardianTimestampsEpochMsDown(db);
+    });
+  });
+
+  // ── v30: migrateGuardianTimestampsRebuildDown ───────────────────────
+
+  describe("v30: migrateGuardianTimestampsRebuildDown", () => {
+    test("rebuilds tables with TEXT affinity on timestamp columns", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      // Post-forward-migration state: INTEGER affinity on timestamp columns.
+      raw.exec(/*sql*/ `
+        CREATE TABLE canonical_guardian_requests (
+          id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_type TEXT NOT NULL,
+          source_channel TEXT, conversation_id TEXT, requester_external_user_id TEXT,
+          requester_chat_id TEXT, guardian_external_user_id TEXT, guardian_principal_id TEXT,
+          call_session_id TEXT, pending_question_id TEXT, question_text TEXT,
+          request_code TEXT, tool_name TEXT, input_digest TEXT,
+          status TEXT NOT NULL DEFAULT 'pending', answer_text TEXT,
+          decided_by_external_user_id TEXT, decided_by_principal_id TEXT,
+          followup_state TEXT, expires_at INTEGER,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE canonical_guardian_deliveries (
+          id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES canonical_guardian_requests(id) ON DELETE CASCADE,
+          destination_channel TEXT NOT NULL, destination_conversation_id TEXT,
+          destination_chat_id TEXT, destination_message_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE scoped_approval_grants (
+          id TEXT PRIMARY KEY, scope_mode TEXT NOT NULL, request_id TEXT,
+          tool_name TEXT, input_digest TEXT, request_channel TEXT NOT NULL,
+          decision_channel TEXT NOT NULL, execution_channel TEXT,
+          conversation_id TEXT, call_session_id TEXT,
+          requester_external_user_id TEXT, guardian_external_user_id TEXT,
+          status TEXT NOT NULL, expires_at INTEGER NOT NULL,
+          consumed_at INTEGER, consumed_by_request_id TEXT,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+      `);
+
+      migrateGuardianTimestampsRebuildDown(db);
+
+      // Verify TEXT affinity on created_at.
+      const colType = raw
+        .query(
+          `SELECT type FROM pragma_table_info('canonical_guardian_requests') WHERE name = 'created_at'`,
+        )
+        .get() as { type: string };
+      expect(colType.type.toUpperCase()).toBe("TEXT");
+    });
+
+    test("idempotency: calling down twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE canonical_guardian_requests (
+          id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_type TEXT NOT NULL,
+          source_channel TEXT, conversation_id TEXT, requester_external_user_id TEXT,
+          requester_chat_id TEXT, guardian_external_user_id TEXT, guardian_principal_id TEXT,
+          call_session_id TEXT, pending_question_id TEXT, question_text TEXT,
+          request_code TEXT, tool_name TEXT, input_digest TEXT,
+          status TEXT NOT NULL DEFAULT 'pending', answer_text TEXT,
+          decided_by_external_user_id TEXT, decided_by_principal_id TEXT,
+          followup_state TEXT, expires_at INTEGER,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE canonical_guardian_deliveries (
+          id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES canonical_guardian_requests(id) ON DELETE CASCADE,
+          destination_channel TEXT NOT NULL, destination_conversation_id TEXT,
+          destination_chat_id TEXT, destination_message_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE scoped_approval_grants (
+          id TEXT PRIMARY KEY, scope_mode TEXT NOT NULL, request_id TEXT,
+          tool_name TEXT, input_digest TEXT, request_channel TEXT NOT NULL,
+          decision_channel TEXT NOT NULL, execution_channel TEXT,
+          conversation_id TEXT, call_session_id TEXT,
+          requester_external_user_id TEXT, guardian_external_user_id TEXT,
+          status TEXT NOT NULL, expires_at INTEGER NOT NULL,
+          consumed_at INTEGER, consumed_by_request_id TEXT,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+      `);
+
+      migrateGuardianTimestampsRebuildDown(db);
+      migrateGuardianTimestampsRebuildDown(db);
+    });
   });
 });
