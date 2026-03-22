@@ -155,6 +155,7 @@ import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
+import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
@@ -933,6 +934,7 @@ export class RuntimeHttpServer {
       ...identityRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
+      ...migrationRollbackRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
