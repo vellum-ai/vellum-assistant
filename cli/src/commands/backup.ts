@@ -1,21 +1,9 @@
 import { mkdirSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 
 import { findAssistantByName } from "../lib/assistant-config";
+import { getBackupsDir, formatSize } from "../lib/backup-ops.js";
 import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
-
-function getBackupsDir(): string {
-  const dataHome =
-    process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  return join(dataHome, "vellum", "backups");
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
