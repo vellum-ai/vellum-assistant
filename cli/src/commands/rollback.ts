@@ -28,12 +28,12 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
-import { commitWorkspaceState } from "../lib/workspace-git.js";
 import {
   broadcastUpgradeEvent,
   captureContainerEnv,
   waitForReady,
-} from "./upgrade";
+} from "../lib/upgrade-lifecycle.js";
+import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 function parseArgs(): { name: string | null } {
   const args = process.argv.slice(3);

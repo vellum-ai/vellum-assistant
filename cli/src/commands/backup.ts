@@ -92,6 +92,33 @@ export async function backup(): Promise<void> {
       body: JSON.stringify({ description: "CLI backup" }),
       signal: AbortSignal.timeout(120_000),
     });
+
+    // Retry once with a fresh token on 401 — the cached token may be stale
+    // after a container restart that generated a new gateway signing key.
+    if (response.status === 401) {
+      let refreshedToken: string | null = null;
+      try {
+        const freshToken = await leaseGuardianToken(
+          entry.runtimeUrl,
+          entry.assistantId,
+        );
+        refreshedToken = freshToken.accessToken;
+      } catch {
+        // If token refresh fails, fall through to the !response.ok handler below
+      }
+      if (refreshedToken) {
+        accessToken = refreshedToken;
+        response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ description: "CLI backup" }),
+          signal: AbortSignal.timeout(120_000),
+        });
+      }
+    }
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.error("Error: Export request timed out after 2 minutes.");
