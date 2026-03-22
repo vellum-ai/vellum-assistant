@@ -145,7 +145,7 @@ import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
-import { handleHealth } from "./routes/identity-routes.js";
+import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
@@ -470,7 +470,10 @@ export class RuntimeHttpServer {
     server.timeout(req, 1800);
     // Skip request logging for health-check probes to reduce log noise.
     const url = new URL(req.url);
-    if (url.pathname === "/healthz" && req.method === "GET") {
+    if (
+      (url.pathname === "/healthz" || url.pathname === "/readyz") &&
+      req.method === "GET"
+    ) {
       return this.routeRequest(req, server);
     }
     return withRequestLogging(req, () => this.routeRequest(req, server));
@@ -485,6 +488,10 @@ export class RuntimeHttpServer {
 
     if (path === "/healthz" && req.method === "GET") {
       return handleHealth();
+    }
+
+    if (path === "/readyz" && req.method === "GET") {
+      return handleReadyz();
     }
 
     // WebSocket upgrade for the Chrome extension browser relay.

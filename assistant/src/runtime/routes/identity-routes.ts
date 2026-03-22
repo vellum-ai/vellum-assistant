@@ -136,6 +136,10 @@ function getPackageVersion(): string | undefined {
 }
 
 export function handleHealth(): Response {
+  return Response.json({ status: "ok" });
+}
+
+export function handleDetailedHealth(): Response {
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
@@ -149,6 +153,10 @@ export function handleHealth(): Response {
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
     },
   });
+}
+
+export function handleReadyz(): Response {
+  return Response.json({ status: "ok" });
 }
 
 export function handleGetIdentity(): Response {
@@ -236,7 +244,7 @@ export function identityRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "health",
       method: "GET",
-      handler: () => handleHealth(),
+      handler: () => handleDetailedHealth(),
     },
     {
       endpoint: "identity",

@@ -9,6 +9,7 @@ import {
 import {
   validateEdgeToken,
   mintBrowserRelayToken,
+  mintServiceToken,
 } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
@@ -1018,13 +1019,16 @@ async function main() {
         if (!includeMigrations) {
           return Response.json({ status: "ok" });
         }
-        // Fetch the daemon's /healthz to surface migration state
+        // Fetch the daemon's /v1/health to surface migration state
         // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
         // pre-upgrade migration state through the gateway.
         try {
           const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/healthz`,
-            { signal: AbortSignal.timeout(3000) },
+            `${config.assistantRuntimeBaseUrl}/v1/health`,
+            {
+              signal: AbortSignal.timeout(3000),
+              headers: { authorization: `Bearer ${mintServiceToken()}` },
+            },
           );
           if (upstream.ok) {
             const body = (await upstream.json()) as {
@@ -1056,7 +1060,7 @@ async function main() {
         // know the full stack is ready, not just the gateway process.
         try {
           const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/healthz`,
+            `${config.assistantRuntimeBaseUrl}/readyz`,
             { signal: AbortSignal.timeout(3000) },
           );
           if (!upstream.ok) {
