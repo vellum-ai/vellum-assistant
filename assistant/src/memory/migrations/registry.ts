@@ -1,3 +1,5 @@
+import type { DrizzleDb } from "../db-connection.js";
+
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
   key: string;
@@ -7,6 +9,8 @@ export interface MigrationRegistryEntry {
   dependsOn?: string[];
   /** Human-readable description for diagnostics and future authorship guidance. */
   description: string;
+  /** Reverse the migration. Must be idempotent — safe to re-run. */
+  down?: (database: DrizzleDb) => void;
 }
 
 // ---------------------------------------------------------------------------
