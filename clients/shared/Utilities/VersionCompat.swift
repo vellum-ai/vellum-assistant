@@ -22,7 +22,7 @@ public enum VersionCompat {
         // Strip pre-release (-beta.1) and build metadata (+build.123) before splitting on dots
         let withoutPreRelease = cleaned.split(separator: "-", maxSplits: 1).first.map(String.init) ?? cleaned
         let withoutBuild = withoutPreRelease.split(separator: "+", maxSplits: 1).first.map(String.init) ?? withoutPreRelease
-        let segments = withoutBuild.split(separator: ".").map(String.init)
+        let segments = withoutBuild.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         let components = segments.compactMap { Int($0) }
         // Fail-fast if any segment was non-numeric (compactMap silently drops them)
         guard components.count == segments.count,
