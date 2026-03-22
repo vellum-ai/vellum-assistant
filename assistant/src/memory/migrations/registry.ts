@@ -327,6 +327,10 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
 ];
 
+export function getMaxMigrationVersion(): number {
+  return Math.max(...MIGRATION_REGISTRY.map((e) => e.version));
+}
+
 export interface MigrationValidationResult {
   /** Keys of migrations whose checkpoint has value 'started' — started but never completed. */
   crashed: string[];
