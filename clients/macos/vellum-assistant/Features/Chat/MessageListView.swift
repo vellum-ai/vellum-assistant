@@ -189,6 +189,11 @@ struct MessageListView: View {
     /// regardless of whether messages.count changes. This covers the edge
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
+    /// Whether the initial scroll-to-bottom has completed for this conversation.
+    /// Set true after the first successful scroll; reset on conversation switch.
+    /// Used in onChange(of: messages.count) to scroll to bottom when messages
+    /// first materialize (async load), without auto-scrolling during streaming.
+    @State private var hasCompletedInitialScroll: Bool = false
     /// Last container width that triggered a resize scroll handler, used to
     /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
     @State private var lastHandledContainerWidth: CGFloat = 0
@@ -1301,6 +1306,15 @@ struct MessageListView: View {
                         return
                     }
                 }
+
+                // One-time initial scroll: when messages first materialize after
+                // async load, scroll to bottom. This only fires once per conversation
+                // (hasCompletedInitialScroll is reset on conversation switch).
+                // Not triggered during streaming — the flag is already true by then.
+                if !hasCompletedInitialScroll && anchorMessageId == nil && !messages.isEmpty {
+                    hasCompletedInitialScroll = true
+                    bottomPinCoordinator.scrollToBottomWithRetry()
+                }
             }
             .onChange(of: containerWidth) {
                 // Ignore sub-pixel jitter and initial zero value.
@@ -1333,6 +1347,7 @@ struct MessageListView: View {
                 // hasFreshAnchorMeasurement from becoming true.
                 anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
+                hasCompletedInitialScroll = false
                 // Capture the new conversation's activity phase so a conversation
                 // already paused in awaiting_confirmation is correctly tracked.
                 phaseWhenSendingStopped = isSending ? "" : assistantActivityPhase
