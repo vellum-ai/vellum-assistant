@@ -455,15 +455,13 @@ async function upgradeDocker(
     };
     saveAssistantEntry(updatedEntry);
 
-    // After a downgrade, align the DB schema with the now-running old daemon
-    // by rolling back migrations above its own registry ceiling.
+    // After a downgrade, ask the now-running old daemon to roll back
+    // migrations above its own registry ceiling.  This may be a no-op when
+    // the old daemon's registry doesn't include the newer migrations, but
+    // it's harmless and correct for single-step rollbacks where the old
+    // daemon did add some of the newer migrations.  rollbackMigrations()
+    // logs the count internally when migrations are actually rolled back.
     if (isDowngrade) {
-      console.log("🔄 Aligning database schema with installed version...");
-      await broadcastUpgradeEvent(
-        entry.runtimeUrl,
-        entry.assistantId,
-        buildProgressEvent(UPGRADE_PROGRESS.ALIGNING_SCHEMA),
-      );
       await rollbackMigrations(
         entry.runtimeUrl,
         entry.assistantId,
