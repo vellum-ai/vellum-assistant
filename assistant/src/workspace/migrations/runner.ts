@@ -141,11 +141,11 @@ export async function runWorkspaceMigrations(
  * `runWorkspaceMigrations` on the next startup (it re-runs interrupted
  * migrations).
  *
- * **Warning — data loss**: Some workspace migrations are irreversible (e.g.,
- * file deletions, format conversions that discard the original). These
- * migrations do not define a `down()` method and will throw an error if
- * rollback is attempted. Always verify that all target migrations have `down()`
- * support before calling this function.
+ * **Warning — data loss**: Every workspace migration must define a `down()`
+ * method (enforced at the type level), but some rollbacks are lossy (e.g.,
+ * file deletions or format conversions that discard the original cannot fully
+ * restore prior state). Review each migration's `down()` implementation
+ * before calling this function.
  *
  * **Important**: Stop the assistant before running rollbacks. Rolling back
  * workspace migrations while the assistant is running may cause file conflicts,
