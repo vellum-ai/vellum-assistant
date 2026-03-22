@@ -28,6 +28,36 @@ function escapeLike(value: string): string {
   return value.replace(/%/g, "").replace(/_/g, "");
 }
 
+/**
+ * Generate a collision-free slugified filename for a contact's per-user persona file.
+ * Produces filenames like "alice.md", "alice-2.md", "alice-3.md", etc.
+ */
+export function generateUserFileSlug(displayName: string): string {
+  const slug =
+    displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "user";
+
+  const db = getDb();
+  const rows = db
+    .select({ userFile: contacts.userFile })
+    .from(contacts)
+    .where(like(contacts.userFile, `${escapeLike(slug)}%`))
+    .all();
+
+  const taken = new Set(rows.map((r) => r.userFile));
+
+  const base = `${slug}.md`;
+  if (!taken.has(base)) return base;
+
+  for (let i = 2; ; i++) {
+    const candidate = `${slug}-${i}.md`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 function parseContact(row: typeof contacts.$inferSelect): Contact {
   return {
     id: row.id,
@@ -40,7 +70,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
-    userFile: row.userFile,
+    userFile: row.userFile ?? null,
   };
 }
 
@@ -149,6 +179,7 @@ export function upsertContact(params: {
   role?: ContactRole;
   contactType?: ContactType;
   principalId?: string | null;
+  userFile?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
    *  contact instead of being skipped. Used by invite redemption to bind a
@@ -178,6 +209,7 @@ export function upsertContact(params: {
         updateSet.contactType = params.contactType;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
+      if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
       db.update(contacts)
         .set(updateSet)
@@ -225,6 +257,7 @@ export function upsertContact(params: {
           updateSet.contactType = params.contactType;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
+        if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
         db.update(contacts)
           .set(updateSet)
@@ -240,6 +273,10 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
+  const userFileValue =
+    params.userFile !== undefined
+      ? params.userFile
+      : generateUserFileSlug(params.displayName);
   db.insert(contacts)
     .values({
       id: contactId,
@@ -248,6 +285,7 @@ export function upsertContact(params: {
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
+      userFile: userFileValue ?? null,
       createdAt: now,
       updatedAt: now,
     })
