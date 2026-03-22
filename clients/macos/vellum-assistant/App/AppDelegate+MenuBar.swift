@@ -48,7 +48,7 @@ final class AppMenuPatchDelegate: NSObject, NSMenuDelegate {
 }
 
 /// Delegate installed on the SwiftUI-managed File submenu to inject
-/// "New Chat" and "Current Conversation" items every time the menu opens.
+/// "New Conversation" and "Current Conversation" items every time the menu opens.
 /// SwiftUI rebuilds the File menu on each scene body evaluation (leaving
 /// only "Close"), so AppKit-level insertions get wiped.  This delegate
 /// re-applies them right before macOS renders the menu.
@@ -67,10 +67,10 @@ final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
         let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
         let newChatItem: NSMenuItem
         if shortcut.isEmpty {
-            newChatItem = NSMenuItem(title: "New Chat", action: #selector(AppDelegate.openNewChat), keyEquivalent: "")
+            newChatItem = NSMenuItem(title: "New Conversation", action: #selector(AppDelegate.openNewChat), keyEquivalent: "")
         } else {
             let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
-            newChatItem = NSMenuItem(title: "New Chat", action: #selector(AppDelegate.openNewChat), keyEquivalent: key)
+            newChatItem = NSMenuItem(title: "New Conversation", action: #selector(AppDelegate.openNewChat), keyEquivalent: key)
             newChatItem.keyEquivalentModifierMask = modifiers
         }
         newChatItem.target = appDelegate
@@ -178,8 +178,8 @@ extension AppDelegate {
         updateNewChatMenuItemShortcut()
     }
 
-    /// Updates the File > New Chat menu item's key equivalent to match the
-    /// current `newChatShortcut` preference. Called once at setup and again
+    /// Updates the File > New Conversation menu item's key equivalent to match
+    /// the current `newChatShortcut` preference. Called once at setup and again
     /// whenever the preference changes via the KVO observer.
     func updateNewChatMenuItemShortcut() {
         guard let item = newChatMenuItem else { return }
@@ -331,10 +331,10 @@ extension AppDelegate {
         let newChatItem: NSMenuItem = {
             let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
             guard !shortcut.isEmpty else {
-                return NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
+                return NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: "")
             }
             let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
-            let item = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: key)
+            let item = NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: key)
             item.keyEquivalentModifierMask = modifiers
             return item
         }()
@@ -410,7 +410,7 @@ extension AppDelegate {
     public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
 
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
+        let newChatItem = NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: "")
         newChatItem.target = self
         menu.addItem(newChatItem)
 

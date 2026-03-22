@@ -112,9 +112,9 @@ struct QuickInputView: View {
 
                 Spacer(minLength: 0)
 
-                // "New Chat" / conversation selector dropdown
+                // "New Conversation" / conversation selector dropdown
                 Menu {
-                    Button("New Chat") {
+                    Button("New Conversation") {
                         textModel.selectedConversationId = nil
                         textModel.selectedConversationTitle = nil
                     }
@@ -130,7 +130,7 @@ struct QuickInputView: View {
                     }
                 } label: {
                     HStack(spacing: VSpacing.xxs) {
-                        Text(textModel.selectedConversationTitle ?? "New Chat")
+                        Text(textModel.selectedConversationTitle ?? "New Conversation")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
