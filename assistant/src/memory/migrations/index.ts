@@ -138,6 +138,7 @@ export {
 } from "./registry.js";
 export {
   recoverCrashedMigrations,
+  rollbackMemoryMigration,
   validateMigrationState,
   withCrashRecovery,
 } from "./validate-migration-state.js";
