@@ -1,6 +1,6 @@
 /**
  * Upgrade broadcast endpoint — publishes service group update lifecycle
- * events (starting / complete) to all connected SSE clients.
+ * events (starting / progress / complete) to all connected SSE clients.
  *
  * Protected by a route policy restricting access to gateway service
  * principals only (`svc_gateway` with `internal.write` scope), following
@@ -11,6 +11,7 @@
 
 import type {
   ServiceGroupUpdateComplete,
+  ServiceGroupUpdateProgress,
   ServiceGroupUpdateStarting,
 } from "../../daemon/message-types/upgrades.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -86,6 +87,29 @@ export function upgradeBroadcastRouteDefinitions(): RouteDefinition[] {
           return Response.json({ ok: true });
         }
 
+        if (type === "progress") {
+          const { statusMessage } = body as { statusMessage?: unknown };
+
+          if (typeof statusMessage !== "string" || statusMessage.length === 0) {
+            return httpError(
+              "BAD_REQUEST",
+              "statusMessage is required and must be a non-empty string",
+              400,
+            );
+          }
+
+          const message: ServiceGroupUpdateProgress = {
+            type: "service_group_update_progress",
+            statusMessage,
+          };
+
+          await assistantEventHub.publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
+          );
+
+          return Response.json({ ok: true });
+        }
+
         if (type === "complete") {
           const { installedVersion, success, rolledBackToVersion } = body as {
             installedVersion?: unknown;
@@ -142,7 +166,7 @@ export function upgradeBroadcastRouteDefinitions(): RouteDefinition[] {
 
         return httpError(
           "BAD_REQUEST",
-          'type must be "starting" or "complete"',
+          'type must be "starting", "progress", or "complete"',
           400,
         );
       },

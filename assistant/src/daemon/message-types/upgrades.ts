@@ -7,6 +7,13 @@ export interface ServiceGroupUpdateStarting {
   expectedDowntimeSeconds: number;
 }
 
+/** Broadcast to connected clients with a progress update during an upgrade or rollback. */
+export interface ServiceGroupUpdateProgress {
+  type: "service_group_update_progress";
+  /** A short, user-friendly status message describing what's happening right now. */
+  statusMessage: string;
+}
+
 /** Broadcast to connected clients when a service group update has completed. */
 export interface ServiceGroupUpdateComplete {
   type: "service_group_update_complete";
@@ -20,4 +27,5 @@ export interface ServiceGroupUpdateComplete {
 
 export type _UpgradesServerMessages =
   | ServiceGroupUpdateStarting
+  | ServiceGroupUpdateProgress
   | ServiceGroupUpdateComplete;
