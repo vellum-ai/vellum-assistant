@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -9,7 +9,11 @@ import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspacePromptPath, isMacOS } from "../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+  isMacOS,
+} from "../util/platform.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
@@ -78,6 +82,26 @@ export function ensurePromptFiles(): void {
       }
     }
   }
+
+  // Seed users/default.md persona template
+  try {
+    const usersDir = join(getWorkspaceDir(), "users");
+    mkdirSync(usersDir, { recursive: true });
+    const defaultPersonaSrc = join(templatesDir, "users", "default.md");
+    const defaultPersonaDest = join(usersDir, "default.md");
+    if (!existsSync(defaultPersonaDest) && existsSync(defaultPersonaSrc)) {
+      copyFileSync(defaultPersonaSrc, defaultPersonaDest);
+      log.info(
+        { file: "users/default.md", dest: defaultPersonaDest },
+        "Created default persona file from template",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, file: "users/default.md" },
+      "Failed to create default persona file from template",
+    );
+  }
 }
 
 /**
@@ -93,6 +117,8 @@ export function ensurePromptFiles(): void {
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
+  userPersona?: string | null;
+  channelPersona?: string | null;
 }
 
 /**
@@ -159,7 +185,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     dynamicParts.push(identity);
   }
   if (soul) dynamicParts.push(soul);
-  if (user && !userIsTemplate) dynamicParts.push(user);
+  if (options?.userPersona) dynamicParts.push(options.userPersona);
+  if (options?.channelPersona) dynamicParts.push(options.channelPersona);
+  if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
@@ -377,7 +405,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(): string | null {
+export function buildCoreIdentityContext(
+  opts?: { userPersona?: string | null },
+): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
@@ -388,6 +418,7 @@ export function buildCoreIdentityContext(): string | null {
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
     parts.push(content);
   }
+  if (opts?.userPersona) parts.push(opts.userPersona);
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 

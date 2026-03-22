@@ -44,6 +44,8 @@ export interface Contact {
    * identified by channel address instead.
    */
   principalId: string | null;
+  /** Workspace-relative path to a per-user persona file for this contact. */
+  userFile: string | null;
 }
 
 export type ChannelStatus =

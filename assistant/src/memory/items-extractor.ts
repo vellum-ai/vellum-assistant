@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import type { MemoryExtractionConfig } from "../config/types.js";
+import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -150,6 +151,7 @@ function buildExtractionSystemPrompt(
     statement: string;
   }>,
   messageRole: string,
+  userPersona?: string | null,
 ): string {
   // Build the fixed instruction body first so we can measure it and allocate
   // the remaining budget to identity context.
@@ -206,7 +208,9 @@ IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribu
   // ceiling, preventing oversized prompts from exceeding the provider input
   // window (which would cause sendMessage to error and fall back to
   // lower-quality pattern-based extraction).
-  const rawIdentityContext = buildCoreIdentityContext();
+  const rawIdentityContext = buildCoreIdentityContext(
+    userPersona ? { userPersona } : undefined,
+  );
 
   let prompt = "";
   if (rawIdentityContext) {
@@ -316,6 +320,7 @@ async function extractItemsWithLLM(
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
   messageRole: string,
+  userPersona?: string | null,
 ): Promise<ExtractedItem[]> {
   const provider = await getConfiguredProvider();
   if (!provider) {
@@ -334,6 +339,7 @@ async function extractItemsWithLLM(
       const systemPrompt = buildExtractionSystemPrompt(
         existingItems,
         messageRole,
+        userPersona,
       );
 
       const messagePrefix =
@@ -532,12 +538,20 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const config = getConfig();
   const extractionConfig = config.memory.extraction;
   const effectiveScopeId = scopeId ?? "default";
+
+  // Resolve the guardian's persona to provide personality-aware extraction
+  // context. Currently uses the guardian persona for all conversations —
+  // non-guardian conversations are rare and the guardian's persona provides
+  // better extraction context than none.
+  const userPersona = resolveGuardianPersona();
+
   const extracted = extractionConfig.useLLM
     ? await extractItemsWithLLM(
         text,
         extractionConfig,
         effectiveScopeId,
         message.role,
+        userPersona,
       )
     : extractItemsPatternBased(text, effectiveScopeId);
 
