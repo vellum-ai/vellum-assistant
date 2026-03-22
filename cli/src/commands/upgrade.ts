@@ -207,9 +207,12 @@ async function upgradeDocker(
     lastWorkspaceMigrationId?: string;
   } = {};
   try {
-    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const healthResp = await fetch(
+      `${entry.runtimeUrl}/healthz?include=migrations`,
+      {
+        signal: AbortSignal.timeout(5000),
+      },
+    );
     if (healthResp.ok) {
       const health = (await healthResp.json()) as {
         migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
