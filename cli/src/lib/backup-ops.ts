@@ -29,10 +29,13 @@ export function formatSize(bytes: number): string {
 async function getGuardianAccessToken(
   runtimeUrl: string,
   assistantId: string,
+  forceRefresh?: boolean,
 ): Promise<string> {
-  const tokenData = loadGuardianToken(assistantId);
-  if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
-    return tokenData.accessToken;
+  if (!forceRefresh) {
+    const tokenData = loadGuardianToken(assistantId);
+    if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
+      return tokenData.accessToken;
+    }
   }
   const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
   return freshToken.accessToken;
@@ -49,9 +52,9 @@ export async function createBackup(
   options?: { prefix?: string; description?: string },
 ): Promise<string | null> {
   try {
-    const accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
 
-    const response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
+    let response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -62,6 +65,23 @@ export async function createBackup(
       }),
       signal: AbortSignal.timeout(120_000),
     });
+
+    // Retry once with a fresh token on 401 — the cached token may be stale
+    // after a container restart that generated a new gateway signing key.
+    if (response.status === 401) {
+      accessToken = await getGuardianAccessToken(runtimeUrl, assistantId, true);
+      response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          description: options?.description ?? "CLI backup",
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+    }
 
     if (!response.ok) {
       const body = await response.text();
@@ -109,9 +129,9 @@ export async function restoreBackup(
     }
 
     const bundleData = readFileSync(backupPath);
-    const accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
 
-    const response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
+    let response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -120,6 +140,21 @@ export async function restoreBackup(
       body: bundleData,
       signal: AbortSignal.timeout(120_000),
     });
+
+    // Retry once with a fresh token on 401 — the cached token may be stale
+    // after a container restart that generated a new gateway signing key.
+    if (response.status === 401) {
+      accessToken = await getGuardianAccessToken(runtimeUrl, assistantId, true);
+      response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/octet-stream",
+        },
+        body: bundleData,
+        signal: AbortSignal.timeout(120_000),
+      });
+    }
 
     if (!response.ok) {
       const body = await response.text();
