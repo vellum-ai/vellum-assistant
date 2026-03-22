@@ -115,6 +115,12 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
     /// Install a previously deferred update immediately.
     /// Call this when the app is about to quit or when it becomes idle.
+    ///
+    /// `handler()` is called **synchronously** so that it executes before
+    /// `applicationWillTerminate` returns and the process exits.  The
+    /// pre-update async work (backup, progress broadcasts) is fired as
+    /// best-effort in a detached Task — if it finishes before the process
+    /// tears down, great; if not, the update still installs.
     func installDeferredUpdateIfAvailable() {
         let handler = deferredInstallLock.withLock { value -> (() -> Void)? in
             let h = value
@@ -124,10 +130,18 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         guard let handler else { return }
         isDeferredUpdateReady = false
         log.info("Installing deferred update now")
-        Task { @MainActor in
-            await onWillInstallUpdate?()
-            handler()
+
+        // Fire pre-update work (backup, daemon stop, broadcasts) as
+        // best-effort.  This must not block the synchronous handler() call.
+        if let onWillInstall = onWillInstallUpdate {
+            Task { @MainActor in
+                await onWillInstall()
+            }
         }
+
+        // handler() must run synchronously so applicationWillTerminate
+        // cannot exit before Sparkle applies the update.
+        handler()
     }
 
     // MARK: - Service Group Update Check
