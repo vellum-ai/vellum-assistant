@@ -32,7 +32,12 @@ import {
   saveBootstrapSecret,
   loadGuardianToken,
 } from "../lib/guardian-token";
-import { createBackup, pruneOldBackups } from "../lib/backup-ops.js";
+import {
+  createBackup,
+  findLatestPreUpgradeBackup,
+  pruneOldBackups,
+  restoreBackup,
+} from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec, execOutput } from "../lib/step-runner";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
@@ -525,6 +530,29 @@ async function upgradeDocker(
 
         const rollbackReady = await waitForReady(entry.runtimeUrl);
         if (rollbackReady) {
+          // Restore data from pre-upgrade backup if available
+          const latestBackup = findLatestPreUpgradeBackup(entry.assistantId);
+          if (latestBackup) {
+            console.log(`📦 Restoring data from pre-upgrade backup...`);
+            console.log(`   Source: ${latestBackup}`);
+            const restored = await restoreBackup(
+              entry.runtimeUrl,
+              entry.assistantId,
+              latestBackup,
+            );
+            if (restored) {
+              console.log("   ✅ Data restored successfully\n");
+            } else {
+              console.warn(
+                "   ⚠️  Data restore failed (rollback continues without data restoration)\n",
+              );
+            }
+          } else {
+            console.log(
+              "ℹ️  No pre-upgrade backup found, skipping data restoration\n",
+            );
+          }
+
           // Capture fresh digests from the now-running rolled-back containers.
           const rollbackDigests = await captureImageRefs(res);
 
