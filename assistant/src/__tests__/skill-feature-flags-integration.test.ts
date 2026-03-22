@@ -5,16 +5,19 @@
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
 
+beforeEach(() => {
+  _setOverridesForTesting({});
+});
+
 afterEach(() => {
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
 });
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";

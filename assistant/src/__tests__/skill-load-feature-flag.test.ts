@@ -7,10 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} from "../config/assistant-feature-flags.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -117,11 +114,11 @@ describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     currentConfig = {};
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
   });
 
   afterEach(() => {
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

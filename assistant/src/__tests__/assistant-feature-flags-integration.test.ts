@@ -119,11 +119,8 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
-const {
-  isAssistantFeatureFlagEnabled,
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} = await import("../config/assistant-feature-flags.js");
+const { isAssistantFeatureFlagEnabled, _setOverridesForTesting } =
+  await import("../config/assistant-feature-flags.js");
 const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
@@ -132,7 +129,7 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
   currentConfig = {
     services: {
       inference: {
@@ -151,7 +148,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
   if (existsSync(TEST_DIR)) {
     rmSync(TEST_DIR, { recursive: true, force: true });
   }

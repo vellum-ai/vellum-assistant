@@ -45,8 +45,30 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
     mkdirSync(protectedDir, { recursive: true });
 
     const featureFlagsPath = join(protectedDir, "feature-flags.json");
+
+    // Read existing feature-flags.json if present (may have been written by
+    // the gateway in a rolling deployment) so we merge rather than overwrite.
+    let existingValues: Record<string, boolean> = {};
+    if (existsSync(featureFlagsPath)) {
+      try {
+        const existing = JSON.parse(readFileSync(featureFlagsPath, "utf-8"));
+        if (
+          existing.version === 1 &&
+          existing.values &&
+          typeof existing.values === "object"
+        ) {
+          existingValues = existing.values;
+        }
+      } catch {
+        // Malformed file — start fresh
+      }
+    }
+
+    // Merge: config values take precedence, existing keys preserved
+    const mergedValues = { ...existingValues, ...flagValues };
+
     const featureFlagsContent = JSON.stringify(
-      { version: 1, values: flagValues },
+      { version: 1, values: mergedValues },
       null,
       2,
     );

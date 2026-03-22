@@ -1,16 +1,19 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
 
+beforeEach(() => {
+  _setOverridesForTesting({});
+});
+
 afterEach(() => {
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
 });
 
 const DECLARED_FLAG_ID = "contacts";

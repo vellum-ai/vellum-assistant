@@ -26,15 +26,16 @@
  * contracts — no real CES process or socket dependencies are needed.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} from "../config/assistant-feature-flags.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
+beforeEach(() => {
+  _setOverridesForTesting({});
+});
 
 afterEach(() => {
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
 });
 
 import {

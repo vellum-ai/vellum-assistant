@@ -77,7 +77,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
-const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+const { _setOverridesForTesting } =
   await import("../config/assistant-feature-flags.js");
 
 describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
@@ -89,7 +89,7 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   });
 
   afterEach(() => {
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

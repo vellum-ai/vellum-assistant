@@ -847,7 +847,7 @@ describe("host_bash — proxy delegation", () => {
 
   test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
     // Enable CES shell lockdown via the override cache
-    const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+    const { _setOverridesForTesting } =
       await import("../config/assistant-feature-flags.js");
     _setOverridesForTesting({
       "feature_flags.ces-shell-lockdown.enabled": true,
@@ -875,7 +875,7 @@ describe("host_bash — proxy delegation", () => {
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
     } finally {
-      clearFeatureFlagOverridesCache();
+      _setOverridesForTesting({});
     }
   });
 

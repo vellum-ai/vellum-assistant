@@ -217,10 +217,9 @@ mock.module("../util/logger.js", () => ({
 
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
-const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+const { _setOverridesForTesting } =
   (await import("../config/assistant-feature-flags.js")) as {
     _setOverridesForTesting: (o: Record<string, boolean>) => void;
-    clearFeatureFlagOverridesCache: () => void;
   };
 
 // ---------------------------------------------------------------------------
@@ -300,7 +299,7 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   afterEach(() => {
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {

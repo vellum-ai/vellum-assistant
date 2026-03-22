@@ -163,7 +163,7 @@ mock.module("../config/loader.js", () => ({
 
 await import("../tools/skills/load.js");
 const { getTool } = await import("../tools/registry.js");
-const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+const { _setOverridesForTesting } =
   await import("../config/assistant-feature-flags.js");
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ describe("vellum-self-knowledge inline command expansion", () => {
   });
 
   afterEach(() => {
-    clearFeatureFlagOverridesCache();
+    _setOverridesForTesting({});
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

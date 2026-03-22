@@ -10,10 +10,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
 }));
 
-import {
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} from "../config/assistant-feature-flags.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,
@@ -35,7 +32,7 @@ import {
 
 afterAll(() => {
   __resetRegistryForTesting();
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
 });
 
 describe("browser skill migration end-state", () => {

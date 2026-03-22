@@ -8,11 +8,10 @@
  *   behavior or existing feature flags.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
@@ -29,8 +28,12 @@ import {
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
 
+beforeEach(() => {
+  _setOverridesForTesting({});
+});
+
 afterEach(() => {
-  clearFeatureFlagOverridesCache();
+  _setOverridesForTesting({});
 });
 
 // ---------------------------------------------------------------------------
