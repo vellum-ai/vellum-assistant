@@ -117,10 +117,38 @@ export async function runWorkspaceMigrations(
 }
 
 /**
- * Roll back workspace migrations in reverse order, stopping before the target migration.
+ * Roll back workspace (filesystem) migrations in reverse order, stopping before
+ * the target migration.
  *
- * Migrations after `targetMigrationId` in the array are reversed (the target itself is kept).
- * Each migration must have a `down()` method; if one is missing, an error is thrown.
+ * Migrations after `targetMigrationId` in the registry array are reversed in
+ * reverse order; the target migration itself is kept applied.
+ *
+ * **Usage**: Pass the full migrations array (typically `WORKSPACE_MIGRATIONS`
+ * from `registry.ts`) and the ID of the migration you want to roll back *to*.
+ * For example, `rollbackWorkspaceMigrations(dir, migrations, "010-app-dir-rename")`
+ * rolls back all applied migrations that appear after `010-app-dir-rename` in
+ * the registry.
+ *
+ * **Checkpoint state**: Each rolled-back migration's entry is deleted from the
+ * `.workspace-migrations.json` checkpoint file. If the process crashes
+ * mid-rollback, the `"rolling_back"` marker is detected and cleared by
+ * `runWorkspaceMigrations` on the next startup (it re-runs interrupted
+ * migrations).
+ *
+ * **Warning — data loss**: Some workspace migrations are irreversible (e.g.,
+ * file deletions, format conversions that discard the original). These
+ * migrations do not define a `down()` method and will throw an error if
+ * rollback is attempted. Always verify that all target migrations have `down()`
+ * support before calling this function.
+ *
+ * **Important**: Stop the assistant before running rollbacks. Rolling back
+ * workspace migrations while the assistant is running may cause file conflicts,
+ * stale caches, or data corruption.
+ *
+ * @param workspaceDir  The workspace directory path (e.g., `~/.vellum/workspace`).
+ * @param migrations  The full ordered array of workspace migrations (from `WORKSPACE_MIGRATIONS`).
+ * @param targetMigrationId  The migration ID to roll back to (exclusive — all
+ *   migrations after this one are reversed).
  */
 export async function rollbackWorkspaceMigrations(
   workspaceDir: string,

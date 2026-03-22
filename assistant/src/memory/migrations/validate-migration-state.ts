@@ -197,13 +197,33 @@ export function validateMigrationState(
 }
 
 /**
- * Roll back all completed migrations with version > targetVersion.
+ * Roll back all completed memory (database) migrations with version > targetVersion.
  *
  * Iterates eligible migrations in reverse version order. For each:
  * 1. Verifies a `down` function exists (throws if missing).
  * 2. Marks the checkpoint as `"rolling_back"` for crash recovery.
  * 3. Calls `entry.down(database)` inside a transaction.
  * 4. Deletes the checkpoint from `memory_checkpoints`.
+ *
+ * **Usage**: Pass the target version number you want to roll back *to*. All
+ * migrations with a higher version number that have been applied will be
+ * reversed. For example, `rollbackMemoryMigration(db, 5)` rolls back all
+ * applied migrations with version > 5.
+ *
+ * **Checkpoint state**: Each rolled-back migration's checkpoint is deleted
+ * from `memory_checkpoints`. If the process crashes mid-rollback, the
+ * `"rolling_back"` marker is detected and cleared by
+ * `recoverCrashedMigrations` on the next startup.
+ *
+ * **Warning — data loss**: Some migrations are irreversible (e.g., DROP TABLE,
+ * data backfills that discard the original format). These migrations do not
+ * define a `down()` function and will throw an `IntegrityError` if rollback
+ * is attempted. Always check the migration registry for `down` support before
+ * calling this function programmatically.
+ *
+ * **Important**: Stop the assistant before running rollbacks. Rolling back
+ * migrations while the assistant is running may cause schema mismatches,
+ * query failures, or data corruption.
  *
  * @param database  The Drizzle database instance.
  * @param targetVersion  Roll back to this version (exclusive — all migrations
