@@ -32,6 +32,7 @@ import {
   buildUpgradeCommitMessage,
   captureContainerEnv,
   CONTAINER_ENV_EXCLUDE_KEYS,
+  rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
@@ -259,6 +260,25 @@ export async function rollback(): Promise<void> {
     // Brief pause to allow SSE delivery before containers stop.
     await new Promise((r) => setTimeout(r, 500));
 
+    // Roll back migrations to pre-upgrade state (must happen before containers stop)
+    if (
+      entry.previousDbMigrationVersion !== undefined ||
+      entry.previousWorkspaceMigrationId !== undefined
+    ) {
+      console.log("🔄 Reverting database changes...");
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
+      );
+      await rollbackMigrations(
+        entry.runtimeUrl,
+        entry.assistantId,
+        entry.previousDbMigrationVersion,
+        entry.previousWorkspaceMigrationId,
+      );
+    }
+
     // Progress: switching version (must be sent BEFORE stopContainers)
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
@@ -351,6 +371,8 @@ export async function rollback(): Promise<void> {
         previousContainerInfo: entry.containerInfo,
         // Clear the backup path — it belonged to the upgrade we just rolled back
         preUpgradeBackupPath: undefined,
+        previousDbMigrationVersion: undefined,
+        previousWorkspaceMigrationId: undefined,
       };
       saveAssistantEntry(updatedEntry);
 
