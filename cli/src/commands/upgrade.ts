@@ -44,6 +44,7 @@ import {
   buildUpgradeCommitMessage,
   captureContainerEnv,
   CONTAINER_ENV_EXCLUDE_KEYS,
+  rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
@@ -477,6 +478,26 @@ async function upgradeDocker(
       );
       console.log(`\n🔄 Rolling back to previous images...`);
       try {
+        // Attempt to roll back migrations before swapping containers.
+        // The new daemon may be partially up — try best-effort.
+        if (
+          preMigrationState.dbVersion !== undefined ||
+          preMigrationState.lastWorkspaceMigrationId !== undefined
+        ) {
+          console.log("🔄 Reverting database changes...");
+          await broadcastUpgradeEvent(
+            entry.runtimeUrl,
+            entry.assistantId,
+            buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
+          );
+          await rollbackMigrations(
+            entry.runtimeUrl,
+            entry.assistantId,
+            preMigrationState.dbVersion,
+            preMigrationState.lastWorkspaceMigrationId,
+          );
+        }
+
         await stopContainers(res);
 
         await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));

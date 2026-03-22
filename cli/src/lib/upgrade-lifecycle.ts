@@ -12,9 +12,9 @@ export const UPGRADE_PROGRESS = {
   BACKING_UP: "Saving a backup of your data…",
   INSTALLING: "Installing the update…",
   REVERTING: "The update didn't work. Reverting to the previous version…",
+  REVERTING_MIGRATIONS: "Reverting database changes…",
   RESTORING: "Restoring your data…",
   SWITCHING: "Switching to the previous version…",
-  REVERTING_MIGRATIONS: "Reverting database changes…",
 } as const;
 
 export function buildStartingEvent(
