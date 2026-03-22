@@ -2,6 +2,58 @@ import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
+/**
+ * Reverse v19: add assistant_id columns back to all 16 tables via
+ * ALTER TABLE ADD COLUMN, defaulting to 'self'.
+ *
+ * This restores the column that the forward migration dropped. All rows
+ * get assistant_id = 'self' since that was the only value before dropping.
+ */
+export function downDropAssistantIdColumns(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  const tables = [
+    "contacts",
+    "assistant_ingress_invites",
+    "assistant_inbox_thread_state",
+    "call_sessions",
+    "channel_guardian_verification_challenges",
+    "channel_guardian_approval_requests",
+    "channel_guardian_rate_limits",
+    "guardian_action_requests",
+    "scoped_approval_grants",
+    "notification_events",
+    "notification_preferences",
+    "notification_deliveries",
+    "conversation_attention_events",
+    "conversation_assistant_attention_state",
+    "actor_token_records",
+    "actor_refresh_token_records",
+  ];
+
+  for (const table of tables) {
+    // Skip if table doesn't exist
+    const tableExists = raw
+      .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(table);
+    if (!tableExists) continue;
+
+    // Skip if column already exists (idempotent)
+    const colExists = raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'assistant_id'`)
+      .get(table);
+    if (colExists) continue;
+
+    try {
+      raw.exec(
+        /*sql*/ `ALTER TABLE ${table} ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`,
+      );
+    } catch {
+      /* column may already exist from partial run */
+    }
+  }
+}
+
 const log = getLogger("migration-136");
 
 /**

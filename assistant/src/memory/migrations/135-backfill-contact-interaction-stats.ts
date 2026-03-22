@@ -2,6 +2,26 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
+ * Reverse v18: set contacts.last_interaction back to NULL.
+ *
+ * The forward migration backfilled last_interaction from channel data.
+ * Rolling back simply clears the column — the data can be re-derived by
+ * re-running the forward migration.
+ */
+export function downBackfillContactInteractionStats(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  const colExists = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'last_interaction'`,
+    )
+    .get();
+  if (!colExists) return;
+
+  raw.exec(/*sql*/ `UPDATE contacts SET last_interaction = NULL`);
+}
+
+/**
  * Backfill contacts.last_interaction from the max lastSeenAt across each
  * contact's channels. interactionCount cannot be reliably derived from
  * existing data, so it stays at 0 and accumulates going forward.

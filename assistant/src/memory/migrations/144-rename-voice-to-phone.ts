@@ -2,6 +2,142 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
+ * Reverse v24: rename "phone" channel values back to "voice" across all
+ * tables with channel text columns.
+ */
+export function downRenameVoiceToPhone(database: DrizzleDb): void {
+  const raw = getSqliteFrom(database);
+
+  // contact_channels.type
+  raw.exec(
+    /*sql*/ `UPDATE contact_channels SET type = 'voice' WHERE type = 'phone'`,
+  );
+
+  // conversations.origin_channel
+  raw.exec(
+    /*sql*/ `UPDATE conversations SET origin_channel = 'voice' WHERE origin_channel = 'phone'`,
+  );
+
+  // conversations.origin_interface
+  raw.exec(
+    /*sql*/ `UPDATE conversations SET origin_interface = 'voice' WHERE origin_interface = 'phone'`,
+  );
+
+  // messages.metadata — reverse the JSON string replacement
+  raw.exec(
+    /*sql*/ `UPDATE messages SET metadata = REPLACE(metadata, '"phone"', '"voice"') WHERE metadata LIKE '%"phone"%'`,
+  );
+
+  // assistant_ingress_invites.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE assistant_ingress_invites SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // assistant_inbox_thread_state.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE assistant_inbox_thread_state SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // guardian_action_requests.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE guardian_action_requests SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // guardian_action_requests.answered_by_channel
+  raw.exec(
+    /*sql*/ `UPDATE guardian_action_requests SET answered_by_channel = 'voice' WHERE answered_by_channel = 'phone'`,
+  );
+
+  // channel_verification_sessions.channel (the forward migration ran after v21 rename)
+  raw.exec(
+    /*sql*/ `UPDATE channel_verification_sessions SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+
+  // channel_guardian_approval_requests.channel
+  raw.exec(
+    /*sql*/ `UPDATE channel_guardian_approval_requests SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+
+  // channel_guardian_rate_limits.channel
+  // Dedup: remove phone rows that would collide with existing voice rows
+  raw.exec(/*sql*/ `DELETE FROM channel_guardian_rate_limits WHERE channel = 'phone' AND EXISTS (
+      SELECT 1 FROM channel_guardian_rate_limits AS t2
+      WHERE t2.channel = 'voice'
+        AND t2.actor_external_user_id = channel_guardian_rate_limits.actor_external_user_id
+        AND t2.actor_chat_id = channel_guardian_rate_limits.actor_chat_id
+    )`);
+  raw.exec(
+    /*sql*/ `UPDATE channel_guardian_rate_limits SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+
+  // notification_events.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE notification_events SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // notification_deliveries.channel
+  raw.exec(
+    /*sql*/ `UPDATE notification_deliveries SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+
+  // external_conversation_bindings.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE external_conversation_bindings SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // channel_inbound_events.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE channel_inbound_events SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // conversation_attention_events.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE conversation_attention_events SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // conversation_assistant_attention_state.last_seen_source_channel
+  raw.exec(
+    /*sql*/ `UPDATE conversation_assistant_attention_state SET last_seen_source_channel = 'voice' WHERE last_seen_source_channel = 'phone'`,
+  );
+
+  // canonical_guardian_requests.source_channel
+  raw.exec(
+    /*sql*/ `UPDATE canonical_guardian_requests SET source_channel = 'voice' WHERE source_channel = 'phone'`,
+  );
+
+  // canonical_guardian_deliveries.destination_channel
+  raw.exec(
+    /*sql*/ `UPDATE canonical_guardian_deliveries SET destination_channel = 'voice' WHERE destination_channel = 'phone'`,
+  );
+
+  // guardian_action_deliveries.destination_channel
+  raw.exec(
+    /*sql*/ `UPDATE guardian_action_deliveries SET destination_channel = 'voice' WHERE destination_channel = 'phone'`,
+  );
+
+  // scoped_approval_grants: request_channel, decision_channel, execution_channel
+  raw.exec(
+    /*sql*/ `UPDATE scoped_approval_grants SET request_channel = 'voice' WHERE request_channel = 'phone'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE scoped_approval_grants SET decision_channel = 'voice' WHERE decision_channel = 'phone'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE scoped_approval_grants SET execution_channel = 'voice' WHERE execution_channel = 'phone'`,
+  );
+
+  // sequences.channel
+  raw.exec(
+    /*sql*/ `UPDATE sequences SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+
+  // followups.channel
+  raw.exec(
+    /*sql*/ `UPDATE followups SET channel = 'voice' WHERE channel = 'phone'`,
+  );
+}
+
+/**
  * One-shot migration: rename stored "voice" channel values to "phone" across
  * all tables that persist channel identifiers as text.
  *
