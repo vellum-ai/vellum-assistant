@@ -339,10 +339,16 @@ async function upgradeDocker(
     buildProgressEvent(UPGRADE_PROGRESS.DOWNLOADING),
   );
   console.log("📦 Pulling new Docker images...");
+  const pullImages: Array<[string, string]> = [
+    ["assistant", imageTags.assistant],
+    ["gateway", imageTags.gateway],
+    ["credential-executor", imageTags["credential-executor"]],
+  ];
   try {
-    await exec("docker", ["pull", imageTags.assistant]);
-    await exec("docker", ["pull", imageTags.gateway]);
-    await exec("docker", ["pull", imageTags["credential-executor"]]);
+    for (const [service, image] of pullImages) {
+      console.log(`   Pulling ${service}: ${image}`);
+      await exec("docker", ["pull", image]);
+    }
   } catch (pullErr) {
     const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);
     console.error(`\n❌ Failed to pull Docker images: ${detail}`);

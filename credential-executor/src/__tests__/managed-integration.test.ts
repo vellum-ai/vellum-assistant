@@ -351,13 +351,13 @@ describe("managed CES integration (real Unix socket)", () => {
         const url = new URL(req.url);
         if (url.pathname === "/healthz") {
           return new Response(
-            JSON.stringify({ status: "ok" }),
+            JSON.stringify({ status: "ok", version: CES_PROTOCOL_VERSION }),
             { headers: { "Content-Type": "application/json" } },
           );
         }
         if (url.pathname === "/readyz") {
           return new Response(
-            JSON.stringify({ status: "ok", rpcConnected: false }),
+            JSON.stringify({ ready: true, version: CES_PROTOCOL_VERSION }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
@@ -466,11 +466,13 @@ describe("managed CES integration (real Unix socket)", () => {
     expect(healthzResp.status).toBe(200);
     const healthzBody = await healthzResp.json();
     expect(healthzBody.status).toBe("ok");
+    expect(healthzBody.version).toBe(CES_PROTOCOL_VERSION);
 
     const readyzResp = await fetch(`http://localhost:${healthPort}/readyz`);
     expect(readyzResp.status).toBe(200);
     const readyzBody = await readyzResp.json();
-    expect(readyzBody.status).toBe("ok");
+    expect(readyzBody.ready).toBe(true);
+    expect(readyzBody.version).toBe(CES_PROTOCOL_VERSION);
 
     // -- Step 5: Unknown method returns METHOD_NOT_FOUND -----------------------
     const unknownRpcId = "rpc-3";

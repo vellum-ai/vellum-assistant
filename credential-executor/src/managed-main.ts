@@ -342,7 +342,7 @@ function startHealthServer(
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {
         return new Response(
-          JSON.stringify({ status: "ok" }),
+          JSON.stringify({ status: "ok", version: CES_PROTOCOL_VERSION }),
           { headers: { "Content-Type": "application/json" } },
         );
       }
@@ -354,7 +354,7 @@ function startHealthServer(
         // without a connection anyway, so readiness is purely about the
         // process being up and able to accept a future connection.
         return new Response(
-          JSON.stringify({ status: "ok", rpcConnected }),
+          JSON.stringify({ ready: true, rpcConnected, version: CES_PROTOCOL_VERSION }),
           {
             status: 200,
             headers: { "Content-Type": "application/json" },
