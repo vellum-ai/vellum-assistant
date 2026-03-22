@@ -225,11 +225,10 @@ export function validateMigrationState(
  * `"rolling_back"` marker is detected and cleared by
  * `recoverCrashedMigrations` on the next startup.
  *
- * **Warning — data loss**: Some migrations are irreversible (e.g., DROP TABLE,
- * data backfills that discard the original format). These migrations do not
- * define a `down()` function and will throw an `IntegrityError` if rollback
- * is attempted. Always check the migration registry for `down` support before
- * calling this function programmatically.
+ * **Warning — data loss**: Some down() migrations may not fully restore the
+ * original state (e.g., DROP TABLE migrations recreate the table but cannot
+ * recover the original data). Review each migration's down() implementation
+ * before calling this function programmatically.
  *
  * **Important**: Stop the assistant before running rollbacks. Rolling back
  * migrations while the assistant is running may cause schema mismatches,
@@ -270,12 +269,6 @@ export function rollbackMemoryMigration(
   const rolledBack: string[] = [];
 
   for (const entry of toRollback) {
-    if (!entry.down) {
-      throw new IntegrityError(
-        `Cannot roll back migration "${entry.key}" (version ${entry.version}): no down() function defined`,
-      );
-    }
-
     // Mark as rolling_back for crash recovery — if the process crashes here,
     // recoverCrashedMigrations will clear this checkpoint on next startup.
     raw

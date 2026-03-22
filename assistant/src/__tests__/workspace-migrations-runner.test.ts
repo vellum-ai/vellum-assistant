@@ -69,14 +69,6 @@ function makeMigration(id: string): WorkspaceMigration {
     id,
     description: `Migration ${id}`,
     run: mock(() => {}),
-  };
-}
-
-function makeMigrationWithDown(id: string): WorkspaceMigration {
-  return {
-    id,
-    description: `Migration ${id}`,
-    run: mock(() => {}),
     down: mock(() => {}),
   };
 }
@@ -254,6 +246,7 @@ describe("runWorkspaceMigrations", () => {
         // Simulate async work
         await Promise.resolve();
       }),
+      down: mock(() => {}),
     };
 
     await runWorkspaceMigrations(WORKSPACE_DIR, [asyncMigration]);
@@ -315,9 +308,9 @@ describe("rollbackWorkspaceMigrations", () => {
   });
 
   test("rolls back migrations in reverse order", async () => {
-    const m1 = makeMigrationWithDown("001");
-    const m2 = makeMigrationWithDown("002");
-    const m3 = makeMigrationWithDown("003");
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+    const m3 = makeMigration("003");
 
     // All three migrations are marked as completed in checkpoints
     mockCheckpointContents = JSON.stringify({
@@ -345,27 +338,8 @@ describe("rollbackWorkspaceMigrations", () => {
     expect(callOrder).toEqual(["003", "002"]);
   });
 
-  test("throws when migration has no down function", async () => {
-    const m1 = makeMigrationWithDown("001");
-    // m2 has no down function
-    const m2 = makeMigration("002");
-
-    mockCheckpointContents = JSON.stringify({
-      applied: {
-        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
-        "002": { appliedAt: "2025-01-02T00:00:00.000Z", status: "completed" },
-      },
-    });
-
-    await expect(
-      rollbackWorkspaceMigrations(WORKSPACE_DIR, [m1, m2], "001"),
-    ).rejects.toThrow(
-      'Migration "002" does not support rollback (no down() method)',
-    );
-  });
-
   test("handles crash during rollback (rolling_back status)", async () => {
-    const m1 = makeMigrationWithDown("001");
+    const m1 = makeMigration("001");
 
     // Simulate a crash during a previous rollback — m1 is left in rolling_back state
     mockCheckpointContents = JSON.stringify({
@@ -385,9 +359,9 @@ describe("rollbackWorkspaceMigrations", () => {
   });
 
   test("removes checkpoints for rolled-back migrations", async () => {
-    const m1 = makeMigrationWithDown("001");
-    const m2 = makeMigrationWithDown("002");
-    const m3 = makeMigrationWithDown("003");
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+    const m3 = makeMigration("003");
 
     mockCheckpointContents = JSON.stringify({
       applied: {
@@ -408,9 +382,9 @@ describe("rollbackWorkspaceMigrations", () => {
   });
 
   test("no-op when already at target", async () => {
-    const m1 = makeMigrationWithDown("001");
-    const m2 = makeMigrationWithDown("002");
-    const m3 = makeMigrationWithDown("003");
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+    const m3 = makeMigration("003");
 
     mockCheckpointContents = JSON.stringify({
       applied: {
