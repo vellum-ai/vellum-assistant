@@ -405,7 +405,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(): string | null {
+export function buildCoreIdentityContext(
+  opts?: { userPersona?: string | null },
+): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
@@ -416,6 +418,7 @@ export function buildCoreIdentityContext(): string | null {
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
     parts.push(content);
   }
+  if (opts?.userPersona) parts.push(opts.userPersona);
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 

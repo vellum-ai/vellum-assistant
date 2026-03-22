@@ -13,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { getConfig } from "../config/loader.js";
+import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -800,7 +801,9 @@ async function classifyWithLLM(
   const candidateContext = candidateSet
     ? (serializeCandidatesForPrompt(candidateSet) ?? undefined)
     : undefined;
-  const rawIdentityContext = buildCoreIdentityContext();
+  const rawIdentityContext = buildCoreIdentityContext({
+    userPersona: resolveGuardianPersona(),
+  });
   const identityContext = rawIdentityContext
     ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
     : undefined;
