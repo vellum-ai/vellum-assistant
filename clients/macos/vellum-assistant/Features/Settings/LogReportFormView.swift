@@ -9,7 +9,7 @@ struct LogReportFormView: View {
 
     let authManager: AuthManager
     let initialReason: LogReportReason?
-    let onSend: (LogReportFormData) -> Void
+    let onSend: (LogReportFormData) async throws -> Void
     let onCancel: () -> Void
 
     @State private var selectedReason: LogReportReason?
@@ -18,12 +18,13 @@ struct LogReportFormView: View {
     @State private var includeLogs: Bool = true
     @State private var hasManuallyToggledLogs: Bool = false
     @State private var logTimeRange: LogTimeRange = .pastHour
+    @State private var isSubmitting: Bool = false
     @FocusState private var focusedField: Field?
 
     init(
         authManager: AuthManager,
         initialReason: LogReportReason? = nil,
-        onSend: @escaping (LogReportFormData) -> Void,
+        onSend: @escaping (LogReportFormData) async throws -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.authManager = authManager
@@ -53,6 +54,7 @@ struct LogReportFormView: View {
         .padding(VSpacing.xl)
         .background(VColor.surfaceOverlay)
         .frame(width: 480)
+        .allowsHitTesting(!isSubmitting)
         .onAppear {
             if let userEmail = authManager.currentUser?.email {
                 email = userEmail
@@ -86,6 +88,7 @@ struct LogReportFormView: View {
                 }
             }
         }
+        .opacity(isSubmitting ? 0.5 : 1)
     }
 
     private var messageField: some View {
@@ -101,6 +104,7 @@ struct LogReportFormView: View {
             )
             .focused($focusedField, equals: .message)
         }
+        .opacity(isSubmitting ? 0.5 : 1)
     }
 
     private var emailField: some View {
@@ -111,6 +115,7 @@ struct LogReportFormView: View {
             leadingIcon: VIcon.mail.rawValue
         )
         .focused($focusedField, equals: .email)
+        .opacity(isSubmitting ? 0.5 : 1)
     }
 
     @ViewBuilder
@@ -142,30 +147,48 @@ struct LogReportFormView: View {
 
                 Spacer()
             }
+            .opacity(isSubmitting ? 0.5 : 1)
         }
     }
 
     private var actionRow: some View {
         HStack {
             Spacer()
-            VButton(label: "Cancel", style: .outlined) {
-                onCancel()
-            }
-            VButton(
-                label: "Submit",
-                leftIcon: VIcon.send.rawValue,
-                style: .primary,
-                isDisabled: !canSend
-            ) {
-                guard let reason = selectedReason else { return }
-                onSend(LogReportFormData(
-                    reason: reason,
-                    name: "",
-                    message: message,
-                    email: email,
-                    includeLogs: includeLogs,
-                    logTimeRange: logTimeRange
-                ))
+            if isSubmitting {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Sending feedback…")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+            } else {
+                VButton(label: "Cancel", style: .outlined) {
+                    onCancel()
+                }
+                VButton(
+                    label: "Submit",
+                    leftIcon: VIcon.send.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend
+                ) {
+                    guard let reason = selectedReason else { return }
+                    isSubmitting = true
+                    Task {
+                        do {
+                            try await onSend(LogReportFormData(
+                                reason: reason,
+                                name: "",
+                                message: message,
+                                email: email,
+                                includeLogs: includeLogs,
+                                logTimeRange: logTimeRange
+                            ))
+                        } catch {
+                            isSubmitting = false
+                        }
+                    }
+                }
             }
         }
     }

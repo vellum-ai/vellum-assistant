@@ -521,10 +521,19 @@ extension AppDelegate {
             authManager: authManager,
             initialReason: reason,
             onSend: { [weak self] formData in
-                self?.dismissLogReportWindow()
                 var formData = formData
                 formData.scope = scope
-                LogExporter.sendLogsToSentry(formData: formData)
+                do {
+                    try await LogExporter.sendLogsToSentry(formData: formData)
+                    self?.dismissLogReportWindow()
+                    self?.mainWindow?.windowState.showToast(message: "Feedback sent", style: .success)
+                } catch {
+                    self?.dismissLogReportWindow()
+                    self?.mainWindow?.windowState.showToast(
+                        message: "Could not send feedback: \(error.localizedDescription)",
+                        style: .error
+                    )
+                }
             },
             onCancel: dismiss
         )

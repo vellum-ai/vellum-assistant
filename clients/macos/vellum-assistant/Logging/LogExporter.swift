@@ -43,171 +43,157 @@ enum LogExporter {
     /// Collects logs, archives them, sends a lightweight Sentry event (no archive attachment),
     /// and uploads the archive to the platform API for storage.
     /// Includes report metadata (reason, message) from the log report form.
-    static func sendLogsToSentry(formData: LogReportFormData) {
-        Task {
-            let fileManager = FileManager.default
-            let archiveURL = fileManager.temporaryDirectory
-                .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
+    ///
+    /// Throws if the archive build fails. The caller is responsible for
+    /// presenting success/error feedback (e.g. via a toast).
+    static func sendLogsToSentry(formData: LogReportFormData) async throws {
+        let fileManager = FileManager.default
+        let archiveURL = fileManager.temporaryDirectory
+            .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
-            do {
-                try await buildArchive(destination: archiveURL, formData: formData)
-            } catch {
-                log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
-                NSApp.activate(ignoringOtherApps: true)
-                let alert = NSAlert()
-                alert.messageText = "Feedback Failed"
-                alert.informativeText = "Could not send feedback: \(error.localizedDescription)"
-                alert.alertStyle = .warning
-                alert.runModal()
-                return
+        do {
+            try await buildArchive(destination: archiveURL, formData: formData)
+        } catch {
+            log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+            throw error
+        }
+
+        // --- Phase 1: Lightweight Sentry event (no archive attachment) ---
+
+        let event = Event(level: .info)
+        let errorTitle: String
+        switch formData.scope {
+        case .conversation(_, let conversationTitle, _, _):
+            errorTitle = "\(formData.reason.displayName) feedback (conversation: \(conversationTitle))"
+        case .global:
+            errorTitle = "\(formData.reason.displayName) feedback"
+        }
+        event.message = SentryMessage(formatted: errorTitle)
+        // Set error so Sentry displays the error message (not "No error message provided").
+        event.error = NSError(
+            domain: "com.vellum.log-report",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: errorTitle]
+        )
+        var tags: [String: String] = [
+            "source": "log_report",
+            "report_reason": formData.reason.rawValue,
+            "logs_included": formData.includeLogs ? "true" : "false",
+            "log_time_range": formData.logTimeRange.rawValue,
+        ]
+        if case .conversation(let conversationId, _, _, _) = formData.scope {
+            tags["conversation_id"] = conversationId
+            tags["export_scope"] = "conversation"
+        } else {
+            tags["export_scope"] = "global"
+        }
+        // Surface active conversation state as tags so the Sentry event itself
+        // is useful for triage without downloading the log archive.
+        var extra: [String: Any] = [:]
+        let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
+        if let activeConversation = conversationManager?.activeConversation {
+            extra["conversation_title"] = activeConversation.title
+            if let conversationId = activeConversation.conversationId {
+                // Setting conversation_id enables cross-project search: find
+                // the daemon error that corresponds to a macOS log report by
+                // querying conversation_id in the vellum-assistant-brain
+                // Sentry project.
+                // For conversation-scoped exports, conversation_id was already set
+                // to the reported conversation's ID above — don't overwrite it with
+                // the active conversation's ID.
+                if case .global = formData.scope {
+                    tags["conversation_id"] = conversationId
+                }
             }
-
-            // --- Phase 1: Lightweight Sentry event (no archive attachment) ---
-
-            let event = Event(level: .info)
-            let errorTitle: String
-            switch formData.scope {
-            case .conversation(_, let conversationTitle, _, _):
-                errorTitle = "\(formData.reason.displayName) feedback (conversation: \(conversationTitle))"
-            case .global:
-                errorTitle = "\(formData.reason.displayName) feedback"
+        }
+        var errorCategoryString: String?
+        if let vm = conversationManager?.activeViewModel {
+            extra["message_count"] = vm.messages.count
+            if let conversationError = vm.conversationError {
+                let category = "\(conversationError.category)"
+                tags["conversation_error_category"] = category
+                errorCategoryString = category
+                if let debugDetails = conversationError.debugDetails {
+                    extra["conversation_error_debug_details"] = debugDetails
+                }
             }
-            event.message = SentryMessage(formatted: errorTitle)
-            // Set error so Sentry displays the error message (not "No error message provided").
-            event.error = NSError(
-                domain: "com.vellum.log-report",
-                code: 0,
-                userInfo: [NSLocalizedDescriptionKey: errorTitle]
+            if let conversationId = vm.conversationId {
+                // For conversation-scoped exports, conversation_id reflects the
+                // reported conversation, not the active one — skip the overwrite.
+                if case .global = formData.scope {
+                    tags["conversation_id"] = conversationId
+                }
+            }
+        }
+        // When routing to the brain project, tag the event so it's clear
+        // it originated from the macOS client (not the daemon itself).
+        if formData.reason == .somethingBroken && errorCategoryString != nil {
+            tags["client"] = "macos"
+        }
+        let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedAssistantForTags = connectedAssistantId.flatMap { LockfileAssistant.loadByName($0) }
+        if let assistantId = connectedAssistantId {
+            tags["assistant_id"] = assistantId
+        }
+        if let assistantVersion = connectedAssistantForTags?.serviceGroupVersion {
+            tags["assistant_version"] = assistantVersion
+        }
+        if !extra.isEmpty {
+            event.extra = extra
+        }
+
+        event.tags = tags
+        // Group reports by reason and error category so different root
+        // causes (e.g. providerApi vs contextTooLarge) create separate
+        // Sentry issues instead of being mixed into one.
+        let categoryComponent = errorCategoryString ?? "none"
+        event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
+
+        // User-provided context (message, email, category) is sent via
+        // Sentry's Feedback API, linked to the event. This keeps PII
+        // out of event tags/extras and lets us use Sentry's built-in
+        // feedback UI for triage.
+        let feedback = MetricKitManager.UserFeedbackData(
+            comments: formData.message.isEmpty ? "(No message provided)" : formData.message,
+            email: formData.email,
+            name: formData.name.isEmpty ? nil : formData.name
+        )
+
+        // Route assistant behavior reports to the brain Sentry project
+        // so they appear alongside daemon issues for triage.
+        let dsn: String? = (formData.reason == .somethingBroken && errorCategoryString != nil)
+            ? MetricKitManager.brainDSN
+            : nil
+
+        // Send lightweight Sentry event (no archive attachment) and capture the event ID
+        // for linking to the platform API upload.
+        let sentryEventId: SentryId? = await withCheckedContinuation { (continuation: CheckedContinuation<SentryId?, Never>) in
+            MetricKitManager.sendManualReport(
+                event,
+                attachments: [],
+                userFeedback: feedback,
+                dsn: dsn
+            ) { eventId in
+                continuation.resume(returning: eventId)
+            }
+        }
+
+        // --- Phase 2: Upload archive to platform API (background) ---
+        // Fire-and-forget so the caller can dismiss UI immediately
+        // after the Sentry event is captured. The archive is cleaned up
+        // after the upload completes (or fails).
+        let archiveURLCopy = archiveURL
+        Task.detached {
+            await uploadFeedbackToPlatform(
+                archiveURL: archiveURLCopy,
+                formData: formData,
+                sentryEventId: sentryEventId,
+                connectedAssistantId: connectedAssistantId,
+                connectedAssistant: connectedAssistantForTags
             )
-            var tags: [String: String] = [
-                "source": "log_report",
-                "report_reason": formData.reason.rawValue,
-                "logs_included": formData.includeLogs ? "true" : "false",
-                "log_time_range": formData.logTimeRange.rawValue,
-            ]
-            if case .conversation(let conversationId, _, _, _) = formData.scope {
-                tags["conversation_id"] = conversationId
-                tags["export_scope"] = "conversation"
-            } else {
-                tags["export_scope"] = "global"
-            }
-            // Surface active conversation state as tags so the Sentry event itself
-            // is useful for triage without downloading the log archive.
-            var extra: [String: Any] = [:]
-            let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
-            if let activeConversation = conversationManager?.activeConversation {
-                extra["conversation_title"] = activeConversation.title
-                if let conversationId = activeConversation.conversationId {
-                    // Setting conversation_id enables cross-project search: find
-                    // the daemon error that corresponds to a macOS log report by
-                    // querying conversation_id in the vellum-assistant-brain
-                    // Sentry project.
-                    // For conversation-scoped exports, conversation_id was already set
-                    // to the reported conversation's ID above — don't overwrite it with
-                    // the active conversation's ID.
-                    if case .global = formData.scope {
-                        tags["conversation_id"] = conversationId
-                    }
-                }
-            }
-            var errorCategoryString: String?
-            if let vm = conversationManager?.activeViewModel {
-                extra["message_count"] = vm.messages.count
-                if let conversationError = vm.conversationError {
-                    let category = "\(conversationError.category)"
-                    tags["conversation_error_category"] = category
-                    errorCategoryString = category
-                    if let debugDetails = conversationError.debugDetails {
-                        extra["conversation_error_debug_details"] = debugDetails
-                    }
-                }
-                if let conversationId = vm.conversationId {
-                    // For conversation-scoped exports, conversation_id reflects the
-                    // reported conversation, not the active one — skip the overwrite.
-                    if case .global = formData.scope {
-                        tags["conversation_id"] = conversationId
-                    }
-                }
-            }
-            // When routing to the brain project, tag the event so it's clear
-            // it originated from the macOS client (not the daemon itself).
-            if formData.reason == .somethingBroken && errorCategoryString != nil {
-                tags["client"] = "macos"
-            }
-            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let connectedAssistantForTags = connectedAssistantId.flatMap { LockfileAssistant.loadByName($0) }
-            if let assistantId = connectedAssistantId {
-                tags["assistant_id"] = assistantId
-            }
-            if let assistantVersion = connectedAssistantForTags?.serviceGroupVersion {
-                tags["assistant_version"] = assistantVersion
-            }
-            if !extra.isEmpty {
-                event.extra = extra
-            }
 
-            event.tags = tags
-            // Group reports by reason and error category so different root
-            // causes (e.g. providerApi vs contextTooLarge) create separate
-            // Sentry issues instead of being mixed into one.
-            let categoryComponent = errorCategoryString ?? "none"
-            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
-
-            // User-provided context (message, email, category) is sent via
-            // Sentry's Feedback API, linked to the event. This keeps PII
-            // out of event tags/extras and lets us use Sentry's built-in
-            // feedback UI for triage.
-            let feedback = MetricKitManager.UserFeedbackData(
-                comments: formData.message.isEmpty ? "(No message provided)" : formData.message,
-                email: formData.email,
-                name: formData.name.isEmpty ? nil : formData.name
-            )
-
-            // Route assistant behavior reports to the brain Sentry project
-            // so they appear alongside daemon issues for triage.
-            let dsn: String? = (formData.reason == .somethingBroken && errorCategoryString != nil)
-                ? MetricKitManager.brainDSN
-                : nil
-
-            // Send lightweight Sentry event (no archive attachment) and capture the event ID
-            // for linking to the platform API upload.
-            let sentryEventId: SentryId? = await withCheckedContinuation { (continuation: CheckedContinuation<SentryId?, Never>) in
-                MetricKitManager.sendManualReport(
-                    event,
-                    attachments: [],
-                    userFeedback: feedback,
-                    dsn: dsn
-                ) { eventId in
-                    continuation.resume(returning: eventId)
-                }
-            }
-
-            // --- Phase 2: Upload archive to platform API (background) ---
-            // Fire-and-forget so the user sees "Feedback Sent" immediately
-            // after the Sentry event is captured. The archive is cleaned up
-            // after the upload completes (or fails).
-            let archiveURLCopy = archiveURL
-            Task.detached {
-                await uploadFeedbackToPlatform(
-                    archiveURL: archiveURLCopy,
-                    formData: formData,
-                    sentryEventId: sentryEventId,
-                    connectedAssistantId: connectedAssistantId,
-                    connectedAssistant: connectedAssistantForTags
-                )
-
-                // Clean up the archive temp file after platform upload completes (or fails).
-                try? FileManager.default.removeItem(at: archiveURLCopy)
-            }
-
-            // Re-activate before showing the alert in case the app reverted
-            // to .accessory policy after the log report window was dismissed.
-            NSApp.activate(ignoringOtherApps: true)
-            let alert = NSAlert()
-            alert.messageText = "Feedback Sent"
-            alert.informativeText = "Your feedback has been sent to Vellum."
-            alert.alertStyle = .informational
-            alert.runModal()
+            // Clean up the archive temp file after platform upload completes (or fails).
+            try? FileManager.default.removeItem(at: archiveURLCopy)
         }
     }
 
