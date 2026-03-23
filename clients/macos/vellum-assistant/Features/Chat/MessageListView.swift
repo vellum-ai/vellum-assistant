@@ -549,10 +549,16 @@ struct MessageListView: View {
     private func updateAvatarFollower(anchorY: CGFloat) {
         recordScrollLoopEvent(.avatarFollowerUpdate)
         // Compute visibility once and update @State only on boundary crossings.
+        // During an active send, don't hide the avatar on transient non-finite
+        // anchors — the LazyVStack briefly deallocates the anchor view during
+        // re-layout (thinking indicator, rich UI expansion). Hiding would cause
+        // the avatar to flash off-screen via shouldShowConversationTailAvatar.
         let nowVisible = anchorY.isFinite
             && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
         if isAvatarVisible != nowVisible {
-            isAvatarVisible = nowVisible
+            if nowVisible || !isSending {
+                isAvatarVisible = nowVisible
+            }
         }
 
         // Update non-reactive tracking position (no body re-evaluation).
