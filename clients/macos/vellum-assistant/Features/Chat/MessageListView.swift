@@ -1447,6 +1447,11 @@ struct MessageListView: View {
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
+                    // History just loaded but the coordinator's initial-restore session
+                    // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
+                    // so messages are visible without requiring user scroll interaction.
+                    requestBottomPin(reason: .initialRestore, proxy: proxy)
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
