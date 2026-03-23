@@ -276,8 +276,14 @@ describe("upsertSkillCapabilityMemory", () => {
       upsertSkillCapabilityMemory("test-skill", makeSkill());
     }).not.toThrow();
 
-    // Restore DB state for subsequent tests
+    // Restore DB state for subsequent tests.
+    // Delete the entire DB so initializeDb recreates it from scratch — just
+    // resetting the connection leaves stale migration checkpoints that skip
+    // checkpoint-guarded ALTER TABLE migrations (e.g. source_type column).
     resetDb();
+    for (const ext of ["", "-wal", "-shm"]) {
+      rmSync(join(testDir, `test.db${ext}`), { force: true });
+    }
     initializeDb();
   });
 });
@@ -324,8 +330,12 @@ describe("deleteSkillCapabilityMemory", () => {
       deleteSkillCapabilityMemory("test-skill");
     }).not.toThrow();
 
-    // Restore DB state for subsequent tests
+    // Restore DB state for subsequent tests (see upsert "does not throw" test
+    // for rationale on why we delete the DB file).
     resetDb();
+    for (const ext of ["", "-wal", "-shm"]) {
+      rmSync(join(testDir, `test.db${ext}`), { force: true });
+    }
     initializeDb();
   });
 });
@@ -542,8 +552,12 @@ describe("seedCatalogSkillMemories", () => {
 
     await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
 
-    // Restore DB state for subsequent tests
+    // Restore DB state for subsequent tests (see upsert "does not throw" test
+    // for rationale on why we delete the DB file).
     resetDb();
+    for (const ext of ["", "-wal", "-shm"]) {
+      rmSync(join(testDir, `test.db${ext}`), { force: true });
+    }
     initializeDb();
   });
 });
