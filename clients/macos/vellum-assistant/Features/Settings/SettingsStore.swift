@@ -2242,7 +2242,8 @@ public final class SettingsStore: ObservableObject {
         do {
             _ = try await bootstrapService.bootstrap(
                 runtimeAssistantId: assistant.assistantId,
-                clientPlatform: "macos"
+                clientPlatform: "macos",
+                assistantVersion: connectionManager?.assistantVersion
             )
         } catch {
             // Bootstrap can persist the keychain mapping during ensure-registration

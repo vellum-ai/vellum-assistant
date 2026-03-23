@@ -396,7 +396,8 @@ public final class AuthService {
         organizationId: String,
         clientInstallationId: String,
         runtimeAssistantId: String,
-        clientPlatform: String
+        clientPlatform: String,
+        assistantVersion: String? = nil
     ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
         let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
         guard let url = URL(string: urlString) else {
@@ -418,7 +419,8 @@ public final class AuthService {
         let requestBody = EnsureSelfHostedLocalRegistrationRequest(
             clientInstallationId: clientInstallationId,
             runtimeAssistantId: runtimeAssistantId,
-            clientPlatform: clientPlatform
+            clientPlatform: clientPlatform,
+            assistantVersion: assistantVersion
         )
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
@@ -457,7 +459,8 @@ public final class AuthService {
         organizationId: String,
         clientInstallationId: String,
         runtimeAssistantId: String,
-        clientPlatform: String
+        clientPlatform: String,
+        assistantVersion: String? = nil
     ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
         let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
         guard let url = URL(string: urlString) else {
@@ -479,7 +482,8 @@ public final class AuthService {
         let requestBody = ReprovisionSelfHostedLocalApiKeyRequest(
             clientInstallationId: clientInstallationId,
             runtimeAssistantId: runtimeAssistantId,
-            clientPlatform: clientPlatform
+            clientPlatform: clientPlatform,
+            assistantVersion: assistantVersion
         )
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
