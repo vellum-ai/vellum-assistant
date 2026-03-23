@@ -125,6 +125,13 @@ export async function buildStartupScript(
     );
   }
 
+  // Generate a bootstrap secret for the laptop that initiated this remote
+  // hatch. The startup script exports it as GUARDIAN_BOOTSTRAP_SECRET so
+  // that when `vellum hatch --remote docker` runs on the VM, the docker
+  // hatch detects the pre-set env var and appends its own secret.
+  const laptopBootstrapSecret = randomBytes(32).toString("hex");
+  saveBootstrapSecret(instanceName, laptopBootstrapSecret);
+
   // Build bash lines that set each provider API key as a shell variable
   // and corresponding dotenv lines for the env file.
   // Include the laptop bootstrap secret so that when the remote runs
@@ -140,13 +147,6 @@ export async function buildStartupScript(
   const dotenvLines = Object.keys(providerApiKeys)
     .map((envVar) => `${envVar}=\$${envVar}`)
     .join("\n");
-
-  // Generate a bootstrap secret for the laptop that initiated this remote
-  // hatch. The startup script exports it as GUARDIAN_BOOTSTRAP_SECRET so
-  // that when `vellum hatch --remote docker` runs on the VM, the docker
-  // hatch detects the pre-set env var and appends its own secret.
-  const laptopBootstrapSecret = randomBytes(32).toString("hex");
-  saveBootstrapSecret(instanceName, laptopBootstrapSecret);
 
   // Write --config key=value pairs to a temp JSON file on the remote host
   // and export the env var so the daemon reads it on first boot.
