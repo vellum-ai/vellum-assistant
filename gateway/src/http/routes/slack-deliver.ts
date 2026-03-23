@@ -9,7 +9,7 @@ import {
   downloadAttachment,
   type RuntimeAttachmentMeta,
 } from "../../runtime/client.js";
-import { classifySlackError } from "../../slack/errors.js";
+import { classifySlackError, getUserMessage } from "../../slack/errors.js";
 import { approvalPrompt, type Block } from "../../slack/block-kit-builder.js";
 import { textToBlocks } from "../../slack/text-to-blocks.js";
 
@@ -105,19 +105,33 @@ async function callSlackApiWithRetries(
         "Slack API returned error",
       );
 
+      const userMessage = getUserMessage(data.error);
+
       if (category === "rate_limit") {
-        return Response.json({ error: "Rate limited" }, { status: 429 });
+        return Response.json(
+          { error: "Rate limited", ...(userMessage && { userMessage }) },
+          { status: 429 },
+        );
       }
       if (category === "channel_not_found" || category === "not_found") {
-        return Response.json({ error: "Channel not found" }, { status: 404 });
+        return Response.json(
+          { error: "Channel not found", ...(userMessage && { userMessage }) },
+          { status: 404 },
+        );
       }
       if (category === "permission") {
-        return Response.json({ error: "Permission denied" }, { status: 403 });
+        return Response.json(
+          { error: "Permission denied", ...(userMessage && { userMessage }) },
+          { status: 403 },
+        );
       }
       // Auth errors use 502 so downstream retry logic treats them as
       // transient (token rotation, brief credential desync). Permanent
       // auth failures will exhaust retries and be dead-lettered normally.
-      return Response.json({ error: "Delivery failed" }, { status: 502 });
+      return Response.json(
+        { error: "Delivery failed", ...(userMessage && { userMessage }) },
+        { status: 502 },
+      );
     }
 
     return { ok: true, ts: data.ts };
