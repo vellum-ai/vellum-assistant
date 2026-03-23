@@ -3,8 +3,8 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
 
-/// Minimal decode of the healthz response to extract the version field.
-private struct HealthzVersionResponse: Decodable {
+/// Minimal decode of the /v1/health response to extract the version field.
+private struct HealthVersionResponse: Decodable {
     let version: String?
 }
 
@@ -266,7 +266,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 throw ConnectionError.healthCheckFailed
             }
 
-            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
+            if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != assistantVersion {
                     assistantVersion = newVersion
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
