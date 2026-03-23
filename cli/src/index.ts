@@ -75,7 +75,7 @@ function printHelp(): void {
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");
   console.log("  tunnel   Create a tunnel for a locally hosted assistant");
-  console.log("  upgrade  Upgrade an assistant to the latest version");
+  console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
