@@ -8,10 +8,9 @@ extension MemoryItemDetailSheet {
     }
 
     var kindBadge: some View {
-        VBadge(
-            label: memoryKind?.label ?? displayItem.kind.capitalized,
-            color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .rounded
+        VTag(
+            memoryKind?.label ?? displayItem.kind.capitalized,
+            color: memoryKind?.color ?? VColor.contentTertiary
         )
     }
 

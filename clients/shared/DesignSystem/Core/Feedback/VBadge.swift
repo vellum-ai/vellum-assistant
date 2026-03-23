@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Compact status indicator: count, dot, or text label with semantic tone.
+/// For categorization with colored backgrounds and icons, use `VTag` instead.
 public struct VBadge: View {
     public enum Style {
         case count(Int)
@@ -30,8 +32,6 @@ public struct VBadge: View {
     public var tone: Tone?
     public var emphasis: Emphasis = .solid
     public var shape: Shape = .pill
-    public var icon: VIcon?
-    public var iconColor: Color?
 
     public init(style: Style, color: Color = VColor.primaryBase, shape: Shape = .pill) {
         self.style = style
@@ -39,22 +39,11 @@ public struct VBadge: View {
         self.shape = shape
     }
 
-    public init(label: String, icon: VIcon? = nil, iconColor: Color? = nil, tone: Tone = .accent, emphasis: Emphasis = .subtle, shape: Shape = .pill) {
+    public init(label: String, tone: Tone = .accent, emphasis: Emphasis = .subtle, shape: Shape = .pill) {
         self.style = .label(label)
         self.color = VColor.primaryBase
         self.tone = tone
         self.emphasis = emphasis
-        self.shape = shape
-        self.icon = icon
-        self.iconColor = iconColor
-    }
-
-    /// Custom-colored label badge. Uses the provided color at 20% opacity
-    /// as the background with `contentEmphasized` foreground text.
-    public init(label: String, color: Color, shape: Shape = .pill) {
-        self.style = .label(label)
-        self.color = color
-        self.emphasis = .subtle
         self.shape = shape
     }
 
@@ -76,20 +65,14 @@ public struct VBadge: View {
                 .frame(width: 8, height: 8)
 
         case .label(let text):
-            HStack(spacing: VSpacing.xxs) {
-                if let icon {
-                    VIconView(icon, size: 12)
-                        .foregroundColor(iconColor ?? labelForegroundColor)
-                }
-                Text(text)
-                    .font(VFont.caption)
-                    .foregroundColor(labelForegroundColor)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, labelVerticalPadding)
-            .background(labelBackgroundColor)
-            .modifier(LabelShapeModifier(shape: shape, borderColor: labelBorderColor, borderWidth: labelBorderWidth))
-            .accessibilityLabel(text)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(labelForegroundColor)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, labelVerticalPadding)
+                .background(labelBackgroundColor)
+                .modifier(LabelShapeModifier(shape: shape, borderColor: labelBorderColor, borderWidth: labelBorderWidth))
+                .accessibilityLabel(text)
         }
     }
 

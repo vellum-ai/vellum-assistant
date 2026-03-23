@@ -35,7 +35,7 @@ struct MemoryItemRow: View {
                         kindTag
 
                         if let scopeLabel = item.scopeLabel {
-                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
+                            VTag(scopeLabel, color: VColor.contentSecondary, icon: .lock)
                         }
 
                         VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
@@ -74,10 +74,9 @@ struct MemoryItemRow: View {
     // MARK: - Kind Tag
 
     private var kindTag: some View {
-        VBadge(
-            label: memoryKind?.label ?? item.kind.capitalized,
-            color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .pill
+        VTag(
+            memoryKind?.label ?? item.kind.capitalized,
+            color: memoryKind?.color ?? VColor.contentTertiary
         )
     }
 }

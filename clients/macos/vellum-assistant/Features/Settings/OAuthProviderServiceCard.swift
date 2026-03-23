@@ -419,7 +419,7 @@ struct OAuthProviderServiceCard: View {
 
             Spacer()
 
-            VBadge(label: "Connected", icon: .circleCheck, tone: .positive, emphasis: .subtle)
+            VTag("Connected", color: VColor.systemPositiveStrong, icon: .circleCheck)
 
             VButton(label: "Disconnect", style: .danger, size: .compact) {
                 disconnectConnection = conn
