@@ -337,10 +337,7 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.tier1Count).toBeDefined();
     expect(result.tier2Count).toBeDefined();
     expect(result.hybridSearchMs).toBeDefined();
-    // Recency search finds raw candidates from this conversation…
-    expect(result.recencyHits).toBeGreaterThan(0);
-    // …but they are filtered out because they belong to the active
-    // conversation and are already present in the conversation history.
+    // Without semantic search, no candidates are found.
     expect(result.mergedCount).toBe(0);
   });
 
@@ -403,11 +400,7 @@ describe("Memory Retriever Pipeline", () => {
     );
 
     expect(result.enabled).toBe(true);
-    // Recency search finds segments from the active conversation
-    expect(result.recencyHits).toBeGreaterThan(0);
-    // But they are filtered out of merged results; only other-conversation
-    // segments would survive (none in this case since recency is scoped to
-    // the active conversation).
+    // Without semantic search, no candidates are found.
     expect(result.mergedCount).toBe(0);
   });
 
@@ -506,10 +499,6 @@ describe("Memory Retriever Pipeline", () => {
     );
 
     expect(result.enabled).toBe(true);
-    // Recency search finds segments from this conversation
-    expect(result.recencyHits).toBeGreaterThan(0);
-    // Compacted segments survive filtering — they are no longer in context
-    expect(result.mergedCount).toBeGreaterThan(0);
   });
 
   // -----------------------------------------------------------------------
@@ -716,9 +705,7 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.enabled).toBe(true);
     // Semantic/hybrid search should be skipped
     expect(result.semanticHits).toBe(0);
-    // Recency search finds raw candidates…
-    expect(result.recencyHits).toBeGreaterThan(0);
-    // …but current-conversation segments are filtered out
+    // Without semantic search, no candidates are found.
     expect(result.mergedCount).toBe(0);
   });
 
@@ -864,9 +851,7 @@ describe("Memory Retriever Pipeline", () => {
     // pipeline proceeds non-degraded end-to-end.
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
-    // Recency search finds raw candidates; hybrid search returns empty from mock
-    expect(result.recencyHits).toBeGreaterThan(0);
-    // Current-conversation segments are filtered out of merged results
+    // Without semantic search, no candidates are found.
     expect(result.mergedCount).toBe(0);
   });
 
@@ -1142,8 +1127,7 @@ describe("Memory Retriever Pipeline", () => {
       );
 
       // Simulate Qdrant returning the parent-conversation segment as a
-      // semantic hit so it enters the candidate map (recency search is scoped
-      // to forkConv and would never find it).
+      // semantic hit so it enters the candidate map.
       mockQdrantResults.push({
         id: "qdrant-fork-1",
         score: 0.9,
@@ -1342,8 +1326,7 @@ describe("Memory Retriever Pipeline", () => {
       );
 
       // Simulate Qdrant returning the grandparent segment as a semantic hit
-      // so it enters the candidate map (recency search is scoped to childConv
-      // and would never find it).
+      // so it enters the candidate map.
       mockQdrantResults.push({
         id: "qdrant-gp-1",
         score: 0.9,

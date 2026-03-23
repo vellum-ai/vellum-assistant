@@ -145,7 +145,6 @@ mock.module("../memory/retriever.js", () => ({
     model: "mock",
     injectedText: "",
     semanticHits: 0,
-    recencyHits: 0,
     mergedCount: 0,
     selectedCount: 0,
     injectedTokens: 0,

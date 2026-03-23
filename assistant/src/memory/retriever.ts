@@ -29,7 +29,6 @@ import {
   IDENTITY_KINDS,
   PREFERENCE_KINDS,
 } from "./search/formatting.js";
-import { recencySearch } from "./search/lexical.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
 import {
@@ -139,7 +138,7 @@ function buildDegradationStatus(
   return {
     semanticUnavailable: true,
     reason,
-    fallbackSources: ["recency"],
+    fallbackSources: [],
   };
 }
 
@@ -243,13 +242,12 @@ async function generateQueryEmbedding(
  *   1. Build query text (caller provides via buildMemoryQuery)
  *   2. Generate dense + sparse embeddings
  *   3. Hybrid search on Qdrant (dense + sparse RRF fusion)
- *   4. Supplement with recency search (conversation-scoped, DB only)
- *   5. Merge + deduplicate results
- *   6. Classify tiers (score > 0.8 → tier 1, > 0.6 → tier 2)
- *   7. Enrich item candidates with metadata for staleness
- *   8. Compute staleness per item
- *   9. Demote very_stale tier 1 → tier 2
- *  10. Build two-layer XML injection with budget allocation
+ *   4. Deduplicate results
+ *   5. Classify tiers (score > 0.8 → tier 1, > 0.6 → tier 2)
+ *   6. Enrich item candidates with metadata for staleness
+ *   7. Compute staleness per item
+ *   8. Demote very_stale tier 1 → tier 2
+ *   9. Build two-layer XML injection with budget allocation
  */
 export async function buildMemoryRecall(
   query: string,
@@ -327,21 +325,15 @@ export async function buildMemoryRecall(
       if (isQdrantConnectionError(err)) {
         log.warn({ err }, "Qdrant unavailable — hybrid search disabled");
       } else {
-        log.warn({ err }, "Hybrid search failed, continuing with recency only");
+        log.warn({ err }, "Hybrid search failed");
       }
     }
   }
   const hybridSearchMs = Date.now() - hybridSearchStart;
 
-  // ── Step 4: Recency supplement (DB only, conversation-scoped) ───
-  const recencyLimit = 5;
-  const recencyCandidates = conversationId
-    ? recencySearch(conversationId, recencyLimit, excludeMessageIds, scopeIds)
-    : [];
-
-  // ── Step 5: Merge and deduplicate ──────────────────────────────
+  // ── Step 4: Deduplicate ────────────────────────────────────────
   const candidateMap = new Map<string, Candidate>();
-  for (const c of [...hybridCandidates, ...recencyCandidates]) {
+  for (const c of [...hybridCandidates]) {
     const existing = candidateMap.get(c.key);
     if (!existing) {
       candidateMap.set(c.key, { ...c });
@@ -356,8 +348,7 @@ export async function buildMemoryRecall(
       existing.text = c.text;
     }
     // Propagate metadata that the first source may lack (e.g. legacy
-    // Qdrant points missing conversation_id / message_id). The recency
-    // source always has these from the DB, so merging fills the gap.
+    // Qdrant points missing conversation_id / message_id).
     if (c.conversationId && !existing.conversationId) {
       existing.conversationId = c.conversationId;
     }
@@ -366,7 +357,7 @@ export async function buildMemoryRecall(
     }
   }
 
-  // ── Step 5b: Filter out current-conversation segments still in context ──
+  // ── Step 4b: Filter out current-conversation segments still in context ──
   // Segments whose source message is still in the conversation's context
   // window are redundant (already visible to the model). However, segments
   // from messages that were removed by context compaction should be kept —
@@ -449,33 +440,17 @@ export async function buildMemoryRecall(
   }
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);
 
-  // ── Step 6: Tier classification ─────────────────────────────────
-  // Recency-only candidates (semantic=0) can never reach the tier 2 threshold
-  // (>0.6) since their max finalScore is 0.3. Promote them directly to tier 2
-  // so recent conversation context is preserved even without semantic signal.
-  const recencyOnlyKeys = new Set(
-    allCandidates
-      .filter((c) => c.semantic === 0 && c.recency > 0)
-      .map((c) => c.key),
-  );
+  // ── Step 5: Tier classification ─────────────────────────────────
   const tiered = classifyTiers(allCandidates);
-  if (recencyOnlyKeys.size > 0) {
-    const alreadyTiered = new Set(tiered.map((c) => c.key));
-    for (const c of allCandidates) {
-      if (recencyOnlyKeys.has(c.key) && !alreadyTiered.has(c.key)) {
-        tiered.push({ ...c, tier: 2 });
-      }
-    }
-  }
 
-  // ── Step 6b: Enrich candidates with source labels ──────────────
+  // ── Step 5b: Enrich candidates with source labels ──────────────
   enrichSourceLabels(tiered);
 
-  // ── Step 7: Enrich with item metadata for staleness ─────────────
+  // ── Step 6: Enrich with item metadata for staleness ─────────────
   const itemIds = tiered.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
 
-  // ── Step 8: Compute staleness per item ──────────────────────────
+  // ── Step 7: Compute staleness per item ──────────────────────────
   const now = Date.now();
   for (const c of tiered) {
     if (c.type !== "item") continue;
@@ -492,10 +467,10 @@ export async function buildMemoryRecall(
     c.staleness = level;
   }
 
-  // ── Step 9: Demote very_stale tier 1 → tier 2 ──────────────────
+  // ── Step 8: Demote very_stale tier 1 → tier 2 ──────────────────
   const afterDemotion = applyStaleDemotion(tiered);
 
-  // ── Step 10: Budget allocation and two-layer injection ──────────
+  // ── Step 9: Budget allocation and two-layer injection ──────────
   const maxInjectTokens = Math.max(
     1,
     Math.floor(
@@ -581,7 +556,6 @@ export async function buildMemoryRecall(
     {
       query: truncate(query, 120),
       hybridHits: hybridCandidates.length,
-      recencyHits: recencyCandidates.length,
       mergedCount: allCandidates.length,
       tier1Count,
       tier2Count,
@@ -602,7 +576,6 @@ export async function buildMemoryRecall(
     provider: embeddingResult.provider,
     model: embeddingResult.model,
     semanticHits: hybridCandidates.length,
-    recencyHits: recencyCandidates.length,
     mergedCount: allCandidates.length,
     selectedCount,
     injectedTokens: estimateTextTokens(injectedText),
@@ -887,7 +860,6 @@ function emptyResult(
     provider: init.provider,
     model: init.model,
     semanticHits: 0,
-    recencyHits: 0,
     mergedCount: 0,
     selectedCount: 0,
     injectedTokens: 0,

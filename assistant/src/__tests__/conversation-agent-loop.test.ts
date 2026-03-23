@@ -158,7 +158,6 @@ mock.module("../memory/retriever.js", () => ({
     injectedText: "",
 
     semanticHits: 0,
-    recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
@@ -189,7 +188,6 @@ mock.module("../daemon/conversation-memory.js", () => ({
       injectedText: "",
 
       semanticHits: 0,
-      recencyHits: 0,
       injectedTokens: 0,
       latencyMs: 0,
       tier1Count: 0,

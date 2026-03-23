@@ -92,7 +92,6 @@ export async function prepareMemoryContext(
       degraded: false,
       injectedText: "",
       semanticHits: 0,
-      recencyHits: 0,
       mergedCount: 0,
       selectedCount: 0,
       injectedTokens: 0,
@@ -188,7 +187,7 @@ export async function prepareMemoryContext(
             }
           : undefined,
         semanticHits: recall.semanticHits,
-        recencyHits: recall.recencyHits,
+        recencyHits: 0,
         tier1Count: recall.tier1Count ?? 0,
         tier2Count: recall.tier2Count ?? 0,
         hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,

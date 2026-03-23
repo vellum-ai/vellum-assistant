@@ -5,7 +5,6 @@
  * - compaction.summaryCalls: 2-6
  * - compaction.estimatedInputTokens: < previousEstimatedInputTokens
  * - recall.injectedTokens: <= computed dynamic budget
- * - recall.recencyHits: > 0
  * - recall.enabled: true
  */
 import { mkdtempSync, rmSync } from "node:fs";
@@ -303,8 +302,6 @@ describe("Memory context benchmark", () => {
       { maxInjectTokensOverride: recallBudget },
     );
 
-    // Recency search finds conversation-scoped segments.
-    expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.enabled).toBe(true);
     // With Qdrant mock returning a high-scoring result, content should be injected.
     expect(recall.selectedCount).toBeGreaterThan(0);

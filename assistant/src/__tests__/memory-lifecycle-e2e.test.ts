@@ -299,12 +299,8 @@ describe("Memory lifecycle E2E regression", () => {
       TEST_CONFIG,
     );
 
-    // Recency search finds segments but their finalScore (semantic*0.7 +
-    // recency*0.2 + confidence*0.1) is too low to pass tier classification
-    // (threshold > 0.6) because semantic=0 with Qdrant mocked empty.
-    // Verify recency search ran successfully.
-    expect(recall.recencyHits).toBeGreaterThan(0);
-    // Candidates exist but don't pass tier classification, so injectedText is empty
+    // Without semantic search (Qdrant mocked empty), no candidates pass
+    // tier classification (threshold > 0.6).
     expect(recall.enabled).toBe(true);
   });
 
@@ -359,10 +355,6 @@ describe("Memory lifecycle E2E regression", () => {
       TEST_CONFIG,
     );
 
-    // The recency-only promotion path (Step 6 in retriever) ensures the
-    // seeded segment reaches tier 2 and is injected even without semantic
-    // search. Verify structure of the two-layer XML format.
-    expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.enabled).toBe(true);
     expect(recall.injectedText.length).toBeGreaterThan(0);
     expect(recall.injectedTokens).toBeGreaterThan(0);

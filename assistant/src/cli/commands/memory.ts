@@ -183,7 +183,7 @@ Examples:
         log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
       }
       log.info(`Semantic hits: ${result.semanticHits}`);
-      log.info(`Recency hits: ${result.recencyHits}`);
+      log.info("Recency hits: 0");
       log.info(`Injected tokens: ${result.injectedTokens}`);
       log.info(`Latency: ${result.latencyMs}ms`);
       if (result.injectedText.length > 0) {

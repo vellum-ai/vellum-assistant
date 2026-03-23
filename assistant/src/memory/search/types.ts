@@ -1,5 +1,5 @@
 export type CandidateType = "segment" | "item" | "summary" | "media";
-export type CandidateSource = "semantic" | "recency";
+export type CandidateSource = "semantic";
 
 export type StalenessLevel = "fresh" | "aging" | "stale" | "very_stale";
 
@@ -39,12 +39,10 @@ export type DegradationReason =
   | "qdrant_unavailable"
   | "embedding_generation_failed";
 
-export type FallbackSource = "recency";
-
 export interface DegradationStatus {
   semanticUnavailable: boolean;
   reason: DegradationReason;
-  fallbackSources: FallbackSource[];
+  fallbackSources: string[];
 }
 
 export interface MemoryRecallResult {
@@ -55,7 +53,6 @@ export interface MemoryRecallResult {
   provider?: string;
   model?: string;
   semanticHits: number;
-  recencyHits: number;
   mergedCount: number;
   selectedCount: number;
   injectedTokens: number;

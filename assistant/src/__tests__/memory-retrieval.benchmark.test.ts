@@ -197,7 +197,6 @@ describe("Memory retrieval benchmark", () => {
     expect(recall.enabled).toBe(true);
     expect(recall.degraded).toBe(false);
     // Recency search finds conversation-scoped segments
-    expect(recall.recencyHits).toBeGreaterThan(0);
     // Relaxed threshold — guards against severe regressions, not precise benchmarking
     expect(recall.latencyMs).toBeLessThan(500);
   });
@@ -216,7 +215,6 @@ describe("Memory retrieval benchmark", () => {
 
     expect(recall.enabled).toBe(true);
     expect(recall.degraded).toBe(false);
-    expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.latencyMs).toBeLessThan(1000);
   });
 
@@ -234,7 +232,6 @@ describe("Memory retrieval benchmark", () => {
 
     expect(recall.enabled).toBe(true);
     expect(recall.degraded).toBe(false);
-    expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.latencyMs).toBeLessThan(2000);
   });
 

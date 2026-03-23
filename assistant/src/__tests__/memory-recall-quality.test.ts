@@ -397,7 +397,6 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       // With high-scoring Qdrant results, items should be injected
       expect(recall.semanticHits).toBeGreaterThan(0);
@@ -502,7 +501,6 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       // High-importance preference should be injected
       expect(recall.injectedText).toContain("TypeScript");
@@ -566,7 +564,6 @@ describe("Memory Recall Quality", () => {
       );
 
       // Recency search finds the segment but tier classification filters it
-      expect(recall.recencyHits).toBeGreaterThan(0);
       // Superseded items should not leak into injected text
       expect(recall.injectedText).not.toContain("vim for editing code");
     });
@@ -623,7 +620,6 @@ describe("Memory Recall Quality", () => {
 
       // Recency search finds segments but tier classification filters them.
       // Key assertion: superseded MySQL item should not leak.
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.injectedText).not.toContain("MySQL");
     });
 
@@ -676,7 +672,6 @@ describe("Memory Recall Quality", () => {
         "conv-invalid-status",
         TEST_CONFIG,
       );
-      expect(recall.recencyHits).toBeGreaterThan(0);
       // Active segment content should be injected; invalidated item should not leak
       expect(recall.injectedText).toContain("React");
       expect(recall.injectedText).not.toContain("Angular");
@@ -765,7 +760,6 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       // Recent Bun item should be injected, old Node reference should not
       expect(recall.injectedText).toContain("Bun");
@@ -870,7 +864,6 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       // Frequently accessed timezone item should be in injected text
       expect(recall.injectedText).toContain("America/Los_Angeles");
@@ -940,7 +933,6 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       // Deployment rule should be injected
       expect(recall.injectedText).toContain("staging");
@@ -1025,7 +1017,6 @@ describe("Memory Recall Quality", () => {
 
       // Recency-only candidates are promoted to tier 2 and injected.
       // Verify the pipeline recalled the preference content.
-      expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
       assertPrecisionAtK(
         recall.injectedText,
