@@ -91,10 +91,19 @@ export async function handleGetTwilioConfig(): Promise<Response> {
 export async function handleSetTwilioCredentials(
   req: Request,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as {
-    accountSid?: string;
-    authToken?: string;
-  };
+  let body: { accountSid?: string; authToken?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: await hasTwilioCredentials(),
+        error: "Invalid JSON in request body",
+      },
+      { status: 400 },
+    );
+  }
 
   if (!body.accountSid || !body.authToken) {
     return Response.json(
@@ -261,10 +270,19 @@ export async function handleProvisionTwilioNumber(
     });
   }
 
-  const body = (await req.json().catch(() => ({}))) as {
-    country?: string;
-    areaCode?: string;
-  };
+  let body: { country?: string; areaCode?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: await hasTwilioCredentials(),
+        error: "Invalid JSON in request body",
+      },
+      { status: 400 },
+    );
+  }
   const { accountSid, authToken } = await getTwilioCredentials();
   const country = body.country ?? "US";
 
@@ -318,7 +336,19 @@ export async function handleProvisionTwilioNumber(
 export async function handleAssignTwilioNumber(
   req: Request,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
+  let body: { phoneNumber?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: await hasTwilioCredentials(),
+        error: "Invalid JSON in request body",
+      },
+      { status: 400 },
+    );
+  }
 
   if (!body.phoneNumber) {
     return Response.json(
@@ -375,7 +405,19 @@ export async function handleReleaseTwilioNumber(
     });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
+  let body: { phoneNumber?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: await hasTwilioCredentials(),
+        error: "Invalid JSON in request body",
+      },
+      { status: 400 },
+    );
+  }
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   const phoneNumber = body.phoneNumber || (twilio.phoneNumber as string) || "";
