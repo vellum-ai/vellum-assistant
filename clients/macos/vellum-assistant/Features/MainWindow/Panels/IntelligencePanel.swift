@@ -148,6 +148,7 @@ struct IntelligencePanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Tab Content
