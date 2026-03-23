@@ -11,6 +11,8 @@ metadata:
 
 You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode. Walk through each step below.
 
+**CRITICAL: Follow these steps strictly in order. Do NOT combine steps, skip ahead, or ask for multiple tokens at once. Each step must be completed and confirmed before moving to the next. The bot token does NOT exist until the app is installed — you cannot collect it early.**
+
 ## Value Classification
 
 | Value     | Type       | Storage method            | Secret? |
@@ -70,11 +72,7 @@ Generate the manifest JSON:
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": [
-        "app_mention",
-        "message.channels",
-        "message.im"
-      ]
+      "bot_events": ["app_mention", "message.channels", "message.im"]
     },
     "interactivity": { "is_enabled": true },
     "org_deploy_enabled": false,
@@ -96,6 +94,8 @@ Wait for the user to confirm they've created the app before proceeding.
 
 ## Step 2: Generate App Token & Collect It
 
+**Do NOT skip ahead to the bot token. The app token must be collected first — the bot token does not exist yet.**
+
 Tell the user to navigate to **Settings > Basic Information > App-Level Tokens** in their newly created Slack app, then:
 
 1. Click **Generate Token and Scopes**
@@ -115,9 +115,11 @@ The `slack_channel` secure prompt already routes through the same Slack settings
 
 ## Step 3: Install App & Collect Bot Token
 
+**IMPORTANT: The bot token only becomes available AFTER the app is installed. The user MUST install the app first — do NOT ask for the bot token before this step. The bot token is found under Install App (NOT under OAuth & Permissions).**
+
 Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
 
-After installation, collect the bot token securely:
+After installation, the **Bot User OAuth Token** will appear on the same Install App page. Collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
 
@@ -201,7 +203,11 @@ Verify that `message.channels` event subscription is enabled in your Slack app s
 
 ## Implementation Rules
 
-All token collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, `curl`, or `assistant config set slack.*` in chat to collect or manipulate tokens. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
+- All token collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, `curl`, or `assistant config set slack.*` in chat to collect or manipulate tokens. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
+- **Do NOT combine multiple steps into a single message.** Each step must be its own turn in the conversation. Wait for the user to confirm completion before moving on.
+- **Do NOT ask for both tokens at once.** Collect the app token (Step 2) first, then install the app (Step 3), then collect the bot token. The bot token literally does not exist until the app is installed.
+- **Do NOT tell the user to find the bot token under "OAuth & Permissions".** The bot token appears on the **Install App** page after installation.
+- **Do NOT tell the user to set up a redirect URL.** Socket Mode does not require redirect URLs, OAuth redirect URLs, or any publicly reachable endpoints. The manifest already configures Socket Mode — no additional URL configuration is needed.
 
 ## Clearing Credentials
 

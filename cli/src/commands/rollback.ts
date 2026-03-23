@@ -1,5 +1,4 @@
 import { randomBytes } from "crypto";
-import { join } from "path";
 
 import {
   findAssistantByName,
@@ -18,10 +17,6 @@ import {
   stopContainers,
 } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
-import {
-  loadBootstrapSecret,
-  saveBootstrapSecret,
-} from "../lib/guardian-token";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
   fetchOrganizationId,
@@ -35,6 +30,7 @@ import {
   buildStartingEvent,
   buildUpgradeCommitMessage,
   captureContainerEnv,
+  commitWorkspaceViaGateway,
   CONTAINER_ENV_EXCLUDE_KEYS,
   performDockerRollback,
   rollbackMigrations,
@@ -42,7 +38,6 @@ import {
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { parseVersion } from "../lib/version-compat.js";
-import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 function parseArgs(): { name: string | null; version: string | null } {
   const args = process.argv.slice(3);
@@ -181,30 +176,19 @@ async function rollbackPlatform(
     }
   }
 
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : null;
-
   // Workspace commit: BEFORE broadcast, matching upgradePlatform() order
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "rollback",
-          phase: "starting",
-          from: currentVersion ?? "unknown",
-          to: version,
-          topology: "managed",
-          assistantId: entry.assistantId,
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "starting",
+      from: currentVersion ?? "unknown",
+      to: version,
+      topology: "managed",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   // Authenticate before broadcasting any SSE events so that a missing
   // token does not leave connected clients showing a perpetual spinner.
@@ -270,26 +254,19 @@ async function rollbackPlatform(
   // the client detects completion via healthz polling.
 
   // Workspace commit: Complete
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "rollback",
-          phase: "complete",
-          from: currentVersion ?? "unknown",
-          to: version,
-          topology: "managed",
-          assistantId: entry.assistantId,
-          result: "success",
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "complete",
+      from: currentVersion ?? "unknown",
+      to: version,
+      topology: "managed",
+      assistantId: entry.assistantId,
+      result: "success",
+    }),
+  );
 
   console.log("Rollback initiated. The assistant may be briefly unavailable.");
 }
@@ -383,30 +360,19 @@ export async function rollback(): Promise<void> {
   const res = dockerResourceNames(instanceName);
 
   try {
-    const workspaceDir = entry.resources
-      ? join(entry.resources.instanceDir, ".vellum", "workspace")
-      : undefined;
-
     // Record rollback start in workspace git history
-    if (workspaceDir) {
-      try {
-        await commitWorkspaceState(
-          workspaceDir,
-          buildUpgradeCommitMessage({
-            action: "rollback",
-            phase: "starting",
-            from: entry.serviceGroupVersion ?? "unknown",
-            to: entry.previousServiceGroupVersion ?? "unknown",
-            topology: "docker",
-            assistantId: entry.assistantId,
-          }),
-        );
-      } catch (err) {
-        console.warn(
-          `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "rollback",
+        phase: "starting",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: entry.previousServiceGroupVersion ?? "unknown",
+        topology: "docker",
+        assistantId: entry.assistantId,
+      }),
+    );
 
     console.log(
       `🔄 Rolling back Docker assistant '${instanceName}' to ${entry.previousServiceGroupVersion}...\n`,
@@ -422,13 +388,6 @@ export async function rollback(): Promise<void> {
     // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
     const cesServiceToken =
       capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-    // Retrieve or generate a bootstrap secret for the gateway.
-    const loadedSecret = loadBootstrapSecret(instanceName);
-    const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-    if (!loadedSecret) {
-      saveBootstrapSecret(instanceName, bootstrapSecret);
-    }
 
     // Extract or generate the shared JWT signing key.
     const signingKey =
@@ -511,7 +470,6 @@ export async function rollback(): Promise<void> {
     await startContainers(
       {
         signingKey,
-        bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
         gatewayPort,
@@ -560,26 +518,19 @@ export async function rollback(): Promise<void> {
       );
 
       // Record successful rollback in workspace git history
-      if (workspaceDir) {
-        try {
-          await commitWorkspaceState(
-            workspaceDir,
-            buildUpgradeCommitMessage({
-              action: "rollback",
-              phase: "complete",
-              from: entry.serviceGroupVersion ?? "unknown",
-              to: entry.previousServiceGroupVersion ?? "unknown",
-              topology: "docker",
-              assistantId: entry.assistantId,
-              result: "success",
-            }),
-          );
-        } catch (err) {
-          console.warn(
-            `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+      await commitWorkspaceViaGateway(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildUpgradeCommitMessage({
+          action: "rollback",
+          phase: "complete",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: entry.previousServiceGroupVersion ?? "unknown",
+          topology: "docker",
+          assistantId: entry.assistantId,
+          result: "success",
+        }),
+      );
 
       console.log(
         `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,

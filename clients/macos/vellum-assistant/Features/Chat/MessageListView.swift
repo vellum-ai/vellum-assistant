@@ -5,6 +5,7 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
+private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 
 // MARK: - Scroll Suppression Environment
 
@@ -431,9 +432,13 @@ struct MessageListView: View {
         }
 
         recordScrollLoopEvent(.avatarDisplayYApplied)
-        withAnimation(ConversationAvatarFollower.spring) {
-            avatarDisplayY = y
-        }
+        scrollTracking.avatarLastAppliedAt = Date()
+        // Set @State without withAnimation — the spring animation is applied via
+        // .animation() on the avatar view's .offset() modifier instead. This avoids
+        // wrapping the mutation in an animation transaction, which would cause SwiftUI
+        // to re-evaluate the body on each spring interpolation frame and feed layout
+        // shifts back into the tail anchor preference → avatar update cycle.
+        avatarDisplayY = y
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
@@ -486,7 +491,6 @@ struct MessageListView: View {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
-            scrollTracking.avatarLastAppliedAt = now
             applyAvatarDisplayY(forAnchorY: anchorY)
             return
         }
@@ -506,7 +510,6 @@ struct MessageListView: View {
                 return
             }
             scrollTracking.pendingAvatarY = nil
-            scrollTracking.avatarLastAppliedAt = Date()
             applyAvatarDisplayY(forAnchorY: pending)
             avatarSmoothingTask = nil
         }
@@ -529,6 +532,7 @@ struct MessageListView: View {
                     .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                     .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
+                    .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                     .accessibilityHidden(true)
                     .onAppear {
                         if shouldPlayTailEntryAnimation {
@@ -545,6 +549,7 @@ struct MessageListView: View {
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
                 .offset(y: avatarDisplayY)
+                .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
@@ -940,6 +945,7 @@ struct MessageListView: View {
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
+                    let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
                     let state = precomputedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in

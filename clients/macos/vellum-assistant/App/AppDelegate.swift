@@ -90,6 +90,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
+    var acpPermissionWindow: AcpPermissionWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
     var logReportWindow: NSWindow?

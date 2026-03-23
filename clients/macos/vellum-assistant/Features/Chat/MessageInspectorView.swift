@@ -131,17 +131,7 @@ struct MessageInspectorView: View {
                     Spacer()
                 }
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: VSpacing.lg) {
-                        skeletonPayloadColumn
-                        skeletonPayloadColumn
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        skeletonPayloadColumn
-                        skeletonPayloadColumn
-                    }
-                }
+                skeletonPayloadColumn
 
                 Spacer()
             }
@@ -334,36 +324,39 @@ struct MessageInspectorView: View {
     }
 
     private func rawPayloadTab(for entry: LLMRequestLogEntry) -> some View {
-        ScrollView {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: VSpacing.lg) {
-                    payloadSection(
-                        title: "Request",
-                        key: payloadKey(for: entry.id, kind: "request")
-                    )
+        VStack(spacing: 0) {
+            HStack {
+                VSegmentedControl(
+                    items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
+                    selection: rawPaneBinding,
+                    style: .pill,
+                    size: .compact
+                )
+                .fixedSize()
 
-                    payloadSection(
-                        title: "Response",
-                        key: payloadKey(for: entry.id, kind: "response")
-                    )
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    payloadSection(
-                        title: "Request",
-                        key: payloadKey(for: entry.id, kind: "request")
-                    )
-
-                    payloadSection(
-                        title: "Response",
-                        key: payloadKey(for: entry.id, kind: "response")
-                    )
-                }
+                Spacer()
             }
-            .padding(VSpacing.lg)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+
+            MessageInspectorPayloadView(
+                title: viewState.selectedRawPane.label,
+                model: payloadBinding(
+                    for: payloadKey(for: entry.id, kind: viewState.selectedRawPane.rawValue)
+                )
+            )
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.lg)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
+    }
+
+    private var rawPaneBinding: Binding<RawPayloadPane> {
+        Binding(
+            get: { viewState.selectedRawPane },
+            set: { viewState.selectRawPane($0) }
+        )
     }
 
     private func payloadSection(title: String, key: String) -> some View {
@@ -538,6 +531,18 @@ enum MessageInspectorLoadState: Equatable {
     case loaded
 }
 
+enum RawPayloadPane: String, CaseIterable {
+    case request
+    case response
+
+    var label: String {
+        switch self {
+        case .request: return "Request"
+        case .response: return "Response"
+        }
+    }
+}
+
 enum MessageInspectorDetailTab: String, CaseIterable {
     case overview
     case prompt
@@ -576,6 +581,7 @@ struct MessageInspectorViewState {
     private(set) var logs: [LLMRequestLogEntry] = []
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
+    private(set) var selectedRawPane: RawPayloadPane = .request
     private(set) var activeLoadToken: UUID?
 
     var selectedLog: LLMRequestLogEntry? {
@@ -642,6 +648,10 @@ struct MessageInspectorViewState {
 
     mutating func selectDetailTab(_ tab: MessageInspectorDetailTab) {
         selectedDetailTab = tab
+    }
+
+    mutating func selectRawPane(_ pane: RawPayloadPane) {
+        selectedRawPane = pane
     }
 
     static func ordered(_ logs: [LLMRequestLogEntry]) -> [LLMRequestLogEntry] {

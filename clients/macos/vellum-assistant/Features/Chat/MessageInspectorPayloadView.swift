@@ -4,7 +4,7 @@ import VellumAssistantShared
 struct MessageInspectorPayloadView: View {
     let title: String
     @Binding var model: MessageInspectorPayloadModel
-    let viewportHeight: CGFloat
+    var viewportHeight: CGFloat?
 
     @State private var isActivelyEditing = false
     @State private var expandAllTrigger = 0
@@ -89,7 +89,7 @@ struct MessageInspectorPayloadView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(height: viewportHeight)
         .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))

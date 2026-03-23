@@ -174,6 +174,11 @@ extension AppDelegate {
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
+                case .acpPermissionRequest(let msg):
+                    if self.acpPermissionWindow == nil {
+                        self.acpPermissionWindow = AcpPermissionWindow()
+                    }
+                    self.acpPermissionWindow?.show(message: msg)
                 case .pairingApprovalRequest(let msg):
                     if self.pairingApprovalWindow == nil {
                         self.pairingApprovalWindow = PairingApprovalWindow()

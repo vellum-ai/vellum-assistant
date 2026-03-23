@@ -1,5 +1,4 @@
 import { randomBytes } from "crypto";
-import { join } from "path";
 
 import type { AssistantEntry } from "./assistant-config.js";
 import { saveAssistantEntry } from "./assistant-config.js";
@@ -15,16 +14,11 @@ import {
   startContainers,
   stopContainers,
 } from "./docker.js";
-import {
-  loadBootstrapSecret,
-  loadGuardianToken,
-  saveBootstrapSecret,
-} from "./guardian-token.js";
+import { loadGuardianToken } from "./guardian-token.js";
 import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
 import { parseVersion } from "./version-compat.js";
-import { commitWorkspaceState } from "./workspace-git.js";
 
 // ---------------------------------------------------------------------------
 // Shared constants & builders for upgrade / rollback lifecycle events
@@ -200,6 +194,35 @@ export async function broadcastUpgradeEvent(
 }
 
 /**
+ * Best-effort workspace git commit via the gateway's workspace-commit endpoint.
+ * Uses guardian token auth. Failures are silently swallowed — this should never
+ * block upgrade or rollback flows.
+ */
+export async function commitWorkspaceViaGateway(
+  gatewayUrl: string,
+  assistantId: string,
+  message: string,
+): Promise<void> {
+  try {
+    const token = loadGuardianToken(assistantId);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token?.accessToken) {
+      headers["Authorization"] = `Bearer ${token.accessToken}`;
+    }
+    await fetch(`${gatewayUrl}/v1/admin/workspace-commit`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Best-effort — gateway/daemon may already be shutting down or not yet ready
+  }
+}
+
+/**
  * Roll back DB and workspace migrations to a target state via the gateway.
  * Best-effort — failures are logged but never block the rollback flow.
  */
@@ -326,9 +349,6 @@ export async function performDockerRollback(
 
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : undefined;
 
   // Resolve Docker image refs for the target version
   console.log("🔍 Resolving image references...");
@@ -408,25 +428,18 @@ export async function performDockerRollback(
   }
 
   // Record rollback start in workspace git history
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "rollback",
-          phase: "starting",
-          from: currentVersion ?? "unknown",
-          to: targetVersion,
-          topology: "docker",
-          assistantId: entry.assistantId,
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "starting",
+      from: currentVersion ?? "unknown",
+      to: targetVersion,
+      topology: "docker",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   console.log(
     `🔄 Rolling back Docker assistant '${instanceName}' to ${targetVersion}...\n`,
@@ -458,12 +471,6 @@ export async function performDockerRollback(
 
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-  const loadedSecret = loadBootstrapSecret(instanceName);
-  const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-  if (!loadedSecret) {
-    saveBootstrapSecret(instanceName, bootstrapSecret);
-  }
 
   const signingKey =
     capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
@@ -576,7 +583,6 @@ export async function performDockerRollback(
   await startContainers(
     {
       signingKey,
-      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
@@ -644,26 +650,19 @@ export async function performDockerRollback(
     );
 
     // Record successful rollback in workspace git history
-    if (workspaceDir) {
-      try {
-        await commitWorkspaceState(
-          workspaceDir,
-          buildUpgradeCommitMessage({
-            action: "rollback",
-            phase: "complete",
-            from: currentVersion ?? "unknown",
-            to: targetVersion,
-            topology: "docker",
-            assistantId: entry.assistantId,
-            result: "success",
-          }),
-        );
-      } catch (err) {
-        console.warn(
-          `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "rollback",
+        phase: "complete",
+        from: currentVersion ?? "unknown",
+        to: targetVersion,
+        topology: "docker",
+        assistantId: entry.assistantId,
+        result: "success",
+      }),
+    );
 
     console.log(
       `\n✅ Docker assistant '${instanceName}' rolled back to ${targetVersion}.`,
@@ -707,7 +706,6 @@ export async function performDockerRollback(
         await startContainers(
           {
             signingKey,
-            bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
             gatewayPort,
