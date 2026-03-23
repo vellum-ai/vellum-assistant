@@ -782,6 +782,24 @@ struct ScrollWheelDetector: NSViewRepresentable {
             let locationInView = view.convert(event.locationInWindow, from: nil)
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
+            // Skip this event if a duplicate detector exists and this one isn't the most recent.
+            let convId = coordinator.conversationId?.uuidString ?? "none"
+            let winId = window.windowNumber
+            let winIdStr = String(winId)
+            if let registry = coordinator.registry,
+               registry.hasDuplicates(conversationId: convId, windowId: winIdStr) {
+                let entries = registry.entries(conversationId: convId, windowId: winIdStr)
+                let mostRecent = entries.max(by: { $0.lastUpdatedAt < $1.lastUpdatedAt })
+                if mostRecent?.detectorId != coordinator.detectorId {
+                    // This detector is stale — a newer one is active for the same conversation/window.
+                    // Suppress callbacks to prevent competing scroll-state fights.
+                    if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
+                        log.debug("ScrollWheelDetector: suppressing event for stale detector \(coordinator.detectorId) (active: \(mostRecent?.detectorId ?? "nil"))")
+                    }
+                    return event
+                }
+            }
+
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
                 // Direct user scroll up (toward older content) — untether immediately.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
