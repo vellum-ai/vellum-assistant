@@ -2,7 +2,10 @@ import { v4 as uuid } from "uuid";
 
 import {
   getApp,
+  getAppDirPath,
   getAppPreview,
+  inlineDistAssets,
+  isMultifileApp,
   resolveAppDir,
   updateApp,
 } from "../memory/app-store.js";
@@ -1364,8 +1367,34 @@ export async function surfaceProxyResolver(
 
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
+
+    // For multifile TSX apps, resolve HTML from compiled dist/index.html
+    // rather than the root index.html (which is empty for formatVersion 2).
+    let html = app.htmlDefinition;
+    if (isMultifileApp(app)) {
+      const { existsSync, readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const appDir = getAppDirPath(app.id);
+      const distIndex = join(appDir, "dist", "index.html");
+      if (!existsSync(distIndex)) {
+        const { compileApp } = await import("../bundler/app-compiler.js");
+        const result = await compileApp(appDir);
+        if (!result.ok) {
+          log.warn(
+            { appId, errors: result.errors },
+            "Auto-compile failed on app_open",
+          );
+        }
+      }
+      if (existsSync(distIndex)) {
+        html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+      } else {
+        html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+      }
+    }
+
     const surfaceData: DynamicPageSurfaceData = {
-      html: app.htmlDefinition,
+      html,
       appId: app.id,
       dirName,
       preview: {

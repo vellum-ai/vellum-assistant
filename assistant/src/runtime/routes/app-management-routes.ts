@@ -36,6 +36,7 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
+  inlineDistAssets,
   isMultifileApp,
   listApps,
   queryAppRecords,
@@ -684,7 +685,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               }
             }
             if (existsSync(distIndex)) {
-              html = readFileSync(distIndex, "utf-8");
+              html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
             } else {
               html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
             }

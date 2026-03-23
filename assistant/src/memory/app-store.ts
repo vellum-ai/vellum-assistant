@@ -64,6 +64,37 @@ export function isMultifileApp(app: AppDefinition): boolean {
   return app.formatVersion === 2;
 }
 
+/**
+ * Inline dist assets (main.js, main.css) into the compiled HTML so it can be
+ * delivered as a self-contained string via loadHTMLString/SSE without needing
+ * the client to resolve external script/stylesheet URLs.
+ */
+export function inlineDistAssets(appDir: string, html: string): string {
+  const distDir = join(appDir, "dist");
+
+  // Inline main.js
+  const jsPath = join(distDir, "main.js");
+  if (existsSync(jsPath)) {
+    const js = readFileSync(jsPath, "utf-8");
+    html = html.replace(
+      /<script\s+type="module"\s+src="main\.js"\s*><\/script>/,
+      `<script type="module">${js}</script>`,
+    );
+  }
+
+  // Inline main.css
+  const cssPath = join(distDir, "main.css");
+  if (existsSync(cssPath)) {
+    const css = readFileSync(cssPath, "utf-8");
+    html = html.replace(
+      /<link\s+rel="stylesheet"\s+href="main\.css"\s*>/,
+      `<style>${css}</style>`,
+    );
+  }
+
+  return html;
+}
+
 export interface AppRecord {
   id: string;
   appId: string;
