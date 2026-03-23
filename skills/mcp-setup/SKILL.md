@@ -6,6 +6,14 @@ metadata:
   emoji: "🔌"
   vellum:
     display-name: "MCP Setup"
+    activation-hints:
+      - "User wants to connect, set up, add, or remove an MCP server (e.g. 'connect Linear via MCP', 'set up MCP', 'add an MCP server')"
+      - "User asks about MCP tools, MCP integration, or what MCP servers are configured"
+      - "An MCP tool call fails with auth/token errors -- run `assistant mcp auth` to re-authenticate"
+      - "Uses `assistant mcp` CLI commands via host_bash -- do NOT improvise MCP setup from general knowledge, load this skill first"
+    avoid-when:
+      - "User is asking how to use an already-connected MCP tool (just call the tool directly)"
+      - "General questions about what MCP is (answer from general knowledge)"
 ---
 
 Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion) become available in conversations.
