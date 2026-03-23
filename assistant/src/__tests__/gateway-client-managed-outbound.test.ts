@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { deliverChannelReply } from "../runtime/gateway-client.js";
+import {
+  ChannelDeliveryError,
+  deliverChannelReply,
+} from "../runtime/gateway-client.js";
 
 type FetchCall = {
   url: string;
@@ -162,5 +165,80 @@ describe("gateway-client managed outbound lane", () => {
       chatId: "+15550001111",
       text: "standard gateway callback",
     });
+  });
+
+  test("throws ChannelDeliveryError with userMessage when gateway returns JSON error with userMessage", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          error: "Permission denied",
+          userMessage:
+            "The bot is not a member of this channel. Please invite it first.",
+        }),
+        { status: 403 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    let caught: unknown;
+    try {
+      await deliverChannelReply("https://gateway.test/deliver/slack", {
+        chatId: "C123",
+        text: "hello",
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ChannelDeliveryError);
+    const deliveryError = caught as ChannelDeliveryError;
+    expect(deliveryError.statusCode).toBe(403);
+    expect(deliveryError.userMessage).toBe(
+      "The bot is not a member of this channel. Please invite it first.",
+    );
+    expect(deliveryError.message).toContain("403");
+  });
+
+  test("throws ChannelDeliveryError without userMessage when gateway returns JSON error without userMessage", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(JSON.stringify({ error: "Delivery failed" }), {
+        status: 502,
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    let caught: unknown;
+    try {
+      await deliverChannelReply("https://gateway.test/deliver/slack", {
+        chatId: "C123",
+        text: "hello",
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ChannelDeliveryError);
+    const deliveryError = caught as ChannelDeliveryError;
+    expect(deliveryError.statusCode).toBe(502);
+    expect(deliveryError.userMessage).toBeUndefined();
+  });
+
+  test("throws ChannelDeliveryError without userMessage when gateway returns non-JSON error", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response("Internal Server Error", { status: 500 });
+    }) as unknown as typeof globalThis.fetch;
+
+    let caught: unknown;
+    try {
+      await deliverChannelReply("https://gateway.test/deliver/slack", {
+        chatId: "C123",
+        text: "hello",
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ChannelDeliveryError);
+    const deliveryError = caught as ChannelDeliveryError;
+    expect(deliveryError.statusCode).toBe(500);
+    expect(deliveryError.userMessage).toBeUndefined();
   });
 });

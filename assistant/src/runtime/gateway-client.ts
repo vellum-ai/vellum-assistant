@@ -6,6 +6,24 @@ import type { RuntimeAttachmentMetadata } from "./http-types.js";
 
 const log = getLogger("gateway-client");
 
+/**
+ * Error thrown when the gateway returns a non-OK response for channel delivery.
+ * Carries the optional `userMessage` field from the gateway so callers can
+ * surface actionable error text to end-users.
+ */
+export class ChannelDeliveryError extends Error {
+  readonly statusCode: number;
+  /** A user-facing error message from the gateway, if available. */
+  readonly userMessage?: string;
+
+  constructor(statusCode: number, body: string, userMessage?: string) {
+    super(`Channel reply delivery failed (${statusCode}): ${body}`);
+    this.name = "ChannelDeliveryError";
+    this.statusCode = statusCode;
+    this.userMessage = userMessage;
+  }
+}
+
 const DELIVERY_TIMEOUT_MS = 30_000;
 const MANAGED_OUTBOUND_SEND_PATH =
   "/v1/internal/managed-gateway/outbound-send/";
@@ -81,13 +99,36 @@ export async function deliverChannelReply(
 
   if (!response.ok) {
     const body = await response.text().catch(() => "<unreadable>");
+
+    // Try to extract userMessage from JSON error responses (e.g. from the
+    // Slack delivery endpoint) so callers can surface actionable errors.
+    let userMessage: string | undefined;
+    try {
+      const parsed = JSON.parse(body) as { userMessage?: string };
+      if (typeof parsed.userMessage === "string") {
+        userMessage = parsed.userMessage;
+      }
+    } catch {
+      // Body wasn't JSON — that's fine, userMessage stays undefined.
+    }
+
     log.error(
-      { status: response.status, body, callbackUrl, chatId: payload.chatId },
+      {
+        status: response.status,
+        body,
+        callbackUrl,
+        chatId: payload.chatId,
+        ...(userMessage && { userMessage }),
+      },
       "Channel reply delivery failed",
     );
-    throw new Error(
-      `Channel reply delivery failed (${response.status}): ${body}`,
-    );
+    if (userMessage) {
+      log.warn(
+        { chatId: payload.chatId, userMessage },
+        "Gateway returned actionable error for user",
+      );
+    }
+    throw new ChannelDeliveryError(response.status, body, userMessage);
   }
 
   const result: ChannelDeliveryResult = { ok: true };
