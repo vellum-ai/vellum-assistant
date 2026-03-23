@@ -2,8 +2,8 @@
  * Shared utilities for twitter skill tools.
  */
 
-import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type { OAuthConnection } from "../../../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
 
 export function ok(content: string): ToolExecutionResult {
@@ -103,8 +103,8 @@ export function extractAllTweetUrls(
   // Match Slack-formatted URLs: <https://x.com/user/status/123|label>
   const slackPattern =
     /<(https?:\/\/(?:twitter|x)\.com\/[^/]+\/status\/(\d+))[^>]*>/g;
-  let match: RegExpExecArray | null;
-  while ((match = slackPattern.exec(text)) !== null) {
+  let match: RegExpExecArray | undefined;
+  while ((match = slackPattern.exec(text) ?? undefined) !== undefined) {
     const tweetId = match[2];
     if (!seen.has(tweetId)) {
       seen.add(tweetId);
@@ -114,7 +114,7 @@ export function extractAllTweetUrls(
 
   // Match plain URLs: https://x.com/user/status/123
   const plainPattern = /https?:\/\/(?:twitter|x)\.com\/[^/]+\/status\/(\d+)/g;
-  while ((match = plainPattern.exec(text)) !== null) {
+  while ((match = plainPattern.exec(text) ?? undefined) !== undefined) {
     const tweetId = match[1];
     if (!seen.has(tweetId)) {
       seen.add(tweetId);

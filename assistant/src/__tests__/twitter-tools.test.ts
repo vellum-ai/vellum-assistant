@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  _resetUserIdCache,
   extractAllTweetUrls,
   extractTweetId,
-  _resetUserIdCache,
 } from "../config/bundled-skills/twitter/tools/shared.js";
+import { TokenExpiredError } from "../security/token-manager.js";
 
 describe("extractTweetId", () => {
   test("extracts from twitter.com URL", () => {
@@ -112,8 +113,7 @@ describe("twitter_like_post response handling", () => {
   });
 
   test("TokenExpiredError is caught correctly", () => {
-    // Import to verify the error class exists and is constructable
-    const { TokenExpiredError } = require("../security/token-manager.js");
+    // Verify the error class is constructable and has expected properties
     const error = new TokenExpiredError("integration:twitter");
     expect(error).toBeInstanceOf(TokenExpiredError);
     expect(error.name).toBe("TokenExpiredError");

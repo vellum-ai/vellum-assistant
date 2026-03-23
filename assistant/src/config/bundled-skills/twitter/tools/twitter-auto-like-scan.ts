@@ -8,8 +8,8 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { getSlackConnection } from "../../slack/tools/shared.js";
 import { getLogger } from "../../../../util/logger.js";
+import { getSlackConnection } from "../../slack/tools/shared.js";
 import {
   err,
   extractAllTweetUrls,
