@@ -7,7 +7,6 @@ import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
-import { getProviderKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import {
   getDbPath,
   getHooksDir,
@@ -16,6 +15,7 @@ import {
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
+import { getProviderKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 
 export function registerDoctorCommand(program: Command): void {

@@ -13,12 +13,6 @@ import {
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
-  deleteSecureKeyViaDaemon,
-  getSecureKeyViaDaemon,
-  getSecureKeyResultViaDaemon,
-  setSecureKeyViaDaemon,
-} from "../lib/daemon-credential-client.js";
-import {
   assertMetadataWritable,
   type CredentialMetadata,
   deleteCredentialMetadata,
@@ -27,6 +21,12 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import {
+  deleteSecureKeyViaDaemon,
+  getSecureKeyResultViaDaemon,
+  getSecureKeyViaDaemon,
+  setSecureKeyViaDaemon,
+} from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 

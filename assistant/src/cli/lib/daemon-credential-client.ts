@@ -19,15 +19,14 @@ import {
   mintDaemonDeliveryToken,
 } from "../../runtime/auth/token-service.js";
 import type { DeleteResult } from "../../security/credential-backend.js";
+import type { SecureKeyResult } from "../../security/secure-keys.js";
 import {
   deleteSecureKeyAsync,
-  getProviderKeyAsync,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
-import type { SecureKeyResult } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-credential-client");

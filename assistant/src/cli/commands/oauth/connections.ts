@@ -20,16 +20,16 @@ import {
   resolveService,
 } from "../../../oauth/provider-behaviors.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import {
-  deleteSecureKeyViaDaemon,
-  getSecureKeyViaDaemon,
-} from "../../lib/daemon-credential-client.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import {
   assertMetadataWritable,
   deleteCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
 import { isLinux, isMacOS } from "../../../util/platform.js";
+import {
+  deleteSecureKeyViaDaemon,
+  getSecureKeyViaDaemon,
+} from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 

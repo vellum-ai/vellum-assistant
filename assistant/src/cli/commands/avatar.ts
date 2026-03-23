@@ -11,9 +11,9 @@ import {
 } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { getSecureKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
