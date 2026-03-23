@@ -140,6 +140,11 @@ public final class ManagedAssistantBootstrapService {
                         log.info("Assistant \(assistantId, privacy: .public) status is active")
                         return
                     }
+                    let terminalFailureStatuses: Set<String> = ["failed", "error", "terminated"]
+                    if terminalFailureStatuses.contains(status) {
+                        log.error("Assistant \(assistantId, privacy: .public) reached terminal failure status: \(status, privacy: .public)")
+                        throw ManagedBootstrapError.hatchFailed("Assistant provisioning \(status)")
+                    }
                     log.info("Assistant \(assistantId, privacy: .public) status: \(status, privacy: .public) — continuing to poll")
                 case .notFound:
                     log.warning("Assistant \(assistantId, privacy: .public) not found during provisioning poll")
