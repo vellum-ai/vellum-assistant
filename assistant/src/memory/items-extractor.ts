@@ -2,6 +2,7 @@ import { and, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { MemoryExtractionConfig } from "../config/types.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
@@ -342,10 +343,11 @@ async function extractItemsWithLLM(
         userPersona,
       );
 
+      const assistantName = getAssistantName() ?? "the assistant";
       const messagePrefix =
         messageRole === "assistant"
-          ? "[This message is from the assistant]\n\n"
-          : "";
+          ? `[This message is from ${assistantName}]\n\n`
+          : `[This message is from the user]\n\n`;
       const response = await provider.sendMessage(
         [userMessage(`${messagePrefix}${text}`)],
         [
