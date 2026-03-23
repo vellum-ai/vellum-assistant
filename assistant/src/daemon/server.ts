@@ -41,7 +41,7 @@ import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
-  getFailoverProvider,
+  getProvider,
   initializeProviders,
 } from "../providers/registry.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -702,9 +702,8 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getFailoverProvider(
+        let provider = getProvider(
           config.services.inference.provider,
-          config.providerOrder,
         );
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {

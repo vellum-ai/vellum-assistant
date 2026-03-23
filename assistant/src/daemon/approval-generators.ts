@@ -1,5 +1,5 @@
 import { loadConfig } from "../config/loader.js";
-import { getFailoverProvider, listProviders } from "../providers/registry.js";
+import { getProvider, listProviders } from "../providers/registry.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
   APPROVAL_COPY_SYSTEM_PROMPT,
@@ -91,10 +91,7 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
     const config = loadConfig();
     let provider;
     try {
-      provider = getFailoverProvider(
-        config.services.inference.provider,
-        config.providerOrder,
-      );
+      provider = getProvider(config.services.inference.provider);
     } catch {
       return null;
     }
@@ -148,10 +145,7 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     if (!listProviders().includes(config.services.inference.provider)) {
       throw new Error("No provider available for approval conversation");
     }
-    const provider = getFailoverProvider(
-      config.services.inference.provider,
-      config.providerOrder,
-    );
+    const provider = getProvider(config.services.inference.provider);
 
     const pendingDescription = context.pendingApprovals
       .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)

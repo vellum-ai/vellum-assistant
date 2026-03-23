@@ -18,7 +18,7 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getFailoverProvider } from "../providers/registry.js";
+import { getProvider } from "../providers/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
@@ -129,10 +129,7 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    let provider = getFailoverProvider(
-      appConfig.services.inference.provider,
-      appConfig.providerOrder,
-    );
+    let provider = getProvider(appConfig.services.inference.provider);
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(
