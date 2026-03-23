@@ -22,6 +22,17 @@ import { deliverStaleApprovalReply } from "../guardian-approval-reply-helpers.js
 
 const log = getLogger("runtime-http");
 
+/**
+ * Resolve the Slack ephemeral user ID when the source channel is Slack.
+ * Returns `undefined` for non-Slack channels.
+ */
+function slackEphemeralUserId(
+  sourceChannel: ChannelId,
+  userId: string | undefined,
+): string | undefined {
+  return sourceChannel === "slack" && userId ? userId : undefined;
+}
+
 export interface TextEngineDecisionParams {
   conversationId: string;
   conversationExternalId: string;
@@ -36,6 +47,8 @@ export interface TextEngineDecisionParams {
   pending: Array<{ requestId: string; toolName: string }>;
   /** Allowed actions from the pending prompt. */
   allowedActions: string[];
+  /** External user ID of the actor (for Slack ephemeral routing). */
+  actorExternalId?: string;
 }
 
 /**
@@ -58,6 +71,7 @@ export async function handleGuardianTextEngineDecision(
     approvalConversationGenerator,
     pending,
     allowedActions,
+    actorExternalId,
   } = params;
 
   const engineContext: ApprovalConversationContext = {
@@ -79,13 +93,19 @@ export async function handleGuardianTextEngineDecision(
   if (engineResult.disposition === "keep_pending") {
     // Non-decision follow-up — deliver the engine's reply and keep the request pending
     try {
+      const keepPendingPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: engineResult.replyText,
+        assistantId,
+      };
+      const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
+      if (ephemeral) {
+        keepPendingPayload.ephemeral = true;
+        keepPendingPayload.user = ephemeral;
+      }
       await deliverChannelReply(
         replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: engineResult.replyText,
-          assistantId,
-        },
+        keepPendingPayload,
         bearerToken,
       );
     } catch (err) {
@@ -112,15 +132,17 @@ export async function handleGuardianTextEngineDecision(
   if (result.applied) {
     // Deliver the engine's reply text to the user
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: engineResult.replyText,
-          assistantId,
-        },
-        bearerToken,
-      );
+      const decisionPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: engineResult.replyText,
+        assistantId,
+      };
+      const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
+      if (ephemeral) {
+        decisionPayload.ephemeral = true;
+        decisionPayload.user = ephemeral;
+      }
+      await deliverChannelReply(replyCallbackUrl, decisionPayload, bearerToken);
     } catch (err) {
       log.error(
         { err, conversationId },
@@ -145,6 +167,7 @@ export async function handleGuardianTextEngineDecision(
     logger: log,
     errorLogMessage: "Failed to deliver stale approval notice",
     errorLogContext: { conversationId },
+    ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
   });
 
   return { handled: true, type: "stale_ignored" };

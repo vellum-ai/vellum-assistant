@@ -52,7 +52,13 @@ async function cesRequest(
 ): Promise<Response | null> {
   const baseUrl = getBaseUrl();
   const token = getServiceToken();
-  if (!baseUrl || !token) return null;
+  if (!baseUrl || !token) {
+    log.warn(
+      { method, path, hasBaseUrl: !!baseUrl, hasToken: !!token },
+      "CES credential request skipped — missing config",
+    );
+    return null;
+  }
 
   const url = `${baseUrl.replace(/\/+$/, "")}${path}`;
   const headers: Record<string, string> = {
@@ -129,16 +135,17 @@ export class CesCredentialBackend implements CredentialBackend {
           return false;
         }
         if (!res.ok) {
+          const detail = await res.text().catch(() => "");
           if (attempt < SET_MAX_RETRIES - 1) {
             log.warn(
-              { account, status: res.status, attempt },
+              { account, status: res.status, detail, attempt },
               "CES credential set returned non-OK status, retrying",
             );
             await new Promise((r) => setTimeout(r, SET_RETRY_DELAY_MS));
             continue;
           }
           log.warn(
-            { account, status: res.status },
+            { account, status: res.status, detail },
             "CES credential set returned non-OK status",
           );
           return false;
@@ -169,8 +176,9 @@ export class CesCredentialBackend implements CredentialBackend {
       if (!res) return "error";
       if (res.status === 404) return "not-found";
       if (!res.ok) {
+        const detail = await res.text().catch(() => "");
         log.warn(
-          { account, status: res.status },
+          { account, status: res.status, detail },
           "CES credential delete returned non-OK status",
         );
         return "error";

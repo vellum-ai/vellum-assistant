@@ -99,7 +99,14 @@ export function buildAccessRequestIdentityLine(
   const sanitizedExternalId = actorExternalId
     ? sanitizeIdentityField(actorExternalId)
     : undefined;
-  const parts = [requester];
+  // When the requester is a raw Slack user ID (e.g. the fallback path in
+  // access-request-helper sets senderIdentifier to the raw actorExternalId),
+  // format it as a Slack mention so it renders as a clickable display name.
+  const formattedRequester =
+    sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
+      ? `<@${requester}>`
+      : requester;
+  const parts = [formattedRequester];
   if (sanitizedUsername && sanitizedUsername !== requester) {
     parts.push(`@${sanitizedUsername}`);
   }
@@ -108,13 +115,59 @@ export function buildAccessRequestIdentityLine(
     sanitizedExternalId !== requester &&
     sanitizedExternalId !== sanitizedUsername
   ) {
-    parts.push(`[${sanitizedExternalId}]`);
+    // For Slack, use the <@U...> mention format so Slack auto-renders
+    // the user ID as a clickable display name.
+    const formattedId =
+      sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
+        ? `<@${sanitizedExternalId}>`
+        : `[${sanitizedExternalId}]`;
+    parts.push(formattedId);
   }
   if (sourceChannel) {
     parts.push(`via ${sourceChannel}`);
   }
 
   return `${parts.join(" ")} is requesting access to the assistant.`;
+}
+
+export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * Sanitize an untrusted message preview for inclusion in notification copy.
+ *
+ * Like {@link sanitizeIdentityField} but uses the higher
+ * MESSAGE_PREVIEW_MAX_LENGTH limit (200 chars) instead of the identity
+ * field limit (120 chars).
+ */
+export function sanitizeMessagePreview(value: string): string {
+  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
+  const clamped =
+    stripped.length > MESSAGE_PREVIEW_MAX_LENGTH
+      ? stripped.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "…"
+      : stripped;
+  return clamped;
+}
+
+/**
+ * Build a quoted preview of the requester's original message for inclusion
+ * in guardian-facing access-request copy. Sanitizes and truncates to keep
+ * the notification concise.
+ *
+ * Returns `undefined` when no usable preview is available.
+ */
+export function buildAccessRequestMessagePreview(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const raw =
+    typeof payload.messagePreview === "string"
+      ? payload.messagePreview
+      : undefined;
+  if (!raw) return undefined;
+
+  const sanitized = sanitizeMessagePreview(raw);
+  if (sanitized.length === 0) return undefined;
+
+  return `> Their message: "${sanitized}"`;
 }
 
 export function buildAccessRequestInviteDirective(): string {
@@ -227,6 +280,10 @@ export function buildAccessRequestContractText(
 
   const lines: string[] = [];
   lines.push(buildAccessRequestIdentityLine(payload));
+  const preview = buildAccessRequestMessagePreview(payload);
+  if (preview) {
+    lines.push(preview);
+  }
   if (previousMemberStatus === "revoked") {
     lines.push("Note: this user was previously revoked.");
   }

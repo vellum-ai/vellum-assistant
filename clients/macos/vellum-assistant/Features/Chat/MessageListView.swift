@@ -118,15 +118,6 @@ struct MessageListView: View {
     var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
-    // MARK: - Credits Exhausted (inline banner)
-
-    /// Non-nil when the conversation ended due to credits exhaustion.
-    var creditsExhaustedError: ConversationError? = nil
-    /// Opens the billing / add-funds flow.
-    var onAddFunds: (() -> Void)? = nil
-    /// Dismisses the credits-exhausted banner.
-    var onDismissCreditsExhausted: (() -> Void)? = nil
-
     // MARK: - Pagination
 
     /// Number of messages the view currently displays (suffix window size).
@@ -950,6 +941,7 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let state = precomputedState
+                    let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in
                         let index = state.messageIndexById[message.id] ?? 0
                         MessageCellView(
@@ -991,7 +983,8 @@ struct MessageListView: View {
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog
+                            providerCatalog: providerCatalog,
+                            providerCatalogHash: catalogHash
                         )
                         .equatable()
                     }
@@ -1016,16 +1009,6 @@ struct MessageListView: View {
                         }
                     } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                         compactingIndicatorRow()
-                    }
-
-                    // Inline credits-exhausted recovery banner
-                    if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
-                        CreditsExhaustedBanner(
-                            onAddFunds: { onAddFunds?() },
-                            onDismiss: { onDismissCreditsExhausted?() }
-                        )
-                        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
                     Color.clear
@@ -1193,7 +1176,17 @@ struct MessageListView: View {
                     os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                     recordScrollLoopEvent(.anchorPreferenceChange)
                     anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
-                    if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                    if !hasFreshAnchorMeasurement {
+                        hasFreshAnchorMeasurement = true
+                        // First finite anchor measurement after a conversation switch.
+                        // LazyVStack may report the anchor as "within viewport" before
+                        // materializing message cells, causing the coordinator to skip
+                        // the scrollTo. Bypass the coordinator and scroll directly so
+                        // messages are visible without user interaction.
+                        if !hasReceivedScrollEvent && anchorMessageId == nil {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
                     scheduleTranscriptSnapshot()
                     // Geometry tracking only — no per-frame scrollTo calls here.
                     // All bottom-follow work is handled by the ChatBottomPinCoordinator
@@ -1212,7 +1205,15 @@ struct MessageListView: View {
                 guard case .accept(let accepted) = decision else { return }
                 recordScrollLoopEvent(.tailAnchorPreferenceChange)
                 scrollTracking.lastTailAnchorY = accepted
-                updateAvatarFollower(anchorY: accepted)
+                // Defer to next run loop to prevent synchronous layout re-entry
+                // on macOS. This preference fires during placeSubviews; calling
+                // withAnimation (inside applyAvatarDisplayY) synchronously causes
+                // _PaddingLayout.sizeThatFits to be re-entered, creating an infinite
+                // layout cycle when avatar properties change concurrently with a
+                // ToolConfirmationBubble in the message list.
+                Task { @MainActor in
+                    updateAvatarFollower(anchorY: accepted)
+                }
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
@@ -1458,6 +1459,11 @@ struct MessageListView: View {
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
+                    // History just loaded but the coordinator's initial-restore session
+                    // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
+                    // so messages are visible without requiring user scroll interaction.
+                    requestBottomPin(reason: .initialRestore, proxy: proxy)
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
@@ -1692,8 +1698,9 @@ private struct MessageCellView: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
             && lhs.configuredProviders == rhs.configuredProviders
-            && lhs.providerCatalog.count == rhs.providerCatalog.count
-            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) })
+            && (lhs.providerCatalogHash != rhs.providerCatalogHash ? false
+                : lhs.providerCatalog.count == rhs.providerCatalog.count
+                  && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
     }
 
@@ -1736,6 +1743,20 @@ private struct MessageCellView: View, Equatable {
     let selectedModel: String
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
+    let providerCatalogHash: Int
+
+    static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
+        var hasher = Hasher()
+        for entry in catalog {
+            hasher.combine(entry.id)
+            hasher.combine(entry.displayName)
+            for model in entry.models {
+                hasher.combine(model.id)
+                hasher.combine(model.displayName)
+            }
+        }
+        return hasher.finalize()
+    }
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
@@ -1979,6 +2000,7 @@ private struct ConversationScrollbarVisibilityController: NSViewRepresentable, E
         }
 
         func update(isAppActive: Bool, suppressScrollbar: Bool) {
+            guard isAppActive != self.isAppActive || suppressScrollbar != self.suppressScrollbar else { return }
             let wasActive = self.isAppActive
             self.isAppActive = isAppActive
             self.suppressScrollbar = suppressScrollbar

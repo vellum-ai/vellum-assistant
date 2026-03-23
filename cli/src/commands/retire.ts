@@ -1,10 +1,10 @@
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
 import {
   findAssistantByName,
+  getBaseDir,
   loadAllAssistants,
   removeAssistantEntry,
 } from "../lib/assistant-config";
@@ -109,10 +109,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     await stopOrphanedDaemonProcesses();
   }
 
-  // For named instances (instanceDir differs from homedir), archive and
-  // remove the entire instance directory. For the default instance
-  // (instanceDir is homedir), archive only the .vellum subdirectory.
-  const isNamedInstance = resources.instanceDir !== homedir();
+  // For named instances (instanceDir differs from the base directory),
+  // archive and remove the entire instance directory. For the default
+  // instance, archive only the .vellum subdirectory.
+  const isNamedInstance = resources.instanceDir !== getBaseDir();
   const dirToArchive = isNamedInstance ? resources.instanceDir : vellumDir;
 
   // Move the data directory out of the way so the path is immediately available

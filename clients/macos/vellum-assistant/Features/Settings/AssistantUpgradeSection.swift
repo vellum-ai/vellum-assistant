@@ -13,7 +13,7 @@ enum AssistantTopology {
     case remote      // GCP, custom, SSH — no automatic upgrade mechanism
 }
 
-/// Upgrade and roll-back section shown for all assistant topologies.
+/// Upgrade and rollback section shown for all assistant topologies.
 ///
 /// Shows the current version, available releases via a version picker,
 /// and topology-appropriate actions (CLI upgrade for Docker, platform API
@@ -34,7 +34,7 @@ struct AssistantUpgradeSection: View {
     /// Whether a service group update is in progress (managed topology).
     var isServiceGroupUpdateInProgress: Bool = false
 
-    /// Progress message from service group update events (e.g. "Downloading the update…").
+    /// Progress message from service group update events (e.g. "Downloading…").
     var updateStatusMessage: String?
 
     /// Whether the healthz fetch has completed (regardless of success/failure).
@@ -194,12 +194,12 @@ struct AssistantUpgradeSection: View {
             if isVersionIncompatible && topology != .local {
                 if isServiceGroupBehind {
                     VInlineMessage(
-                        "Your assistant is on an older version and may not work correctly with this app. Update to match.",
+                        "Your assistant is on an older version and may not work correctly with this app. Upgrade to match.",
                         tone: .warning
                     )
                 } else {
                     VInlineMessage(
-                        "Your app is older than the assistant. Update the app to ensure compatibility.",
+                        "Your app is older than the assistant. Upgrade the app to ensure compatibility.",
                         tone: .warning
                     )
                 }
@@ -242,7 +242,7 @@ struct AssistantUpgradeSection: View {
 
                 if !pickerReleases.isEmpty && topology != .remote && topology != .local {
                     VDropdown(
-                        !upgradeAvailable ? "Selected:" : (backwardReleasesEnabled && isRollback) ? (topology == .managed ? "Downgrade to:" : "Roll back to:") : "Update to:",
+                        !upgradeAvailable ? "Selected:" : (backwardReleasesEnabled && isRollback) ? "Rollback to:" : "Upgrade to:",
                         placeholder: "Select version",
                         selection: Binding<String>(
                             get: { selectedVersion ?? latestRelease?.version ?? "" },
@@ -281,7 +281,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemMidStrong)
-                    Text("Automatic updates are not available for this deployment. Update your infrastructure manually.")
+                    Text("Automatic upgrades are not available for this deployment. Upgrade your infrastructure manually.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -316,8 +316,8 @@ struct AssistantUpgradeSection: View {
 
                     VButton(
                         label: isUpgrading
-                            ? (isRollback ? (topology == .managed ? "Downgrading..." : "Rolling back...") : "Updating...")
-                            : (isRollback ? (topology == .managed ? "Downgrade" : "Roll Back") : "Update Now"),
+                            ? (isRollback ? "Rolling back..." : "Upgrading...")
+                            : (isRollback ? "Rollback" : "Upgrade"),
                         style: isRollback ? .outlined : .primary
                     ) {
                         showingUpgradeConfirmation = true
@@ -330,7 +330,7 @@ struct AssistantUpgradeSection: View {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(isUpgrading ? (isRollback ? (topology == .managed ? "Downgrading assistant..." : "Rolling back assistant...") : "Updating assistant...") : "Checking for updates...")
+                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -359,8 +359,8 @@ struct AssistantUpgradeSection: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(isTakingLongerThanExpected
-                        ? "Taking longer than expected. The assistant may still be updating..."
-                        : (updateStatusMessage ?? "Assistant is updating..."))
+                        ? "Taking longer than expected. The assistant may still be upgrading..."
+                        : (updateStatusMessage ?? "Assistant is upgrading..."))
                         .font(VFont.caption)
                         .foregroundStyle(isTakingLongerThanExpected ? VColor.systemMidStrong : VColor.contentTertiary)
                 }
@@ -396,18 +396,16 @@ struct AssistantUpgradeSection: View {
             dockerUpgradeTask?.cancel()
             dockerUpgradeTask = nil
         }
-        .alert(isRollback ? (topology == .managed ? "Downgrade Assistant" : "Roll Back Assistant") : "Update Assistant", isPresented: $showingUpgradeConfirmation) {
+        .alert(isRollback ? "Rollback Assistant" : "Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button(isRollback ? (topology == .managed ? "Downgrade" : "Roll Back") : "Update") {
+            Button(isRollback ? "Rollback" : "Upgrade") {
                 Task { await performUpgrade() }
             }
         } message: {
             if isRollback {
-                Text(topology == .managed
-                     ? "Downgrade to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable."
-                     : "Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+                Text("Rollback to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
             } else {
-                Text("Update to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the update.")
+                Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
             }
         }
     }
@@ -496,12 +494,16 @@ struct AssistantUpgradeSection: View {
         }
         let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
         let version = selectedVersion ?? latestRelease?.version
-        dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Updating assistant..."
+        dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Upgrading assistant..."
         isDockerOperationInProgress = true
         defer { isDockerOperationInProgress = false }
         do {
-            try await cli.upgrade(name: name, version: version)
-            successMessage = isRollback ? "Roll back complete." : "Update complete."
+            if isRollback {
+                try await cli.rollback(name: name, version: version)
+            } else {
+                try await cli.upgrade(name: name, version: version)
+            }
+            successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             await loadReleasesQuietly()
@@ -512,41 +514,52 @@ struct AssistantUpgradeSection: View {
                 errorMessage = guidanceForError(cliError)
                 showFeedbackOption = true
             case .executionFailed(let stderr):
-                errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(stderr)"
+                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(stderr)"
                 showFeedbackOption = true
             default:
-                errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(error.localizedDescription)"
+                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
             }
         } catch {
-            errorMessage = "\(isRollback ? "Roll back" : "Update") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
             showFeedbackOption = true
         }
     }
 
     private func performManagedUpgrade() async {
+        guard let cli = AppDelegate.shared?.vellumCli else {
+            errorMessage = "CLI not available"
+            return
+        }
+        let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        let version = selectedVersion ?? latestRelease?.version
         do {
-            let version = selectedVersion ?? latestRelease?.version
-            let body: [String: String] = version.map { ["version": $0] } ?? [:]
-            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade", json: body)
-            if response.isSuccess {
-                successMessage = isRollback
-                    ? "Downgrade initiated. The assistant may be briefly unavailable."
-                    : "Update initiated. The assistant may be briefly unavailable."
-                AppDelegate.shared?.updateManager.clearServiceGroupFlags()
-                showFeedbackOption = false
-                // Refresh releases to update UI without clearing success message
-                await loadReleasesQuietly()
-                // Clear any error from the releases fetch so it doesn't appear alongside the success
-                if successMessage != nil { errorMessage = nil }
+            if isRollback {
+                try await cli.rollback(name: name, version: version)
             } else {
-                errorMessage = "\(isRollback ? "Downgrade" : "Update") failed (HTTP \(response.statusCode))"
-                showFeedbackOption = true
+                try await cli.upgrade(name: name, version: version)
             }
-        } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = "Unable to start \(isRollback ? "downgrade" : "update"): \(error.localizedDescription)"
-            showFeedbackOption = true
+            successMessage = isRollback
+                ? "Rollback initiated. The assistant may be briefly unavailable."
+                : "Upgrade initiated. The assistant may be briefly unavailable."
+            AppDelegate.shared?.updateManager.clearServiceGroupFlags()
+            showFeedbackOption = false
+            // Refresh releases to update UI without clearing success message
+            await loadReleasesQuietly()
+            // Clear any error from the releases fetch so it doesn't appear alongside the success
+            if successMessage != nil { errorMessage = nil }
+        } catch let error as VellumCli.CLIError {
+            switch error {
+            case .structuredError(let cliError):
+                errorMessage = guidanceForError(cliError)
+                showFeedbackOption = true
+            case .executionFailed(let stderr):
+                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(stderr)"
+                showFeedbackOption = true
+            default:
+                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
+            }
         } catch {
-            errorMessage = "\(isRollback ? "Downgrade" : "Update") failed: \(error.localizedDescription)"
+            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
             showFeedbackOption = true
         }
     }
@@ -584,7 +597,7 @@ struct AssistantUpgradeSection: View {
         case "DOCKER_NOT_RUNNING":
             return "Docker doesn't appear to be running. Start Docker Desktop and try again."
         case "IMAGE_PULL_FAILED":
-            let base = "Failed to download the update. Check that Docker is running and you have internet access."
+            let base = "Failed to download the upgrade. Check that Docker is running and you have internet access."
             if DevModeManager.shared.isDevMode {
                 return base + " Development builds cannot download released versions."
             }
@@ -592,19 +605,25 @@ struct AssistantUpgradeSection: View {
         case "READINESS_TIMEOUT":
             return "The assistant didn't start up in time. Check Docker Desktop for container status, or try rolling back."
         case "ROLLBACK_FAILED":
-            return "Roll back failed. Check Docker Desktop for container status."
+            return "Rollback failed. Check Docker Desktop for container status."
         case "ROLLBACK_NO_STATE":
-            return "No previous version available to roll back to."
+            return "No previous version available to rollback to."
         case "AUTH_FAILED":
             return "Authentication failed. Try signing out and back in from Settings."
         case "NETWORK_ERROR":
-            return "Couldn't reach the update server. Check your internet connection."
+            return "Couldn't reach the upgrade server. Check your internet connection."
         case "PLATFORM_API_ERROR":
             return "The platform returned an error. Try again in a few minutes."
         case "ASSISTANT_NOT_FOUND":
             return "Could not find the assistant. Make sure it's still configured."
         case "UNSUPPORTED_TOPOLOGY":
-            return "This assistant type doesn't support automatic updates. Update your infrastructure manually."
+            return "This assistant type doesn't support automatic upgrades. Upgrade your infrastructure manually."
+        case "VERSION_DIRECTION":
+            return "Cannot upgrade to an older version. Use the rollback option instead."
+        case "INVALID_VERSION":
+            return "The selected version is not valid for this operation."
+        case "MISSING_VERSION":
+            return "A target version is required. Select a version from the picker."
         default:
             return "Something went wrong. Share feedback to send logs to the team."
         }

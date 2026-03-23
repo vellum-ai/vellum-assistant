@@ -156,7 +156,7 @@ struct SettingsGeneralTab: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(selectedAssistantId)/healthz",
+                path: "health",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
@@ -215,7 +215,7 @@ struct SettingsGeneralTab: View {
             title: "Uninstall",
             subtitle: "Stops all assistants, archives your data, and moves Vellum to the Trash"
         ) {
-            VButton(label: "Uninstall Vellum...", style: .danger) {
+            VButton(label: "Uninstall Vellum", style: .danger) {
                 AppDelegate.shared?.performUninstall()
             }
         }

@@ -3,7 +3,7 @@
  * dependencies between index.ts and rpc.ts.
  */
 
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const RpcErrorSchema = z.object({
   code: z.string(),

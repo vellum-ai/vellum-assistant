@@ -20,6 +20,7 @@ import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
+  getActiveBackendName,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
   listSecureKeysAsync,
@@ -105,11 +106,16 @@ export async function handleAddSecret(
   req: Request,
   getCesClient?: () => CesClient | undefined,
 ): Promise<Response> {
-  const body = (await req.json()) as {
-    type?: string;
-    name?: string;
-    value?: string;
-  };
+  let body: { type?: string; name?: string; value?: string };
+  try {
+    body = (await req.json()) as {
+      type?: string;
+      name?: string;
+      value?: string;
+    };
+  } catch {
+    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+  }
 
   const { type, name, value } = body;
 
@@ -180,7 +186,7 @@ export async function handleAddSecret(
       if (!stored) {
         return httpError(
           "INTERNAL_ERROR",
-          "Failed to store API key in secure storage",
+          `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
           500,
         );
       }
@@ -245,7 +251,7 @@ export async function handleAddSecret(
         if (!stored) {
           return httpError(
             "INTERNAL_ERROR",
-            "Failed to store credential in secure storage",
+            `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
             500,
           );
         }
@@ -387,10 +393,12 @@ export async function handleReadSecret(req: Request): Promise<Response> {
 }
 
 export async function handleDeleteSecret(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
-    type?: string;
-    name?: string;
-  };
+  let body: { type?: string; name?: string };
+  try {
+    body = (await req.json()) as { type?: string; name?: string };
+  } catch {
+    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+  }
 
   const { type, name } = body;
 

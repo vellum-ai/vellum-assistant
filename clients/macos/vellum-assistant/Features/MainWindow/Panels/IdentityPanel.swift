@@ -22,6 +22,11 @@ struct IdentityPanel: View {
     @State private var introTask: Task<Void, Never>? = nil
     @State private var bootstrapCheckTask: Task<Void, Never>? = nil
     @State private var isBootstrapActive: Bool = true
+    @State private var isEditingName: Bool = false
+    @State private var editingNameText: String = ""
+    @State private var isEditingRole: Bool = false
+    @State private var editingRoleText: String = ""
+    @State private var isSavingIdentityField: Bool = false
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -33,9 +38,15 @@ struct IdentityPanel: View {
         AssistantDisplayName.resolve(
             remoteIdentity?.name.nilIfEmpty,
             identity?.name,
-            lockfileAssistant?.assistantId,
-            fallback: "Unknown"
+            fallback: "Your Assistant"
         )
+    }
+
+    private var hasRealName: Bool {
+        AssistantDisplayName.firstUserFacing(from: [
+            remoteIdentity?.name.nilIfEmpty,
+            identity?.name
+        ]) != nil
     }
 
     var body: some View {
@@ -48,13 +59,38 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            Text(introText ?? "I'm \(assistantDisplayName)!")
-                                .font(.system(size: 22, weight: .regular, design: .rounded))
-                                .foregroundColor(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
+                            if isEditingName {
+                                inlineEditField(
+                                    text: $editingNameText,
+                                    placeholder: "Enter a name",
+                                    font: .system(size: 22, weight: .regular, design: .rounded),
+                                    isSaving: isSavingIdentityField,
+                                    onSave: { saveIdentityField(field: "Name", value: editingNameText) },
+                                    onCancel: { isEditingName = false }
+                                )
+                                .padding(.top, VSpacing.xxl)
+                                .padding(.horizontal, VSpacing.lg)
+                            } else {
+                                HStack(spacing: VSpacing.xs) {
+                                    Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"))
+                                        .font(.system(size: 22, weight: .regular, design: .rounded))
+                                        .foregroundColor(VColor.contentDefault)
+                                        .multilineTextAlignment(.center)
+
+                                    VButton(
+                                        label: "Edit name",
+                                        iconOnly: VIcon.pencil.rawValue,
+                                        style: .ghost,
+                                        size: .compact
+                                    ) {
+                                        editingNameText = hasRealName ? assistantDisplayName : ""
+                                        isEditingName = true
+                                    }
+                                }
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, VSpacing.xxl)
                                 .padding(.horizontal, VSpacing.lg)
+                            }
 
                             Spacer()
 
@@ -84,9 +120,38 @@ struct IdentityPanel: View {
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-                                if let role, !role.isEmpty {
-                                    identityInfoRow(label: "Role", value: role)
+                                let role = AssistantDisplayName.firstUserFacing(from: [
+                                    remoteIdentity?.role.nilIfEmpty,
+                                    identity?.role
+                                ])
+                                if isEditingRole {
+                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                        Text("Role")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.contentTertiary)
+                                        inlineEditField(
+                                            text: $editingRoleText,
+                                            placeholder: "Enter a role",
+                                            font: VFont.caption,
+                                            isSaving: isSavingIdentityField,
+                                            onSave: { saveIdentityField(field: "Role", value: editingRoleText) },
+                                            onCancel: { isEditingRole = false }
+                                        )
+                                    }
+                                } else {
+                                    HStack(spacing: VSpacing.xs) {
+                                        identityInfoRow(label: "Role", value: role ?? "Not set")
+                                        Spacer()
+                                        VButton(
+                                            label: "Edit role",
+                                            iconOnly: VIcon.pencil.rawValue,
+                                            style: .ghost,
+                                            size: .compact
+                                        ) {
+                                            editingRoleText = role ?? ""
+                                            isEditingRole = true
+                                        }
+                                    }
                                 }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
@@ -189,6 +254,91 @@ struct IdentityPanel: View {
         }
     }
 
+    // MARK: - Inline Editing
+
+    @ViewBuilder
+    private func inlineEditField(
+        text: Binding<String>,
+        placeholder: String,
+        font: Font,
+        isSaving: Bool,
+        onSave: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            TextField(placeholder, text: text)
+                .font(font)
+                .foregroundColor(VColor.contentDefault)
+                .textFieldStyle(.plain)
+                .onSubmit { onSave() }
+
+            if isSaving {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                VButton(label: "Save", iconOnly: VIcon.check.rawValue, style: .ghost, size: .compact) {
+                    onSave()
+                }
+                VButton(label: "Cancel", iconOnly: VIcon.x.rawValue, style: .ghost, size: .compact) {
+                    onCancel()
+                }
+            }
+        }
+    }
+
+    /// Save a field in IDENTITY.md (e.g. "Name", "Role") via the workspace API.
+    private func saveIdentityField(field: String, value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isSavingIdentityField else { return }
+        isSavingIdentityField = true
+
+        Task {
+            defer { isSavingIdentityField = false }
+
+            let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "IDENTITY.md", showHidden: false)
+            guard let content = fileResponse?.content else {
+                isEditingName = false
+                isEditingRole = false
+                return
+            }
+
+            let key = "- **\(field.lowercased()):**"
+            let lines = content.components(separatedBy: "\n")
+            let updatedLines = lines.map { line -> String in
+                if line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix(key) {
+                    return "- **\(field):** \(trimmed)"
+                }
+                return line
+            }
+            let updatedContent = updatedLines.joined(separator: "\n")
+
+            let success = await workspaceClient.writeWorkspaceFile(
+                path: "IDENTITY.md",
+                content: updatedContent.data(using: .utf8) ?? Data()
+            )
+
+            if success {
+                identity = IdentityInfo.load()
+                isEditingName = false
+                isEditingRole = false
+
+                if field == "Name" {
+                    introText = nil
+                    if !isBootstrapActive {
+                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                            introText = soulIntro
+                        } else {
+                            generateIntro()
+                        }
+                    }
+                }
+            } else {
+                isEditingName = false
+                isEditingRole = false
+            }
+        }
+    }
+
     // MARK: - Intro Generation
 
     private func generateIntro() {
@@ -208,12 +358,12 @@ struct IdentityPanel: View {
                     result += delta
                 }
                 let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.introText = trimmed.isEmpty ? "I'm \(assistantDisplayName)!" : trimmed
+                self.introText = trimmed.isEmpty ? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!") : trimmed
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                self.introText = "I'm \(assistantDisplayName)!"
+                self.introText = hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"
             }
         }
     }
@@ -250,14 +400,20 @@ struct IdentityPanel: View {
             }
 
             // Role: remote > local (truncated with tooltip for long values)
-            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-            if let role, !role.isEmpty {
+            let role = AssistantDisplayName.firstUserFacing(from: [
+                remoteIdentity?.role.nilIfEmpty,
+                identity?.role
+            ])
+            if let role {
                 idRow(label: "Role", value: role, truncate: true)
             }
 
             // Personality: remote > local
-            let personality = remoteIdentity?.personality.nilIfEmpty ?? identity?.personality
-            if let personality, !personality.isEmpty {
+            let personality = AssistantDisplayName.firstUserFacing(from: [
+                remoteIdentity?.personality.nilIfEmpty,
+                identity?.personality
+            ])
+            if let personality {
                 idRow(label: "Personality", value: personality)
             }
 

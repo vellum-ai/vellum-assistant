@@ -9,7 +9,7 @@ import {
   downloadAttachment,
   type RuntimeAttachmentMeta,
 } from "../../runtime/client.js";
-import { classifySlackError } from "../../slack/errors.js";
+import { classifySlackError, getUserMessage } from "../../slack/errors.js";
 import { approvalPrompt, type Block } from "../../slack/block-kit-builder.js";
 import { textToBlocks } from "../../slack/text-to-blocks.js";
 
@@ -105,19 +105,33 @@ async function callSlackApiWithRetries(
         "Slack API returned error",
       );
 
+      const userMessage = getUserMessage(data.error);
+
       if (category === "rate_limit") {
-        return Response.json({ error: "Rate limited" }, { status: 429 });
+        return Response.json(
+          { error: "Rate limited", ...(userMessage && { userMessage }) },
+          { status: 429 },
+        );
       }
       if (category === "channel_not_found" || category === "not_found") {
-        return Response.json({ error: "Channel not found" }, { status: 404 });
+        return Response.json(
+          { error: "Channel not found", ...(userMessage && { userMessage }) },
+          { status: 404 },
+        );
       }
       if (category === "permission") {
-        return Response.json({ error: "Permission denied" }, { status: 403 });
+        return Response.json(
+          { error: "Permission denied", ...(userMessage && { userMessage }) },
+          { status: 403 },
+        );
       }
       // Auth errors use 502 so downstream retry logic treats them as
       // transient (token rotation, brief credential desync). Permanent
       // auth failures will exhaust retries and be dead-lettered normally.
-      return Response.json({ error: "Delivery failed" }, { status: 502 });
+      return Response.json(
+        { error: "Delivery failed", ...(userMessage && { userMessage }) },
+        { status: 502 },
+      );
     }
 
     return { ok: true, ts: data.ts };
@@ -370,6 +384,12 @@ export function createSlackDeliverHandler(
       chatAction?: "typing";
       /** Add or remove an emoji reaction on a message. */
       reaction?: { action: "add" | "remove"; name: string; messageTs: string };
+      /** Set or clear the Slack Assistants API thread status indicator. */
+      assistantThreadStatus?: {
+        channel: string;
+        threadTs: string;
+        status: string;
+      };
       /** Message timestamp to update instead of posting a new message. */
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
@@ -445,6 +465,7 @@ export function createSlackDeliverHandler(
       !text &&
       !chatAction &&
       !body.reaction &&
+      !body.assistantThreadStatus &&
       (!attachments || attachments.length === 0)
     ) {
       return Response.json(
@@ -599,6 +620,94 @@ export function createSlackDeliverHandler(
             { err, chatId, method },
             "Failed to deliver Slack reaction",
           );
+        }
+
+        return Response.json({ ok: true });
+      }
+
+      // Slack Assistants API thread status indicator.
+      // Sets or clears the native "is thinking..." status on a thread.
+      // Falls back to emoji reactions for installs without `assistant:write` scope.
+      if (body.assistantThreadStatus) {
+        const {
+          channel,
+          threadTs: statusThreadTs,
+          status,
+        } = body.assistantThreadStatus;
+        let statusSet = false;
+        try {
+          const res = await fetchImpl(
+            "https://slack.com/api/assistant.threads.setStatus",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${botToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel_id: channel,
+                thread_ts: statusThreadTs,
+                status,
+              }),
+            },
+          );
+          const data = (await res.json()) as {
+            ok?: boolean;
+            error?: string;
+          };
+          if (data.ok) {
+            statusSet = true;
+          } else {
+            tlog.warn(
+              { chatId, slackError: data.error },
+              "Slack assistant.threads.setStatus returned error, falling back to reaction",
+            );
+          }
+        } catch (err) {
+          tlog.warn(
+            { err, chatId },
+            "Failed to set Slack assistant thread status, falling back to reaction",
+          );
+        }
+
+        // Fallback: use eyes reaction when setStatus is unavailable
+        // (e.g. missing assistant:write scope on older installs).
+        if (!statusSet) {
+          const isSet = status.length > 0;
+          const method = isSet ? "reactions.add" : "reactions.remove";
+          try {
+            const res = await fetchImpl(`https://slack.com/api/${method}`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${botToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel,
+                name: "eyes",
+                timestamp: statusThreadTs,
+              }),
+            });
+            const data = (await res.json()) as {
+              ok?: boolean;
+              error?: string;
+            };
+            if (
+              !data.ok &&
+              data.error !== "already_reacted" &&
+              data.error !== "no_reaction"
+            ) {
+              tlog.warn(
+                { chatId, method, slackError: data.error },
+                "Slack reaction fallback returned error",
+              );
+            }
+          } catch (err) {
+            tlog.warn(
+              { err, chatId, method },
+              "Failed to deliver Slack reaction fallback",
+            );
+          }
         }
 
         return Response.json({ ok: true });

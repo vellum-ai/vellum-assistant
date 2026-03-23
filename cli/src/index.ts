@@ -68,16 +68,16 @@ function printHelp(): void {
     "  ps       List assistants (or processes for a specific assistant)",
   );
   console.log("  recover  Restore a previously retired local assistant");
-  console.log("  restore  Restore a .vbundle backup into a running assistant");
-  console.log("  retire   Delete an assistant instance");
   console.log(
-    "  rollback  Roll back a Docker assistant to the previous version",
+    "  restore  Restore data (and optionally version) from a .vbundle backup",
   );
+  console.log("  retire   Delete an assistant instance");
+  console.log("  rollback  Roll back an assistant to a previous version");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");
   console.log("  tunnel   Create a tunnel for a locally hosted assistant");
-  console.log("  upgrade  Upgrade an assistant to the latest version");
+  console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");

@@ -34,7 +34,7 @@ struct AboutVellumView: View {
     }
 
     /// Resolved service group version — prefers the reactive connectionManager value,
-    /// falls back to the one-shot healthz fetch.
+    /// falls back to the one-shot health fetch.
     private var serviceVersion: String? {
         connectionManager?.assistantVersion ?? healthz?.version
     }
@@ -301,7 +301,7 @@ struct AboutVellumView: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(selectedAssistantId)/healthz",
+                path: "health",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

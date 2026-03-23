@@ -11,73 +11,42 @@ struct MemoryItemRow: View {
     }
 
     var body: some View {
-        VInteractiveCard(action: onSelect) {
+        VCard(padding: VSpacing.lg, action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                kindIcon
-
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center, spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.subject)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                        Text(item.subject)
+                            .font(VFont.headline)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
 
-                            Text(item.relativeLastSeen)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                                .padding(.top, -1)
-                        }
-
-                        Spacer()
-
-                        kindTag
-
-                        if let scopeLabel = item.scopeLabel {
-                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
-                        }
-
-                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
-                            .accessibilityLabel("Delete memory")
+                        VTag(
+                            memoryKind?.label ?? item.kind.capitalized,
+                            color: memoryKind?.color ?? VColor.contentTertiary
+                        )
                     }
 
                     Text(item.statement)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentTertiary)
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
                 }
+
+                Spacer()
+
+                Text(item.relativeLastSeen)
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.contentTertiary)
+
+                VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
+                    .accessibilityLabel("Delete memory")
             }
         }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - Kind Icon
-
-    @ViewBuilder
-    private var kindIcon: some View {
-        if let kind = memoryKind, let icon = VIcon(rawValue: kind.icon) {
-            VIconView(icon, size: 20)
-                .foregroundColor(kind.color)
-                .frame(width: 40, height: 40)
-        } else {
-            VIconView(.brain, size: 20)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(width: 40, height: 40)
-        }
-    }
-
-    // MARK: - Kind Tag
-
-    private var kindTag: some View {
-        VBadge(
-            label: memoryKind?.label ?? item.kind.capitalized,
-            color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .pill
-        )
     }
 }

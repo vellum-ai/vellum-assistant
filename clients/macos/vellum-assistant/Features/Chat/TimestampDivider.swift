@@ -53,23 +53,33 @@ enum ChatTimestampTimeZone {
 struct TimestampDivider: View {
     let date: Date
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     private var formattedTime: String {
         let tz = ChatTimestampTimeZone.resolve()
         var calendar = Calendar.current
         calendar.timeZone = tz
-        let formatter = DateFormatter()
-        formatter.timeZone = tz
-        formatter.dateFormat = "h:mm a"
-        let timeString = formatter.string(from: date)
+        Self.timeFormatter.timeZone = tz
+        let timeString = Self.timeFormatter.string(from: date)
         if calendar.isDateInToday(date) {
             return "Today at \(timeString)"
         } else if calendar.isDateInYesterday(date) {
             return "Yesterday at \(timeString)"
         } else {
-            let dayFormatter = DateFormatter()
-            dayFormatter.timeZone = tz
-            dayFormatter.dateFormat = "MMM d"
-            return "\(dayFormatter.string(from: date)) at \(timeString)"
+            Self.dayFormatter.timeZone = tz
+            return "\(Self.dayFormatter.string(from: date)) at \(timeString)"
         }
     }
 

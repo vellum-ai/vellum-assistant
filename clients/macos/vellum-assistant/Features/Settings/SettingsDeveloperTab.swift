@@ -333,7 +333,7 @@ struct SettingsDeveloperTab: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
-    /// The assistant version reported by the healthz endpoint, if available.
+    /// The assistant version reported by the health endpoint, if available.
     private var effectiveVersion: String? {
         if let version = healthz?.version, !version.isEmpty {
             return version
@@ -448,7 +448,7 @@ struct SettingsDeveloperTab: View {
     private func fetchHealthz() async {
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(selectedAssistantId)/healthz",
+                path: "health",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

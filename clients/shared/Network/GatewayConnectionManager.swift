@@ -3,8 +3,8 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
 
-/// Minimal decode of the healthz response to extract the version field.
-private struct HealthzVersionResponse: Decodable {
+/// Minimal decode of the /v1/health response to extract the version field.
+private struct HealthVersionResponse: Decodable {
     let version: String?
 }
 
@@ -87,6 +87,10 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Auto-Wake
 
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
+    /// Handler called after a Sparkle update is detected.
+    /// Receives `(name: String, fromVersion: String)` so the macOS app can invoke
+    /// CLI `upgradeFinalize` without the shared module depending on `AppDelegate`.
+    public var postSparkleUpdateHandler: (@MainActor @Sendable (_ name: String, _ fromVersion: String) async -> Void)?
     public var recoveryPlatform: String?
     public var recoveryDeviceId: String?
 
@@ -266,7 +270,7 @@ public final class GatewayConnectionManager: ObservableObject {
                 throw ConnectionError.healthCheckFailed
             }
 
-            if let decoded = try? JSONDecoder().decode(HealthzVersionResponse.self, from: response.data) {
+            if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != assistantVersion {
                     assistantVersion = newVersion
                     if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
@@ -554,8 +558,8 @@ public final class GatewayConnectionManager: ObservableObject {
     #if os(macOS)
     /// Detects whether the app was relaunched after a Sparkle update by checking
     /// the `preUpdateVersion` UserDefaults flag (set before the update started).
-    /// If the version has changed, broadcasts a `complete` event so the UI shows
-    /// a success toast and creates a workspace git commit recording the update.
+    /// If the version has changed, runs the CLI finalize command which broadcasts
+    /// a `complete` event and creates a workspace git commit recording the update.
     /// The flag is cleared after processing so this only runs once per update.
     private func handlePostSparkleUpdate() {
         guard let preUpdateVersion = UserDefaults.standard.string(forKey: "preUpdateVersion") else { return }
@@ -567,24 +571,11 @@ public final class GatewayConnectionManager: ObservableObject {
 
         log.info("Post-Sparkle-update detected: \(preUpdateVersion, privacy: .public) → \(currentVersion, privacy: .public)")
 
+        // Single CLI call replaces direct HTTP calls for broadcast + workspace commit
         Task {
-            // 1. Broadcast "complete" so the UI clears the progress spinner and shows the outcome
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/upgrade-broadcast",
-                json: [
-                    "type": "complete",
-                    "installedVersion": currentVersion,
-                    "success": true
-                ] as [String: Any],
-                timeout: 5
-            )
-
-            // 2. Workspace commit: record successful update
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/workspace-commit",
-                json: ["message": "[sparkle-update] Complete: \(preUpdateVersion) → \(currentVersion)\n\nresult: success"],
-                timeout: 10
-            )
+            guard let handler = postSparkleUpdateHandler,
+                  let name = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+            await handler(name, preUpdateVersion)
         }
     }
     #endif

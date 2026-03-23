@@ -220,10 +220,7 @@ struct ToolPermissionTesterView: View {
                 HStack(spacing: VSpacing.sm) {
                     decisionBadge(result.decision)
 
-                    VBadge(
-                        style: .label(result.riskLevel.capitalized),
-                        color: riskColor(result.riskLevel)
-                    )
+                    VTag(result.riskLevel.capitalized, color: riskColor(result.riskLevel))
 
                     if let ruleId = result.matchedRuleId {
                         Text("Rule: \(ruleId)")

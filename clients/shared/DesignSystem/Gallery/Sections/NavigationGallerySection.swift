@@ -167,6 +167,28 @@ struct NavigationGallerySection: View {
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Trailing Content").font(VFont.headline).foregroundColor(VColor.contentSecondary)
+
+                        VSidebarRow(label: "All", isActive: true, action: {}) {
+                            Text("42")
+                                .font(.custom("Inter", size: 11))
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                        VSidebarRow(label: "Identity", action: {}) {
+                            Text("12")
+                                .font(.custom("Inter", size: 11))
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                        VSidebarRow(label: "Preference", action: {}) {
+                            Text("8")
+                                .font(.custom("Inter", size: 11))
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Collapsed Mode").font(VFont.headline).foregroundColor(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.md) {

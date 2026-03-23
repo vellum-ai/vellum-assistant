@@ -40,6 +40,22 @@ const log = getLogger("guardian-request-resolvers");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Determines whether a Slack delivery should use ephemeral mode.
+ *
+ * Ephemeral messages (`chat.postEphemeral`) require a real channel ID
+ * (starts with `C` for public/private channels, or `D` for DM conversations).
+ * When the chat ID is a user ID (starts with `U`), `chat.postEphemeral` fails
+ * with `channel_not_found`. In that case the message is already going to a DM
+ * opened by `chat.postMessage`, so ephemeral isn't needed.
+ *
+ * Returns `true` only when the source channel is Slack AND the chatId is a
+ * shared channel (starts with `C`), meaning other users could see the message.
+ */
+function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
+  return sourceChannel === "slack" && chatId.startsWith("C");
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -372,13 +388,22 @@ const accessRequestResolver: GuardianRequestResolver = {
       // Deliver denial notification and lifecycle signals when channel context is available
       if (channelDeliveryContext) {
         try {
+          const denialPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterChatId,
+            text: "Your access request has been denied.",
+            assistantId,
+          };
+          // On Slack shared channels, deliver as ephemeral so only the requester sees the denial
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
+            denialPayload.ephemeral = true;
+            denialPayload.user = requesterExternalUserId;
+          }
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
-            {
-              chatId: requesterChatId,
-              text: "Your access request has been denied by the guardian.",
-              assistantId,
-            },
+            denialPayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -435,7 +460,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             desktopDeliverUrl,
             {
               chatId: targetChatId,
-              text: "Your access request has been denied by the guardian.",
+              text: "Your access request has been denied.",
               assistantId,
             },
             desktopBearerToken,
@@ -520,18 +545,28 @@ const accessRequestResolver: GuardianRequestResolver = {
       let codeDelivered = true;
 
       // Deliver verification code to guardian
+      const codeText =
+        `You approved access for ${requesterExternalUserId}. ` +
+        `Give them this verification code: \`${session.secret}\`. ` +
+        `The code expires in 10 minutes.`;
       try {
-        const codeText =
-          `You approved access for ${requesterExternalUserId}. ` +
-          `Give them this verification code: ${session.secret}. ` +
-          `The code expires in 10 minutes.`;
+        const codePayload: Parameters<typeof deliverChannelReply>[1] = {
+          chatId: channelDeliveryContext.guardianChatId,
+          text: codeText,
+          assistantId,
+        };
+        // On Slack shared channels, deliver the verification code as ephemeral
+        // so only the guardian sees the secret — not all channel members.
+        if (
+          shouldUseEphemeral(channel, channelDeliveryContext.guardianChatId) &&
+          ctx.actor.actorExternalUserId
+        ) {
+          codePayload.ephemeral = true;
+          codePayload.user = ctx.actor.actorExternalUserId;
+        }
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
-          {
-            chatId: channelDeliveryContext.guardianChatId,
-            text: codeText,
-            assistantId,
-          },
+          codePayload,
           channelDeliveryContext.bearerToken,
         );
       } catch (err) {
@@ -542,18 +577,83 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered = false;
       }
 
-      // Notify the requester
-      if (codeDelivered) {
+      // If the guardian approved in a shared channel (not a DM), also send
+      // them a DM with the verification code for better privacy and
+      // discoverability. On Slack, posting to a user ID opens a DM.
+      const guardianUserId = ctx.actor.actorExternalUserId;
+      if (
+        codeDelivered &&
+        channel === "slack" &&
+        guardianUserId &&
+        !channelDeliveryContext.guardianChatId.startsWith("D")
+      ) {
+        // Strip threadTs from the callback URL — it belongs to the shared
+        // channel thread and would cause thread_not_found errors in the DM.
+        let dmCallbackUrl = channelDeliveryContext.replyCallbackUrl;
+        try {
+          const url = new URL(channelDeliveryContext.replyCallbackUrl);
+          url.searchParams.delete("threadTs");
+          dmCallbackUrl = url.toString();
+        } catch {
+          // Malformed URL — use as-is
+        }
+
         try {
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+            dmCallbackUrl,
             {
-              chatId: requesterChatId,
-              text:
-                "Your access request has been approved! " +
-                "Please enter the 6-digit verification code you receive from the guardian.",
+              chatId: guardianUserId,
+              text: codeText,
               assistantId,
             },
+            channelDeliveryContext.bearerToken,
+          );
+        } catch (err) {
+          // Best-effort: the code was already delivered in the shared channel
+          log.warn(
+            { err, guardianUserId },
+            "Failed to send guardian DM confirmation with verification code",
+          );
+        }
+      }
+
+      // Notify the requester. For Slack, route to DM via the user ID and
+      // strip threadTs (which belongs to the guardian's channel thread).
+      const requesterTargetChatId =
+        channel === "slack" && requesterExternalUserId
+          ? requesterExternalUserId
+          : requesterChatId;
+      let requesterCallbackUrl = channelDeliveryContext.replyCallbackUrl;
+      if (channel === "slack" && requesterExternalUserId) {
+        try {
+          const url = new URL(channelDeliveryContext.replyCallbackUrl);
+          url.searchParams.delete("threadTs");
+          requesterCallbackUrl = url.toString();
+        } catch {
+          // Malformed URL — use as-is
+        }
+      }
+
+      if (codeDelivered) {
+        try {
+          const approvalPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterTargetChatId,
+            text:
+              "Your access request has been approved! " +
+              "Please enter the 6-digit verification code you receive from the guardian.",
+            assistantId,
+          };
+          // On Slack shared channels, deliver as ephemeral so only the requester sees
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
+            approvalPayload.ephemeral = true;
+            approvalPayload.user = requesterExternalUserId;
+          }
+          await deliverChannelReply(
+            requesterCallbackUrl,
+            approvalPayload,
             channelDeliveryContext.bearerToken,
           );
           requesterNotified = true;
@@ -565,15 +665,23 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       } else {
         try {
+          const failurePayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: requesterTargetChatId,
+            text:
+              "Your access request was approved, but we were unable to " +
+              "deliver the verification code. Please try again later.",
+            assistantId,
+          };
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
+            failurePayload.ephemeral = true;
+            failurePayload.user = requesterExternalUserId;
+          }
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
-            {
-              chatId: requesterChatId,
-              text:
-                "Your access request was approved, but we were unable to " +
-                "deliver the verification code. Please try again later.",
-              assistantId,
-            },
+            requesterCallbackUrl,
+            failurePayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -635,8 +743,8 @@ const accessRequestResolver: GuardianRequestResolver = {
     }
 
     const verificationReplyText = requesterNotified
-      ? `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes.`
-      : `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
+      ? `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes.`
+      : `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
 
     return {
       ok: true,
@@ -686,13 +794,22 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
 
       if (channelDeliveryContext && requesterChatId) {
         try {
-          await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+          const grantDenialPayload: Parameters<typeof deliverChannelReply>[1] =
             {
               chatId: requesterChatId,
               text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
               assistantId,
-            },
+            };
+          if (
+            shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
+            request.requesterExternalUserId
+          ) {
+            grantDenialPayload.ephemeral = true;
+            grantDenialPayload.user = request.requesterExternalUserId;
+          }
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            grantDenialPayload,
             channelDeliveryContext.bearerToken,
           );
         } catch (err) {
@@ -775,13 +892,22 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       );
     } else if (channelDeliveryContext && requesterChatId) {
       try {
-        await deliverChannelReply(
-          channelDeliveryContext.replyCallbackUrl,
+        const grantApprovalPayload: Parameters<typeof deliverChannelReply>[1] =
           {
             chatId: requesterChatId,
             text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
             assistantId,
-          },
+          };
+        if (
+          shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
+          request.requesterExternalUserId
+        ) {
+          grantApprovalPayload.ephemeral = true;
+          grantApprovalPayload.user = request.requesterExternalUserId;
+        }
+        await deliverChannelReply(
+          channelDeliveryContext.replyCallbackUrl,
+          grantApprovalPayload,
           channelDeliveryContext.bearerToken,
         );
       } catch (err) {

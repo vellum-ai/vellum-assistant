@@ -11,6 +11,25 @@ import { composeApprovalMessageGenerative } from "../approval-message-composer.j
 import { deliverChannelReply } from "../gateway-client.js";
 import type { ApprovalCopyGenerator } from "../http-types.js";
 
+// ---------------------------------------------------------------------------
+// Deduplication for "already resolved" ephemeral messages
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks recently sent stale approval notifications to prevent flooding the
+ * user when they rapidly click stale approval buttons. Keyed by
+ * `${chatId}:${scenario}` with a 30-second TTL per entry.
+ */
+const recentStaleNotifications = new Set<string>();
+
+/** TTL in milliseconds for dedup entries. Exported for testing. */
+export const STALE_DEDUP_TTL_MS = 30_000;
+
+/** Clear the dedup cache. Exported for testing only. */
+export function clearStaleNotificationCache(): void {
+  recentStaleNotifications.clear();
+}
+
 interface DeliverApprovalReplyParams {
   context: ApprovalMessageContext;
   replyCallbackUrl: string;
@@ -22,6 +41,46 @@ interface DeliverApprovalReplyParams {
   errorLogMessage: string;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message. Used to keep approval-related noise out of shared
+   * channels.
+   */
+  ephemeralUserId?: string;
+}
+
+/**
+ * Compose a generative approval message and deliver it as a channel reply.
+ * Throws on failure — callers decide whether to swallow or propagate.
+ */
+async function composeAndDeliver(
+  params: DeliverApprovalReplyParams,
+): Promise<void> {
+  const {
+    context,
+    replyCallbackUrl,
+    chatId,
+    assistantId,
+    bearerToken,
+    approvalCopyGenerator,
+    ephemeralUserId,
+  } = params;
+
+  const text = await composeApprovalMessageGenerative(
+    context,
+    {},
+    approvalCopyGenerator,
+  );
+  const payload: Parameters<typeof deliverChannelReply>[1] = {
+    chatId,
+    text,
+    assistantId,
+  };
+  if (ephemeralUserId) {
+    payload.ephemeral = true;
+    payload.user = ephemeralUserId;
+  }
+  await deliverChannelReply(replyCallbackUrl, payload, bearerToken);
 }
 
 /**
@@ -32,31 +91,13 @@ interface DeliverApprovalReplyParams {
 async function deliverApprovalReply(
   params: DeliverApprovalReplyParams,
 ): Promise<void> {
-  const {
-    context,
-    replyCallbackUrl,
-    chatId,
-    assistantId,
-    bearerToken,
-    approvalCopyGenerator,
-    logger,
-    errorLogMessage,
-    errorLogContext,
-  } = params;
-
   try {
-    const text = await composeApprovalMessageGenerative(
-      context,
-      {},
-      approvalCopyGenerator,
-    );
-    await deliverChannelReply(
-      replyCallbackUrl,
-      { chatId, text, assistantId },
-      bearerToken,
-    );
+    await composeAndDeliver(params);
   } catch (err) {
-    logger.error({ err, ...errorLogContext }, errorLogMessage);
+    params.logger.error(
+      { err, ...params.errorLogContext },
+      params.errorLogMessage,
+    );
   }
 }
 
@@ -78,25 +119,60 @@ export interface DeliverStaleApprovalReplyParams {
   extraContext?: Partial<ApprovalMessageContext>;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message. Keeps approval noise out of shared channels.
+   */
+  ephemeralUserId?: string;
 }
 
 /**
  * Deliver a stale/already-resolved approval notice to a channel chat.
  * Consolidates the repeated compose + deliver + try/catch pattern.
+ *
+ * For `approval_already_resolved` scenarios, deduplicates notifications
+ * per chat so rapid stale button clicks don't flood the user with
+ * repeated ephemeral warnings.
  */
 export async function deliverStaleApprovalReply(
   params: DeliverStaleApprovalReplyParams,
 ): Promise<void> {
-  const { scenario, sourceChannel, extraContext, ...rest } = params;
+  const { scenario, sourceChannel, extraContext, ephemeralUserId, ...rest } =
+    params;
 
-  await deliverApprovalReply({
+  const replyParams: DeliverApprovalReplyParams = {
     ...rest,
+    ephemeralUserId,
     context: {
       scenario,
       channel: sourceChannel,
       ...extraContext,
     },
-  });
+  };
+
+  // Deduplicate "already resolved" ephemeral messages per chat.
+  // If the same (chatId, scenario) pair was notified within the TTL, skip.
+  if (scenario === "approval_already_resolved") {
+    const dedupeKey = `${rest.chatId}:${scenario}`;
+    if (recentStaleNotifications.has(dedupeKey)) {
+      return;
+    }
+
+    // Cache the dedup key only after successful delivery so that failures
+    // don't silently suppress retries for the TTL window.
+    try {
+      await composeAndDeliver(replyParams);
+      recentStaleNotifications.add(dedupeKey);
+      setTimeout(() => {
+        recentStaleNotifications.delete(dedupeKey);
+      }, STALE_DEDUP_TTL_MS);
+    } catch (err) {
+      rest.logger.error({ err, ...rest.errorLogContext }, rest.errorLogMessage);
+    }
+    return;
+  }
+
+  await deliverApprovalReply(replyParams);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +190,11 @@ export interface DeliverIdentityMismatchReplyParams {
   errorLogMessage: string;
   /** Extra fields merged into the pino error context. */
   errorLogContext?: Record<string, unknown>;
+  /**
+   * When set, deliver via `chat.postEphemeral` so only this Slack user
+   * sees the message.
+   */
+  ephemeralUserId?: string;
 }
 
 /**
@@ -123,10 +204,11 @@ export interface DeliverIdentityMismatchReplyParams {
 export async function deliverIdentityMismatchReply(
   params: DeliverIdentityMismatchReplyParams,
 ): Promise<void> {
-  const { sourceChannel, ...rest } = params;
+  const { sourceChannel, ephemeralUserId, ...rest } = params;
 
   await deliverApprovalReply({
     ...rest,
+    ephemeralUserId,
     context: {
       scenario: "guardian_identity_mismatch",
       channel: sourceChannel,

@@ -36,8 +36,11 @@ run_step() {
 step_kill_bun_processes() {
     BUN_PIDS=$(pgrep -f "bun run" 2>/dev/null || true)
     if [ -n "$BUN_PIDS" ]; then
-        echo "$BUN_PIDS" | xargs kill -9 2>/dev/null || true
-        echo "      ✅ Killed bun run processes: $BUN_PIDS"
+        if ! echo "$BUN_PIDS" | xargs kill -9 2>/dev/null; then
+            echo "      ⚠️  Warning: Some bun processes could not be killed"
+        else
+            echo "      ✅ Killed bun run processes: $BUN_PIDS"
+        fi
     else
         echo "      ⏭️  No bun run processes found, skipping"
     fi
@@ -50,7 +53,9 @@ step_uninstall_bun() {
         # Clean up shell profile references
         for profile in ~/.bashrc ~/.bash_profile ~/.zshrc ~/.zprofile; do
             if [ -f "$profile" ]; then
-                sed -i '' '/\.bun/d' "$profile" 2>/dev/null || true
+                if ! sed -i '' '/\.bun/d' "$profile" 2>/dev/null; then
+                    echo "      ⚠️  Warning: Failed to clean bun references from $profile"
+                fi
             fi
         done
         echo "      ✅ Cleaned bun references from shell profiles"
@@ -62,8 +67,11 @@ step_uninstall_bun() {
 step_kill_qdrant_processes() {
     QDRANT_PIDS=$(pgrep -f "qdrant" 2>/dev/null || true)
     if [ -n "$QDRANT_PIDS" ]; then
-        echo "$QDRANT_PIDS" | xargs kill -9 2>/dev/null || true
-        echo "      ✅ Killed qdrant processes: $QDRANT_PIDS"
+        if ! echo "$QDRANT_PIDS" | xargs kill -9 2>/dev/null; then
+            echo "      ⚠️  Warning: Some qdrant processes could not be killed"
+        else
+            echo "      ✅ Killed qdrant processes: $QDRANT_PIDS"
+        fi
     else
         echo "      ⏭️  No qdrant processes found, skipping"
     fi
@@ -72,8 +80,11 @@ step_kill_qdrant_processes() {
 step_kill_vellum_processes() {
     VELLUM_PIDS=$(pgrep -f "Vellum" 2>/dev/null || true)
     if [ -n "$VELLUM_PIDS" ]; then
-        echo "$VELLUM_PIDS" | xargs kill -9 2>/dev/null || true
-        echo "      ✅ Killed Vellum processes: $VELLUM_PIDS"
+        if ! echo "$VELLUM_PIDS" | xargs kill -9 2>/dev/null; then
+            echo "      ⚠️  Warning: Some Vellum processes could not be killed"
+        else
+            echo "      ✅ Killed Vellum processes: $VELLUM_PIDS"
+        fi
     else
         echo "      ⏭️  No Vellum processes found, skipping"
     fi
@@ -91,8 +102,11 @@ step_remove_vellum_dir() {
 step_kill_embed_workers() {
     EMBED_PIDS=$(pgrep -f "embed-worker" 2>/dev/null || true)
     if [ -n "$EMBED_PIDS" ]; then
-        echo "$EMBED_PIDS" | xargs kill -9 2>/dev/null || true
-        echo "       ✅ Killed embedding worker processes: $EMBED_PIDS"
+        if ! echo "$EMBED_PIDS" | xargs kill -9 2>/dev/null; then
+            echo "       ⚠️  Warning: Some embedding worker processes could not be killed"
+        else
+            echo "       ✅ Killed embedding worker processes: $EMBED_PIDS"
+        fi
     else
         echo "       ⏭️  No embedding worker processes found, skipping"
     fi
@@ -198,8 +212,11 @@ step_remove_dock_entry() {
                     echo "       ✅ Removed Vellum from Dock persistent apps (index $i)"
                 fi
             done
-            killall Dock 2>/dev/null || true
-            echo "       ✅ Dock restarted"
+            if ! killall Dock 2>/dev/null; then
+                echo "       ⚠️  Warning: Could not restart Dock"
+            else
+                echo "       ✅ Dock restarted"
+            fi
         else
             echo "       ⏭️  Vellum not found in Dock, skipping"
         fi
@@ -212,7 +229,9 @@ step_uninstall_docker() {
     DOCKER_REMOVED=false
     if [ -d "/Applications/Docker.app" ]; then
         # Quit Docker if running
-        osascript -e 'quit app "Docker"' 2>/dev/null || true
+        if ! osascript -e 'quit app "Docker"' 2>/dev/null; then
+            echo "       ⚠️  Warning: Could not quit Docker.app — it may not be running"
+        fi
         sleep 2
         rm -rf /Applications/Docker.app
         echo "       ✅ Removed /Applications/Docker.app"
@@ -266,14 +285,25 @@ step_uninstall_colima() {
         done
     fi
     if [ -n "$COLIMA_BIN" ]; then
-        "$COLIMA_BIN" stop 2>/dev/null || true
-        "$COLIMA_BIN" delete --force 2>/dev/null || true
-        echo "       ✅ Stopped and deleted Colima VM"
+        if ! "$COLIMA_BIN" stop 2>/dev/null; then
+            echo "       ⚠️  Warning: 'colima stop' failed — VM may not have been running"
+        fi
+        if ! "$COLIMA_BIN" delete --force 2>/dev/null; then
+            echo "       ⚠️  Warning: 'colima delete --force' failed — will clean up state directories manually"
+        else
+            echo "       ✅ Stopped and deleted Colima VM"
+        fi
         COLIMA_REMOVED=true
     fi
     if [ -d "$HOME/.colima" ]; then
         rm -rf "$HOME/.colima"
         echo "       ✅ Removed ~/.colima"
+        COLIMA_REMOVED=true
+    fi
+    # Also remove Lima's internal state in case 'colima delete' failed to clean up
+    if [ -d "$HOME/.lima" ]; then
+        rm -rf "$HOME/.lima"
+        echo "       ✅ Removed ~/.lima"
         COLIMA_REMOVED=true
     fi
     # Remove colima and lima binaries from all known locations
@@ -310,7 +340,9 @@ step_uninstall_homebrew() {
     fi
     if [ -n "$BREW_BIN" ]; then
         # Use Homebrew's official uninstall script
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>/dev/null || true
+        if ! NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>/dev/null; then
+            echo "       ⚠️  Warning: Homebrew uninstall script failed — cleaning up directories manually"
+        fi
         # Clean up any remaining Homebrew directories
         for brew_dir in /usr/local/Homebrew /usr/local/Caskroom /usr/local/Cellar /opt/homebrew; do
             if [ -d "$brew_dir" ]; then
@@ -339,8 +371,8 @@ run_step 10 "Removing ms-playwright browser caches"    step_remove_playwright
 run_step 11 "Clearing Vellum desktop app UserDefaults" step_clear_vellum_defaults
 run_step 12 "Clearing Vellum Sparkle updater defaults" step_clear_sparkle_defaults
 run_step 13 "Removing Vellum from the Dock"            step_remove_dock_entry
-run_step 14 "Uninstalling Docker"                      step_uninstall_docker
-run_step 15 "Uninstalling Colima"                      step_uninstall_colima
+run_step 14 "Uninstalling Colima"                      step_uninstall_colima
+run_step 15 "Uninstalling Docker"                      step_uninstall_docker
 run_step 16 "Uninstalling Homebrew"                    step_uninstall_homebrew
 
 echo ""

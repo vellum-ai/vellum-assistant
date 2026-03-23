@@ -154,7 +154,7 @@ describe("BlockKitBuilder", () => {
 // ---------------------------------------------------------------------------
 
 describe("approvalPrompt", () => {
-  it("produces section + actions blocks", () => {
+  it("produces section + actions + context blocks", () => {
     const blocks = approvalPrompt({
       message: "Allow file access?",
       requestId: "req-1",
@@ -164,13 +164,20 @@ describe("approvalPrompt", () => {
       ],
     });
 
-    expect(blocks).toHaveLength(2);
+    expect(blocks).toHaveLength(3);
     expect(blocks[0].type).toBe("section");
     expect((blocks[0] as SectionBlock).text.text).toBe("Allow file access?");
 
     const actions = blocks[1] as ActionsBlock;
     expect(actions.type).toBe("actions");
     expect(actions.elements).toHaveLength(2);
+
+    const ctx = blocks[2] as ContextBlock;
+    expect(ctx.type).toBe("context");
+    expect(ctx.elements[0]).toEqual({
+      type: "mrkdwn",
+      text: "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
+    });
   });
 
   it("encodes requestId and actionId into action_id", () => {
@@ -212,7 +219,7 @@ describe("permissionRequest", () => {
       requestId: "req-99",
     });
 
-    expect(blocks).toHaveLength(2);
+    expect(blocks).toHaveLength(3);
     const actions = blocks[1] as ActionsBlock;
     expect(actions.elements).toHaveLength(2);
 

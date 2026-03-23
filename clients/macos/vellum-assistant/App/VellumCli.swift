@@ -404,15 +404,69 @@ final class VellumCli {
         log.info("CLI upgrade completed successfully for '\(name, privacy: .public)'")
     }
 
+    /// Run pre-upgrade steps only (backup, SSE broadcast, workspace commit) without swapping versions.
+    /// Returns the backup path if one was created (parsed from stdout `BACKUP_PATH:` line).
+    func upgradePrepare(name: String, targetVersion: String? = nil) async throws -> String? {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping upgradePrepare (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        var arguments = ["upgrade", name, "--prepare"]
+        if let targetVersion {
+            arguments += ["--version", targetVersion]
+        }
+        let (stdout, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
+        if status != 0 {
+            if let cliError = Self.parseCliError(from: stderr) {
+                throw CLIError.structuredError(cliError)
+            }
+            throw CLIError.executionFailed(stderr)
+        }
+        // Parse BACKUP_PATH: line from stdout
+        for line in stdout.split(separator: "\n") {
+            if line.hasPrefix("BACKUP_PATH:") {
+                return String(line.dropFirst("BACKUP_PATH:".count))
+            }
+        }
+        return nil
+    }
+
+    /// Run post-upgrade steps only (broadcast complete, workspace commit).
+    func upgradeFinalize(name: String, fromVersion: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping upgradeFinalize (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        let arguments = ["upgrade", name, "--finalize", "--version", fromVersion]
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
+        if status != 0 {
+            if let cliError = Self.parseCliError(from: stderr) {
+                throw CLIError.structuredError(cliError)
+            }
+            throw CLIError.executionFailed(stderr)
+        }
+    }
+
     /// Roll back a specific Docker assistant to its previous version via the CLI.
-    func rollback(name: String) async throws {
+    ///
+    /// - Parameters:
+    ///   - name: The assistant name to roll back.
+    ///   - version: Optional target version to roll back to. When `nil`, rolls back to the previous version.
+    func rollback(name: String, version: String? = nil) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping rollback (dev mode)")
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running rollback via CLI for '\(name, privacy: .public)'")
-        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["rollback", name])
+        let versionSuffix = version.map { " to \($0)" } ?? ""
+        log.info("Running rollback via CLI for '\(name, privacy: .public)'\(versionSuffix, privacy: .public)")
+        var arguments = ["rollback", name]
+        if let version {
+            arguments += ["--version", version]
+        }
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
             log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")

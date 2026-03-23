@@ -481,8 +481,8 @@ If managed bootstrap fails, the user stays on the onboarding screen with an erro
 
 | Mode | Route Pattern | Auth Header | When Used |
 |------|--------------|-------------|-----------|
-| `runtimeFlat` | `/healthz`, `/v1/messages`, `/v1/events` | `Authorization: Bearer {token}` | Local daemon, gateway-proxied remote |
-| `platformAssistantProxy` | `/v1/assistants/{id}/healthz/`, `/v1/assistants/{id}/messages/` | `X-Session-Token: {token}` | Platform-managed assistants (`cloud == "vellum"`) |
+| `runtimeFlat` | `/health`, `/v1/messages`, `/v1/events` | `Authorization: Bearer {token}` | Local daemon, gateway-proxied remote |
+| `platformAssistantProxy` | `/v1/assistants/{id}/health/`, `/v1/assistants/{id}/messages/` | `X-Session-Token: {token}` | Platform-managed assistants (`cloud == "vellum"`) |
 
 The route mode and auth mode are carried in `TransportMetadata` (defined in `DaemonConfig.swift`) and threaded through the `DaemonConfig` to the `HTTPDaemonClient`. `AppDelegate.configureDaemonTransport(for:)` selects the mode based on `LockfileAssistant.isManaged`.
 

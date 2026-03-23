@@ -108,7 +108,7 @@ interface LockfileData {
   [key: string]: unknown;
 }
 
-function getBaseDir(): string {
+export function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
@@ -437,12 +437,14 @@ export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
   // First local assistant gets the home directory with default ports.
+  // Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the daemon,
+  // gateway, and keychain broker all resolve paths under the same root.
   const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
   if (existingLocals.length === 0) {
-    const home = homedir();
-    const vellumDir = join(home, ".vellum");
+    const baseDir = getBaseDir();
+    const vellumDir = join(baseDir, ".vellum");
     return {
-      instanceDir: home,
+      instanceDir: baseDir,
       daemonPort: DEFAULT_DAEMON_PORT,
       gatewayPort: DEFAULT_GATEWAY_PORT,
       qdrantPort: DEFAULT_QDRANT_PORT,

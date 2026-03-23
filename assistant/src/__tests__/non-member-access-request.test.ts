@@ -186,7 +186,7 @@ describe("non-member access request notification", () => {
     expect(deliverReplyCalls.length).toBe(1);
     expect(
       (deliverReplyCalls[0].payload as Record<string, unknown>).text,
-    ).toContain("let them know");
+    ).toContain("know you tried talking to me");
   });
 
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
@@ -285,7 +285,7 @@ describe("non-member access request notification", () => {
     expect(deliverReplyCalls.length).toBe(1);
     expect(
       (deliverReplyCalls[0].payload as Record<string, unknown>).text,
-    ).toContain("let them know");
+    ).toContain("know you tried talking to me");
 
     // Notification signal was emitted
     expect(emitSignalCalls.length).toBe(1);

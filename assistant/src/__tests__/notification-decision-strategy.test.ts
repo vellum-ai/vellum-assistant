@@ -18,6 +18,7 @@ import {
   hasInviteFlowDirective,
   normalizeForDirectiveMatching,
   sanitizeIdentityField,
+  sanitizeMessagePreview,
 } from "../notifications/copy-composer.js";
 import {
   enforceGuardianCallConversationAffinity,
@@ -596,6 +597,31 @@ describe("notification decision strategy", () => {
     });
   });
 
+  describe("access-request message preview sanitization", () => {
+    test("strips control characters from message previews", () => {
+      expect(sanitizeMessagePreview("Hello\nWorld")).toBe("Hello World");
+      expect(sanitizeMessagePreview("Test\r\nMessage")).toBe("Test Message");
+    });
+
+    test("clamps to 200 characters (not 120)", () => {
+      const longMessage = "A".repeat(250);
+      const result = sanitizeMessagePreview(longMessage);
+      expect(result.length).toBeLessThanOrEqual(201); // 200 + '…'
+      expect(result).toEndWith("…");
+
+      // Verify it allows messages longer than the identity field limit (120)
+      const midMessage = "B".repeat(150);
+      const midResult = sanitizeMessagePreview(midMessage);
+      expect(midResult).toBe(midMessage); // no truncation at 150 chars
+    });
+
+    test("preserves normal messages", () => {
+      expect(sanitizeMessagePreview("Hello, can you help me?")).toBe(
+        "Hello, can you help me?",
+      );
+    });
+  });
+
   describe("access-request identity line builder", () => {
     test("builds voice identity line with caller name and phone", () => {
       const line = buildAccessRequestIdentityLine({
@@ -625,6 +651,51 @@ describe("notification decision strategy", () => {
       const line = buildAccessRequestIdentityLine({});
       expect(line).toContain("Someone");
       expect(line).toContain("requesting access");
+    });
+
+    test("uses <@U...> mention format for Slack external IDs", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "slack",
+      });
+      expect(line).toContain("<@U04BTP01B2S>");
+      expect(line).not.toContain("[U04BTP01B2S]");
+      expect(line).toContain("via slack");
+    });
+
+    test("does not use <@U...> format for non-Slack channels", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "telegram",
+      });
+      expect(line).toContain("[U04BTP01B2S]");
+      expect(line).not.toContain("<@U04BTP01B2S>");
+    });
+
+    test("does not duplicate Slack mention when senderIdentifier equals raw external ID", () => {
+      // When actorDisplayName and actorUsername are missing, senderIdentifier
+      // falls back to the raw actorExternalId. The identity line should produce
+      // exactly one <@U...> mention, not two.
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "U04BTP01B2S",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "slack",
+      });
+      const mentionCount = (line.match(/<@U04BTP01B2S>/g) || []).length;
+      expect(mentionCount).toBe(1);
+      expect(line).toContain("via slack");
+    });
+
+    test("does not use <@U...> format for non-user-ID external IDs on Slack", () => {
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "Alice",
+        actorExternalId: "someone@example.com",
+        sourceChannel: "slack",
+      });
+      expect(line).not.toContain("<@someone@example.com>");
+      expect(line).toContain("[someone@example.com]");
     });
 
     test("sanitizes adversarial display names", () => {

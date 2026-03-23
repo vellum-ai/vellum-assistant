@@ -151,6 +151,8 @@ export interface AccessRequestContextPayload {
   guardianBindingChannel: string | null;
   guardianResolutionSource: GuardianResolutionSource;
   previousMemberStatus: string | null;
+  /** Preview of the requester's original message (first ~200 chars). */
+  messagePreview: string | null;
 }
 
 export interface NotificationEventContextPayloadMap {

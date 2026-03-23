@@ -12,14 +12,24 @@ struct SidebarPrimaryRow: View {
     let action: () -> Void
 
     var body: some View {
-        VSidebarRow(
-            icon: icon,
-            label: label,
-            isActive: isActive,
-            trailingIcon: trailingIcon,
-            isExpanded: isExpanded,
-            action: action
-        )
+        if let trailingIcon {
+            VSidebarRow(
+                icon: icon,
+                label: label,
+                isActive: isActive,
+                trailingIcon: trailingIcon,
+                isExpanded: isExpanded,
+                action: action
+            )
+        } else {
+            VSidebarRow(
+                icon: icon,
+                label: label,
+                isActive: isActive,
+                isExpanded: isExpanded,
+                action: action
+            )
+        }
     }
 }
 

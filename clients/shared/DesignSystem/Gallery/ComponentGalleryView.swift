@@ -80,6 +80,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .feedback:
             return [
                 GalleryComponent("vBadge", "VBadge", keywords: ["badge"], description: "Notification count badge with semantic color variants."),
+                GalleryComponent("vTag", "VTag", keywords: ["tag", "category", "kind"], description: "Colored tag for categorizing items with pastel backgrounds."),
                 GalleryComponent("vLoadingIndicator", "VLoadingIndicator", keywords: ["loading", "spinner"], description: "Spinning indicator for inline loading states. Use VSkeletonBone for structured loading layouts."),
                 GalleryComponent("vToast", "VToast", keywords: ["toast", "notification"], description: "Temporary notification banner with auto-dismiss and action support."),
                 GalleryComponent("vInlineMessage", "VInlineMessage", keywords: ["inline message", "alert"], description: "Persistent inline alert with icon and semantic color (info, warning, error, success)."),

@@ -5,7 +5,7 @@ import Foundation
 /// Consolidates URL construction, auth headers, org-id injection, and
 /// request execution so callers can simply write:
 ///
-///     let response = try await GatewayHTTPClient.get(path: "assistants/\(id)/healthz")
+///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
 @MainActor
 public enum GatewayHTTPClient {
@@ -38,7 +38,7 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated GET request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/healthz"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"health"`).
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.

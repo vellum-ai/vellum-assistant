@@ -20,7 +20,7 @@
  *    is the platform-assigned connection identifier.
  */
 
-import { z } from "zod/v4";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // Handle type discriminator

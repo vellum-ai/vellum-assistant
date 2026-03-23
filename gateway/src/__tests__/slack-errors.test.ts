@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { classifySlackError, isRetryable } from "../slack/errors.js";
+import {
+  classifySlackError,
+  isRetryable,
+  getUserMessage,
+} from "../slack/errors.js";
 
 describe("classifySlackError", () => {
   test("classifies auth errors", () => {
@@ -73,5 +77,85 @@ describe("isRetryable", () => {
 
   test("channel_not_found is not retryable", () => {
     expect(isRetryable("channel_not_found")).toBe(false);
+  });
+});
+
+describe("getUserMessage", () => {
+  test("returns specific message for channel_not_found", () => {
+    expect(getUserMessage("channel_not_found")).toBe(
+      "I can't send messages to this channel. Please re-add me to the channel.",
+    );
+  });
+
+  test("returns specific message for not_in_channel", () => {
+    expect(getUserMessage("not_in_channel")).toBe(
+      "I need to be invited to this channel first. Please add me to the channel.",
+    );
+  });
+
+  test("returns specific message for missing_scope", () => {
+    expect(getUserMessage("missing_scope")).toBe(
+      "I don't have the required permissions. Please re-install the Slack app with the necessary scopes.",
+    );
+  });
+
+  test("returns specific message for token_revoked", () => {
+    expect(getUserMessage("token_revoked")).toBe(
+      "My Slack connection has expired. Please re-configure the Slack integration.",
+    );
+  });
+
+  test("returns specific message for token_expired", () => {
+    expect(getUserMessage("token_expired")).toBe(
+      "My Slack connection has expired. Please re-configure the Slack integration.",
+    );
+  });
+
+  test("returns specific message for invalid_auth", () => {
+    expect(getUserMessage("invalid_auth")).toBe(
+      "My Slack connection has expired. Please re-configure the Slack integration.",
+    );
+  });
+
+  test("returns specific message for is_archived", () => {
+    expect(getUserMessage("is_archived")).toBe(
+      "This channel has been archived. Please unarchive it or use a different channel.",
+    );
+  });
+
+  test("returns specific message for cannot_dm_bot", () => {
+    expect(getUserMessage("cannot_dm_bot")).toBe(
+      "I can't send direct messages to other bots.",
+    );
+  });
+
+  test("falls back to category message for auth errors without specific override", () => {
+    expect(getUserMessage("not_authed")).toBe(
+      "My Slack connection has expired. Please re-configure the Slack integration.",
+    );
+    expect(getUserMessage("account_inactive")).toBe(
+      "My Slack connection has expired. Please re-configure the Slack integration.",
+    );
+  });
+
+  test("falls back to category message for permission errors without specific override", () => {
+    expect(getUserMessage("ekm_access_denied")).toBe(
+      "I don't have the required permissions for this channel. Please check my access.",
+    );
+    expect(getUserMessage("restricted_action")).toBe(
+      "I don't have the required permissions for this channel. Please check my access.",
+    );
+  });
+
+  test("returns undefined for unknown errors", () => {
+    expect(getUserMessage("some_new_error")).toBeUndefined();
+    expect(getUserMessage(undefined)).toBeUndefined();
+    expect(getUserMessage("")).toBeUndefined();
+  });
+
+  test("returns message for rate_limit errors", () => {
+    expect(getUserMessage("rate_limited")).toBe(
+      "Slack rate limit reached. Please try again in a moment.",
+    );
   });
 });

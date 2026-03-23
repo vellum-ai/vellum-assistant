@@ -73,15 +73,27 @@ export class CredentialWatcher {
     // Watch the protected directory for store.key changes so that
     // creating or restoring the v2 store key triggers a credential reload.
     this.startWatcher(protectedDir, "store.key");
+
+    // Watch keys.enc for credential writes. When credentials are re-saved
+    // with the same values (e.g. in-chat credential_store re-entering
+    // existing tokens), the serialized credential values won't change —
+    // but the encrypted ciphertext will (new IV). Force a full reload so
+    // channel listeners restart even when the plaintext values match.
+    this.startWatcher(protectedDir, "keys.enc", { forceChanged: true });
   }
 
-  private startWatcher(dir: string, targetFilename: string): void {
+  private startWatcher(
+    dir: string,
+    targetFilename: string,
+    opts?: { forceChanged?: boolean },
+  ): void {
+    const forceChanged = opts?.forceChanged ?? false;
     try {
       const watcher = watch(dir, { persistent: false }, (_event, filename) => {
         if (filename && filename !== targetFilename) {
           return;
         }
-        this.scheduleCheck();
+        this.scheduleCheck(forceChanged);
       });
       this.watchers.push(watcher);
 
@@ -106,21 +118,28 @@ export class CredentialWatcher {
     this.watchers = [];
   }
 
-  private scheduleCheck(): void {
+  /** Whether the next scheduled poll should treat all services as changed. */
+  private pendingForceChanged = false;
+
+  private scheduleCheck(forceChanged = false): void {
+    if (forceChanged) this.pendingForceChanged = true;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      void this.pollOnce();
+      const force = this.pendingForceChanged;
+      this.pendingForceChanged = false;
+      void this.pollOnce(force);
     }, DEBOUNCE_MS);
   }
 
-  private async pollOnce(): Promise<void> {
+  private async pollOnce(forceChanged = false): Promise<void> {
     if (this.polling) {
       // A poll is already in flight — flag that another round is needed
       // so credential updates arriving mid-poll aren't silently dropped.
       this.pendingPoll = true;
+      if (forceChanged) this.pendingForceChanged = true;
       return;
     }
     this.polling = true;
@@ -141,7 +160,7 @@ export class CredentialWatcher {
       for (const [name, { creds }] of Object.entries(services)) {
         const newVal = creds ? JSON.stringify(creds) : undefined;
         const oldVal = this.lastSerialized.get(name);
-        if (newVal !== oldVal) {
+        if (newVal !== oldVal || (forceChanged && newVal !== undefined)) {
           changedServices.add(name);
           if (newVal !== undefined) {
             this.lastSerialized.set(name, newVal);
@@ -167,7 +186,9 @@ export class CredentialWatcher {
       this.polling = false;
       if (this.pendingPoll) {
         this.pendingPoll = false;
-        void this.pollOnce();
+        const force = this.pendingForceChanged;
+        this.pendingForceChanged = false;
+        void this.pollOnce(force);
       }
     }
   }

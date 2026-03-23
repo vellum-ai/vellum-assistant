@@ -79,6 +79,8 @@ export interface ChannelDeliveryPayload {
   sourceEventName: string;
   copy: RenderedChannelCopy;
   deepLinkTarget?: Record<string, unknown>;
+  /** Original signal context payload — available for channel-specific structured rendering. */
+  contextPayload?: Record<string, unknown>;
 }
 
 /** Interface that each channel adapter must implement. */

@@ -106,6 +106,12 @@ extension AppDelegate {
             try await self.vellumCli.wake(name: name)
         }
 
+        // Post-Sparkle-update: run CLI finalize to broadcast complete + workspace commit.
+        connectionManager.postSparkleUpdateHandler = { [weak self] name, fromVersion in
+            guard let self else { return }
+            try? await self.vellumCli.upgradeFinalize(name: name, fromVersion: fromVersion)
+        }
+
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
@@ -438,74 +444,29 @@ extension AppDelegate {
             guard let self else { return }
             let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let targetVersion = self.updateManager.pendingUpdateVersion ?? "unknown"
+            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
 
-            // 1. Broadcast "starting" so the UI shows the progress spinner
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/upgrade-broadcast",
-                json: ["type": "starting", "targetVersion": targetVersion, "expectedDowntimeSeconds": 30],
-                timeout: 5
+            // Single CLI call replaces 8 steps of pre-update orchestration
+            let backupPath = try? await self.vellumCli.upgradePrepare(
+                name: name,
+                targetVersion: targetVersion
             )
 
-            // 2. Workspace commit: record pre-update state
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/workspace-commit",
-                json: ["message": "[sparkle-update] Starting: \(currentVersion) → \(targetVersion)"],
-                timeout: 10
-            )
-
-            // 3. Progress: saving backup
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/upgrade-broadcast",
-                json: ["type": "progress", "statusMessage": "Saving a backup of your data…"],
-                timeout: 5
-            )
-
-            // 4. Create backup via gateway
-            if let response = try? await GatewayHTTPClient.post(path: "migrations/export", timeout: 120),
-               response.isSuccess {
-                let backupsDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                    .appendingPathComponent("Vellum/backups", isDirectory: true)
-                try? FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-                let filename = "pre-update-\(formatter.string(from: Date())).vbundle"
-                let fileURL = backupsDir.appendingPathComponent(filename)
-                try? response.data.write(to: fileURL)
-                UserDefaults.standard.set(fileURL.path, forKey: "preUpdateBackupPath")
-                Self.prunePreUpdateBackups(in: backupsDir, keep: 3)
+            // Store backup path for "Restore Pre-Update Data" button
+            if let backupPath {
+                UserDefaults.standard.set(backupPath, forKey: "preUpdateBackupPath")
             }
 
-            // 5. Progress: installing update
-            _ = try? await GatewayHTTPClient.post(
-                path: "admin/upgrade-broadcast",
-                json: ["type": "progress", "statusMessage": "Installing the update…"],
-                timeout: 5
-            )
-
-            // 6. Cache current version for post-update detection
+            // Cache current version for post-update detection
             UserDefaults.standard.set(currentVersion, forKey: "preUpdateVersion")
 
-            // 7. Stop daemon — after this, no more broadcasts are possible
+            // Stop daemon before app replacement
             #if !DEBUG
             self.keychainBroker?.stop()
             #endif
             self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
-    }
-
-    /// Removes old pre-update backups, keeping only the most recent `keep` files.
-    static func prunePreUpdateBackups(in directory: URL, keep: Int) {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil
-        ) else { return }
-        let matching = contents
-            .filter { $0.lastPathComponent.hasPrefix("pre-update-") && $0.pathExtension == "vbundle" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard matching.count > keep else { return }
-        for file in matching.prefix(matching.count - keep) {
-            try? FileManager.default.removeItem(at: file)
-        }
     }
 
     // MARK: - CLI Symlink

@@ -7,6 +7,7 @@ import { applyGuardianDecision } from "../../../approvals/guardian-decision-prim
 import type { ChannelId } from "../../../channels/types.js";
 import {
   getAllPendingApprovalsByGuardianChat,
+  getApprovalRequestById,
   getPendingApprovalByRequestAndGuardianChat,
   type GuardianApprovalRequest,
 } from "../../../memory/guardian-approvals.js";
@@ -42,6 +43,17 @@ import {
 
 const log = getLogger("runtime-http");
 
+/**
+ * Resolve the Slack ephemeral user ID when the source channel is Slack.
+ * Returns `undefined` for non-Slack channels.
+ */
+function slackEphemeralUserId(
+  sourceChannel: ChannelId,
+  userId: string | undefined,
+): string | undefined {
+  return sourceChannel === "slack" && userId ? userId : undefined;
+}
+
 export interface GuardianCallbackDecisionParams {
   content: string;
   callbackData?: string;
@@ -53,6 +65,8 @@ export interface GuardianCallbackDecisionParams {
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Original approval message timestamp (Slack ts) for editing after resolution. */
+  approvalMessageTs?: string;
 }
 
 export interface ApprovalInterceptionResult {
@@ -84,6 +98,7 @@ export async function handleGuardianCallbackDecision(
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
+    approvalMessageTs,
   } = params;
 
   // Callback/button path: deterministic and takes priority.
@@ -129,6 +144,7 @@ export async function handleGuardianCallbackDecision(
           "Failed to deliver stale callback disambiguation notice",
         extraContext: { pendingCount: allPending.length },
         errorLogContext: { conversationExternalId },
+        ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
       });
       return { handled: true, type: "stale_ignored" };
     }
@@ -181,6 +197,7 @@ export async function handleGuardianCallbackDecision(
       logger: log,
       errorLogMessage: "Failed to deliver guardian identity rejection notice",
       errorLogContext: { conversationExternalId },
+      ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
     });
     return { handled: true, type: "guardian_decision_applied" };
   }
@@ -195,6 +212,7 @@ export async function handleGuardianCallbackDecision(
       assistantId,
       bearerToken,
       approvalCopyGenerator,
+      approvalMessageTs,
     });
   }
 
@@ -247,15 +265,20 @@ export async function handleGuardianCallbackDecision(
         {},
         approvalCopyGenerator,
       );
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text,
-          assistantId,
-        },
-        bearerToken,
+      const fallbackPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text,
+        assistantId,
+      };
+      const guardianFallbackEphemeral = slackEphemeralUserId(
+        sourceChannel,
+        actorExternalId,
       );
+      if (guardianFallbackEphemeral) {
+        fallbackPayload.ephemeral = true;
+        fallbackPayload.user = guardianFallbackEphemeral;
+      }
+      await deliverChannelReply(replyCallbackUrl, fallbackPayload, bearerToken);
     } catch (err) {
       log.error(
         { err, conversationExternalId },
@@ -282,6 +305,7 @@ async function handleCallbackDecision(params: {
   assistantId: string;
   bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
+  approvalMessageTs?: string;
 }): Promise<ApprovalInterceptionResult> {
   const {
     guardianApproval,
@@ -292,6 +316,7 @@ async function handleCallbackDecision(params: {
     assistantId,
     bearerToken,
     approvalCopyGenerator,
+    approvalMessageTs,
   } = params;
 
   // Access request approvals don't have a pending interaction in the
@@ -326,10 +351,12 @@ async function handleCallbackDecision(params: {
       callbackDecision.action === "approve_always"
         ? "approve_once"
         : callbackDecision.action;
+    const decisionOutcome: "approved" | "denied" =
+      effectiveAction === "reject" ? "denied" : "approved";
     const outcomeText = await composeApprovalMessageGenerative(
       {
         scenario: "guardian_decision_outcome",
-        decision: effectiveAction === "reject" ? "denied" : "approved",
+        decision: decisionOutcome,
         toolName: guardianApproval.toolName,
         channel: sourceChannel,
       },
@@ -337,20 +364,40 @@ async function handleCallbackDecision(params: {
       approvalCopyGenerator,
     );
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: guardianApproval.requesterChatId,
-          text: outcomeText,
-          assistantId,
-        },
-        bearerToken,
+      const outcomePayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: guardianApproval.requesterChatId,
+        text: outcomeText,
+        assistantId,
+      };
+      const requesterEphemeral = slackEphemeralUserId(
+        sourceChannel,
+        guardianApproval.requesterExternalUserId,
       );
+      if (requesterEphemeral) {
+        outcomePayload.ephemeral = true;
+        outcomePayload.user = requesterEphemeral;
+      }
+      await deliverChannelReply(replyCallbackUrl, outcomePayload, bearerToken);
     } catch (err) {
       log.error(
         { err, conversationId: guardianApproval.conversationId },
         "Failed to notify requester of guardian decision",
       );
+    }
+
+    // Edit the original Slack approval message to show the decision and
+    // remove stale action buttons. This prevents users from clicking
+    // buttons that have already been resolved.
+    if (sourceChannel === "slack" && approvalMessageTs) {
+      editSlackApprovalMessage({
+        replyCallbackUrl,
+        chatId: guardianApproval.guardianChatId,
+        messageTs: approvalMessageTs,
+        decision: decisionOutcome,
+        assistantId,
+        bearerToken,
+        conversationId: guardianApproval.conversationId,
+      });
     }
 
     // Post-decision delivery is handled by the onEvent callback
@@ -359,6 +406,50 @@ async function handleCallbackDecision(params: {
   }
 
   // Race condition: callback arrived after request was already resolved.
+  // On Slack, edit the original message to show it's resolved and remove
+  // stale buttons so the guardian isn't left with actionable UI that does
+  // nothing. Also send an ephemeral error message for visibility.
+  if (sourceChannel === "slack" && approvalMessageTs) {
+    // Re-read the approval from DB to get the actual resolved status.
+    // The in-memory `guardianApproval` was loaded via a pending-status
+    // filter and is still "pending" even though it was resolved by
+    // another process.
+    const refreshed = getApprovalRequestById(guardianApproval.id);
+    const resolvedStatus =
+      refreshed?.status === "approved" ? "approved" : "denied";
+    editSlackApprovalMessage({
+      replyCallbackUrl,
+      chatId: guardianApproval.guardianChatId,
+      messageTs: approvalMessageTs,
+      decision: resolvedStatus,
+      assistantId,
+      bearerToken,
+      conversationId: guardianApproval.conversationId,
+    });
+  }
+
+  // Deliver a visible ephemeral error so the user sees feedback (JARVIS-299).
+  if (sourceChannel === "slack") {
+    try {
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId: guardianApproval.guardianChatId,
+          text: "This approval request has already been resolved.",
+          assistantId,
+          ephemeral: true,
+          user: actorExternalId,
+        },
+        bearerToken,
+      );
+    } catch (err) {
+      log.error(
+        { err, conversationId: guardianApproval.conversationId },
+        "Failed to deliver stale approval ephemeral notice",
+      );
+    }
+  }
+
   return { handled: true, type: "stale_ignored" };
 }
 
@@ -415,13 +506,22 @@ async function handleConversationalDecision(params: {
   if (engineResult.disposition === "keep_pending") {
     // Non-decision follow-up (clarification, disambiguation, etc.)
     try {
+      const keepPendingPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: engineResult.replyText,
+        assistantId,
+      };
+      const guardianEphemeral = slackEphemeralUserId(
+        sourceChannel,
+        actorExternalId,
+      );
+      if (guardianEphemeral) {
+        keepPendingPayload.ephemeral = true;
+        keepPendingPayload.user = guardianEphemeral;
+      }
       await deliverChannelReply(
         replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: engineResult.replyText,
-          assistantId,
-        },
+        keepPendingPayload,
         bearerToken,
       );
     } catch (err) {
@@ -481,6 +581,7 @@ async function handleConversationalDecision(params: {
       errorLogMessage:
         "Failed to deliver guardian identity mismatch notice for engine target",
       errorLogContext: { conversationExternalId },
+      ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
     });
     return { handled: true, type: "guardian_decision_applied" };
   }
@@ -528,13 +629,23 @@ async function handleConversationalDecision(params: {
       approvalCopyGenerator,
     );
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
+      const requesterOutcomePayload: Parameters<typeof deliverChannelReply>[1] =
         {
           chatId: targetApproval.requesterChatId,
           text: outcomeText,
           assistantId,
-        },
+        };
+      const requesterEphemeral = slackEphemeralUserId(
+        sourceChannel,
+        targetApproval.requesterExternalUserId,
+      );
+      if (requesterEphemeral) {
+        requesterOutcomePayload.ephemeral = true;
+        requesterOutcomePayload.user = requesterEphemeral;
+      }
+      await deliverChannelReply(
+        replyCallbackUrl,
+        requesterOutcomePayload,
         bearerToken,
       );
     } catch (err) {
@@ -546,13 +657,22 @@ async function handleConversationalDecision(params: {
 
     // Deliver the engine's reply to the guardian
     try {
+      const guardianReplyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: engineResult.replyText,
+        assistantId,
+      };
+      const guardianEphemeral = slackEphemeralUserId(
+        sourceChannel,
+        actorExternalId,
+      );
+      if (guardianEphemeral) {
+        guardianReplyPayload.ephemeral = true;
+        guardianReplyPayload.user = guardianEphemeral;
+      }
       await deliverChannelReply(
         replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: engineResult.replyText,
-          assistantId,
-        },
+        guardianReplyPayload,
         bearerToken,
       );
     } catch (err) {
@@ -578,9 +698,78 @@ async function handleConversationalDecision(params: {
     logger: log,
     errorLogMessage: "Failed to deliver stale guardian approval notice",
     errorLogContext: { conversationId: targetApproval.conversationId },
+    ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
   });
 
   return { handled: true, type: "stale_ignored" };
+}
+
+// ---------------------------------------------------------------------------
+// Slack approval message edit helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire-and-forget: edit the original Slack approval message to show the
+ * decision outcome and remove stale action buttons. Uses `chat.update` via
+ * the gateway deliver endpoint with `messageTs`.
+ *
+ * The status line replaces the inline buttons so users see the result
+ * inline without any actionable UI remaining.
+ */
+function editSlackApprovalMessage(params: {
+  replyCallbackUrl: string;
+  chatId: string;
+  messageTs: string;
+  decision: "approved" | "denied";
+  assistantId: string;
+  bearerToken?: string;
+  conversationId: string;
+}): void {
+  const {
+    replyCallbackUrl,
+    chatId,
+    messageTs,
+    decision,
+    assistantId,
+    bearerToken,
+    conversationId,
+  } = params;
+
+  const statusEmoji = decision === "approved" ? "\u2713" : "\u2717";
+  const statusLabel = decision === "approved" ? "Approved" : "Denied";
+  const statusText = `${statusEmoji} ${statusLabel}`;
+
+  // Build Block Kit blocks matching the resolved approval layout:
+  // a section with the status text and a context line with the decision.
+  // This replaces the original approval prompt's action buttons with a
+  // read-only status display.
+  const blocks = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: statusText },
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `${statusEmoji} ${statusLabel}` }],
+    },
+  ];
+
+  deliverChannelReply(
+    replyCallbackUrl,
+    {
+      chatId,
+      text: statusText,
+      blocks,
+      messageTs,
+      assistantId,
+    },
+    bearerToken,
+  ).catch((err) => {
+    log.error(
+      { err, conversationId, messageTs },
+      "Failed to edit Slack approval message after resolution",
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

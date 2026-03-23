@@ -196,9 +196,9 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
                 return
             }
 
-            // Fetch the current service group version from healthz
+            // Fetch the current service group version from health endpoint
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(connectedId)/healthz",
+                path: "health",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
 

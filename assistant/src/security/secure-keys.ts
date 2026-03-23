@@ -32,7 +32,10 @@ import type {
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
 
-export type { CredentialListResult, DeleteResult } from "./credential-backend.js";
+export type {
+  CredentialListResult,
+  DeleteResult,
+} from "./credential-backend.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -93,7 +96,9 @@ async function doResolveBackend(): Promise<CredentialBackend> {
       _resolvedBackend = cesRpc;
       return cesRpc;
     }
-    log.warn("CES RPC client is set but not ready — falling back to local credential store");
+    log.warn(
+      "CES RPC client is set but not ready — falling back to local credential store",
+    );
   }
 
   // 2. CES HTTP — containerized / Docker / managed mode
@@ -244,6 +249,14 @@ export async function getMaskedProviderKey(
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Return the name of the currently resolved credential backend.
+ * Useful for diagnostic messages when credential operations fail.
+ */
+export function getActiveBackendName(): string {
+  return _resolvedBackend?.name ?? "none";
+}
 
 /** @internal Test-only: reset the cached backends so they're re-created. */
 export function _resetBackend(): void {

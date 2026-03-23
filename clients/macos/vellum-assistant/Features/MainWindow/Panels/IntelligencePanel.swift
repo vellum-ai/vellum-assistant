@@ -15,6 +15,7 @@ struct IntelligencePanel: View {
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
+    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
@@ -47,7 +48,7 @@ struct IntelligencePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(alignment: .center) {
-                Text("Intelligence")
+                Text("About \(cachedAssistantName)")
                     .font(VFont.panelTitle)
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
@@ -148,6 +149,7 @@ struct IntelligencePanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Tab Content

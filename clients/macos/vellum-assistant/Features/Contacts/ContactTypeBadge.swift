@@ -1,13 +1,13 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A badge pill showing a contact's classification (Guardian, Assistant, Human)
-/// with a distinguishing icon. Thin wrapper around VBadge.
+/// A tag showing a contact's classification (Guardian, Assistant, Human)
+/// with a distinguishing icon. Thin wrapper around VTag.
 struct ContactTypeBadge: View {
     let role: String?
 
     var body: some View {
-        VBadge(label: label, icon: icon, iconColor: VColor.primaryBase, tone: .neutral)
+        VTag(label, color: VColor.primaryBase, icon: icon)
     }
 
     private var label: String {

@@ -75,8 +75,6 @@ export interface BackgroundProcessingParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
-  /** External message ID (e.g. Slack message ts) used for reaction indicators. */
-  externalMessageId?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
 }
@@ -106,7 +104,6 @@ export function processChannelMessageInBackground(
     approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
-    externalMessageId,
     chatType,
   } = params;
 
@@ -126,18 +123,18 @@ export function processChannelMessageInBackground(
         )
       : undefined;
 
-    // Add 👀 reaction to the inbound Slack message as a processing indicator
-    const removeSlackReaction =
-      shouldEmitSlackReaction(sourceChannel, replyCallbackUrl) &&
-      externalMessageId
-        ? addSlackEyesReaction(
-            replyCallbackUrl!,
-            externalChatId,
-            externalMessageId,
-            mintBearerToken,
-            assistantId,
-          )
-        : undefined;
+    // Set Slack Assistants API "is thinking..." status indicator
+    const clearSlackThinkingStatus = shouldEmitSlackReaction(
+      sourceChannel,
+      replyCallbackUrl,
+    )
+      ? setSlackThinkingStatus(
+          replyCallbackUrl!,
+          externalChatId,
+          mintBearerToken,
+          assistantId,
+        )
+      : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -230,7 +227,7 @@ export function processChannelMessageInBackground(
       deliveryStatus.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
-      removeSlackReaction?.();
+      clearSlackThinkingStatus?.();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -295,7 +292,7 @@ export function startTelegramTypingHeartbeat(
 }
 
 // ---------------------------------------------------------------------------
-// Slack eyes reaction indicator
+// Slack Assistants API thinking status indicator
 // ---------------------------------------------------------------------------
 
 export function shouldEmitSlackReaction(
@@ -310,65 +307,80 @@ export function shouldEmitSlackReaction(
   }
 }
 
-const SLACK_EYES_MAX_DURATION_MS = 120_000;
+const SLACK_THINKING_MAX_DURATION_MS = 120_000;
 
 /**
- * Add a 👀 reaction to the inbound Slack message and return a cleanup
- * function that removes it. Both operations are fire-and-forget.
+ * Set the Slack Assistants API "is thinking..." status on the thread and
+ * return a cleanup function that clears it. Both operations are fire-and-forget.
  *
- * A safety timer auto-removes the reaction after {@link SLACK_EYES_MAX_DURATION_MS}
- * to prevent stuck eyes when `processMessage` hangs (e.g. queued behind
- * an active session turn that never completes for this message).
+ * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
+ * to prevent a stuck indicator when `processMessage` hangs.
  */
-export function addSlackEyesReaction(
+export function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
-  messageTs: string,
   mintBearerToken: () => string,
   assistantId?: string,
 ): () => void {
-  let removed = false;
+  let cleared = false;
 
-  // Track the add promise so remove waits for it to settle first,
-  // preventing a race where remove arrives at Slack before add.
-  const addPromise = deliverChannelReply(
+  // Extract the thread timestamp from the callback URL so we can target
+  // the correct thread for the Assistants API status.
+  const threadTs = extractThreadTsFromCallbackUrl(callbackUrl);
+
+  // If there's no thread context, we can't set a thread status — bail.
+  if (!threadTs) {
+    return () => {};
+  }
+
+  // Track the set promise so clear waits for it to settle first,
+  // preventing a race where clear arrives at Slack before set.
+  const setPromise = deliverChannelReply(
     callbackUrl,
     {
       chatId,
       assistantId,
-      reaction: { action: "add", name: "eyes", messageTs },
+      assistantThreadStatus: {
+        channel: chatId,
+        threadTs,
+        status: "is thinking...",
+      },
     },
     mintBearerToken(),
   ).catch((err) => {
-    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+    log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
   });
 
-  const removeReaction = () => {
-    if (removed) return;
-    removed = true;
+  const clearStatus = () => {
+    if (cleared) return;
+    cleared = true;
     clearTimeout(safetyTimer);
-    void addPromise.then(() =>
+    void setPromise.then(() =>
       deliverChannelReply(
         callbackUrl,
         {
           chatId,
           assistantId,
-          reaction: { action: "remove", name: "eyes", messageTs },
+          assistantThreadStatus: {
+            channel: chatId,
+            threadTs,
+            status: "",
+          },
         },
         mintBearerToken(),
       ).catch((err) => {
         log.debug(
-          { err, chatId, messageTs },
-          "Failed to remove Slack eyes reaction",
+          { err, chatId, threadTs },
+          "Failed to clear Slack thinking status",
         );
       }),
     );
   };
 
-  const safetyTimer = setTimeout(removeReaction, SLACK_EYES_MAX_DURATION_MS);
+  const safetyTimer = setTimeout(clearStatus, SLACK_THINKING_MAX_DURATION_MS);
   (safetyTimer as { unref?: () => void }).unref?.();
 
-  return removeReaction;
+  return clearStatus;
 }
 
 // ---------------------------------------------------------------------------

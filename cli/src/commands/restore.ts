@@ -5,47 +5,73 @@ import {
   loadGuardianToken,
   leaseGuardianToken,
 } from "../lib/guardian-token.js";
+import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
 
 function printUsage(): void {
-  console.log("Usage: vellum restore <name> --from <path> [--dry-run]");
+  console.log(
+    "Usage: vellum restore <name> --from <path> [--version <version>] [--dry-run]",
+  );
   console.log("");
-  console.log("Restore a .vbundle backup into a running assistant.");
+  console.log("Restore data from a .vbundle backup into an assistant.");
+  console.log(
+    "With --version, also rolls back to the specified version first.",
+  );
   console.log("");
   console.log("Arguments:");
-  console.log("  <name>              Name of the assistant to restore into");
+  console.log("  <name>               Name of the assistant to restore into");
   console.log("");
   console.log("Options:");
+  console.log("  --from <path>        Path to the .vbundle file (required)");
   console.log(
-    "  --from <path>       Path to the .vbundle file to restore (required)",
+    "  --version <version>  Roll back to this version before importing data",
   );
-  console.log("  --dry-run           Show what would change without applying");
+  console.log(
+    "  --dry-run            Show what would change without applying (data-only)",
+  );
   console.log("");
   console.log("Examples:");
-  console.log("  vellum restore my-assistant --from ~/Desktop/backup.vbundle");
+  console.log("  vellum restore my-assistant --from backup.vbundle");
   console.log(
-    "  vellum restore my-assistant --from ~/Desktop/backup.vbundle --dry-run",
+    "  vellum restore my-assistant --from backup.vbundle --version v1.2.3",
   );
+  console.log("  vellum restore my-assistant --from backup.vbundle --dry-run");
 }
 
 function parseArgs(argv: string[]): {
   name: string | undefined;
   fromPath: string | undefined;
+  version: string | undefined;
   dryRun: boolean;
   help: boolean;
 } {
   const args = argv.slice(3);
 
   if (args.includes("--help") || args.includes("-h")) {
-    return { name: undefined, fromPath: undefined, dryRun: false, help: true };
+    return {
+      name: undefined,
+      fromPath: undefined,
+      version: undefined,
+      dryRun: false,
+      help: true,
+    };
   }
 
   let fromPath: string | undefined;
+  let version: string | undefined;
   const dryRun = args.includes("--dry-run");
   const positionals: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--from" && args[i + 1]) {
       fromPath = args[i + 1];
+      i++; // skip the value
+    } else if (args[i] === "--version") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --version requires a value");
+        process.exit(1);
+      }
+      version = next;
       i++; // skip the value
     } else if (args[i] === "--dry-run") {
       // already handled above
@@ -54,7 +80,7 @@ function parseArgs(argv: string[]): {
     }
   }
 
-  return { name: positionals[0], fromPath, dryRun, help: false };
+  return { name: positionals[0], fromPath, version, dryRun, help: false };
 }
 
 async function getAccessToken(
@@ -127,11 +153,27 @@ interface ImportResponse {
 }
 
 export async function restore(): Promise<void> {
-  const { name, fromPath, dryRun, help } = parseArgs(process.argv);
+  const { name, fromPath, version, dryRun, help } = parseArgs(process.argv);
 
   if (help) {
     printUsage();
     process.exit(0);
+  }
+
+  // --version requires --from
+  if (version && !fromPath) {
+    console.error(
+      "A backup file is required for restore. Use --from <path> to specify the .vbundle file.",
+    );
+    process.exit(1);
+  }
+
+  // --dry-run is not supported with --version
+  if (version && dryRun) {
+    console.error(
+      "Dry-run is not supported with --version. Use `vellum restore --from <path> --dry-run` for data-only preflight.",
+    );
+    process.exit(1);
   }
 
   if (!name || !fromPath) {
@@ -160,8 +202,9 @@ export async function restore(): Promise<void> {
   const sizeMB = (bundleData.byteLength / (1024 * 1024)).toFixed(2);
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
 
-  // Obtain auth token
-  const accessToken = await getAccessToken(
+  // Obtain auth token (acquired before dry-run or before data import;
+  // re-acquired after version rollback since containers restart).
+  let accessToken = await getAccessToken(
     entry.runtimeUrl,
     entry.assistantId,
     name,
@@ -215,13 +258,17 @@ export async function restore(): Promise<void> {
       if (result.validation?.errors?.length) {
         console.error("Import blocked by validation errors:");
         for (const err of result.validation.errors) {
-          console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
+          console.error(
+            `  - ${err.message}${err.path ? ` (${err.path})` : ""}`,
+          );
         }
       }
       if (result.conflicts?.length) {
         console.error("Import blocked by conflicts:");
         for (const conflict of result.conflicts) {
-          console.error(`  - ${conflict.message}${conflict.path ? ` (${conflict.path})` : ""}`);
+          console.error(
+            `  - ${conflict.message}${conflict.path ? ` (${conflict.path})` : ""}`,
+          );
         }
       }
       process.exit(1);
@@ -255,8 +302,34 @@ export async function restore(): Promise<void> {
       }
     }
   } else {
-    // Full import
-    console.log("Importing backup...\n");
+    // Version rollback (when --version is specified)
+    if (version) {
+      const cloud =
+        entry.cloud ||
+        (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
+      if (cloud !== "docker") {
+        console.error(
+          "Restore with --version is only supported for Docker assistants. " +
+            "For managed assistants, use `vellum rollback --version <version>` to change the version, " +
+            "then `vellum restore --from <path>` to import data.",
+        );
+        process.exit(1);
+      }
+
+      console.log(`Rolling back to version ${version}...`);
+      await performDockerRollback(entry, { targetVersion: version });
+      console.log("");
+
+      // Re-acquire auth token since containers were restarted during rollback
+      accessToken = await getAccessToken(
+        entry.runtimeUrl,
+        entry.assistantId,
+        name,
+      );
+    }
+
+    // Data import
+    console.log("Importing backup data...\n");
 
     let response: Response;
     try {
