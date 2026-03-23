@@ -789,12 +789,14 @@ struct ScrollWheelDetector: NSViewRepresentable {
             if let registry = coordinator.registry,
                registry.hasDuplicates(conversationId: convId, windowId: winIdStr) {
                 let entries = registry.entries(conversationId: convId, windowId: winIdStr)
-                let mostRecent = entries.max(by: { $0.installedAt < $1.installedAt })
+                // lastUpdatedAt tracks which detector SwiftUI is actively managing.
+                // Per-frame races are transient; leaked detectors are caught by purgeStale().
+                let mostRecent = entries.max(by: { $0.lastUpdatedAt < $1.lastUpdatedAt })
                 if mostRecent?.detectorId != coordinator.detectorId {
-                    // This detector is stale — the newest one is active for the same conversation/window.
+                    // This detector is stale — the most recent one is active for the same conversation/window.
                     // Suppress callbacks to prevent competing scroll-state fights.
                     if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
-                        log.debug("ScrollWheelDetector: suppressing event for stale detector \(coordinator.detectorId) (newest: \(mostRecent?.detectorId ?? "nil"))")
+                        log.debug("ScrollWheelDetector: suppressing event for stale detector \(coordinator.detectorId) (most recent: \(mostRecent?.detectorId ?? "nil"))")
                     }
                     return event
                 }
