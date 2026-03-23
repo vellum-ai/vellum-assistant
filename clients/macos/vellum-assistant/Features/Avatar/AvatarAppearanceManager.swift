@@ -184,7 +184,7 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                customAvatarImage = nil
+                if customAvatarImage != nil { customAvatarImage = nil }
                 cachedChatAvatar = nil
                 updateDockIcon()
                 return
@@ -194,7 +194,7 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
-            customAvatarImage = nil
+            if customAvatarImage != nil { customAvatarImage = nil }
             cachedChatAvatar = nil
             updateDockIcon()
         }
@@ -209,9 +209,9 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                characterBodyShape = nil
-                characterEyeStyle = nil
-                characterColor = nil
+                if characterBodyShape != nil { characterBodyShape = nil }
+                if characterEyeStyle != nil { characterEyeStyle = nil }
+                if characterColor != nil { characterColor = nil }
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
                 updateDockIcon()
@@ -228,9 +228,9 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
-            characterBodyShape = nil
-            characterEyeStyle = nil
-            characterColor = nil
+            if characterBodyShape != nil { characterBodyShape = nil }
+            if characterEyeStyle != nil { characterEyeStyle = nil }
+            if characterColor != nil { characterColor = nil }
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
             updateDockIcon()
