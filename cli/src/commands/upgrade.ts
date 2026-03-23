@@ -731,11 +731,13 @@ async function upgradePlatform(
 
   // Reject downgrades — `vellum upgrade` only handles forward version changes.
   // Users should use `vellum rollback --version <version>` for downgrades.
-  const versionTag = version ?? (cliPkg.version ? `v${cliPkg.version}` : null);
+  // Only enforce this guard when the user explicitly passed `--version`.
+  // When version is null the platform API decides the actual target, so
+  // we must not block the request based on the local CLI version.
   const currentVersion = entry.serviceGroupVersion;
-  if (currentVersion && versionTag) {
+  if (version && currentVersion) {
     const current = parseVersion(currentVersion);
-    const target = parseVersion(versionTag);
+    const target = parseVersion(version);
     if (current && target) {
       const isOlder =
         target.major < current.major ||
@@ -744,7 +746,7 @@ async function upgradePlatform(
           target.minor === current.minor &&
           target.patch < current.patch);
       if (isOlder) {
-        const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
+        const msg = `Cannot upgrade to an older version (${version} < ${currentVersion}). Use \`vellum rollback --version ${version}\` instead.`;
         console.error(msg);
         emitCliError("VERSION_DIRECTION", msg);
         process.exit(1);
