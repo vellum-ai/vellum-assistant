@@ -431,7 +431,23 @@ struct MessageListView: View {
             return
         }
 
+        // Cooldown: suppress re-entrant applies within the spring animation window.
+        // Each avatarDisplayY mutation triggers a body re-evaluation → new layout →
+        // new tail anchor preference → deferred Task → updateAvatarFollower → back
+        // here. Without a cooldown, the spring animation (0.28s response) amplifies
+        // sub-pixel layout shifts into a feedback loop that trips the scroll loop
+        // guard (30+ avatarDisplayYApplied events in 2s) and freezes the UI.
+        // The cooldown matches the spring response time so the animation settles
+        // before the next position update is accepted.
+        if let lastApplied = scrollTracking.avatarLastAppliedAt {
+            let elapsed = Date().timeIntervalSince(lastApplied)
+            if elapsed < 0.28 {  // Match spring response time (ConversationAvatarFollower.spring)
+                return
+            }
+        }
+
         recordScrollLoopEvent(.avatarDisplayYApplied)
+        scrollTracking.avatarLastAppliedAt = Date()
         withAnimation(ConversationAvatarFollower.spring) {
             avatarDisplayY = y
         }
@@ -487,7 +503,6 @@ struct MessageListView: View {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
-            scrollTracking.avatarLastAppliedAt = now
             applyAvatarDisplayY(forAnchorY: anchorY)
             return
         }
@@ -507,7 +522,6 @@ struct MessageListView: View {
                 return
             }
             scrollTracking.pendingAvatarY = nil
-            scrollTracking.avatarLastAppliedAt = Date()
             applyAvatarDisplayY(forAnchorY: pending)
             avatarSmoothingTask = nil
         }
