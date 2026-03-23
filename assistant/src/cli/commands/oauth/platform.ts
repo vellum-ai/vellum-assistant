@@ -426,13 +426,25 @@ Examples:
           const client = await requirePlatformClient(cmd);
           if (!client) return;
 
+          // Always fetch active connections for the provider so we can
+          // verify --connection-id belongs to it (prevents cross-provider
+          // disconnects from typos or stale IDs).
+          const entries = await fetchActiveConnections(client, provider, cmd);
+          if (!entries) return;
+
           let connectionId = opts.connectionId;
 
-          // If no connection ID given, resolve it from active connections
-          if (!connectionId) {
-            const entries = await fetchActiveConnections(client, provider, cmd);
-            if (!entries) return;
-
+          if (connectionId) {
+            // Verify the supplied ID belongs to this provider
+            if (!entries.some((c) => c.id === connectionId)) {
+              writeOutput(cmd, {
+                ok: false,
+                error: `Connection "${connectionId}" is not an active ${provider} connection`,
+              });
+              process.exitCode = 1;
+              return;
+            }
+          } else {
             if (entries.length === 0) {
               writeOutput(cmd, {
                 ok: false,
