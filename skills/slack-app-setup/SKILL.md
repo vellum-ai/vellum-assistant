@@ -72,11 +72,7 @@ Generate the manifest JSON:
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": [
-        "app_mention",
-        "message.channels",
-        "message.im"
-      ]
+      "bot_events": ["app_mention", "message.channels", "message.im"]
     },
     "interactivity": { "is_enabled": true },
     "org_deploy_enabled": false,

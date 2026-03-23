@@ -43,22 +43,22 @@ Check the available skills catalog for a dedicated `<service>-oauth-setup` skill
 
 Well-known services with dedicated setup skills (note: not all follow the `<service>-oauth-setup` naming convention):
 
-| Service    | Skill ID                    |
-| ---------- | --------------------------- |
-| gmail      | google-oauth-applescript    |
-| slack      | **slack-app-setup**         |
-| notion     | notion-oauth-setup          |
-| twitter    | twitter-oauth-setup         |
-| github     | github-oauth-setup          |
-| linear     | linear-oauth-setup          |
-| spotify    | spotify-oauth-setup         |
-| todoist    | todoist-oauth-setup         |
-| discord    | discord-oauth-setup         |
-| dropbox    | dropbox-oauth-setup         |
-| asana      | asana-oauth-setup           |
-| airtable   | airtable-oauth-setup        |
-| hubspot    | hubspot-oauth-setup         |
-| figma      | figma-oauth-setup           |
+| Service  | Skill ID                 |
+| -------- | ------------------------ |
+| gmail    | google-oauth-applescript |
+| slack    | **slack-app-setup**      |
+| notion   | notion-oauth-setup       |
+| twitter  | twitter-oauth-setup      |
+| github   | github-oauth-setup       |
+| linear   | linear-oauth-setup       |
+| spotify  | spotify-oauth-setup      |
+| todoist  | todoist-oauth-setup      |
+| discord  | discord-oauth-setup      |
+| dropbox  | dropbox-oauth-setup      |
+| asana    | asana-oauth-setup        |
+| airtable | airtable-oauth-setup     |
+| hubspot  | hubspot-oauth-setup      |
+| figma    | figma-oauth-setup        |
 
 **IMPORTANT: Slack uses Socket Mode, NOT OAuth. Its dedicated skill is `slack-app-setup` (not `slack-oauth-setup`). Always load the exact skill ID from the table above — do NOT guess the name or fall through to the generic OAuth flow.**
 
