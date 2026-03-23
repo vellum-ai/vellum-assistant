@@ -927,7 +927,7 @@ async function upgradePrepare(
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
     entry.assistantId,
-    buildProgressEvent("Installing the update…"),
+    buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
   );
 
   // 7. Output backup path to stdout for the macOS app to parse

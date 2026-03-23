@@ -34,7 +34,7 @@ struct AssistantUpgradeSection: View {
     /// Whether a service group update is in progress (managed topology).
     var isServiceGroupUpdateInProgress: Bool = false
 
-    /// Progress message from service group update events (e.g. "Downloading the update…").
+    /// Progress message from service group update events (e.g. "Downloading…").
     var updateStatusMessage: String?
 
     /// Whether the healthz fetch has completed (regardless of success/failure).
