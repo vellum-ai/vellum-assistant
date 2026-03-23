@@ -13,11 +13,11 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 
 ## Value Classification
 
-| Value          | Type       | Storage method                              | Secret? |
-| -------------- | ---------- | ------------------------------------------- | ------- |
-| Bot Token      | Credential | `credential_store` prompt                   | **Yes** |
-| Bot Username   | Config     | Telegram setup handler                      | No      |
-| Webhook Secret | Credential | Telegram setup handler                      | **Yes** |
+| Value          | Type       | Storage method            | Secret? |
+| -------------- | ---------- | ------------------------- | ------- |
+| Bot Token      | Credential | `credential_store` prompt | **Yes** |
+| Bot Username   | Config     | Telegram setup handler    | No      |
+| Webhook Secret | Credential | Telegram setup handler    | **Yes** |
 
 - **Bot Token** is a secret. Always collect via `credential_store` prompt - never accept it pasted in plaintext chat.
 - **Bot Username** and **Webhook Secret** are managed by the same Telegram setup handler used by Settings.
