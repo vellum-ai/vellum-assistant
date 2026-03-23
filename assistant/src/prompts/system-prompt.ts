@@ -15,6 +15,7 @@ import {
   isMacOS,
 } from "../util/platform.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
+import { buildJournalContext } from "./journal-context.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -218,6 +219,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // and phone-calls skill SKILL.md files.
   const integrationSection = buildIntegrationSection();
   if (integrationSection) dynamicParts.push(integrationSection);
+
+  const journalContext = buildJournalContext(
+    getConfig().journal?.contextWindowSize ?? 10,
+  );
+  if (journalContext) dynamicParts.push(journalContext);
 
   const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
 
