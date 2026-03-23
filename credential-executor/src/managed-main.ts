@@ -57,6 +57,7 @@ import { materializeManagedToken } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
 import { buildLazyGetters, type ApiKeyRef } from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
+import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
 
@@ -90,7 +91,7 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHandlerRegistry {
+function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -322,6 +323,27 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
     auditStore,
   }) as typeof handlers[string];
 
+  // Register credential CRUD handlers
+  handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
+    const value = await secureKeyBackend.get(req.account);
+    return { found: value !== undefined, value };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+    const ok = await secureKeyBackend.set(req.account, req.value);
+    return { ok };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+    const result = await secureKeyBackend.delete(req.account);
+    return { result };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.ListCredentials] = (async () => {
+    const accounts = await secureKeyBackend.list();
+    return { accounts };
+  }) as typeof handlers[string];
+
   return handlers;
 }
 
@@ -498,6 +520,14 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Create the secure key backend unconditionally — it's needed by both
+  // HTTP credential routes (when CES_SERVICE_TOKEN is set) and RPC
+  // credential CRUD handlers (always available).
+  const assistantDataMount =
+    process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
+  const vellumRoot = join(assistantDataMount, ".vellum");
+  const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
+
   // Set up credential CRUD routes if a service token is configured.
   // The assistant and gateway use CES_SERVICE_TOKEN to authenticate
   // credential management requests over HTTP.
@@ -505,11 +535,7 @@ async function main(): Promise<void> {
   let credentialDeps: CredentialRouteDeps | null = null;
 
   if (serviceToken) {
-    const assistantDataMount =
-      process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
-    const vellumRoot = join(assistantDataMount, ".vellum");
-    const backend = createLocalSecureKeyBackend(vellumRoot);
-    credentialDeps = { backend, serviceToken };
+    credentialDeps = { backend: secureKeyBackend, serviceToken };
     log("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
   } else {
     warn(
@@ -545,7 +571,7 @@ async function main(): Promise<void> {
   // are available to handlers at call time (after the handshake completes).
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
   const apiKeyRef: ApiKeyRef = { current: "" };
-  const handlers = buildHandlers(sessionIdRef, apiKeyRef);
+  const handlers = buildHandlers(sessionIdRef, apiKeyRef, secureKeyBackend);
 
   const server = new CesRpcServer({
     input: connection.readable,
