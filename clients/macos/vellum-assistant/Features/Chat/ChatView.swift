@@ -789,11 +789,17 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // layout pass can trigger an auto-scroll-to-bottom.
                 // Guard: only untether if content is actually scrollable (prevents false
                 // untethers on short conversations that can't scroll).
-                let wasCached = coordinator.cachedScrollView != nil
-                let (resolvedScrollView, lookupPath) = wasCached
-                    ? (coordinator.cachedScrollView, "cached")
-                    : coordinator.findEnclosingScrollViewWithPath()
-                if !wasCached { coordinator.cachedScrollView = resolvedScrollView }
+                let resolvedScrollView: NSScrollView?
+                let lookupPath: String
+                if let cached = coordinator.cachedScrollView, cached.window != nil {
+                    resolvedScrollView = cached
+                    lookupPath = "cached"
+                } else {
+                    let (found, path) = coordinator.findEnclosingScrollViewWithPath()
+                    coordinator.cachedScrollView = found
+                    resolvedScrollView = found
+                    lookupPath = path
+                }
                 if let scrollView = resolvedScrollView {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0
