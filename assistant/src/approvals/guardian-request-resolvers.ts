@@ -550,7 +550,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered &&
         channel === "slack" &&
         guardianUserId &&
-        channelDeliveryContext.guardianChatId !== guardianUserId
+        !channelDeliveryContext.guardianChatId.startsWith("D")
       ) {
         // Strip threadTs from the callback URL — it belongs to the shared
         // channel thread and would cause thread_not_found errors in the DM.
@@ -582,13 +582,29 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      // Notify the requester
+      // Notify the requester. For Slack, route to DM via the user ID and
+      // strip threadTs (which belongs to the guardian's channel thread).
+      const requesterTargetChatId =
+        channel === "slack" && requesterExternalUserId
+          ? requesterExternalUserId
+          : requesterChatId;
+      let requesterCallbackUrl = channelDeliveryContext.replyCallbackUrl;
+      if (channel === "slack" && requesterExternalUserId) {
+        try {
+          const url = new URL(channelDeliveryContext.replyCallbackUrl);
+          url.searchParams.delete("threadTs");
+          requesterCallbackUrl = url.toString();
+        } catch {
+          // Malformed URL — use as-is
+        }
+      }
+
       if (codeDelivered) {
         try {
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+            requesterCallbackUrl,
             {
-              chatId: requesterChatId,
+              chatId: requesterTargetChatId,
               text:
                 "Your access request has been approved! " +
                 "Please enter the 6-digit verification code you receive from the guardian.",
@@ -606,9 +622,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       } else {
         try {
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+            requesterCallbackUrl,
             {
-              chatId: requesterChatId,
+              chatId: requesterTargetChatId,
               text:
                 "Your access request was approved, but we were unable to " +
                 "deliver the verification code. Please try again later.",
