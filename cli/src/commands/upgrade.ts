@@ -54,12 +54,16 @@ import { commitWorkspaceState } from "../lib/workspace-git.js";
 interface UpgradeArgs {
   name: string | null;
   version: string | null;
+  prepare: boolean;
+  finalize: boolean;
 }
 
 function parseArgs(): UpgradeArgs {
   const args = process.argv.slice(3);
   let name: string | null = null;
   let version: string | null = null;
+  let prepare = false;
+  let finalize = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -76,6 +80,12 @@ function parseArgs(): UpgradeArgs {
       console.log("Options:");
       console.log(
         "  --version <version>  Target version to upgrade to (default: latest)",
+      );
+      console.log(
+        "  --prepare            Run pre-upgrade steps only (backup, notify) without swapping versions",
+      );
+      console.log(
+        "  --finalize           Run post-upgrade steps only (broadcast complete, workspace commit)",
       );
       console.log("");
       console.log("Examples:");
@@ -98,6 +108,10 @@ function parseArgs(): UpgradeArgs {
       }
       version = next;
       i++;
+    } else if (arg === "--prepare") {
+      prepare = true;
+    } else if (arg === "--finalize") {
+      finalize = true;
     } else if (!arg.startsWith("-")) {
       name = arg;
     } else {
@@ -107,7 +121,13 @@ function parseArgs(): UpgradeArgs {
     }
   }
 
-  return { name, version };
+  if (prepare && finalize) {
+    console.error("Error: --prepare and --finalize are mutually exclusive.");
+    emitCliError("UNKNOWN", "--prepare and --finalize are mutually exclusive");
+    process.exit(1);
+  }
+
+  return { name, version, prepare, finalize };
 }
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -907,9 +927,134 @@ async function upgradePlatform(
   }
 }
 
+/**
+ * Pre-upgrade steps for Sparkle (macOS app) lifecycle.
+ * Runs the pre-update orchestration without actually swapping containers:
+ * broadcasts SSE events, creates a workspace commit, creates a backup,
+ * prunes old backups, and outputs the backup path.
+ */
+async function upgradePrepare(
+  entry: AssistantEntry,
+  version: string | null,
+): Promise<void> {
+  const targetVersion = version ?? entry.serviceGroupVersion ?? "unknown";
+  const currentVersion = entry.serviceGroupVersion ?? "unknown";
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : null;
+
+  // 1. Broadcast "starting" so the UI shows the progress spinner
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildStartingEvent(targetVersion, 30),
+  );
+
+  // 2. Workspace commit: record pre-update state
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // 3. Progress: saving backup
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildProgressEvent("Saving a backup of your data…"),
+  );
+
+  // 4. Create backup
+  const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
+    prefix: `${entry.assistantId}-pre-upgrade`,
+    description: `Pre-upgrade snapshot before ${currentVersion} → ${targetVersion}`,
+  });
+
+  // 5. Prune old backups (keep 3)
+  pruneOldBackups(entry.assistantId, 3);
+
+  // 6. Progress: installing update
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildProgressEvent("Installing the update…"),
+  );
+
+  // 7. Output backup path to stdout for the macOS app to parse
+  if (backupPath) {
+    console.log(`BACKUP_PATH:${backupPath}`);
+  }
+}
+
+/**
+ * Post-upgrade steps for Sparkle (macOS app) lifecycle.
+ * Called after the app has been replaced and the daemon is back up.
+ * Broadcasts a "complete" SSE event and creates a workspace commit.
+ */
+async function upgradeFinalize(
+  entry: AssistantEntry,
+  version: string | null,
+): Promise<void> {
+  if (!version) {
+    console.error(
+      "Error: --finalize requires --version <from-version> to record the transition.",
+    );
+    emitCliError(
+      "UNKNOWN",
+      "--finalize requires --version <from-version> to record the transition",
+    );
+    process.exit(1);
+  }
+
+  const fromVersion = version;
+  const currentVersion = entry.serviceGroupVersion ?? "unknown";
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : null;
+
+  // 1. Broadcast "complete" so the UI clears the progress spinner
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildCompleteEvent(currentVersion, true),
+  );
+
+  // 2. Workspace commit: record successful update
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
 export async function upgrade(): Promise<void> {
-  const { name, version } = parseArgs();
+  const { name, version, prepare, finalize } = parseArgs();
   const entry = resolveTargetAssistant(name);
+
+  if (prepare) {
+    await upgradePrepare(entry, version);
+    return;
+  }
+
+  if (finalize) {
+    await upgradeFinalize(entry, version);
+    return;
+  }
+
   const cloud = resolveCloud(entry);
 
   try {
