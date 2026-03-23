@@ -274,7 +274,7 @@ function registerConnectCommand(platform: Command): void {
     )
     .option(
       "--scopes <scopes...>",
-      "Specific OAuth scopes to request (e.g. calendar.readonly gmail.send)",
+      "Exact OAuth scopes to request (must be a subset of the provider's allowed scopes)",
     )
     .addHelpText(
       "after",
@@ -290,9 +290,16 @@ callback, token exchange, and credential storage.
 The provider must support managed OAuth and managed mode must be enabled in
 the services config.
 
+Scope behavior:
+  Without --scopes, the platform requests ALL of the provider's allowed scopes.
+  With --scopes, only the specified scopes are requested (no merging with
+  defaults). Each scope must be in the provider's allowed set or the platform
+  will reject it. Use full scope URLs where required (e.g. Google scopes use
+  https://www.googleapis.com/auth/... format).
+
 Examples:
   $ assistant oauth platform connect google
-  $ assistant oauth platform connect google --scopes calendar.readonly gmail.send
+  $ assistant oauth platform connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
   $ assistant oauth platform connect google --json`,
     )
     .action(
