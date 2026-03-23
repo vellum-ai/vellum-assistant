@@ -18,10 +18,6 @@ import {
   stopContainers,
 } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
-import {
-  loadBootstrapSecret,
-  saveBootstrapSecret,
-} from "../lib/guardian-token";
 import { restoreBackup } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
@@ -213,12 +209,8 @@ export async function rollback(): Promise<void> {
     const cesServiceToken =
       capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
-    // Retrieve or generate a bootstrap secret for the gateway.
-    const loadedSecret = loadBootstrapSecret(instanceName);
-    const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-    if (!loadedSecret) {
-      saveBootstrapSecret(instanceName, bootstrapSecret);
-    }
+    // Generate a fresh bootstrap secret for the gateway.
+    const bootstrapSecret = randomBytes(32).toString("hex");
 
     // Extract or generate the shared JWT signing key.
     const signingKey =

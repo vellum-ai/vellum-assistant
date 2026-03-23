@@ -86,17 +86,8 @@ public struct GuardianClient: GuardianClientProtocol {
         ]
 
         do {
-            // Include bootstrap secret header if one was persisted by the CLI
-            // during Docker hatch. This authenticates the bootstrap request to
-            // the gateway in containerized deployments.
-            var extraHeaders: [String: String]? = nil
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-               let secret = Self.loadBootstrapSecret(assistantId: assistantId) {
-                extraHeaders = ["x-bootstrap-secret": secret]
-            }
-
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15
+                path: "guardian/init", json: body, timeout: 15
             )
             guard response.isSuccess else {
                 log.error("Access token bootstrap failed (HTTP \(response.statusCode))")
@@ -118,23 +109,6 @@ public struct GuardianClient: GuardianClientProtocol {
             log.error("Access token bootstrap error: \(error.localizedDescription)")
             return false
         }
-    }
-
-    // MARK: - Bootstrap Secret
-
-    /// Reads the bootstrap secret persisted by the CLI at
-    /// `$XDG_CONFIG_HOME/vellum/assistants/<id>/bootstrap-secret`.
-    private static func loadBootstrapSecret(assistantId: String) -> String? {
-        let configHome: String
-        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
-            configHome = xdg
-        } else {
-            configHome = NSHomeDirectory() + "/.config"
-        }
-        let path = "\(configHome)/vellum/assistants/\(assistantId)/bootstrap-secret"
-        return try? String(contentsOfFile: path, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Response Shapes

@@ -26,10 +26,6 @@ import {
   readPlatformToken,
 } from "../lib/platform-client";
 import {
-  loadBootstrapSecret,
-  saveBootstrapSecret,
-} from "../lib/guardian-token";
-import {
   createBackup,
   pruneOldBackups,
   restoreBackup,
@@ -381,15 +377,8 @@ async function upgradeDocker(
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
-  // Retrieve or generate a bootstrap secret for the gateway. The secret was
-  // persisted to disk during hatch; older instances won't have one yet.
-  // This runs BEFORE stopping containers so a write failure (disk full,
-  // permissions) doesn't leave the assistant offline.
-  const loadedSecret = loadBootstrapSecret(instanceName);
-  const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-  if (!loadedSecret) {
-    saveBootstrapSecret(instanceName, bootstrapSecret);
-  }
+  // Generate a fresh bootstrap secret for the gateway.
+  const bootstrapSecret = randomBytes(32).toString("hex");
 
   // Extract or generate the shared JWT signing key. Pre-env-var instances
   // won't have it in capturedEnv, so generate fresh in that case.
