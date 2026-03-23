@@ -3,6 +3,11 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
+private final class AttributedStringCacheEntry: NSObject {
+    let attributedString: AttributedString
+    init(_ attributedString: AttributedString) { self.attributedString = attributedString }
+}
+
 /// Reusable view that renders parsed `MarkdownSegment` arrays.
 /// Groups consecutive text-selectable segments (text, headings, lists) into
 /// unified Text views so that text selection can span across paragraphs.
@@ -188,23 +193,25 @@ struct MarkdownSegmentView: View, Equatable {
     /// Keyed by a combined hash of the segment values and style colors so
     /// identical segment arrays return the cached value instead of re-parsing
     /// markdown and re-creating `AttributedString` on every SwiftUI body
-    /// evaluation. Each entry stores (value, accessTime, estimatedBytes) for
-    /// LRU eviction and byte-budget enforcement.
-    @MainActor private static var attributedStringCache: [Int: (value: AttributedString, accessTime: Int, estimatedBytes: Int)] = [:]
-    @MainActor private static var lruCounter: Int = 0
-    private static let attributedStringCacheLimit = 200
+    /// evaluation. NSCache handles eviction automatically under memory pressure.
+    @MainActor private static var attributedStringCache: NSCache<NSNumber, AttributedStringCacheEntry> = {
+        let cache = NSCache<NSNumber, AttributedStringCacheEntry>()
+        cache.countLimit = 500
+        cache.totalCostLimit = 5_000_000
+        return cache
+    }()
 
     // MARK: - Cache Guardrails
 
     private static let maxCacheableTextLength = 10_000
-    private static let maxCacheBytes = 5_000_000
-    @MainActor static var estimatedCacheBytes: Int = 0
+    /// Cache for prefix width measurements to avoid repeated Core Text layout calls.
+    @MainActor private static var prefixWidthCache: [String: CGFloat] = [:]
 
     /// Clears the attributed string cache.  Called when switching conversations
     /// or archiving a conversation to reclaim memory.
     static func clearAttributedStringCache() {
-        attributedStringCache.removeAll()
-        estimatedCacheBytes = 0
+        attributedStringCache.removeAllObjects()
+        prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
     }
@@ -220,16 +227,6 @@ struct MarkdownSegmentView: View, Equatable {
             case .table(let h, let r): return total + h.joined().count + r.flatMap { $0 }.joined().count
             case .image, .horizontalRule: return total
             }
-        }
-    }
-
-    /// Evicts the oldest entries until `estimatedCacheBytes` drops below
-    /// `maxCacheBytes`.
-    @MainActor private static func evictIfOverBudget() {
-        while estimatedCacheBytes > maxCacheBytes {
-            guard let lruKey = attributedStringCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key else { break }
-            let entry = attributedStringCache.removeValue(forKey: lruKey)
-            estimatedCacheBytes -= entry?.estimatedBytes ?? 0
         }
     }
 
@@ -251,10 +248,9 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(codeBackgroundColor.description)
         let cacheKey = hasher.finalize()
 
-        if let cached = Self.attributedStringCache[cacheKey] {
-            Self.lruCounter += 1
-            Self.attributedStringCache[cacheKey] = (cached.value, Self.lruCounter, cached.estimatedBytes)
-            return cached.value
+        let cacheKeyNS = cacheKey as NSNumber
+        if let cached = Self.attributedStringCache.object(forKey: cacheKeyNS)?.attributedString {
+            return cached
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
@@ -264,22 +260,9 @@ struct MarkdownSegmentView: View, Equatable {
         let textLen = Self.segmentTextLength(segments)
         if textLen > Self.maxCacheableTextLength { return result }
 
-        // Evict the least-recently-used entry when the cache is full.
-        if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
-            if let lruKey = Self.attributedStringCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                let evicted = Self.attributedStringCache.removeValue(forKey: lruKey)
-                Self.estimatedCacheBytes -= evicted?.estimatedBytes ?? 0
-            }
-        }
-        Self.lruCounter += 1
-        // Use 10 bytes per character to match the M3 fix in ChatBubble.swift (PR #11825);
-        // AttributedString carries font, color, and paragraph metadata on top of raw text,
-        // so a 3x multiplier underestimates real cost by ~3.3x and lets the cache silently
-        // exceed its 5 MB budget.
-        let cost = textLen * 10
-        Self.attributedStringCache[cacheKey] = (result, Self.lruCounter, cost)
-        Self.estimatedCacheBytes += cost
-        Self.evictIfOverBudget()
+        // Use 10 bytes per character to estimate cost; AttributedString carries
+        // font, color, and paragraph metadata on top of raw text.
+        Self.attributedStringCache.setObject(AttributedStringCacheEntry(result), forKey: cacheKeyNS, cost: textLen * 10)
         return result
     }
 
@@ -323,10 +306,16 @@ struct MarkdownSegmentView: View, Equatable {
 
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix
-                    // Measure actual prefix width using the font
-                    let font = NSFont.systemFont(ofSize: 14)
-                    let prefixNS = NSString(string: prefixText)
-                    let prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
+                    // Measure actual prefix width using the font (cached to avoid repeated Core Text calls)
+                    let prefixWidth: CGFloat
+                    if let cached = prefixWidthCache[prefixText] {
+                        prefixWidth = cached
+                    } else {
+                        let font = NSFont.systemFont(ofSize: 14)
+                        let prefixNS = NSString(string: prefixText)
+                        prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
+                        prefixWidthCache[prefixText] = prefixWidth
+                    }
                     let paragraphStyle = NSMutableParagraphStyle()
                     paragraphStyle.headIndent = prefixWidth
                     paragraphStyle.firstLineHeadIndent = 0
