@@ -109,6 +109,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let maxCachedViewModels = 10
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
+    private var pendingEvictionTask: Task<Void, Never>?
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
@@ -456,7 +457,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
         subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
         touchVMAccessOrder(conversation.id)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         draftViewModel = nil
 
         // Increment only on actual user sends, not programmatic createConversation() calls.
@@ -506,7 +507,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
         subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
         touchVMAccessOrder(conversation.id)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         activeConversationId = conversation.id
 
         // Immediately create a daemon conversation so the conversation is persisted
@@ -584,7 +585,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
         subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
         touchVMAccessOrder(conversation.id)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
 
         return conversation.id
     }
@@ -825,7 +826,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         if let hasMore = response.hasMore {
             hasMoreConversations = hasMore
         }
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         isLoadingMoreConversations = false
     }
 
@@ -851,7 +852,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             subscribeToBusyState(for: id, viewModel: viewModel)
             subscribeToAssistantActivity(for: id, viewModel: viewModel)
             subscribeToInteractionState(for: id, viewModel: viewModel)
-            evictStaleCachedViewModels()
+            scheduleEvictionIfNeeded()
         }
 
         touchVMAccessOrder(id)
@@ -1031,7 +1032,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversationModel.id, viewModel: viewModel)
         subscribeToInteractionState(for: conversationModel.id, viewModel: viewModel)
         touchVMAccessOrder(conversationModel.id)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         return conversationModel.id
     }
 
@@ -1359,7 +1360,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversationId, viewModel: vm)
         subscribeToInteractionState(for: conversationId, viewModel: vm)
         touchVMAccessOrder(conversationId)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         // Re-subscribe if this is the active view model
         if conversationId == activeConversationId {
             subscribeToActiveViewModel()
@@ -2000,7 +2001,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToAssistantActivity(for: conversationId, viewModel: viewModel)
         subscribeToInteractionState(for: conversationId, viewModel: viewModel)
         touchVMAccessOrder(conversationId)
-        evictStaleCachedViewModels()
+        scheduleEvictionIfNeeded()
         return viewModel
     }
 
@@ -2012,6 +2013,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             vmAccessOrder.remove(at: idx)
         }
         vmAccessOrder.append(conversationId)
+    }
+
+    /// Schedule a debounced eviction pass. Coalesces multiple eviction triggers
+    /// (e.g. rapid conversation creation, selection, SSE inserts) into a single
+    /// deferred call, preventing eviction state changes from compounding with
+    /// other `objectWillChange` publishers in the same run-loop tick.
+    private func scheduleEvictionIfNeeded() {
+        guard chatViewModels.count > maxCachedViewModels else { return }
+        guard pendingEvictionTask == nil else { return }
+        pendingEvictionTask = Task { @MainActor [weak self] in
+            defer { self?.pendingEvictionTask = nil }
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            self?.evictStaleCachedViewModels()
+        }
     }
 
     /// Evict the oldest cached ChatViewModel that is not the active conversation,
