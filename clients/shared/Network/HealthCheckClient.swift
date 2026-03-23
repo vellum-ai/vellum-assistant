@@ -15,7 +15,7 @@ public enum HealthCheckClient {
     public static func isReachable(timeout: TimeInterval = 3) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "health",
                 timeout: timeout
             )
             return response.isSuccess
@@ -46,7 +46,7 @@ public enum HealthCheckClient {
         if assistant.isRemote {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistant.assistantId)/healthz",
+                    path: "health",
                     timeout: timeout
                 )
                 return response.isSuccess
