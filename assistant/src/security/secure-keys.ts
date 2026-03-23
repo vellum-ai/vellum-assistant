@@ -88,21 +88,6 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
   return _resolvePromise;
 }
 
-/**
- * If the current backend is CES RPC and it just failed, demote to the
- * encrypted file store so subsequent operations don't keep hitting a
- * dead transport.
- */
-function demoteCesRpcBackend(): void {
-  if (_resolvedBackend?.name === "ces-rpc") {
-    log.warn(
-      "CES RPC backend failed — demoting to encrypted file store for remaining operations",
-    );
-    _resolvedBackend = getEncryptedStoreBackend();
-    _resolvePromise = undefined;
-  }
-}
-
 async function doResolveBackend(): Promise<CredentialBackend> {
   // 1. CES RPC — primary credential backend for all local modes
   if (_cesClient) {
@@ -141,12 +126,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
  */
 export async function listSecureKeysAsync(): Promise<CredentialListResult> {
   const backend = await resolveBackendAsync();
-  const result = await backend.list();
-  if (result.unreachable && backend.name === "ces-rpc") {
-    demoteCesRpcBackend();
-    return (await resolveBackendAsync()).list();
-  }
-  return result;
+  return backend.list();
 }
 
 // ---------------------------------------------------------------------------
@@ -167,17 +147,6 @@ export async function getSecureKeyResultAsync(
 ): Promise<SecureKeyResult> {
   const backend = await resolveBackendAsync();
   const result = await backend.get(account);
-  // If the CES RPC backend returned unreachable, demote and retry once
-  // with the encrypted file store.
-  if (result.unreachable && backend.name === "ces-rpc") {
-    demoteCesRpcBackend();
-    const fallback = await resolveBackendAsync();
-    const retryResult = await fallback.get(account);
-    if (retryResult.value != null) {
-      return { value: retryResult.value, unreachable: false };
-    }
-    return { value: undefined, unreachable: retryResult.unreachable };
-  }
   if (result.value != null) {
     return { value: result.value, unreachable: false };
   }
@@ -205,19 +174,6 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   const backend = await resolveBackendAsync();
   const ok = await backend.set(account, value);
-  if (!ok && backend.name === "ces-rpc") {
-    // CES RPC failed — demote and retry with the fallback backend.
-    demoteCesRpcBackend();
-    const fallback = await resolveBackendAsync();
-    const retryOk = await fallback.set(account, value);
-    if (!retryOk) {
-      log.warn(
-        { account, backend: fallback.name },
-        "Credential backend set failed (after CES RPC fallback)",
-      );
-    }
-    return retryOk;
-  }
   if (!ok) {
     log.warn(
       { account, backend: backend.name },
@@ -236,12 +192,7 @@ export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
   const backend = await resolveBackendAsync();
-  const result = await backend.delete(account);
-  if (result === "error" && backend.name === "ces-rpc") {
-    demoteCesRpcBackend();
-    return (await resolveBackendAsync()).delete(account);
-  }
-  return result;
+  return backend.delete(account);
 }
 
 // ---------------------------------------------------------------------------
