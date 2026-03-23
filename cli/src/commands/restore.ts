@@ -202,7 +202,11 @@ async function restorePlatform(
 
     let preflightResult: { statusCode: number; body: Record<string, unknown> };
     try {
-      preflightResult = await platformImportPreflight(bundleData, token, orgId);
+      preflightResult = await platformImportPreflight(
+        new Uint8Array(bundleData),
+        token,
+        orgId,
+      );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Preflight request timed out after 2 minutes.");
@@ -332,7 +336,11 @@ async function restorePlatform(
 
   let importResult: { statusCode: number; body: Record<string, unknown> };
   try {
-    importResult = await platformImportBundle(bundleData, token, orgId);
+    importResult = await platformImportBundle(
+      new Uint8Array(bundleData),
+      token,
+      orgId,
+    );
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.error("Error: Import request timed out after 2 minutes.");
