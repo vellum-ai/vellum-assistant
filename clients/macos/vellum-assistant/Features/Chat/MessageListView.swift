@@ -431,26 +431,14 @@ struct MessageListView: View {
             return
         }
 
-        // Cooldown: suppress re-entrant applies within the spring animation window.
-        // Each avatarDisplayY mutation triggers a body re-evaluation → new layout →
-        // new tail anchor preference → deferred Task → updateAvatarFollower → back
-        // here. Without a cooldown, the spring animation (0.28s response) amplifies
-        // sub-pixel layout shifts into a feedback loop that trips the scroll loop
-        // guard (30+ avatarDisplayYApplied events in 2s) and freezes the UI.
-        // The cooldown matches the spring response time so the animation settles
-        // before the next position update is accepted.
-        if let lastApplied = scrollTracking.avatarLastAppliedAt {
-            let elapsed = Date().timeIntervalSince(lastApplied)
-            if elapsed < 0.28 {  // Match spring response time (ConversationAvatarFollower.spring)
-                return
-            }
-        }
-
         recordScrollLoopEvent(.avatarDisplayYApplied)
         scrollTracking.avatarLastAppliedAt = Date()
-        withAnimation(ConversationAvatarFollower.spring) {
-            avatarDisplayY = y
-        }
+        // Set @State without withAnimation — the spring animation is applied via
+        // .animation() on the avatar view's .offset() modifier instead. This avoids
+        // wrapping the mutation in an animation transaction, which would cause SwiftUI
+        // to re-evaluate the body on each spring interpolation frame and feed layout
+        // shifts back into the tail anchor preference → avatar update cycle.
+        avatarDisplayY = y
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
@@ -544,6 +532,7 @@ struct MessageListView: View {
                     .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                     .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
+                    .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                     .accessibilityHidden(true)
                     .onAppear {
                         if shouldPlayTailEntryAnimation {
@@ -560,6 +549,7 @@ struct MessageListView: View {
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
                 .offset(y: avatarDisplayY)
+                .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
