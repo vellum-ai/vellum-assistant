@@ -545,7 +545,7 @@ extension AppDelegate {
         }
     }
 
-    @objc public func sendLogsToSentry() {
+    @objc public func sendFeedback() {
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
@@ -553,7 +553,7 @@ extension AppDelegate {
         }
     }
 
-    @objc func sendCurrentConversationLogsToSentry() {
+    @objc func sendCurrentConversationFeedback() {
         guard let conversation = mainWindow?.conversationManager.activeConversation,
               let conversationId = conversation.conversationId else { return }
 
@@ -583,7 +583,7 @@ extension AppDelegate {
                 var formData = formData
                 formData.scope = scope
                 do {
-                    try await LogExporter.sendLogsToSentry(formData: formData)
+                    try await LogExporter.sendFeedback(formData: formData)
                     self?.dismissLogReportWindow()
                     self?.mainWindow?.windowState.showToast(message: "Feedback sent", style: .success)
                 } catch {
