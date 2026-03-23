@@ -252,13 +252,19 @@ describe("buildSttHints", () => {
 // ---------------------------------------------------------------------------
 
 function makeContact(displayName: string): ContactWithChannels {
+  const now = Date.now();
   return {
     id: `contact-${displayName.toLowerCase()}`,
     displayName,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    role: "friend",
-    contactType: "person",
+    notes: null,
+    lastInteraction: null,
+    interactionCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    role: "contact",
+    contactType: "human",
+    principalId: null,
+    userFile: null,
     channels: [],
   };
 }
