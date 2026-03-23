@@ -41,13 +41,13 @@ extension ChatBubble {
 
     /// Cache key for memoized interleaved content computation results.
     /// Keyed by (messageId, contentOrderHash) to invalidate when content changes.
-    private struct InterleavedCacheKey: Hashable {
+    struct InterleavedCacheKey: Hashable {
         let messageId: UUID
         let contentOrderHash: Int
     }
 
     /// Cached result of interleaved content computation.
-    private struct InterleavedCacheValue {
+    struct InterleavedCacheValue {
         let hasInterleaved: Bool
         let groups: [ContentGroup]
         let trailingTextIds: Set<String>
@@ -56,12 +56,12 @@ extension ChatBubble {
     /// Static cache of interleaved content computation results. For completed
     /// messages in old conversations, `contentOrder` is stable so these results
     /// can be reused across ChatBubble.init() calls during scroll.
-    @MainActor private static var interleavedContentCache: [InterleavedCacheKey: InterleavedCacheValue] = [:]
+    @MainActor static var interleavedContentCache: [InterleavedCacheKey: InterleavedCacheValue] = [:]
 
     /// Maximum number of entries in the interleaved content cache before
     /// clearing. This is a performance cache, not a correctness cache, so
     /// full clear on overflow is safe and simple.
-    private static let interleavedCacheMaxEntries = 500
+    static let interleavedCacheMaxEntries = 500
 
     /// Builds a cache key from message identity + content structure.
     static func interleavedCacheKey(for message: ChatMessage) -> InterleavedCacheKey {
@@ -70,7 +70,7 @@ extension ChatBubble {
         // Hash per-segment emptiness since trailingText computation checks
         // each segment's trimmed content, not just the count.
         for segment in message.textSegments {
-            orderHasher.combine(segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            orderHasher.combine(segment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         orderHasher.combine(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         return InterleavedCacheKey(
