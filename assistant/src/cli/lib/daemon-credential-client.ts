@@ -19,6 +19,7 @@ import {
   mintDaemonDeliveryToken,
 } from "../../runtime/auth/token-service.js";
 import type { DeleteResult } from "../../security/credential-backend.js";
+import { credentialKey } from "../../security/credential-key.js";
 import type { SecureKeyResult } from "../../security/secure-keys.js";
 import {
   deleteSecureKeyAsync,
@@ -82,6 +83,27 @@ async function daemonFetch(
     );
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the canonical credential storage key from a "service:field" name.
+ * Mirrors the parsing in secret-routes.ts handleAddSecret / handleDeleteSecret.
+ */
+function deriveCredentialStorageKey(name: string): string {
+  const colonIdx = name.indexOf(":");
+  if (colonIdx < 1 || colonIdx === name.length - 1) {
+    // Malformed — return raw name so the caller stores *something*.
+    // The daemon would reject this with a 400, so this only fires in
+    // the offline fallback path with bad input.
+    return name;
+  }
+  const service = name.slice(0, colonIdx);
+  const field = name.slice(colonIdx + 1);
+  return credentialKey(service, field);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +205,10 @@ export async function setSecureKeyViaDaemon(
     return json.success;
   }
 
-  return setSecureKeyAsync(name, value);
+  // For credentials, derive the canonical storage key (credential/service/field)
+  // to match the daemon path which uses credentialKey().
+  const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
+  return setSecureKeyAsync(storageKey, value);
 }
 
 /**
@@ -204,7 +229,10 @@ export async function deleteSecureKeyViaDaemon(
     return json.success ? "deleted" : "error";
   }
 
-  return deleteSecureKeyAsync(name);
+  // For credentials, derive the canonical storage key (credential/service/field)
+  // to match the daemon path which uses credentialKey().
+  const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
+  return deleteSecureKeyAsync(storageKey);
 }
 
 /**
