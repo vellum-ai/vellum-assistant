@@ -52,6 +52,8 @@ export function generateTwiML(
     speechModel?: string;
     ttsProvider: string;
     voice: string;
+    profanityFilter: boolean;
+    interruptSensitivity: string;
   },
   relayToken?: string,
   customParameters?: Record<string, string>,
@@ -96,6 +98,8 @@ ${greetingAttr}
       ttsProvider="${escapeXml(profile.ttsProvider)}"
       interruptible="true"
       dtmfDetection="true"
+      profanityFilter="${profile.profanityFilter}"
+      interruptSensitivity="${escapeXml(profile.interruptSensitivity)}"
     ${relayClose}
   </Connect>
 </Response>`;
