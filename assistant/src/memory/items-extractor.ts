@@ -544,10 +544,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
     return 0;
   }
 
-  // Determine verification state from message role
-  const verificationState =
-    message.role === "user" ? "user_reported" : "assistant_inferred";
-
   let upserted = 0;
   for (const item of extracted) {
     const now = Date.now();
@@ -567,12 +563,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
     let effectiveStatus: string = "active";
     if (existing) {
       memoryItemId = existing.id;
-      // Promote verification state if re-seen from a more trusted source
-      const promotedState =
-        existing.verificationState === "assistant_inferred" &&
-        verificationState === "user_reported"
-          ? "user_reported"
-          : existing.verificationState;
       effectiveStatus = "active";
       db.update(memoryItems)
         .set({
@@ -584,7 +574,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
             Math.max(existing.importance ?? 0, item.importance),
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
-          verificationState: promotedState,
           sourceType: "extraction",
           sourceMessageRole: message.role,
         })
@@ -602,7 +591,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
           confidence: item.confidence,
           importance: item.importance,
           fingerprint: item.fingerprint,
-          verificationState,
           sourceType: "extraction",
           sourceMessageRole: message.role,
           scopeId: effectiveScopeId,

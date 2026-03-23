@@ -488,7 +488,6 @@ export async function handleCreateMemoryItem(
       confidence: 0.95,
       importance: importance ?? 0.8,
       fingerprint,
-      verificationState: "user_confirmed",
       sourceType: "tool",
       scopeId,
       firstSeenAt: now,
@@ -531,7 +530,7 @@ export async function handleUpdateMemoryItem(
     kind?: string;
     status?: string;
     importance?: number;
-    verificationState?: string;
+    sourceType?: string;
   };
 
   const db = getDb();
@@ -579,8 +578,8 @@ export async function handleUpdateMemoryItem(
   if (body.importance !== undefined) {
     set.importance = body.importance;
   }
-  if (body.verificationState !== undefined) {
-    set.verificationState = body.verificationState;
+  if (body.sourceType !== undefined) {
+    set.sourceType = body.sourceType;
   }
 
   // If subject, statement, or kind changed, recompute fingerprint
