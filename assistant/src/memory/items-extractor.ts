@@ -185,16 +185,55 @@ For each item, provide:
 Rules:
 - Only extract genuinely memorable information. Skip pleasantries, filler, and transient discussion.
 - Do NOT extract information about what tools the assistant used or what files it read — only extract substantive facts about the user, their projects, and their preferences.
-- Do NOT extract claims about actions the assistant performed, outcomes it achieved, or progress it reported (e.g., "I booked an appointment", "I sent the email"). Only extract facts stated by the user or from external sources — the assistant's self-reports are not reliable memory material.
 - Do NOT extract raw code snippets, JSON fragments, YAML, configuration values, log output, or data structures. Only extract the human-readable meaning or intent behind such content, not the literal syntax.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.`;
 
+  // Try to extract user name from persona text
+  let userName = "the user";
+  if (userPersona) {
+    const nameMatch = userPersona.match(/\*\*Name:\*\*\s*(.+)/);
+    if (nameMatch) {
+      userName = nameMatch[1].trim();
+    }
+  }
+
   if (messageRole === "assistant") {
     instructions += `
 
-IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribute the assistant's own statements, feelings, self-descriptions, or introspection to the user. Only extract facts about the user, the world, or the project that the assistant is referencing or relaying — NOT the assistant's own identity, uncertainty, or behavior. If the assistant is simply talking about itself (e.g., introducing itself, expressing uncertainty about its own purpose), extract nothing.`;
+IMPORTANT: The message below is from the ASSISTANT. You may extract facts about actions taken, decisions made, and outcomes achieved. However, do NOT attribute the assistant's own identity, personality, or self-descriptions to the user. If the assistant is just introducing itself or expressing uncertainty about its own nature, extract nothing.`;
   }
+
+  instructions += `
+
+## Examples
+
+Good extractions from user messages:
+- "I'm a backend engineer at Acme Corp, mostly working with Go and PostgreSQL"
+  → kind: identity, subject: "Role at Acme Corp", statement: "${userName} is a backend engineer at Acme Corp, works primarily with Go and PostgreSQL"
+
+- "Always use semantic commits in this repo. I hate squash merges."
+  → kind: constraint, subject: "Git conventions", statement: "${userName} requires semantic commit messages. Strongly dislikes squash merges."
+
+- "We decided to go with Redis for the cache layer because DynamoDB was too expensive at our read volume"
+  → kind: decision, subject: "Cache layer choice", statement: "${userName} chose Redis over DynamoDB for caching due to cost at high read volumes"
+
+Good extractions from assistant messages:
+- "Based on your earlier mention, I see you're using Next.js 14 with the app router for the dashboard project."
+  → kind: project, subject: "Dashboard tech stack", statement: "${userName}'s dashboard project uses Next.js 14 with the app router"
+
+- "Since you mentioned your team follows trunk-based development, I'll keep the changes in a single commit."
+  → kind: constraint, subject: "Team branching strategy", statement: "${userName}'s team follows trunk-based development"
+
+- "I've refactored the auth middleware to use JWT validation and added rate limiting to the login endpoint."
+  → kind: project, subject: "Auth middleware changes", statement: "Auth middleware was refactored to use JWT validation with rate limiting on the login endpoint"
+
+Do NOT extract:
+- "I'll check that file for you" → assistant operational statement with no lasting information
+- "I think the best approach would be to refactor this" → speculative, no action taken yet
+- "The tests passed" → transient status
+- "Sure, sounds good" → filler
+- "\`\`\`json {"key": "val"} \`\`\`" → raw code/data, extract meaning not syntax`;
 
   if (existingItems.length > 0) {
     instructions += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
