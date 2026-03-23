@@ -484,6 +484,8 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
   }
 }
 
+const CREDENTIAL_KEY_PREFIX = "credential/";
+
 export async function handleListSecrets(): Promise<Response> {
   try {
     const { accounts, unreachable } = await listSecureKeysAsync();
@@ -493,7 +495,24 @@ export async function handleListSecrets(): Promise<Response> {
         { status: 503 },
       );
     }
-    return Response.json({ accounts });
+
+    const secrets = accounts.map((account) => {
+      if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+        // credential/{service}/{field} → service:field
+        const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
+        const slashIdx = rest.indexOf("/");
+        if (slashIdx > 0 && slashIdx < rest.length - 1) {
+          return {
+            type: "credential" as const,
+            name: `${rest.slice(0, slashIdx)}:${rest.slice(slashIdx + 1)}`,
+          };
+        }
+      }
+      // API key providers are stored with their raw provider name
+      return { type: "api_key" as const, name: account };
+    });
+
+    return Response.json({ secrets });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("INTERNAL_ERROR", message, 500);
