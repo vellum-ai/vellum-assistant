@@ -105,10 +105,10 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
     }
 
     if (!brokerAvailable) {
-      // Unlike migration 015, we return silently here. If the broker is not
-      // available, credentials may already be in the encrypted store from
-      // before migration 015 ran, or from a non-desktop environment.
-      return;
+      throw new Error(
+        "Keychain broker not available after waiting — credential migration " +
+          "will be retried on next startup",
+      );
     }
 
     const { setKey } = await import("../../security/encrypted-store.js");
