@@ -580,7 +580,6 @@ struct MainWindowView: View {
                 ErrorToastOverlay(
                     errorManager: viewModel.errorManager,
                     hasAPIKey: windowState.hasAPIKey,
-                    needsInferenceApiKey: windowState.needsInferenceApiKey,
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         windowState.selection = .panel(.settings)
@@ -592,20 +591,6 @@ struct MainWindowView: View {
                     onRetryLastMessage: { viewModel.retryLastMessage() },
                     onDismissError: { viewModel.dismissError() }
                 )
-            } else if windowState.needsInferenceApiKey {
-                ChatConversationErrorToast(
-                    message: "Add an API key to start chatting.",
-                    icon: .keyRound,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Open Settings",
-                    onAction: {
-                        settingsStore.pendingSettingsTab = .modelsAndServices
-                        windowState.selection = .panel(.settings)
-                    }
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -706,9 +691,6 @@ struct MainWindowView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
-                windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
             }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
@@ -865,7 +847,6 @@ struct MainWindowView: View {
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
         windowState.refreshAPIKeyStatus(isConnected: isConnected, isAuthenticated: isAuthenticated)
-        windowState.refreshInferenceApiKeyStatus(isAuthenticated: isAuthenticated)
     }
 
     private func handleDaemonConnectionChange(_ connected: Bool) {
@@ -1262,7 +1243,6 @@ struct MainWindowView: View {
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
-    let needsInferenceApiKey: Bool
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -1273,17 +1253,6 @@ private struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if needsInferenceApiKey {
-                ChatConversationErrorToast(
-                    message: "Add an API key to start chatting.",
-                    icon: .keyRound,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Open Settings",
-                    onAction: onOpenModelsAndServices
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-            }
-
             if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
@@ -1306,7 +1275,6 @@ private struct ErrorToastOverlay: View {
             }
         }
         .padding(.top, VSpacing.sm)
-        .animation(VAnimation.fast, value: needsInferenceApiKey)
         .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }
