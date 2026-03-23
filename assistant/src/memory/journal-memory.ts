@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getWorkspaceDir } from "../util/platform.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { getDb } from "./db.js";
 import { computeMemoryFingerprint } from "./fingerprint.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
