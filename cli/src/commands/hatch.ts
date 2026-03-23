@@ -53,7 +53,7 @@ import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
-import { leaseGuardianToken, saveBootstrapSecret } from "../lib/guardian-token";
+import { leaseGuardianToken } from "../lib/guardian-token";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -103,7 +103,7 @@ export async function buildStartupScript(
   instanceName: string,
   cloud: RemoteHost,
   configValues: Record<string, string> = {},
-): Promise<string> {
+): Promise<{ script: string; laptopBootstrapSecret: string }> {
   const platformUrl = getPlatformUrl();
   const logPath =
     cloud === "custom"
@@ -116,13 +116,14 @@ export async function buildStartupScript(
   const ownershipFixup = buildOwnershipFixup();
 
   if (species === "openclaw") {
-    return await buildOpenclawStartupScript(
+    const script = await buildOpenclawStartupScript(
       sshUser,
       providerApiKeys,
       timestampRedirect,
       userSetup,
       ownershipFixup,
     );
+    return { script, laptopBootstrapSecret: "" };
   }
 
   // Generate a bootstrap secret for the laptop that initiated this remote
@@ -130,7 +131,6 @@ export async function buildStartupScript(
   // that when `vellum hatch --remote docker` runs on the VM, the docker
   // hatch detects the pre-set env var and appends its own secret.
   const laptopBootstrapSecret = randomBytes(32).toString("hex");
-  saveBootstrapSecret(instanceName, laptopBootstrapSecret);
 
   // Build bash lines that set each provider API key as a shell variable
   // and corresponding dotenv lines for the env file.
@@ -164,7 +164,9 @@ echo "Default workspace config written to \$VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH
 `;
   }
 
-  return `#!/bin/bash
+  return {
+    laptopBootstrapSecret,
+    script: `#!/bin/bash
 set -e
 
 ${timestampRedirect}
@@ -191,7 +193,8 @@ echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes
 chmod +x ${INSTALL_SCRIPT_REMOTE_PATH}
 echo "Running install script..."
 source ${INSTALL_SCRIPT_REMOTE_PATH}
-`;
+`,
+  };
 }
 
 const DEFAULT_REMOTE: RemoteHost = "local";

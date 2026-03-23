@@ -443,14 +443,15 @@ export async function hatchAws(
     console.log("\u{1F50D} Finding latest Debian AMI...");
     const amiId = await getLatestDebianAmi(region);
 
-    const startupScript = await buildStartupScript(
-      species,
-      sshUser,
-      providerApiKeys,
-      instanceName,
-      "aws",
-      configValues,
-    );
+    const { script: startupScript, laptopBootstrapSecret } =
+      await buildStartupScript(
+        species,
+        sshUser,
+        providerApiKeys,
+        instanceName,
+        "aws",
+        configValues,
+      );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -539,7 +540,11 @@ export async function hatchAws(
         }
 
         try {
-          await leaseGuardianToken(runtimeUrl, instanceName);
+          await leaseGuardianToken(
+            runtimeUrl,
+            instanceName,
+            laptopBootstrapSecret,
+          );
         } catch (err) {
           console.warn(
             `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,

@@ -58,7 +58,10 @@ function getBootstrapSecretPath(assistantId: string): string {
  */
 export function loadBootstrapSecret(assistantId: string): string | null {
   try {
-    const raw = readFileSync(getBootstrapSecretPath(assistantId), "utf-8").trim();
+    const raw = readFileSync(
+      getBootstrapSecretPath(assistantId),
+      "utf-8",
+    ).trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -69,10 +72,7 @@ export function loadBootstrapSecret(assistantId: string): string | null {
  * Persist a bootstrap secret for the given assistant so that the desktop
  * client and upgrade/rollback paths can retrieve it later.
  */
-export function saveBootstrapSecret(
-  assistantId: string,
-  secret: string,
-): void {
+export function saveBootstrapSecret(assistantId: string, secret: string): void {
   const path = getBootstrapSecretPath(assistantId);
   const dir = dirname(path);
   if (!existsSync(dir)) {
@@ -206,12 +206,15 @@ export function saveGuardianToken(
 export async function leaseGuardianToken(
   gatewayUrl: string,
   assistantId: string,
+  bootstrapSecret?: string,
 ): Promise<GuardianTokenData> {
   const deviceId = computeDeviceId();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const bootstrapSecret = loadBootstrapSecret(assistantId);
-  if (bootstrapSecret) {
-    headers["x-bootstrap-secret"] = bootstrapSecret;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const secret = bootstrapSecret ?? loadBootstrapSecret(assistantId);
+  if (secret) {
+    headers["x-bootstrap-secret"] = secret;
   }
   const response = await fetch(`${gatewayUrl}/v1/guardian/init`, {
     method: "POST",
