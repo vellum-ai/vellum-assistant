@@ -271,11 +271,30 @@ async function ensureDockerInstalled(): Promise<void> {
     console.log("🚀 Docker daemon not running. Starting Colima...");
     try {
       await exec("colima", ["start"]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Failed to start Colima. Please run 'colima start' manually.\n${message}`,
+    } catch {
+      // Colima may fail if a previous VM instance is in a corrupt state.
+      // Attempt to delete the stale instance and retry once.
+      console.log(
+        "⚠️  Colima start failed — attempting to reset stale VM state...",
       );
+      try {
+        await exec("colima", ["stop", "--force"]).catch(() => {});
+        await exec("colima", ["delete", "--force"]);
+      } catch {
+        // If delete also fails, fall through to the retry which will
+        // produce a clear error message.
+      }
+
+      try {
+        console.log("🔄 Retrying colima start...");
+        await exec("colima", ["start"]);
+      } catch (retryErr) {
+        const message =
+          retryErr instanceof Error ? retryErr.message : String(retryErr);
+        throw new Error(
+          `Failed to start Colima after resetting stale VM state. Please run 'colima start' manually.\n${message}`,
+        );
+      }
     }
   }
 }
