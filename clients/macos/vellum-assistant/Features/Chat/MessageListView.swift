@@ -623,7 +623,19 @@ struct MessageListView: View {
     @ViewBuilder
     private var conversationTailAvatar: some View {
         if shouldShowConversationTailAvatar {
-            if let body = appearance.characterBodyShape,
+            if appearance.customAvatarImage != nil {
+                HStack {
+                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                        .modifier(AvatarGlowModifier(isActive: isSending))
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                .frame(maxWidth: .infinity)
+                .offset(y: avatarDisplayY)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            } else if let body = appearance.characterBodyShape,
                let eyes = appearance.characterEyeStyle,
                let color = appearance.characterColor {
                 AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
