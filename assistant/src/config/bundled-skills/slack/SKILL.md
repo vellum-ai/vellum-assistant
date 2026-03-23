@@ -76,4 +76,4 @@ For setting up recurring digests, load the `slack-digest-setup` skill which cove
 
 ## Connection
 
-Before using any Slack tool, verify that Slack is connected. If not connected, guide the user through the Slack setup flow described in the messaging skill.
+Before using any Slack tool, verify that Slack is connected. If not connected, load the **slack-app-setup** skill (`skill_load` with `skill: "slack-app-setup"`) and follow its step-by-step guided flow. Do NOT improvise setup instructions — the `slack-app-setup` skill is the single source of truth for Slack connection setup. Slack uses Socket Mode (not OAuth) and does not require redirect URLs or any OAuth flow.
