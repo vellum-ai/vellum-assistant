@@ -1193,7 +1193,15 @@ struct MessageListView: View {
                 guard case .accept(let accepted) = decision else { return }
                 recordScrollLoopEvent(.tailAnchorPreferenceChange)
                 scrollTracking.lastTailAnchorY = accepted
-                updateAvatarFollower(anchorY: accepted)
+                // Defer to next run loop to prevent synchronous layout re-entry
+                // on macOS. This preference fires during placeSubviews; calling
+                // withAnimation (inside applyAvatarDisplayY) synchronously causes
+                // _PaddingLayout.sizeThatFits to be re-entered, creating an infinite
+                // layout cycle when avatar properties change concurrently with a
+                // ToolConfirmationBubble in the message list.
+                Task { @MainActor in
+                    updateAvatarFollower(anchorY: accepted)
+                }
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
