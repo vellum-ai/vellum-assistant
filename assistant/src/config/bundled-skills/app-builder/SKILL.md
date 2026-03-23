@@ -632,7 +632,3 @@ When the user wants to triage or bulk-act on items, generate an interactive UI w
 ## External Links
 
 Use `vellum.openLink(url, metadata)` to make items clickable. Construct deep-link URLs when possible. Include `metadata.provider` and `metadata.type` for context.
-
-## Branding
-
-A "Built on Vellum" badge is auto-injected into every page. Do NOT add your own.

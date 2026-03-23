@@ -410,27 +410,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             contentController.addUserScript(insetScript)
         }
 
-        // Inject "Built on Vellum" branding badge at document end.
-        let brandingScript = WKUserScript(
-            source: """
-                (function() {
-                    function injectBranding() {
-                        if (document.getElementById('vellum-branding')) return;
-                        var el = document.createElement('div');
-                        el.id = 'vellum-branding';
-                        el.setAttribute('data-vellum-injected', '1');
-                        el.innerHTML = 'Built on <a onclick="event.preventDefault(); if(window.vellum&&vellum.openLink){vellum.openLink(\\'https://vellum.ai\\',{provider:\\'vellum\\',type:\\'branding\\'})}else{window.open(\\'https://vellum.ai\\',\\'_blank\\')}" href="https://vellum.ai">Vellum</a>';
-                        document.body.appendChild(el);
-                    }
-                    if (document.body) injectBranding();
-                    else document.addEventListener('DOMContentLoaded', injectBranding);
-                })();
-                """,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        contentController.addUserScript(brandingScript)
-
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
