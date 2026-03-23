@@ -45,6 +45,7 @@ const VALID_KINDS = [
   "constraint",
   "event",
   "capability",
+  "journal",
 ] as const;
 
 type MemoryItemKind = (typeof VALID_KINDS)[number];
