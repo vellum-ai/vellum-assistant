@@ -127,7 +127,7 @@ export function discoverLocalCes():
   }
 
   // Fallback: check for source entry point in the monorepo
-  const monorepoRoot = join(import.meta.dir, "..", "..", "..", "..");
+  const monorepoRoot = join(import.meta.dir, "..", "..", "..");
   const sourceEntry = join(
     monorepoRoot,
     "credential-executor",
