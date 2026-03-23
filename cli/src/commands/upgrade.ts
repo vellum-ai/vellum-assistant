@@ -66,7 +66,8 @@ function parseArgs(): UpgradeArgs {
     if (arg === "--help" || arg === "-h") {
       console.log("Usage: vellum upgrade [<name>] [options]");
       console.log("");
-      console.log("Upgrade an assistant to the latest version.");
+      console.log("Upgrade an assistant to a newer version.");
+      console.log("To roll back to a previous version, use `vellum rollback`.");
       console.log("");
       console.log("Arguments:");
       console.log(
@@ -177,6 +178,29 @@ async function upgradeDocker(
 
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
+
+  // Reject downgrades — `vellum upgrade` only handles forward version changes.
+  // Users should use `vellum rollback --version <version>` for downgrades.
+  const currentVersion = entry.serviceGroupVersion;
+  if (currentVersion && versionTag) {
+    const current = parseVersion(currentVersion);
+    const target = parseVersion(versionTag);
+    if (current && target) {
+      const isOlder =
+        target.major < current.major ||
+        (target.major === current.major && target.minor < current.minor) ||
+        (target.major === current.major &&
+          target.minor === current.minor &&
+          target.patch < current.patch);
+      if (isOlder) {
+        const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+    }
+  }
+
   console.log("🔍 Resolving image references...");
   const { imageTags } = await resolveImageRefs(versionTag);
 
@@ -221,63 +245,6 @@ async function upgradeDocker(
     }
   } catch {
     // Best-effort — if we can't get migration state, rollback will skip migration reversal
-  }
-
-  // Detect if this upgrade is actually a downgrade (user picked an older
-  // version via the version picker). Used after readiness succeeds to align
-  // the DB schema with the now-running old daemon.
-  const currentVersion = entry.serviceGroupVersion;
-  const isDowngrade =
-    currentVersion &&
-    versionTag &&
-    (() => {
-      const current = parseVersion(currentVersion);
-      const target = parseVersion(versionTag);
-      if (!current || !target) return false;
-      if (target.major !== current.major) return target.major < current.major;
-      if (target.minor !== current.minor) return target.minor < current.minor;
-      return target.patch < current.patch;
-    })();
-
-  // For downgrades, fetch the target version's migration ceiling from the
-  // releases API. This tells us exactly which DB migration version and
-  // workspace migration the target version expects, enabling a precise
-  // rollback on the CURRENT (newer) daemon before swapping containers.
-  let targetMigrationCeiling: {
-    dbVersion?: number;
-    workspaceMigrationId?: string;
-  } = {};
-  if (isDowngrade) {
-    try {
-      const platformUrl = getPlatformUrl();
-      const releasesResp = await fetch(
-        `${platformUrl}/v1/releases/?stable=true`,
-        { signal: AbortSignal.timeout(10000) },
-      );
-      if (releasesResp.ok) {
-        const releases = (await releasesResp.json()) as Array<{
-          version: string;
-          db_migration_version?: number | null;
-          last_workspace_migration_id?: string;
-        }>;
-        const normalizedTag = versionTag.replace(/^v/, "");
-        const targetRelease = releases.find(
-          (r) => r.version?.replace(/^v/, "") === normalizedTag,
-        );
-        if (
-          targetRelease?.db_migration_version != null ||
-          targetRelease?.last_workspace_migration_id
-        ) {
-          targetMigrationCeiling = {
-            dbVersion: targetRelease.db_migration_version ?? undefined,
-            workspaceMigrationId:
-              targetRelease.last_workspace_migration_id || undefined,
-          };
-        }
-      }
-    } catch {
-      // Best-effort — fall back to rollbackToRegistryCeiling post-swap
-    }
   }
 
   // Persist rollback state to lockfile BEFORE any destructive changes.
@@ -434,32 +401,6 @@ async function upgradeDocker(
     buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
   );
 
-  // If we have the target version's migration ceiling, run a PRECISE
-  // rollback on the CURRENT (newer) daemon before stopping it. The current
-  // daemon has the `down()` code for all migrations it applied, so it can
-  // cleanly revert to the target version's ceiling. This is critical for
-  // multi-version downgrades where the old daemon wouldn't know about
-  // migrations introduced after its release.
-  let preSwapRollbackOk = true;
-  if (
-    isDowngrade &&
-    (targetMigrationCeiling.dbVersion !== undefined ||
-      targetMigrationCeiling.workspaceMigrationId !== undefined)
-  ) {
-    console.log("🔄 Reverting database changes for downgrade...");
-    await broadcastUpgradeEvent(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
-    );
-    preSwapRollbackOk = await rollbackMigrations(
-      entry.runtimeUrl,
-      entry.assistantId,
-      targetMigrationCeiling.dbVersion,
-      targetMigrationCeiling.workspaceMigrationId,
-    );
-  }
-
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
@@ -528,27 +469,6 @@ async function upgradeDocker(
       preUpgradeBackupPath: backupPath ?? undefined,
     };
     saveAssistantEntry(updatedEntry);
-
-    // After a downgrade, fall back to asking the now-running old daemon
-    // to roll back migrations above its own registry ceiling when either:
-    // (a) no release metadata was available for a precise pre-swap rollback, or
-    // (b) the precise pre-swap rollback failed (timeout, daemon crash, etc.).
-    // This is a no-op for multi-version jumps where the old daemon doesn't
-    // know about the newer migrations, but correct for single-step rollbacks.
-    if (
-      isDowngrade &&
-      (!preSwapRollbackOk ||
-        (targetMigrationCeiling.dbVersion === undefined &&
-          targetMigrationCeiling.workspaceMigrationId === undefined))
-    ) {
-      await rollbackMigrations(
-        entry.runtimeUrl,
-        entry.assistantId,
-        undefined,
-        undefined,
-        true,
-      );
-    }
 
     // Notify clients on the new service group that the upgrade succeeded.
     await broadcastUpgradeEvent(
@@ -788,6 +708,29 @@ async function upgradePlatform(
   const workspaceDir = entry.resources
     ? join(entry.resources.instanceDir, ".vellum", "workspace")
     : null;
+
+  // Reject downgrades — `vellum upgrade` only handles forward version changes.
+  // Users should use `vellum rollback --version <version>` for downgrades.
+  const versionTag = version ?? (cliPkg.version ? `v${cliPkg.version}` : null);
+  const currentVersion = entry.serviceGroupVersion;
+  if (currentVersion && versionTag) {
+    const current = parseVersion(currentVersion);
+    const target = parseVersion(versionTag);
+    if (current && target) {
+      const isOlder =
+        target.major < current.major ||
+        (target.major === current.major && target.minor < current.minor) ||
+        (target.major === current.major &&
+          target.minor === current.minor &&
+          target.patch < current.patch);
+      if (isOlder) {
+        const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+    }
+  }
 
   // Record version transition start in workspace git history
   if (workspaceDir) {
