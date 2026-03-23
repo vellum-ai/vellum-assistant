@@ -80,15 +80,6 @@ export const PREFERENCE_KINDS = new Set(["preference", "constraint"]);
 /** Kinds classified as capabilities for the <available_capabilities> section. */
 export const CAPABILITY_KINDS = new Set(["capability"]);
 
-/** Per-item token budget for tier 1 items. */
-const TIER1_PER_ITEM_TOKENS = 150;
-
-/** Per-item token budget for tier 2 items. */
-const TIER2_PER_ITEM_TOKENS = 100;
-
-/** Approximate chars-per-token for truncation (matches token-estimator). */
-const CHARS_PER_TOKEN = 4;
-
 /**
  * Build a two-layer XML injection block from tiered candidates.
  *
@@ -151,38 +142,21 @@ export function buildTwoLayerInjection(params: {
     : Infinity;
 
   // Render tier 1 items first (identity, relevant context, preferences)
-  const identityLines = renderPlainStatements(
-    identityItems,
-    TIER1_PER_ITEM_TOKENS,
-    remainingTokens,
-  );
+  const identityLines = renderPlainStatements(identityItems, remainingTokens);
   remainingTokens -= estimateTextTokens(identityLines.join("\n"));
 
-  const relevantEpisodes = renderEpisodes(
-    tier1Candidates,
-    TIER1_PER_ITEM_TOKENS,
-    remainingTokens,
-  );
+  const relevantEpisodes = renderEpisodes(tier1Candidates, remainingTokens);
   remainingTokens -= estimateTextTokens(relevantEpisodes.join("\n"));
 
-  const preferenceLines = renderPlainStatements(
-    preferences,
-    TIER1_PER_ITEM_TOKENS,
-    remainingTokens,
-  );
+  const preferenceLines = renderPlainStatements(preferences, remainingTokens);
   remainingTokens -= estimateTextTokens(preferenceLines.join("\n"));
 
-  const capabilityLines = renderPlainStatements(
-    capabilities,
-    TIER1_PER_ITEM_TOKENS,
-    remainingTokens,
-  );
+  const capabilityLines = renderPlainStatements(capabilities, remainingTokens);
   remainingTokens -= estimateTextTokens(capabilityLines.join("\n"));
 
   // Tier 2 uses remaining budget
   const possiblyRelevantEpisodes = renderEpisodesWithStaleness(
     tier2Candidates,
-    TIER2_PER_ITEM_TOKENS,
     remainingTokens,
   );
 
@@ -229,15 +203,13 @@ export function buildTwoLayerInjection(params: {
  */
 function renderPlainStatements(
   items: TieredCandidate[],
-  perItemBudgetTokens: number,
   remainingBudget: number,
 ): string[] {
   const lines: string[] = [];
   let used = 0;
   for (const item of items) {
     if (used >= remainingBudget) break;
-    const maxChars = perItemBudgetTokens * CHARS_PER_TOKEN;
-    const text = escapeXmlTags(truncate(item.text, maxChars));
+    const text = escapeXmlTags(item.text);
     const tokens = estimateTextTokens(text);
     if (used + tokens > remainingBudget) break;
     lines.push(text);
@@ -251,15 +223,13 @@ function renderPlainStatements(
  */
 function renderEpisodes(
   items: TieredCandidate[],
-  perItemBudgetTokens: number,
   remainingBudget: number,
 ): string[] {
   const lines: string[] = [];
   let used = 0;
   for (const item of items) {
     if (used >= remainingBudget) break;
-    const maxChars = perItemBudgetTokens * CHARS_PER_TOKEN;
-    const text = escapeXmlTags(truncate(item.text, maxChars));
+    const text = escapeXmlTags(item.text);
     const sourceAttr = buildSourceAttr(item);
     const line = `<episode${sourceAttr}>\n${text}\n</episode>`;
     const tokens = estimateTextTokens(line);
@@ -275,15 +245,13 @@ function renderEpisodes(
  */
 function renderEpisodesWithStaleness(
   items: TieredCandidate[],
-  perItemBudgetTokens: number,
   remainingBudget: number,
 ): string[] {
   const lines: string[] = [];
   let used = 0;
   for (const item of items) {
     if (used >= remainingBudget) break;
-    const maxChars = perItemBudgetTokens * CHARS_PER_TOKEN;
-    const text = escapeXmlTags(truncate(item.text, maxChars));
+    const text = escapeXmlTags(item.text);
     const sourceAttr = buildSourceAttr(item);
     const stalenessAttr =
       item.staleness && item.staleness !== "fresh"
@@ -346,9 +314,4 @@ function formatShortDate(epochMs: number): string {
     return `${month} ${day}`;
   }
   return `${month} ${day} ${date.getFullYear()}`;
-}
-
-function truncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 3)}...`;
 }
