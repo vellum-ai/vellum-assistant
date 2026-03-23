@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { buildAssistantEvent } from "../../../../runtime/assistant-event.js";
@@ -56,15 +56,8 @@ export async function run(
     return { content: `Error copying avatar: ${message}`, isError: true };
   }
 
-  // Remove native character files since custom image takes precedence.
-  const traitsPath = join(avatarDir, "character-traits.json");
-  const asciiPath = join(avatarDir, "character-ascii.txt");
-  try {
-    if (existsSync(traitsPath)) unlinkSync(traitsPath);
-    if (existsSync(asciiPath)) unlinkSync(asciiPath);
-  } catch {
-    // Best-effort cleanup
-  }
+  // Keep character-traits.json and character-ascii.txt so the character
+  // avatar can be restored if the custom image is later removed.
 
   // Notify connected clients so the avatar refreshes immediately.
   assistantEventHub
