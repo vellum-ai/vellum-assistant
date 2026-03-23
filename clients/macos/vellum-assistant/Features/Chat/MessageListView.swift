@@ -520,6 +520,10 @@ struct MessageListView: View {
     }
 
     private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
+        // Circuit breaker: suppress @State mutations when a scroll loop is detected.
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        if scrollLoopGuard.isTripped(conversationId: convIdString) { return }
+
         let y = anchorY + ConversationAvatarFollower.verticalOffset
         // Dead-zone: skip @State update when position hasn't moved meaningfully.
         // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
@@ -547,6 +551,10 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
+        // Circuit breaker: suppress avatar follower updates when a scroll loop is detected.
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        if scrollLoopGuard.isTripped(conversationId: convIdString) { return }
+
         recordScrollLoopEvent(.avatarFollowerUpdate)
         // Compute visibility once and update @State only on boundary crossings.
         let nowVisible = anchorY.isFinite
