@@ -641,7 +641,6 @@ struct ActiveChatViewWrapper: View {
                 get: { viewModel.inputText },
                 set: { viewModel.inputText = $0 }
             ),
-            hasAPIKey: windowState.hasAPIKey,
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,

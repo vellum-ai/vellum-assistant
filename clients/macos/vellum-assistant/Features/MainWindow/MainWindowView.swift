@@ -579,7 +579,6 @@ struct MainWindowView: View {
             if let viewModel = conversationManager.activeViewModel {
                 ErrorToastOverlay(
                     errorManager: viewModel.errorManager,
-                    hasAPIKey: windowState.hasAPIKey,
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         windowState.selection = .panel(.settings)
@@ -689,9 +688,6 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
                 cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
             }
-            .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
-            }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
             }
@@ -699,9 +695,6 @@ struct MainWindowView: View {
                 guard let outcome else { return }
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()
-            }
-            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: isAuthenticated)
             }
             .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
                 if !isEmpty && showDaemonLoading {
@@ -781,7 +774,6 @@ struct MainWindowView: View {
         isAppChatOpen = false
         cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
         startIdentityFileWatcher()
-        refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
@@ -845,13 +837,7 @@ struct MainWindowView: View {
         identityFileWatcher = source
     }
 
-    private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
-        windowState.refreshAPIKeyStatus(isConnected: isConnected, isAuthenticated: isAuthenticated)
-    }
-
     private func handleDaemonConnectionChange(_ connected: Bool) {
-        refreshWindowAPIStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
-
         // Fallback for fresh users with 0 conversations: dismiss skeleton after a
         // short delay once the daemon is connected. Only applies during initial load.
         guard connected, showDaemonLoading else { return }
@@ -1242,7 +1228,6 @@ struct MainWindowView: View {
 /// toast is visible.
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
-    let hasAPIKey: Bool
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void

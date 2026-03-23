@@ -9,7 +9,7 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
 
     /// Constructs an IdentityPanel and verifies the onClose callback clears selection.
     func testIdentityPanelOnCloseCallback() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.selection = .panel(.intelligence)
         let connectionManager = GatewayConnectionManager()
 

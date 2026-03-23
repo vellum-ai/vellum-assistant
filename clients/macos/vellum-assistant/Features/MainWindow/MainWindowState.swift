@@ -63,7 +63,6 @@ public final class MainWindowState: ObservableObject {
     @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
-    @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
@@ -132,8 +131,7 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
-        self.hasAPIKey = hasAPIKey
+    init() {
         self.layoutConfig = LayoutConfigStore.load()
         self.navigationHistoryCancellable = navigationHistory.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -229,10 +227,6 @@ public final class MainWindowState: ObservableObject {
     func showMemory(id: String) {
         pendingMemoryId = id
         showPanel(.intelligence)
-    }
-
-    func refreshAPIKeyStatus(isConnected: Bool, isAuthenticated: Bool) {
-        hasAPIKey = APIKeyManager.hasAnyKey() || isConnected || isAuthenticated
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {

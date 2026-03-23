@@ -8,7 +8,6 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Ch
 struct ChatView: View {
     let messages: [ChatMessage]
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isThinking: Bool
     let isCompacting: Bool
     let isSending: Bool
@@ -178,7 +177,6 @@ struct ChatView: View {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             isRecording: isRecording,
                             suggestion: suggestion,
@@ -199,7 +197,6 @@ struct ChatView: View {
                     } else {
                         ChatEmptyStateView(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             isRecording: isRecording,
                             suggestion: suggestion,
@@ -296,7 +293,6 @@ struct ChatView: View {
 
                         ComposerSection(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
                             onAllowPendingConfirmation: {
