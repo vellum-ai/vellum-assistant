@@ -2,10 +2,10 @@ import type { Command } from "commander";
 
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import {
-  deleteSecureKeyAsync,
-  getSecureKeyAsync,
-  setSecureKeyAsync,
-} from "../../security/secure-keys.js";
+  deleteSecureKeyViaDaemon,
+  getSecureKeyViaDaemon,
+  setSecureKeyViaDaemon,
+} from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ Examples:
     .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = await getSecureKeyAsync(provider);
+        const value = await getSecureKeyViaDaemon(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {
@@ -99,7 +99,7 @@ Examples:
         process.exit(1);
       }
 
-      if (await setSecureKeyAsync(provider, key)) {
+      if (await setSecureKeyViaDaemon("api_key", provider, key)) {
         log.info(`Stored API key for "${provider}"`);
       } else {
         log.error(`Failed to store API key for "${provider}"`);
@@ -130,7 +130,7 @@ Examples:
         process.exit(1);
       }
 
-      const result = await deleteSecureKeyAsync(provider);
+      const result = await deleteSecureKeyViaDaemon("api_key", provider);
       if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
       } else if (result === "error") {
