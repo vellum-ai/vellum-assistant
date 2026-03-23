@@ -614,7 +614,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("LLM request log persistence", () => {
-    test("record request log prefers the actual provider from failover", async () => {
+    test("record request log captures the actual provider name", async () => {
       const events: ServerMessage[] = [];
       const rawRequest = {
         model: "gpt-4.1",
@@ -768,7 +768,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("usage accounting", () => {
-    test("records the actual provider for failover-served usage", async () => {
+    test("records the actual provider for usage accounting", async () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {

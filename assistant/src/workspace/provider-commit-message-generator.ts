@@ -113,7 +113,7 @@ export class ProviderCommitMessageGenerator {
 
     // ── Fallback check order (canonical) ──────────────────────────────
     // 1. disabled
-    // 2. resolve configured provider via fail-open selection:
+    // 2. resolve configured provider:
     //    - missing_provider_api_key OR provider_not_initialized
     // 3. selected-provider API key preflight (except keyless providers)
     // 4. breaker_open
@@ -130,7 +130,7 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, "disabled");
     }
 
-    // Step 2: Resolve configured provider using fail-open semantics.
+    // Step 2: Resolve configured provider.
     // If nothing is resolvable, differentiate likely missing-key cases from
     // true registry/init failures.
     const resolved = await resolveConfiguredProvider();

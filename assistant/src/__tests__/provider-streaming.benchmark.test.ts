@@ -1,8 +1,8 @@
 /**
  * Provider Streaming Benchmark
  *
- * Measures overhead introduced by the provider adapter layers (retry, failover,
- * stream timeout) on top of a simulated streaming source.
+ * Measures overhead introduced by the provider adapter layers (retry, stream
+ * timeout) on top of a simulated streaming source.
  *
  * Baseline targets:
  * - TTFT overhead < 50ms beyond source latency

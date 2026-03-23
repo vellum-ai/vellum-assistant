@@ -151,7 +151,7 @@ mock.module("../providers/registry.js", () => {
   mockSendMessage = mock(createMockProviderResponse(["Hello"]));
   return {
     listProviders: () => ["anthropic"],
-    getFailoverProvider: () => ({
+    getProvider: () => ({
       name: "anthropic",
       sendMessage: (...args: unknown[]) => mockSendMessage(...args),
     }),
