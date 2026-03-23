@@ -44,6 +44,7 @@ export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
   let guardianInitInFlight = false;
+  const secretsInFlight = new Set<string>();
 
   async function proxyToRuntime(
     req: Request,
@@ -192,6 +193,16 @@ export function createChannelVerificationSessionProxyHandler(
           );
         }
 
+        // In-memory guard: reject if this secret is already being processed
+        // by a concurrent request (prevents double-mint across the await).
+        if (secretsInFlight.has(provided)) {
+          log.warn("Guardian init rejected — bootstrap secret already used");
+          return Response.json(
+            { error: "Bootstrap secret already used" },
+            { status: 403 },
+          );
+        }
+
         // Load the set of already-consumed secrets from disk.
         let consumed: string[] = [];
         try {
@@ -233,6 +244,9 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       guardianInitInFlight = true;
+      if (provided) {
+        secretsInFlight.add(provided);
+      }
       try {
         const response = await proxyToRuntime(
           req,
@@ -294,6 +308,10 @@ export function createChannelVerificationSessionProxyHandler(
       } catch (err) {
         guardianInitInFlight = false;
         throw err;
+      } finally {
+        if (provided) {
+          secretsInFlight.delete(provided);
+        }
       }
     },
 

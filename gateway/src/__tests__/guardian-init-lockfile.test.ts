@@ -445,6 +445,43 @@ describe("guardian/init multi-secret consumption tracking", () => {
     }
   });
 
+  test("concurrent requests with same secret rejected by in-flight guard", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
+    let resolveProxy: (() => void) | undefined;
+    fetchMock = mock(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProxy = resolve;
+      });
+      return new Response(
+        JSON.stringify({ accessToken: "jwt", refreshToken: "rt" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    try {
+      const handler =
+        createChannelVerificationSessionProxyHandler(makeConfig());
+
+      // GIVEN a first request with SECRET_A is in flight
+      const p1 = handler.handleGuardianInit(makeInitRequest(SECRET_A));
+
+      // WHEN a second request with the same SECRET_A arrives concurrently
+      const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+
+      // THEN the second request is rejected
+      expect(res2.status).toBe(403);
+      const body = await res2.json();
+      expect(body.error).toBe("Bootstrap secret already used");
+
+      // AND the first request completes successfully once resolved
+      resolveProxy!();
+      const res1 = await p1;
+      expect(res1.status).toBe(200);
+    } finally {
+      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    }
+  });
+
   test("consumed secret not recorded when upstream fails", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
     fetchMock = mock(async () => {
