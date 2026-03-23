@@ -1082,8 +1082,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Called on conversation close, archive, and switch to prevent unbounded
     /// growth of cached `AttributedString` / segment data across conversations.
     private static func clearRenderCaches() {
-        ChatBubble.segmentCache.removeAll()
-        ChatBubble.estimatedCacheBytes = 0
+        ChatBubble.segmentCache.removeAllObjects()
         ChatBubble.lastStreamingSegments = nil
         MarkdownSegmentView.clearAttributedStringCache()
     }
