@@ -142,7 +142,7 @@ struct InstalledSkillsView: View {
                 if !skill.description.isEmpty {
                     Text(skill.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(2)
                 }
             }
@@ -200,16 +200,16 @@ struct InstalledSkillsView: View {
     private var noMatchesState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.search, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Matching Skills")
                 .font(VFont.title)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Try adjusting your search or filters.")
                 .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
