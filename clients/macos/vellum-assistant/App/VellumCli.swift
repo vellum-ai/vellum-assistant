@@ -405,14 +405,23 @@ final class VellumCli {
     }
 
     /// Roll back a specific Docker assistant to its previous version via the CLI.
-    func rollback(name: String) async throws {
+    ///
+    /// - Parameters:
+    ///   - name: The assistant name to roll back.
+    ///   - version: Optional target version to roll back to. When `nil`, rolls back to the previous version.
+    func rollback(name: String, version: String? = nil) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping rollback (dev mode)")
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running rollback via CLI for '\(name, privacy: .public)'")
-        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["rollback", name])
+        let versionSuffix = version.map { " to \($0)" } ?? ""
+        log.info("Running rollback via CLI for '\(name, privacy: .public)'\(versionSuffix, privacy: .public)")
+        var arguments = ["rollback", name]
+        if let version {
+            arguments += ["--version", version]
+        }
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
             log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
