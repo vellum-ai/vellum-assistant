@@ -351,21 +351,28 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
+    // Snapshot persona inputs at run start so later tool turns can't pick up
+    // a different actor's context if a concurrent request mutates the fields.
+    const snapshotTrustContext = this.trustContext;
+    const snapshotChannelCapabilities = this.channelCapabilities;
+
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
-      const persona = resolvePersonaContext(
-        this.trustContext,
-        this.channelCapabilities,
-      );
       const resolved = {
         systemPrompt: hasSystemPromptOverride
           ? systemPrompt
-          : buildSystemPrompt({
-              hasNoClient: this.hasNoClient,
-              userPersona: persona.userPersona,
-              channelPersona: persona.channelPersona,
-            }),
+          : (() => {
+              const persona = resolvePersonaContext(
+                snapshotTrustContext,
+                snapshotChannelCapabilities,
+              );
+              return buildSystemPrompt({
+                hasNoClient: this.hasNoClient,
+                userPersona: persona.userPersona,
+                channelPersona: persona.channelPersona,
+              });
+            })(),
         maxTokens: configuredMaxTokens,
       };
       return resolved;
