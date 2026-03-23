@@ -45,6 +45,7 @@ public struct InlineChatErrorAlert: View {
         case .conversationAborted: return .circleStop
         case .processingFailed, .regenerateFailed: return .refreshCw
         case .authenticationRequired: return .lock
+        case .providerNotConfigured: return .keyRound
         case .unknown: return .circleAlert
         }
     }
@@ -62,6 +63,7 @@ public struct InlineChatErrorAlert: View {
         case .processingFailed: return "Processing Failed"
         case .regenerateFailed: return "Regeneration Failed"
         case .authenticationRequired: return "Authentication Required"
+        case .providerNotConfigured: return "API Key Required"
         case .unknown: return "Error"
         }
     }
