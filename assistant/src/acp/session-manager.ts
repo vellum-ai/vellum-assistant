@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
@@ -210,6 +211,20 @@ export class AcpSessionManager {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
+    }
+    // Auto-deny any pending ACP permission requests so they don't linger
+    // until the 5-minute timeout fires.
+    const pending = pendingInteractions.getByConversation(
+      entry.parentConversationId,
+    );
+    for (const interaction of pending) {
+      if (
+        interaction.kind === "acp_confirmation" &&
+        interaction.directResolve
+      ) {
+        pendingInteractions.resolve(interaction.requestId);
+        interaction.directResolve("deny");
+      }
     }
     entry.process.kill();
     this.sessions.delete(acpSessionId);
