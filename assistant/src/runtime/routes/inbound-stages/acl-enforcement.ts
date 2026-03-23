@@ -24,8 +24,10 @@ import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
 } from "../../../memory/invite-store.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/copy-composer.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
+import { truncate } from "../../../util/truncate.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
 import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
@@ -362,7 +364,10 @@ export async function enforceIngressAcl(
                 actorExternalId: canonicalSenderId ?? rawSenderId,
                 actorDisplayName,
                 actorUsername,
-                messagePreview: trimmedContent,
+                messagePreview: truncate(
+                  trimmedContent,
+                  MESSAGE_PREVIEW_MAX_LENGTH,
+                ),
               });
             } catch (err) {
               log.error(
@@ -429,7 +434,10 @@ export async function enforceIngressAcl(
             actorExternalId: canonicalSenderId ?? rawSenderId,
             actorDisplayName,
             actorUsername,
-            messagePreview: trimmedContent,
+            messagePreview: truncate(
+              trimmedContent,
+              MESSAGE_PREVIEW_MAX_LENGTH,
+            ),
           });
           guardianNotified = accessResult.notified;
         } catch (err) {
@@ -622,7 +630,10 @@ export async function enforceIngressAcl(
                   previousMemberStatus: channelStatusToMemberStatus(
                     resolvedMember.channel.status,
                   ),
-                  messagePreview: trimmedContent,
+                  messagePreview: truncate(
+                    trimmedContent,
+                    MESSAGE_PREVIEW_MAX_LENGTH,
+                  ),
                 });
               } catch (err) {
                 log.error(
@@ -689,7 +700,10 @@ export async function enforceIngressAcl(
                 previousMemberStatus: channelStatusToMemberStatus(
                   resolvedMember.channel.status,
                 ),
-                messagePreview: trimmedContent,
+                messagePreview: truncate(
+                  trimmedContent,
+                  MESSAGE_PREVIEW_MAX_LENGTH,
+                ),
               });
               guardianNotified = accessResult.notified;
             } catch (err) {

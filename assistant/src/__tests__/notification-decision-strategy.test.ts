@@ -18,6 +18,7 @@ import {
   hasInviteFlowDirective,
   normalizeForDirectiveMatching,
   sanitizeIdentityField,
+  sanitizeMessagePreview,
 } from "../notifications/copy-composer.js";
 import {
   enforceGuardianCallConversationAffinity,
@@ -593,6 +594,31 @@ describe("notification decision strategy", () => {
       expect(sanitizeIdentityField("O'Brien")).toBe("O'Brien");
       expect(sanitizeIdentityField("user@domain.com")).toBe("user@domain.com");
       expect(sanitizeIdentityField('"quoted"')).toBe('"quoted"');
+    });
+  });
+
+  describe("access-request message preview sanitization", () => {
+    test("strips control characters from message previews", () => {
+      expect(sanitizeMessagePreview("Hello\nWorld")).toBe("Hello World");
+      expect(sanitizeMessagePreview("Test\r\nMessage")).toBe("Test Message");
+    });
+
+    test("clamps to 200 characters (not 120)", () => {
+      const longMessage = "A".repeat(250);
+      const result = sanitizeMessagePreview(longMessage);
+      expect(result.length).toBeLessThanOrEqual(201); // 200 + '…'
+      expect(result).toEndWith("…");
+
+      // Verify it allows messages longer than the identity field limit (120)
+      const midMessage = "B".repeat(150);
+      const midResult = sanitizeMessagePreview(midMessage);
+      expect(midResult).toBe(midMessage); // no truncation at 150 chars
+    });
+
+    test("preserves normal messages", () => {
+      expect(sanitizeMessagePreview("Hello, can you help me?")).toBe(
+        "Hello, can you help me?",
+      );
     });
   });
 
