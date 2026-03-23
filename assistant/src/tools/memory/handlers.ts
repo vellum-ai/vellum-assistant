@@ -9,7 +9,6 @@ import { buildMemoryRecall } from "../../memory/retriever.js";
 import { memoryItems } from "../../memory/schema.js";
 import type { ScopePolicyOverride } from "../../memory/search/types.js";
 import { getLogger } from "../../util/logger.js";
-import { truncate } from "../../util/truncate.js";
 import type { ToolExecutionResult } from "../types.js";
 
 const log = getLogger("memory-tools");
@@ -60,14 +59,14 @@ export async function handleMemorySave(
 
   const subject =
     typeof args.subject === "string" && args.subject.trim().length > 0
-      ? truncate(args.subject.trim(), 80, "")
+      ? args.subject.trim()
       : inferSubjectFromStatement(statement.trim());
 
   try {
     const db = getDb();
     const id = uuid();
     const now = Date.now();
-    const trimmedStatement = truncate(statement.trim(), 500, "");
+    const trimmedStatement = statement.trim();
 
     const fingerprint = computeMemoryFingerprint(
       scopeId,
@@ -187,7 +186,7 @@ export async function handleMemoryUpdate(
     }
 
     const now = Date.now();
-    const trimmedStatement = truncate(statement.trim(), 500, "");
+    const trimmedStatement = statement.trim();
 
     const fingerprint = computeMemoryFingerprint(
       scopeId,
@@ -416,7 +415,7 @@ export async function handleMemoryDelete(
 function inferSubjectFromStatement(statement: string): string {
   // Take first few words as a subject label
   const words = statement.split(/\s+/).slice(0, 6).join(" ");
-  return truncate(words, 80, "");
+  return words;
 }
 
 /**
