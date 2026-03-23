@@ -48,8 +48,9 @@ struct AnimatedImageView: View {
     // MARK: - Cached workspace directory
 
     /// Cached workspace directory to avoid synchronous lockfile reads per image.
-    /// Set once on first resolve, cleared on assistant disconnect if needed.
+    /// Invalidated when the connected assistant ID changes.
     @MainActor private static var cachedWorkspaceDir: String?
+    @MainActor private static var cachedAssistantId: String?
     @MainActor private static var workspaceDirResolved = false
 
     /// Maximum display dimension in points (matches text bubble maxWidth).
@@ -116,8 +117,11 @@ struct AnimatedImageView: View {
 
         // Relative workspace paths — resolve to absolute to avoid cross-assistant collisions.
         if !urlString.contains("://") {
-            if !Self.workspaceDirResolved {
-                if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            let currentAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            if !Self.workspaceDirResolved || currentAssistantId != Self.cachedAssistantId {
+                Self.cachedAssistantId = currentAssistantId
+                Self.cachedWorkspaceDir = nil
+                if let assistantId = currentAssistantId,
                    let assistant = LockfileAssistant.loadByName(assistantId),
                    let resolved = assistant.workspaceDir {
                     Self.cachedWorkspaceDir = resolved
@@ -143,27 +147,29 @@ struct AnimatedImageView: View {
         // Local file paths (absolute or workspace-relative, already resolved).
         // Move file I/O (mtime check + data read) off main thread via detached task.
         if let fileURL = localFileURL {
-            let (effectiveKey, fileData) = await Task.detached(priority: .userInitiated) { () -> (NSString, Data?) in
-                // Incorporate mtime so overwritten files bust the cache.
-                let effectiveKey: NSString
+            // Phase 1: resolve mtime-aware cache key off main thread.
+            let effectiveKey = await Task.detached(priority: .userInitiated) { () -> NSString in
                 if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheKey as String),
                    let mtime = attrs[.modificationDate] as? Date {
-                    effectiveKey = "\(cacheKey)?\(mtime.timeIntervalSince1970)" as NSString
-                } else {
-                    effectiveKey = cacheKey
+                    return "\(cacheKey)?\(mtime.timeIntervalSince1970)" as NSString
                 }
-                let data = try? Data(contentsOf: fileURL)
-                return (effectiveKey, data)
+                return cacheKey
             }.value
             guard !Task.isCancelled else { return }
 
-            // Check in-memory cache (on main — NSCache lookup is fast).
+            // Check in-memory cache before reading file bytes.
             if let entry = Self.cache.object(forKey: effectiveKey) {
                 self.loadedImage = entry.image
                 self.imageData = entry.gifData
                 self.isGIF = entry.gifData != nil
                 return
             }
+
+            // Phase 2: cache miss — read file data off main thread.
+            let fileData = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: fileURL)
+            }.value
+            guard !Task.isCancelled else { return }
 
             imageData = fileData
             loadedImage = fileData.flatMap { NSImage(data: $0) }
