@@ -133,6 +133,18 @@ private enum ImageActions {
         NSWorkspace.shared.open(fileURL)
     }
 
+    /// Maps a file extension to the corresponding `NSBitmapImageRep.FileType`
+    /// so that probe files are encoded in the correct format for their extension.
+    private static func bitmapFileType(for extension: String) -> NSBitmapImageRep.FileType {
+        switch `extension`.lowercased() {
+        case "jpg", "jpeg": return .jpeg
+        case "gif": return .gif
+        case "bmp": return .bmp
+        case "tiff", "tif": return .tiff
+        default: return .png
+        }
+    }
+
     /// Cache of sharing services by file extension. Services depend on file type,
     /// not content, so one discovery per extension per app session is sufficient.
     private static var sharingServicesCache: [String: [NSSharingService]] = [:]
@@ -159,7 +171,7 @@ private enum ImageActions {
             }
             if let tiff = tiny.tiffRepresentation,
                let rep = NSBitmapImageRep(data: tiff),
-               let data = rep.representation(using: .png, properties: [:]) {
+               let data = rep.representation(using: bitmapFileType(for: key), properties: [:]) {
                 try? data.write(to: probeURL)
             } else {
                 // Fallback: create the file with empty data so the path exists.
