@@ -428,24 +428,18 @@ export async function performDockerRollback(
   }
 
   // Record rollback start in workspace git history
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "rollback",
-        phase: "starting",
-        from: currentVersion ?? "unknown",
-        to: targetVersion,
-        topology: "docker",
-        assistantId: entry.assistantId,
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "starting",
+      from: currentVersion ?? "unknown",
+      to: targetVersion,
+      topology: "docker",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   console.log(
     `🔄 Rolling back Docker assistant '${instanceName}' to ${targetVersion}...\n`,
@@ -656,25 +650,19 @@ export async function performDockerRollback(
     );
 
     // Record successful rollback in workspace git history
-    try {
-      await commitWorkspaceViaGateway(
-        entry.runtimeUrl,
-        entry.assistantId,
-        buildUpgradeCommitMessage({
-          action: "rollback",
-          phase: "complete",
-          from: currentVersion ?? "unknown",
-          to: targetVersion,
-          topology: "docker",
-          assistantId: entry.assistantId,
-          result: "success",
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "rollback",
+        phase: "complete",
+        from: currentVersion ?? "unknown",
+        to: targetVersion,
+        topology: "docker",
+        assistantId: entry.assistantId,
+        result: "success",
+      }),
+    );
 
     console.log(
       `\n✅ Docker assistant '${instanceName}' rolled back to ${targetVersion}.`,
