@@ -196,6 +196,35 @@ export async function broadcastUpgradeEvent(
 }
 
 /**
+ * Best-effort workspace git commit via the gateway's workspace-commit endpoint.
+ * Uses guardian token auth. Failures are silently swallowed — this should never
+ * block upgrade or rollback flows.
+ */
+export async function commitWorkspaceViaGateway(
+  gatewayUrl: string,
+  assistantId: string,
+  message: string,
+): Promise<void> {
+  try {
+    const token = loadGuardianToken(assistantId);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token?.accessToken) {
+      headers["Authorization"] = `Bearer ${token.accessToken}`;
+    }
+    await fetch(`${gatewayUrl}/v1/admin/workspace-commit`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Best-effort — gateway/daemon may already be shutting down or not yet ready
+  }
+}
+
+/**
  * Roll back DB and workspace migrations to a target state via the gateway.
  * Best-effort — failures are logged but never block the rollback flow.
  */
