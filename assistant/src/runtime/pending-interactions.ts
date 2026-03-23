@@ -11,6 +11,7 @@
  */
 
 import type { Conversation } from "../daemon/conversation.js";
+import type { UserDecision } from "../permissions/types.js";
 
 export interface ConfirmationDetails {
   toolName: string;
@@ -25,13 +26,29 @@ export interface ConfirmationDetails {
   scopeOptions: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
   temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
+  /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). */
+  acpToolKind?: string;
+  /** ACP permission options from the agent. */
+  acpOptions?: Array<{
+    optionId: string;
+    name: string;
+    kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+  }>;
 }
 
 export interface PendingInteraction {
-  conversation: Conversation;
+  conversation: Conversation | null;
   conversationId: string;
-  kind: "confirmation" | "secret" | "host_bash" | "host_file" | "host_cu";
+  kind:
+    | "confirmation"
+    | "secret"
+    | "host_bash"
+    | "host_file"
+    | "host_cu"
+    | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
+  /** For ACP permissions: resolves directly without a Conversation object. */
+  directResolve?: (decision: UserDecision) => void;
 }
 
 const pending = new Map<string, PendingInteraction>();
@@ -96,7 +113,8 @@ export function removeByConversation(conversation: Conversation): void {
       interaction.conversation === conversation &&
       interaction.kind !== "host_bash" &&
       interaction.kind !== "host_file" &&
-      interaction.kind !== "host_cu"
+      interaction.kind !== "host_cu" &&
+      interaction.kind !== "acp_confirmation"
     ) {
       pending.delete(requestId);
     }

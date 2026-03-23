@@ -129,7 +129,13 @@ export async function handleConfirm(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.conversation.handleConfirmationResponse(
+  // ACP permissions: resolve directly without a Conversation object.
+  if (interaction.directResolve) {
+    interaction.directResolve(decision as UserDecision);
+    return Response.json({ accepted: true });
+  }
+
+  interaction.conversation!.handleConfirmationResponse(
     requestId,
     decision as UserDecision,
     selectedPattern,
@@ -187,7 +193,7 @@ export async function handleSecret(
     );
   }
 
-  interaction.conversation.handleSecretResponse(
+  interaction.conversation!.handleSecretResponse(
     requestId,
     value,
     delivery as "store" | "transient_send" | undefined,
@@ -355,7 +361,9 @@ export function handleListPendingInteractions(
     resolvedConversationId,
   );
 
-  const confirmation = interactions.find((i) => i.kind === "confirmation");
+  const confirmation = interactions.find(
+    (i) => i.kind === "confirmation" || i.kind === "acp_confirmation",
+  );
   const secret = interactions.find((i) => i.kind === "secret");
 
   return Response.json({
@@ -377,6 +385,8 @@ export function handleListPendingInteractions(
             confirmation.confirmationDetails?.persistentDecisionsAllowed,
           temporaryOptionsAvailable:
             confirmation.confirmationDetails?.temporaryOptionsAvailable,
+          acpToolKind: confirmation.confirmationDetails?.acpToolKind,
+          acpOptions: confirmation.confirmationDetails?.acpOptions,
         }
       : null,
     pendingSecret: secret

@@ -339,7 +339,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "acp/cancel", scopes: ["chat.write"] },
   { endpoint: "acp/close", scopes: ["chat.write"] },
   { endpoint: "acp", scopes: ["chat.read"] },
-  { endpoint: "acp/permission", scopes: ["approval.write"] },
 
   // Model config
   { endpoint: "model:GET", scopes: ["settings.read"] },

@@ -55,7 +55,7 @@ export async function handleHostFileResult(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.conversation.resolveHostFile(requestId, {
+  interaction.conversation!.resolveHostFile(requestId, {
     content: content ?? "",
     isError: isError ?? false,
   });

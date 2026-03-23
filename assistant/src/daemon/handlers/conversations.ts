@@ -59,41 +59,49 @@ export function makeEventSender(params: {
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: event.toolName,
-          input: event.input,
-          riskLevel: event.riskLevel,
-          executionTarget: event.executionTarget,
-          allowlistOptions: event.allowlistOptions,
-          scopeOptions: event.scopeOptions,
-          persistentDecisionsAllowed: event.persistentDecisionsAllowed,
-          temporaryOptionsAvailable: event.temporaryOptionsAvailable,
-        },
-      });
+      // ACP permission requests are handled by client-handler.ts — skip
+      // the normal registration and guardian request creation for them.
+      // The ACP handler registers its own entry with directResolve after
+      // this callback returns.
+      const isAcpPermission = "acpToolKind" in event && !!event.acpToolKind;
 
-      try {
-        const trustContext = conversation.trustContext;
-        createCanonicalGuardianRequest({
-          id: event.requestId,
-          kind: "tool_approval",
-          sourceType: "desktop",
-          sourceChannel,
+      if (!isAcpPermission) {
+        pendingInteractions.register(event.requestId, {
+          conversation,
           conversationId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: event.toolName,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
+          kind: "confirmation",
+          confirmationDetails: {
+            toolName: event.toolName,
+            input: event.input,
+            riskLevel: event.riskLevel,
+            executionTarget: event.executionTarget,
+            allowlistOptions: event.allowlistOptions,
+            scopeOptions: event.scopeOptions,
+            persistentDecisionsAllowed: event.persistentDecisionsAllowed,
+            temporaryOptionsAvailable: event.temporaryOptionsAvailable,
+          },
         });
-      } catch (err) {
-        log.debug(
-          { err, requestId: event.requestId, conversationId },
-          "Failed to create canonical request from local confirmation event",
-        );
+
+        try {
+          const trustContext = conversation.trustContext;
+          createCanonicalGuardianRequest({
+            id: event.requestId,
+            kind: "tool_approval",
+            sourceType: "desktop",
+            sourceChannel,
+            conversationId,
+            guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
+            toolName: event.toolName,
+            status: "pending",
+            requestCode: generateCanonicalRequestCode(),
+            expiresAt: Date.now() + 5 * 60 * 1000,
+          });
+        } catch (err) {
+          log.debug(
+            { err, requestId: event.requestId, conversationId },
+            "Failed to create canonical request from local confirmation event",
+          );
+        }
       }
     } else if (event.type === "secret_request") {
       pendingInteractions.register(event.requestId, {

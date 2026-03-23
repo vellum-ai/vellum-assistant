@@ -63,7 +63,7 @@ export function handleConfirmationSignal(): void {
       return;
     }
 
-    interaction.conversation.handleConfirmationResponse(
+    interaction.conversation!.handleConfirmationResponse(
       requestId,
       decision,
       undefined,

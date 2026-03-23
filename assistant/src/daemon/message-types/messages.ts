@@ -156,6 +156,14 @@ export interface ConfirmationRequest {
   temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
   /** The tool_use block ID for client-side correlation with specific tool calls. */
   toolUseId?: string;
+  /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). Present only for ACP permission requests. */
+  acpToolKind?: string;
+  /** ACP permission options from the agent. Present only for ACP permission requests. Clients should use these to render the correct buttons. */
+  acpOptions?: Array<{
+    optionId: string;
+    name: string;
+    kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+  }>;
 }
 
 export interface SecretRequest {

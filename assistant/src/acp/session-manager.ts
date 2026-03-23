@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
-import { resolvePermission, VellumAcpClientHandler } from "./client-handler.js";
+import { VellumAcpClientHandler } from "./client-handler.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
@@ -17,7 +17,6 @@ interface SessionEntry {
   process: AcpAgentProcess;
   state: AcpSessionState;
   clientHandler: VellumAcpClientHandler;
-  pendingPermissions: Map<string, { resolve: (optionId: string) => void }>;
   sendToVellum: (msg: ServerMessage) => void;
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
@@ -75,15 +74,9 @@ export class AcpSessionManager {
       "ACP spawn requested",
     );
 
-    const pendingPermissions = new Map<
-      string,
-      { resolve: (optionId: string) => void }
-    >();
-
     const clientHandler = new VellumAcpClientHandler(
       acpSessionId,
       sendToVellum,
-      pendingPermissions,
     );
 
     const agentProcess = new AcpAgentProcess(
@@ -106,7 +99,6 @@ export class AcpSessionManager {
       process: agentProcess,
       state,
       clientHandler,
-      pendingPermissions,
       sendToVellum,
       currentPrompt: null,
       parentConversationId,
@@ -245,19 +237,6 @@ export class AcpSessionManager {
       return entry.state;
     }
     return Array.from(this.sessions.values()).map((e) => e.state);
-  }
-
-  /**
-   * Resolves a pending permission request in any session that holds it.
-   */
-  resolvePermission(requestId: string, optionId: string): void {
-    for (const entry of this.sessions.values()) {
-      if (entry.pendingPermissions.has(requestId)) {
-        resolvePermission(entry.pendingPermissions, requestId, optionId);
-        return;
-      }
-    }
-    log.warn({ requestId }, "No pending permission found for request ID");
   }
 
   /**

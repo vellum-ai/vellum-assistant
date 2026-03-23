@@ -25,20 +25,6 @@ export interface AcpSessionUpdate {
   toolStatus?: string;
 }
 
-export interface AcpPermissionRequest {
-  type: "acp_permission_request";
-  acpSessionId: string;
-  requestId: string;
-  toolTitle: string;
-  toolKind: string;
-  rawInput?: unknown;
-  options: Array<{
-    optionId: string;
-    name: string;
-    kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
-  }>;
-}
-
 export interface AcpSessionCompleted {
   type: "acp_session_completed";
   acpSessionId: string;
@@ -61,6 +47,5 @@ export interface AcpSessionError {
 export type _AcpServerMessages =
   | AcpSessionSpawned
   | AcpSessionUpdate
-  | AcpPermissionRequest
   | AcpSessionCompleted
   | AcpSessionError;

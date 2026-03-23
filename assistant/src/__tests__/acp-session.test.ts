@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  resolvePermission,
-  VellumAcpClientHandler,
-} from "../acp/client-handler.js";
+import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------
 // VellumAcpClientHandler tests
@@ -14,18 +12,13 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 describe("VellumAcpClientHandler", () => {
   let sent: ServerMessage[];
   let sendToVellum: (msg: ServerMessage) => void;
-  let pendingPermissions: Map<string, { resolve: (optionId: string) => void }>;
   let handler: VellumAcpClientHandler;
 
   beforeEach(() => {
     sent = [];
     sendToVellum = (msg) => sent.push(msg);
-    pendingPermissions = new Map();
-    handler = new VellumAcpClientHandler(
-      "session-1",
-      sendToVellum,
-      pendingPermissions,
-    );
+    handler = new VellumAcpClientHandler("session-1", sendToVellum);
+    pendingInteractions.clear();
   });
 
   describe("sessionUpdate", () => {
@@ -152,7 +145,7 @@ describe("VellumAcpClientHandler", () => {
   });
 
   describe("requestPermission", () => {
-    test("sends permission request and resolves when permission is granted", async () => {
+    test("sends confirmation_request and resolves when permission is granted", async () => {
       const resultPromise = handler.requestPermission({
         toolCall: {
           title: "Run command",
@@ -165,52 +158,134 @@ describe("VellumAcpClientHandler", () => {
         ],
       } as any);
 
-      // Should have sent a permission request
+      // Should have sent a standard confirmation_request with ACP context
       expect(sent).toHaveLength(1);
       const msg = sent[0] as any;
-      expect(msg.type).toBe("acp_permission_request");
-      expect(msg.acpSessionId).toBe("session-1");
-      expect(msg.toolTitle).toBe("Run command");
-      expect(msg.toolKind).toBe("execute");
-      expect(msg.options).toHaveLength(2);
+      expect(msg.type).toBe("confirmation_request");
+      expect(msg.toolName).toBe("ACP Agent: Run command");
+      expect(msg.riskLevel).toBe("high"); // "execute" maps to high
+      expect(msg.persistentDecisionsAllowed).toBe(false);
+      expect(msg.allowlistOptions).toEqual([]);
+      // ACP-specific fields passed through for client rendering
+      expect(msg.acpToolKind).toBe("execute");
+      expect(msg.acpOptions).toEqual([
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "deny", name: "Deny", kind: "reject_once" },
+      ]);
 
-      // A pending permission should exist
-      expect(pendingPermissions.size).toBe(1);
       const requestId = msg.requestId;
 
-      // Resolve the permission
-      resolvePermission(pendingPermissions, requestId, "allow");
+      // Resolve via the pendingInteractions tracker (same as POST /v1/confirm)
+      const interaction = pendingInteractions.resolve(requestId);
+      expect(interaction).toBeDefined();
+      expect(interaction!.kind).toBe("acp_confirmation");
+      interaction!.directResolve!("allow");
 
       const result = await resultPromise;
       expect(result).toEqual({
         outcome: { outcome: "selected", optionId: "allow" },
       });
-      expect(pendingPermissions.size).toBe(0);
     });
-  });
-});
 
-// ---------------------------------------------------------------------------
-// resolvePermission standalone tests
-// ---------------------------------------------------------------------------
+    test("maps deny decision to reject_once option", async () => {
+      const resultPromise = handler.requestPermission({
+        toolCall: {
+          title: "Write file",
+          kind: "edit",
+          rawInput: { path: "/tmp/test.txt" },
+        },
+        options: [
+          { optionId: "opt-allow", name: "Allow", kind: "allow_once" },
+          { optionId: "opt-deny", name: "Deny", kind: "reject_once" },
+        ],
+      } as any);
 
-describe("resolvePermission", () => {
-  test("resolves and removes the pending entry", () => {
-    let resolved = "";
-    const pending = new Map<string, { resolve: (id: string) => void }>();
-    pending.set("req-1", { resolve: (id) => (resolved = id) });
+      const msg = sent[0] as any;
+      expect(msg.riskLevel).toBe("medium"); // "edit" maps to medium
 
-    resolvePermission(pending, "req-1", "allow");
+      const interaction = pendingInteractions.resolve(msg.requestId);
+      interaction!.directResolve!("deny");
 
-    expect(resolved).toBe("allow");
-    expect(pending.size).toBe(0);
-  });
+      const result = await resultPromise;
+      expect(result).toEqual({
+        outcome: { outcome: "selected", optionId: "opt-deny" },
+      });
+    });
 
-  test("is a no-op when request ID is not found", () => {
-    const pending = new Map<string, { resolve: (id: string) => void }>();
-    // Should not throw
-    resolvePermission(pending, "nonexistent", "allow");
-    expect(pending.size).toBe(0);
+    test("maps read toolKind to low risk", async () => {
+      handler.requestPermission({
+        toolCall: {
+          title: "Read file",
+          kind: "read",
+        },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      } as any);
+
+      const msg = sent[0] as any;
+      expect(msg.riskLevel).toBe("low");
+    });
+
+    test("ACP registration survives sendToVellum overwrite (makeEventSender race)", async () => {
+      // Simulate makeEventSender: when sendToVellum is called with a
+      // confirmation_request, it overwrites the pendingInteractions entry
+      // with a normal "confirmation" (no directResolve). This is what
+      // happens in production because sendToVellum goes through the
+      // conversation's event sender.
+      const overwritingSend = (msg: ServerMessage) => {
+        sent.push(msg);
+        if ((msg as any).type === "confirmation_request") {
+          pendingInteractions.register((msg as any).requestId, {
+            conversation: {} as any, // fake conversation
+            conversationId: "conv-123",
+            kind: "confirmation",
+            confirmationDetails: {
+              toolName: (msg as any).toolName,
+              input: (msg as any).input,
+              riskLevel: (msg as any).riskLevel,
+              allowlistOptions: [],
+              scopeOptions: [],
+            },
+            // NO directResolve — this is the bug scenario
+          });
+        }
+      };
+
+      // Create handler with the overwriting sender
+      const racyHandler = new VellumAcpClientHandler(
+        "session-racy",
+        overwritingSend,
+      );
+
+      const resultPromise = racyHandler.requestPermission({
+        toolCall: {
+          title: "Write file",
+          kind: "edit",
+          rawInput: "test",
+        },
+        options: [
+          { optionId: "yes", name: "Allow", kind: "allow_once" },
+          { optionId: "no", name: "Deny", kind: "reject_once" },
+        ],
+      } as any);
+
+      const requestId = (sent[sent.length - 1] as any).requestId;
+
+      // The critical assertion: after requestPermission completes setup,
+      // the pendingInteractions entry must be the ACP one with directResolve,
+      // NOT the overwritten "confirmation" without it.
+      const interaction = pendingInteractions.resolve(requestId);
+      expect(interaction).toBeDefined();
+      expect(interaction!.kind).toBe("acp_confirmation");
+      expect(interaction!.directResolve).toBeDefined();
+
+      // Resolve it — this would fail silently if the overwrite won
+      interaction!.directResolve!("allow");
+
+      const result = await resultPromise;
+      expect(result).toEqual({
+        outcome: { outcome: "selected", optionId: "yes" },
+      });
+    });
   });
 });
 
@@ -267,14 +342,6 @@ describe("AcpSessionManager", () => {
       await expect(manager.steer("nonexistent", "go left")).rejects.toThrow(
         /not found/,
       );
-    });
-  });
-
-  describe("resolvePermission", () => {
-    test("logs warning for unknown request ID (no throw)", () => {
-      const manager = new AcpSessionManager(5);
-      // Should not throw — just logs a warning
-      manager.resolvePermission("unknown-req", "allow");
     });
   });
 

@@ -143,28 +143,5 @@ export function acpRouteDefinitions(): RouteDefinition[] {
         return Response.json({ sessions });
       },
     },
-
-    // POST /v1/acp/permission
-    {
-      endpoint: "acp/permission",
-      method: "POST",
-      policyKey: "acp/permission",
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          requestId?: string;
-          optionId?: string;
-        };
-        if (!body.requestId || !body.optionId) {
-          return httpError(
-            "BAD_REQUEST",
-            "requestId and optionId are required",
-            400,
-          );
-        }
-        const manager = getAcpSessionManager();
-        manager.resolvePermission(body.requestId, body.optionId);
-        return Response.json({ resolved: true });
-      },
-    },
   ];
 }

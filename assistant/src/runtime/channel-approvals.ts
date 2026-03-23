@@ -221,12 +221,12 @@ export function handleChannelDecision(
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = mapApprovalActionToUserDecision(decision.action);
   if (decisionContext === undefined) {
-    resolved.conversation.handleConfirmationResponse(
+    resolved.conversation!.handleConfirmationResponse(
       info.requestId,
       userDecision,
     );
   } else {
-    resolved.conversation.handleConfirmationResponse(
+    resolved.conversation!.handleConfirmationResponse(
       info.requestId,
       userDecision,
       undefined,
