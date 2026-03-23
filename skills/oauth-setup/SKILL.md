@@ -41,7 +41,25 @@ If no config is found, tell the user this service doesn't have a pre-configured 
 
 Check the available skills catalog for a dedicated `<service>-oauth-setup` skill matching this service name. If one exists, load that skill instead - it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
 
-Well-known services with dedicated setup skills: `gmail` (google-oauth-applescript), `slack`, `notion`, `twitter`, `github`, `linear`, `spotify`, `todoist`, `discord`, `dropbox`, `asana`, `airtable`, `hubspot`, `figma`.
+Well-known services with dedicated setup skills (note: not all follow the `<service>-oauth-setup` naming convention):
+
+| Service  | Skill ID                 |
+| -------- | ------------------------ |
+| gmail    | google-oauth-applescript |
+| notion   | notion-oauth-setup       |
+| twitter  | twitter-oauth-setup      |
+| github   | github-oauth-setup       |
+| linear   | linear-oauth-setup       |
+| spotify  | spotify-oauth-setup      |
+| todoist  | todoist-oauth-setup      |
+| discord  | discord-oauth-setup      |
+| dropbox  | dropbox-oauth-setup      |
+| asana    | asana-oauth-setup        |
+| airtable | airtable-oauth-setup     |
+| hubspot  | hubspot-oauth-setup      |
+| figma    | figma-oauth-setup        |
+
+**Slack does NOT use OAuth.** It connects via Socket Mode using the `slack-app-setup` skill. If the user asks to set up Slack, do NOT use this generic OAuth flow — load `slack-app-setup` instead.
 
 ## Step 3: Choose the flow based on setup metadata
 
