@@ -47,7 +47,7 @@ export function generateUserFileSlug(displayName: string): string {
     .where(like(contacts.userFile, `${escapeLike(slug)}%`))
     .all();
 
-  const taken = new Set(rows.map((r) => r.userFile));
+  const taken = new Set(rows.map((r) => r.userFile?.toLowerCase()));
 
   const base = `${slug}.md`;
   if (!taken.has(base)) return base;
