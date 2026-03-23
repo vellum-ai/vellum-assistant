@@ -2,8 +2,8 @@
  * Tests for CES (Credential Execution Service) feature gates.
  *
  * Verifies:
- * - All CES flags default to disabled (safe dark-launch).
- * - Each flag can be enabled independently via config overrides.
+ * - Each CES flag defaults to its registry-declared value.
+ * - Each flag can be toggled independently via config overrides.
  * - Enabling CES flags does not implicitly change unrelated approval
  *   behavior or existing feature flags.
  */
@@ -54,28 +54,32 @@ const ALL_CES_FLAG_KEYS = [
   CES_MANAGED_SIDECAR_FLAG_KEY,
 ] as const;
 
-/** All CES predicate functions paired with their flag keys. */
+/** All CES predicate functions paired with their flag keys and expected defaults. */
 const ALL_CES_PREDICATES = [
-  { name: "isCesToolsEnabled", fn: isCesToolsEnabled, key: CES_TOOLS_FLAG_KEY },
+  { name: "isCesToolsEnabled", fn: isCesToolsEnabled, key: CES_TOOLS_FLAG_KEY, defaultEnabled: false },
   {
     name: "isCesShellLockdownEnabled",
     fn: isCesShellLockdownEnabled,
     key: CES_SHELL_LOCKDOWN_FLAG_KEY,
+    defaultEnabled: false,
   },
   {
     name: "isCesSecureInstallEnabled",
     fn: isCesSecureInstallEnabled,
     key: CES_SECURE_INSTALL_FLAG_KEY,
+    defaultEnabled: false,
   },
   {
     name: "isCesGrantAuditEnabled",
     fn: isCesGrantAuditEnabled,
     key: CES_GRANT_AUDIT_FLAG_KEY,
+    defaultEnabled: false,
   },
   {
     name: "isCesManagedSidecarEnabled",
     fn: isCesManagedSidecarEnabled,
     key: CES_MANAGED_SIDECAR_FLAG_KEY,
+    defaultEnabled: true,
   },
 ] as const;
 
@@ -92,21 +96,21 @@ describe("CES flag key format", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Default-safe: all CES flags disabled by default
+// Defaults: each CES flag matches its registry-declared default
 // ---------------------------------------------------------------------------
 
-describe("CES flags default safely (all disabled)", () => {
-  for (const { name, fn } of ALL_CES_PREDICATES) {
-    test(`${name} returns false with no config overrides`, () => {
+describe("CES flags match registry defaults", () => {
+  for (const { name, fn, defaultEnabled } of ALL_CES_PREDICATES) {
+    test(`${name} returns ${defaultEnabled} with no config overrides`, () => {
       const config = makeConfig();
-      expect(fn(config)).toBe(false);
+      expect(fn(config)).toBe(defaultEnabled);
     });
   }
 
-  for (const key of ALL_CES_FLAG_KEYS) {
-    test(`isAssistantFeatureFlagEnabled('${key}') returns false with no overrides`, () => {
+  for (const pred of ALL_CES_PREDICATES) {
+    test(`isAssistantFeatureFlagEnabled('${pred.key}') returns ${pred.defaultEnabled} with no overrides`, () => {
       const config = makeConfig();
-      expect(isAssistantFeatureFlagEnabled(key, config)).toBe(false);
+      expect(isAssistantFeatureFlagEnabled(pred.key, config)).toBe(pred.defaultEnabled);
     });
   }
 });
@@ -115,7 +119,7 @@ describe("CES flags default safely (all disabled)", () => {
 // Independent enablement: each flag can be enabled without affecting others
 // ---------------------------------------------------------------------------
 
-describe("CES flags can be enabled independently", () => {
+describe("CES flags can be toggled independently", () => {
   for (const { name, fn, key } of ALL_CES_PREDICATES) {
     test(`enabling ${key} makes ${name} return true`, () => {
       _setOverridesForTesting({ [key]: true });
@@ -123,12 +127,12 @@ describe("CES flags can be enabled independently", () => {
       expect(fn(config)).toBe(true);
     });
 
-    test(`enabling ${key} does not enable other CES flags`, () => {
+    test(`enabling ${key} does not change other CES flags from their defaults`, () => {
       _setOverridesForTesting({ [key]: true });
       const config = makeConfig();
-      for (const { fn: otherFn, key: otherKey } of ALL_CES_PREDICATES) {
+      for (const { fn: otherFn, key: otherKey, defaultEnabled } of ALL_CES_PREDICATES) {
         if (otherKey === key) continue;
-        expect(otherFn(config)).toBe(false);
+        expect(otherFn(config)).toBe(defaultEnabled);
       }
     });
   }
