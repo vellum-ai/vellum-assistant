@@ -89,6 +89,14 @@ extension DynamicPageSurfaceView {
 }
 
 struct DynamicPageSurfaceView: NSViewRepresentable {
+    /// Shared process pool for all DynamicPageSurfaceView WKWebView instances.
+    /// Apple docs: "If your app creates multiple web views, assign the same
+    /// WKProcessPool object to web views that may safely share a process space."
+    /// Without this, each WKWebViewConfiguration creates an implicit new pool,
+    /// and rapid WebView teardown/recreation during app switching can leave the
+    /// new web-content process unable to reach localhost.
+    private static let sharedProcessPool = WKProcessPool()
+
     let data: DynamicPageSurfaceData
     let onAction: (String, Any?) -> Void
     let appId: String?
@@ -318,6 +326,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
+        configuration.processPool = Self.sharedProcessPool
         configuration.setURLSchemeHandler(
             VellumAppSchemeHandler(),
             forURLScheme: VellumAppSchemeHandler.scheme
@@ -416,12 +425,16 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         if let appId = appId {
             // User apps are served from the remote assistant runtime via
             // the gateway and loaded inline; they never live on disk.
-            let origin = "https://\(appId).vellum.local/"
+            // Use http:// (not https://) so fetch requests to http://localhost
+            // are same-scheme and not blocked by WebKit's mixed-content checker.
+            // No real TLS connection exists (content is inline HTML), so https://
+            // provided no actual security benefit.
+            let origin = "http://\(appId).vellum.local/"
             context.coordinator.isInlineFallback = true
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         } else {
             // Ephemeral surface — inline HTML
-            let origin = "https://surface.vellum.local/"
+            let origin = "http://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         }
         // Wrap in a RoundedClipView so the WKWebView's layer tree is
@@ -497,7 +510,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 // Inline fallback: webView.reload() would replay stale HTML.
                 // Re-load the current data.html so the update is visible.
                 context.coordinator.currentHTML = data.html
-                let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
+                let origin = appId.map { "http://\($0).vellum.local/" } ?? "http://surface.vellum.local/"
                 webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
                 webView.reload()
@@ -510,7 +523,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             context.coordinator.currentHTML = data.html
             context.coordinator.hasCapturedSnapshot = false
             context.coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
-            let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
+            let origin = appId.map { "http://\($0).vellum.local/" } ?? "http://surface.vellum.local/"
 
             if previousHTML.isEmpty {
                 // First load — no scroll to preserve
@@ -1065,8 +1078,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                         decisionHandler(.allow)
                         return
                     }
-                    // Allow initial HTML load via https://*.vellum.local/
-                    if scheme == "https" && (url.host?.hasSuffix(".vellum.local") == true) && navigationAction.navigationType == .other {
+                    // Allow initial HTML load via http(s)://*.vellum.local/
+                    if (scheme == "http" || scheme == "https") && (url.host?.hasSuffix(".vellum.local") == true) && navigationAction.navigationType == .other {
                         decisionHandler(.allow)
                         return
                     }
