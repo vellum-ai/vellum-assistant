@@ -9,6 +9,7 @@ function emptyInput(): SttHintsInput {
     guardianName: null,
     taskDescription: null,
     targetContactName: null,
+    callerContactName: null,
     inviteFriendName: null,
     inviteGuardianName: null,
     recentContactNames: [],
@@ -66,6 +67,12 @@ describe("buildSttHints", () => {
     const input = emptyInput();
     input.targetContactName = "Charlie";
     expect(buildSttHints(input)).toBe("Charlie");
+  });
+
+  test("caller contact name included", () => {
+    const input = emptyInput();
+    input.callerContactName = "Diana";
+    expect(buildSttHints(input)).toBe("Diana");
   });
 
   test("recent contact names included", () => {
@@ -147,6 +154,7 @@ describe("buildSttHints", () => {
       guardianName: "Sidd",
       taskDescription: "Call John at Acme",
       targetContactName: "Target",
+      callerContactName: "Caller",
       inviteFriendName: "Friend",
       inviteGuardianName: "Guardian",
       recentContactNames: ["Recent"],
@@ -160,6 +168,7 @@ describe("buildSttHints", () => {
     expect(parts).toContain("John");
     expect(parts).toContain("Acme");
     expect(parts).toContain("Target");
+    expect(parts).toContain("Caller");
     expect(parts).toContain("Friend");
     expect(parts).toContain("Guardian");
     expect(parts).toContain("Recent");

@@ -11,6 +11,7 @@ export interface SttHintsInput {
   guardianName: string | null;
   taskDescription: string | null;
   targetContactName: string | null;
+  callerContactName: string | null;
   inviteFriendName: string | null;
   inviteGuardianName: string | null;
   recentContactNames: string[];
@@ -49,6 +50,10 @@ export function buildSttHints(input: SttHintsInput): string {
 
   if (input.targetContactName != null && input.targetContactName.trim().length > 0) {
     hints.push(input.targetContactName.trim());
+  }
+
+  if (input.callerContactName != null && input.callerContactName.trim().length > 0) {
+    hints.push(input.callerContactName.trim());
   }
 
   // Extract potential proper nouns from task description.
@@ -117,6 +122,7 @@ export function resolveCallHints(
   const guardianName = resolveGuardianName();
 
   let targetContactName: string | null = null;
+  let callerContactName: string | null = null;
   let recentContactNames: string[] = [];
 
   try {
@@ -128,6 +134,17 @@ export function resolveCallHints(
     }
   } catch (err) {
     logger.warn({ err }, "Failed to look up target contact for STT hints");
+  }
+
+  try {
+    if (session) {
+      const callerContact = findContactByAddress("phone", session.fromNumber);
+      if (callerContact) {
+        callerContactName = callerContact.displayName;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to look up caller contact for STT hints");
   }
 
   try {
@@ -143,6 +160,7 @@ export function resolveCallHints(
     guardianName,
     taskDescription: session?.task ?? null,
     targetContactName,
+    callerContactName,
     inviteFriendName: session?.inviteFriendName ?? null,
     inviteGuardianName: session?.inviteGuardianName ?? null,
     recentContactNames,
