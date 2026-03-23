@@ -29,6 +29,10 @@ import {
   CesRpcMethod,
   type HandshakeAck,
   type ListGrantsResponse,
+  type GetCredentialResponse,
+  type SetCredentialResponse,
+  type DeleteCredentialResponse,
+  type ListCredentialsResponse,
   type RpcEnvelope,
 } from "@vellumai/ces-contracts";
 
@@ -40,6 +44,7 @@ import {
   createListAuditRecordsHandler,
 } from "../grants/rpc-handlers.js";
 import { CesRpcServer, type RpcHandlerRegistry, type SessionIdRef } from "../server.js";
+import { createLocalSecureKeyBackend } from "../materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
 // Environment setup
@@ -52,6 +57,7 @@ const SAVED_ENV_KEYS = [
   "CES_BOOTSTRAP_SOCKET",
   "CES_HEALTH_PORT",
   "CES_MODE",
+  "CREDENTIAL_SECURITY_DIR",
 ] as const;
 
 type SavedEnv = Record<string, string | undefined>;
@@ -102,6 +108,39 @@ function buildMinimalHandlers(dataDir: string): RpcHandlerRegistry {
 
   handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
     auditStore,
+  }) as typeof handlers[string];
+
+  return handlers;
+}
+
+/**
+ * Build an RPC handler registry with credential CRUD handlers backed by
+ * a real SecureKeyBackend using a temp directory for credential storage.
+ *
+ * Mirrors the handler registration in managed-main.ts.
+ */
+function buildCredentialHandlers(vellumRoot: string): RpcHandlerRegistry {
+  const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
+  const handlers: RpcHandlerRegistry = {};
+
+  handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
+    const value = await secureKeyBackend.get(req.account);
+    return { found: value !== undefined, value };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+    const ok = await secureKeyBackend.set(req.account, req.value);
+    return { ok };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+    const result = await secureKeyBackend.delete(req.account);
+    return { result };
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.ListCredentials] = (async () => {
+    const accounts = await secureKeyBackend.list();
+    return { accounts };
   }) as typeof handlers[string];
 
   return handlers;
@@ -627,5 +666,279 @@ describe("managed CES integration (real Unix socket)", () => {
     conn.socket.destroy();
     clientSocket.end();
     controller.abort();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Credential CRUD RPC tests
+// ---------------------------------------------------------------------------
+
+describe("credential CRUD RPC", () => {
+  /**
+   * Helper: set up a Unix socket server with credential CRUD handlers,
+   * connect a client, and complete the handshake. Returns the client
+   * socket and a serve promise for cleanup.
+   */
+  async function setupCredentialRpc(): Promise<{
+    clientSock: Socket;
+    servePromise: Promise<void>;
+  }> {
+    savedEnv = saveEnv();
+    tmpDir = mkdtempSync(join(tmpdir(), "ces-cred-integ-"));
+    const dataDir = join(tmpDir, "ces-data");
+    const securityDir = join(tmpDir, "security");
+    const socketDir = join(tmpDir, "bootstrap");
+    const socketPath = join(socketDir, "ces.sock");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(securityDir, { recursive: true });
+    mkdirSync(socketDir, { recursive: true });
+
+    process.env["CES_DATA_DIR"] = dataDir;
+    process.env["CES_MODE"] = "managed";
+    process.env["CREDENTIAL_SECURITY_DIR"] = securityDir;
+
+    controller = new AbortController();
+
+    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    clientSocket = await connectToSocket(socketPath);
+    const conn = await connectionPromise;
+
+    // vellumRoot is unused when CREDENTIAL_SECURITY_DIR is set,
+    // but we pass dataDir for consistency with the backend API.
+    const handlers = buildCredentialHandlers(dataDir);
+
+    serverRpcServer = new CesRpcServer({
+      input: conn.readable,
+      output: conn.writable,
+      handlers,
+      logger: { log: () => {}, warn: () => {}, error: () => {} },
+      signal: controller.signal,
+    });
+
+    const servePromise = serverRpcServer.serve();
+
+    // Complete the handshake
+    sendMessage(clientSocket, {
+      type: "handshake_request",
+      protocolVersion: CES_PROTOCOL_VERSION,
+      sessionId: `cred-integ-${Date.now()}`,
+    });
+    const hsMessages = await readMessages(clientSocket, 1);
+    const ack = hsMessages[0] as HandshakeAck;
+    expect(ack.type).toBe("handshake_ack");
+    expect(ack.accepted).toBe(true);
+
+    return { clientSock: clientSocket, servePromise };
+  }
+
+  test("set + get round-trip", async () => {
+    const { clientSock, servePromise } = await setupCredentialRpc();
+
+    // Set credential
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-set-1",
+      kind: "request",
+      method: CesRpcMethod.SetCredential,
+      payload: { account: "test-key", value: "secret-value" },
+      timestamp: new Date().toISOString(),
+    });
+
+    const setMessages = await readMessages(clientSock, 1);
+    expect(setMessages.length).toBe(1);
+    const setResp = setMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(setResp.id).toBe("cred-set-1");
+    expect(setResp.kind).toBe("response");
+    expect(setResp.method).toBe(CesRpcMethod.SetCredential);
+    const setPayload = setResp.payload as SetCredentialResponse;
+    expect(setPayload.ok).toBe(true);
+
+    // Get credential
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-get-1",
+      kind: "request",
+      method: CesRpcMethod.GetCredential,
+      payload: { account: "test-key" },
+      timestamp: new Date().toISOString(),
+    });
+
+    const getMessages = await readMessages(clientSock, 1);
+    expect(getMessages.length).toBe(1);
+    const getResp = getMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(getResp.id).toBe("cred-get-1");
+    expect(getResp.kind).toBe("response");
+    expect(getResp.method).toBe(CesRpcMethod.GetCredential);
+    const getPayload = getResp.payload as GetCredentialResponse;
+    expect(getPayload).toEqual({ found: true, value: "secret-value" });
+
+    clientSock.end();
+    controller.abort();
+    await servePromise;
+  });
+
+  test("list includes set key", async () => {
+    const { clientSock, servePromise } = await setupCredentialRpc();
+
+    // Set a credential first
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-set-2",
+      kind: "request",
+      method: CesRpcMethod.SetCredential,
+      payload: { account: "test-key", value: "secret-value" },
+      timestamp: new Date().toISOString(),
+    });
+    await readMessages(clientSock, 1);
+
+    // List credentials
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-list-1",
+      kind: "request",
+      method: CesRpcMethod.ListCredentials,
+      payload: {},
+      timestamp: new Date().toISOString(),
+    });
+
+    const listMessages = await readMessages(clientSock, 1);
+    expect(listMessages.length).toBe(1);
+    const listResp = listMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(listResp.id).toBe("cred-list-1");
+    expect(listResp.kind).toBe("response");
+    expect(listResp.method).toBe(CesRpcMethod.ListCredentials);
+    const listPayload = listResp.payload as ListCredentialsResponse;
+    expect(listPayload.accounts).toContain("test-key");
+
+    clientSock.end();
+    controller.abort();
+    await servePromise;
+  });
+
+  test("delete credential", async () => {
+    const { clientSock, servePromise } = await setupCredentialRpc();
+
+    // Set a credential first
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-set-3",
+      kind: "request",
+      method: CesRpcMethod.SetCredential,
+      payload: { account: "test-key", value: "secret-value" },
+      timestamp: new Date().toISOString(),
+    });
+    await readMessages(clientSock, 1);
+
+    // Delete credential
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-del-1",
+      kind: "request",
+      method: CesRpcMethod.DeleteCredential,
+      payload: { account: "test-key" },
+      timestamp: new Date().toISOString(),
+    });
+
+    const delMessages = await readMessages(clientSock, 1);
+    expect(delMessages.length).toBe(1);
+    const delResp = delMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(delResp.id).toBe("cred-del-1");
+    expect(delResp.kind).toBe("response");
+    expect(delResp.method).toBe(CesRpcMethod.DeleteCredential);
+    const delPayload = delResp.payload as DeleteCredentialResponse;
+    expect(delPayload).toEqual({ result: "deleted" });
+
+    clientSock.end();
+    controller.abort();
+    await servePromise;
+  });
+
+  test("get after delete returns not found", async () => {
+    const { clientSock, servePromise } = await setupCredentialRpc();
+
+    // Set a credential
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-set-4",
+      kind: "request",
+      method: CesRpcMethod.SetCredential,
+      payload: { account: "test-key", value: "secret-value" },
+      timestamp: new Date().toISOString(),
+    });
+    await readMessages(clientSock, 1);
+
+    // Delete it
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-del-2",
+      kind: "request",
+      method: CesRpcMethod.DeleteCredential,
+      payload: { account: "test-key" },
+      timestamp: new Date().toISOString(),
+    });
+    await readMessages(clientSock, 1);
+
+    // Get after delete
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-get-2",
+      kind: "request",
+      method: CesRpcMethod.GetCredential,
+      payload: { account: "test-key" },
+      timestamp: new Date().toISOString(),
+    });
+
+    const getMessages = await readMessages(clientSock, 1);
+    expect(getMessages.length).toBe(1);
+    const getResp = getMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(getResp.id).toBe("cred-get-2");
+    expect(getResp.kind).toBe("response");
+    expect(getResp.method).toBe(CesRpcMethod.GetCredential);
+    const getPayload = getResp.payload as GetCredentialResponse;
+    expect(getPayload).toEqual({ found: false });
+
+    clientSock.end();
+    controller.abort();
+    await servePromise;
+  });
+
+  test("delete non-existent credential returns not-found", async () => {
+    const { clientSock, servePromise } = await setupCredentialRpc();
+
+    // Set a credential first to initialize the store file on disk.
+    // Without a store file, delete returns "error" (no store) rather
+    // than "not-found" (store exists, key absent).
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-set-init",
+      kind: "request",
+      method: CesRpcMethod.SetCredential,
+      payload: { account: "init-key", value: "init-value" },
+      timestamp: new Date().toISOString(),
+    });
+    await readMessages(clientSock, 1);
+
+    // Delete a credential that was never set
+    sendMessage(clientSock, {
+      type: "rpc",
+      id: "cred-del-3",
+      kind: "request",
+      method: CesRpcMethod.DeleteCredential,
+      payload: { account: "nonexistent" },
+      timestamp: new Date().toISOString(),
+    });
+
+    const delMessages = await readMessages(clientSock, 1);
+    expect(delMessages.length).toBe(1);
+    const delResp = delMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(delResp.id).toBe("cred-del-3");
+    expect(delResp.kind).toBe("response");
+    expect(delResp.method).toBe(CesRpcMethod.DeleteCredential);
+    const delPayload = delResp.payload as DeleteCredentialResponse;
+    expect(delPayload).toEqual({ result: "not-found" });
+
+    clientSock.end();
+    controller.abort();
+    await servePromise;
   });
 });
