@@ -12,7 +12,7 @@ export const MemoryExtractionConfigSchema = z
       .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
         error: "memory.extraction.modelIntent must be a valid model intent",
       })
-      .default("latency-optimized")
+      .default("quality-optimized")
       .describe(
         "Model selection strategy for extraction — trade off speed vs quality",
       ),
@@ -39,7 +39,7 @@ export const MemorySummarizationConfigSchema = z
       .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
         error: "memory.summarization.modelIntent must be a valid model intent",
       })
-      .default("latency-optimized")
+      .default("quality-optimized")
       .describe(
         "Model selection strategy for summarization — trade off speed vs quality",
       ),
