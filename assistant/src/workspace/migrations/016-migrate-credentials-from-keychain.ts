@@ -105,10 +105,11 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
     }
 
     if (!brokerAvailable) {
-      throw new Error(
+      log.warn(
         "Keychain broker not available after waiting — credential migration " +
           "will be retried on next startup",
       );
+      return;
     }
 
     const { setKey } = await import("../../security/encrypted-store.js");
