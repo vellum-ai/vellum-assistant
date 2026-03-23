@@ -251,6 +251,7 @@ struct AssistantChannelsDetailView: View {
                     value: value,
                     isConnected: isConnected,
                     isExpanded: $slackRowExpanded,
+                    isExpandable: false,
                     setupAction: !isConnected && !slackChannelSetupExpanded && !(status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) ? {
                         conversationManager?.openConversation(
                             message: "I want to reach you on Slack. Let's set it up.",
@@ -259,9 +260,7 @@ struct AssistantChannelsDetailView: View {
                     } : nil,
                     isDisconnectDisabled: store.slackChannelSaveInProgress
                 )
-                if isConnected && slackRowExpanded {
-                    slackChannelCredentialEntry
-                } else if !isConnected && (slackChannelSetupExpanded || (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken))) {
+                if !isConnected && (slackChannelSetupExpanded || (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken))) {
                     slackChannelCredentialEntry
                 }
             }
@@ -369,6 +368,7 @@ struct AssistantChannelsDetailView: View {
         value: String?,
         isConnected: Bool,
         isExpanded: Binding<Bool>,
+        isExpandable: Bool = true,
         setupAction: (() -> Void)? = nil,
         isDisconnectDisabled: Bool = false
     ) -> some View {
@@ -379,6 +379,7 @@ struct AssistantChannelsDetailView: View {
             value: value,
             isConnected: isConnected,
             isExpanded: isExpanded,
+            isExpandable: isExpandable,
             setupAction: setupAction,
             isDisconnectDisabled: isDisconnectDisabled,
             onDisconnect: { key in channelToDisconnect = key }
