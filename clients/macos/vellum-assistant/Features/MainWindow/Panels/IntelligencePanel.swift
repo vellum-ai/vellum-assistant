@@ -47,7 +47,7 @@ struct IntelligencePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(alignment: .center) {
-                Text(AssistantDisplayName.resolve(IdentityInfo.load()?.name))
+                Text("Intelligence")
                     .font(VFont.panelTitle)
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
