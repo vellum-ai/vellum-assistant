@@ -92,6 +92,7 @@ ENV IS_CONTAINERIZED=true
 
 # Copy from builder
 COPY --from=builder /app /app
+RUN chmod +x /app/assistant/docker-entrypoint.sh
 
 # Run the daemon + http server
-CMD ["bun", "run", "src/daemon/main.ts"]
+CMD ["/app/assistant/docker-entrypoint.sh"]
