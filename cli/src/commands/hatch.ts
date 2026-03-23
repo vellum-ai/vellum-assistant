@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import {
   appendFileSync,
   existsSync,
@@ -52,7 +53,7 @@ import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
-import { leaseGuardianToken } from "../lib/guardian-token";
+import { leaseGuardianToken, saveBootstrapSecret } from "../lib/guardian-token";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -126,12 +127,26 @@ export async function buildStartupScript(
 
   // Build bash lines that set each provider API key as a shell variable
   // and corresponding dotenv lines for the env file.
-  const envSetLines = Object.entries(providerApiKeys)
+  // Include the laptop bootstrap secret so that when the remote runs
+  // `vellum hatch --remote docker`, the docker hatch detects the pre-set
+  // env var and appends its own secret for multi-secret guardian init.
+  const allEnvEntries: Record<string, string> = {
+    ...providerApiKeys,
+    GUARDIAN_BOOTSTRAP_SECRET: laptopBootstrapSecret,
+  };
+  const envSetLines = Object.entries(allEnvEntries)
     .map(([envVar, value]) => `${envVar}=${value}`)
     .join("\n");
   const dotenvLines = Object.keys(providerApiKeys)
     .map((envVar) => `${envVar}=\$${envVar}`)
     .join("\n");
+
+  // Generate a bootstrap secret for the laptop that initiated this remote
+  // hatch. The startup script exports it as GUARDIAN_BOOTSTRAP_SECRET so
+  // that when `vellum hatch --remote docker` runs on the VM, the docker
+  // hatch detects the pre-set env var and appends its own secret.
+  const laptopBootstrapSecret = randomBytes(32).toString("hex");
+  saveBootstrapSecret(instanceName, laptopBootstrapSecret);
 
   // Write --config key=value pairs to a temp JSON file on the remote host
   // and export the env var so the daemon reads it on first boot.
@@ -166,6 +181,7 @@ DOTENV_EOF
 
 ${ownershipFixup}
 ${configWriteBlock}
+export GUARDIAN_BOOTSTRAP_SECRET
 export VELLUM_SSH_USER="\$SSH_USER"
 export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
 export VELLUM_CLOUD="${cloud}"

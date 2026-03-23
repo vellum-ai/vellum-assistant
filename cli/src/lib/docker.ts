@@ -789,7 +789,6 @@ export async function stopContainers(
   await removeContainer(res.assistantContainer);
 }
 
-
 /** Stop containers without removing them (preserves state for `docker start`). */
 export async function sleepContainers(
   res: ReturnType<typeof dockerResourceNames>,
@@ -1128,8 +1127,19 @@ export async function hatchDocker(
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
-    const bootstrapSecret = randomBytes(32).toString("hex");
-    saveBootstrapSecret(instanceName, bootstrapSecret);
+
+    // When launched by a remote hatch startup script, the env var
+    // GUARDIAN_BOOTSTRAP_SECRET is already set with the laptop's secret.
+    // Generate a new secret for the local docker hatch caller and append
+    // it so the gateway receives a comma-separated list of all expected
+    // bootstrap secrets.
+    const ownSecret = randomBytes(32).toString("hex");
+    const preExisting = process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const bootstrapSecret = preExisting
+      ? `${preExisting},${ownSecret}`
+      : ownSecret;
+    saveBootstrapSecret(instanceName, ownSecret);
+
     await startContainers(
       {
         signingKey,
