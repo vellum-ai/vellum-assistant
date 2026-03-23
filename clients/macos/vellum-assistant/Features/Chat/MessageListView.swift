@@ -941,6 +941,7 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let state = precomputedState
+                    let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in
                         let index = state.messageIndexById[message.id] ?? 0
                         MessageCellView(
@@ -983,7 +984,7 @@ struct MessageListView: View {
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
                             providerCatalog: providerCatalog,
-                            providerCatalogHash: MessageCellView.hashCatalog(providerCatalog)
+                            providerCatalogHash: catalogHash
                         )
                         .equatable()
                     }
