@@ -541,6 +541,25 @@ async function extractItemsWithLLM(
   return deduplicateItems(items);
 }
 
+/**
+ * Fire conversation starters generation when journal memories were created.
+ * Wrapped in try/catch so failures never propagate to the caller.
+ */
+function triggerConversationStartersIfNeeded(
+  count: number,
+  scopeId: string,
+): void {
+  if (count <= 0) return;
+  try {
+    maybeEnqueueConversationStartersJob(scopeId);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to check conversation starters cadence",
+    );
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export async function extractAndUpsertMemoryItemsForMessage(
@@ -603,6 +622,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
       { messageId },
       "Skipping extraction — message lacks semantic density",
     );
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
     return journalUpserted;
   }
 
@@ -616,6 +636,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const userPersona = resolveGuardianPersona();
 
   if (!extractionConfig.useLLM) {
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
     return journalUpserted;
   }
 
@@ -628,7 +649,10 @@ export async function extractAndUpsertMemoryItemsForMessage(
     userPersona,
   );
 
-  if (extracted.length === 0) return journalUpserted;
+  if (extracted.length === 0) {
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
+    return journalUpserted;
+  }
 
   // Guard: re-check after the async LLM call. The event loop yields during
   // extractItemsWithLLM, so another task could have marked the conversation
@@ -638,6 +662,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
       { messageId, conversationId },
       "Skipping upsert — conversation marked failed during extraction",
     );
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
     return journalUpserted;
   }
 
@@ -842,16 +867,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   );
 
   // Trigger conversation starters generation when new items are upserted
-  if (upserted > 0) {
-    try {
-      maybeEnqueueConversationStartersJob(effectiveScopeId);
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to check conversation starters cadence",
-      );
-    }
-  }
+  triggerConversationStartersIfNeeded(upserted, effectiveScopeId);
 
   return upserted;
 }
