@@ -111,7 +111,7 @@
       "key": "feature_flags.ces-managed-sidecar.enabled",
       "label": "CES Managed Sidecar Transport",
       "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "ces-credential-backend",
