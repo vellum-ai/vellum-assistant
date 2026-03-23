@@ -7,7 +7,7 @@ import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
-import { getProviderKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import {
   getDbPath,
   getHooksDir,
@@ -81,7 +81,7 @@ Examples:
         typeof rawInferenceProvider === "string"
           ? rawInferenceProvider
           : "anthropic";
-      const configKey = await getProviderKeyAsync(provider);
+      const configKey = await getProviderKeyViaDaemon(provider);
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
