@@ -174,6 +174,11 @@ extension AppDelegate {
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
+                case .acpPermissionRequest(let msg):
+                    if self.acpPermissionWindow == nil {
+                        self.acpPermissionWindow = AcpPermissionWindow()
+                    }
+                    self.acpPermissionWindow?.show(message: msg)
                 case .pairingApprovalRequest(let msg):
                     if self.pairingApprovalWindow == nil {
                         self.pairingApprovalWindow = PairingApprovalWindow()
@@ -256,8 +261,8 @@ extension AppDelegate {
                             "home": msg.home
                         ]
                     )
-                case .avatarUpdated:
-                    AvatarAppearanceManager.shared.reloadAvatar()
+                case .avatarUpdated(let msg):
+                    AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     HostToolExecutor.executeHostBashRequest(msg)
