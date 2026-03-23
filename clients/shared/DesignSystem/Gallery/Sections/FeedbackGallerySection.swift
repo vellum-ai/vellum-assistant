@@ -61,48 +61,66 @@ struct FeedbackGallerySection: View {
                             }
                         }
 
-                        // Label row
-                        HStack(spacing: VSpacing.lg) {
-                            VBadge(style: .label("New"), color: VColor.primaryBase)
-                            VBadge(style: .label("Beta"), color: VColor.systemPositiveStrong)
-                            VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
-                            VBadge(style: .label("Warn"), color: VColor.systemMidStrong)
-                        }
-
-                        // Icon label row
-                        HStack(spacing: VSpacing.lg) {
-                            VStack(spacing: VSpacing.xs) {
-                                Text("With iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                VBadge(label: "Guardian", icon: .shieldCheck, iconColor: VColor.primaryBase, tone: .neutral)
-                            }
-                            VStack(spacing: VSpacing.xs) {
-                                Text("Default iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                                VBadge(label: "Status", icon: .sparkles, tone: .accent)
+                        // Label with tone (subtle)
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            Text("Subtle labels").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            HStack(spacing: VSpacing.lg) {
+                                VBadge(label: "Accent", tone: .accent)
+                                VBadge(label: "Neutral", tone: .neutral)
+                                VBadge(label: "Positive", tone: .positive)
+                                VBadge(label: "Warning", tone: .warning)
+                                VBadge(label: "Danger", tone: .danger)
                             }
                         }
 
                         Divider().background(VColor.borderBase)
 
-                        // Rounded shape
+                        // Label with tone (solid)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("Rounded shape").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Solid labels").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             HStack(spacing: VSpacing.lg) {
-                                VBadge(label: "Identity", color: VColor.funTeal, shape: .rounded)
-                                VBadge(label: "Preference", color: VColor.funPurple, shape: .rounded)
-                                VBadge(label: "Project", color: VColor.funGreen, shape: .rounded)
-                                VBadge(label: "Decision", color: VColor.funYellow, shape: .rounded)
-                                VBadge(label: "Constraint", color: VColor.funCoral, shape: .rounded)
-                                VBadge(label: "Event", color: VColor.funPink, shape: .rounded)
+                                VBadge(label: "Accent", tone: .accent, emphasis: .solid)
+                                VBadge(label: "Neutral", tone: .neutral, emphasis: .solid)
+                                VBadge(label: "Positive", tone: .positive, emphasis: .solid)
+                                VBadge(label: "Warning", tone: .warning, emphasis: .solid)
+                                VBadge(label: "Danger", tone: .danger, emphasis: .solid)
                             }
                         }
+                    }
+                }
+            }
 
-                        // Pill shape with custom color
+            if filter == nil || filter == "vTag" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VTag
+                GallerySectionHeader(
+                    title: "VTag",
+                    description: "Colored tag for categorizing items (e.g. memory kinds)."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        HStack(spacing: VSpacing.lg) {
+                            VTag("Identity", color: VColor.funTeal)
+                            VTag("Preference", color: VColor.funPurple)
+                            VTag("Project", color: VColor.funGreen)
+                            VTag("Decision", color: VColor.funYellow)
+                            VTag("Constraint", color: VColor.funCoral)
+                            VTag("Event", color: VColor.funPink)
+                            VTag("Skill", color: VColor.funRed)
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        // With icon
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("Pill shape with custom color").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("With icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             HStack(spacing: VSpacing.lg) {
-                                VBadge(label: "Teal", color: VColor.funTeal)
-                                VBadge(label: "Purple", color: VColor.funPurple)
-                                VBadge(label: "Coral", color: VColor.funCoral)
+                                VTag("Identity", color: VColor.funTeal, icon: .user)
+                                VTag("Event", color: VColor.funPink, icon: .calendar)
+                                VTag("Project", color: VColor.funGreen, icon: .folder)
                             }
                         }
                     }
@@ -478,6 +496,7 @@ extension FeedbackGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vBadge": FeedbackGallerySection(filter: "vBadge")
+        case "vTag": FeedbackGallerySection(filter: "vTag")
         case "vLoadingIndicator": FeedbackGallerySection(filter: "vLoadingIndicator")
         case "vToast": FeedbackGallerySection(filter: "vToast")
         case "vInlineMessage": FeedbackGallerySection(filter: "vInlineMessage")

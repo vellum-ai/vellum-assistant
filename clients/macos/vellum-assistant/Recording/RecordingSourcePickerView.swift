@@ -240,7 +240,7 @@ struct RecordingSourcePickerView: View {
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         if display.isCurrentDisplay {
-                            VBadge(style: .label("This display"), color: VColor.primaryBase)
+                            VTag("This display", color: VColor.primaryBase)
                         }
                     }
                     Text(display.subtitle)
