@@ -107,6 +107,23 @@
       },
       "executor": "tools/avatar-update.ts",
       "execution_target": "sandbox"
+    },
+    {
+      "name": "remove_avatar",
+      "description": "Remove the custom avatar image and restore the native character avatar. Only deletes the custom image — preserves character traits so the character avatar is automatically restored. Use this when the user asks to remove, clear, or reset their avatar.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
+          }
+        }
+      },
+      "executor": "tools/avatar-remove.ts",
+      "execution_target": "sandbox"
     }
   ]
 }

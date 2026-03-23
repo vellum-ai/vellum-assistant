@@ -17,4 +17,8 @@ When the user asks to set, change, or update your avatar to an image they provid
 1. Find the uploaded image in the conversation attachments directory
 2. Use the `set_avatar` tool with the `image_path` parameter set to the workspace-relative path (e.g. `conversations/<id>/attachments/Dropped Image.png`)
 
-The tool copies the image to the canonical location (`data/avatar/avatar-image.png`), removes any native character files, and notifies the app to refresh automatically. **Do NOT use `bash` or `cp` to set the avatar** — always use the `set_avatar` tool so the app is properly notified.
+The tool copies the image to the canonical location (`data/avatar/avatar-image.png`) and notifies the app to refresh automatically.
+
+When the user asks to remove, clear, or reset their avatar, use the `remove_avatar` tool. It deletes only the custom image and preserves the native character traits so the character avatar is restored automatically.
+
+**Do NOT use `bash`, `cp`, or `rm` for avatar operations** — always use `set_avatar` / `remove_avatar` so the app is properly notified and character traits are preserved.

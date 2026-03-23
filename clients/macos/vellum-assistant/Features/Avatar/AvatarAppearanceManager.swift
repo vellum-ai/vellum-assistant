@@ -264,8 +264,30 @@ final class AvatarAppearanceManager {
             customAvatarImage = image
         } else {
             customAvatarImage = nil
+            // Reload character traits from disk so the character avatar
+            // is restored when the custom image is removed.
+            loadCharacterTraitsFromDisk()
         }
         updateDockIcon()
+    }
+
+    /// Loads character-traits.json from the avatar directory on disk
+    /// and populates the character avatar properties.
+    private func loadCharacterTraitsFromDisk() {
+        let traitsURL = customAvatarURL.deletingLastPathComponent()
+            .appendingPathComponent("character-traits.json")
+        guard let data = try? Data(contentsOf: traitsURL),
+              let components = try? JSONDecoder().decode(AvatarComponents.self, from: data) else {
+            characterBodyShape = nil
+            characterEyeStyle = nil
+            characterColor = nil
+            return
+        }
+        characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+        characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+        characterColor = AvatarColor(rawValue: components.color)
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
     }
 
     // MARK: - Component Fetch
