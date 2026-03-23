@@ -62,6 +62,13 @@ const VALID_KINDS = new Set<string>([
   "journal",
 ]);
 
+/**
+ * Kinds the LLM is allowed to produce during extraction. Excludes "journal"
+ * because journal memories are created directly from disk files — any
+ * LLM-produced journal items would be silently dropped, wasting tokens.
+ */
+const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
+
 /** Maps old kind names to their new equivalents for graceful migration. */
 const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   profile: "identity",
@@ -419,7 +426,7 @@ async function extractItemsWithLLM(
                 properties: {
                   kind: {
                     type: "string",
-                    enum: [...VALID_KINDS],
+                    enum: EXTRACTION_KINDS,
                     description: "Category of memory item",
                   },
                   subject: {
@@ -541,6 +548,25 @@ async function extractItemsWithLLM(
   return deduplicateItems(items);
 }
 
+/**
+ * Fire conversation starters generation when journal memories were created.
+ * Wrapped in try/catch so failures never propagate to the caller.
+ */
+function triggerConversationStartersIfNeeded(
+  count: number,
+  scopeId: string,
+): void {
+  if (count <= 0) return;
+  try {
+    maybeEnqueueConversationStartersJob(scopeId);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to check conversation starters cadence",
+    );
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export async function extractAndUpsertMemoryItemsForMessage(
@@ -582,18 +608,33 @@ export async function extractAndUpsertMemoryItemsForMessage(
         .reverse()
     : [];
 
+  const effectiveScopeId = scopeId ?? "default";
+
+  // Directly create journal memories from any journal files written during
+  // this message, bypassing LLM extraction (which would summarize/rewrite them).
+  // This must run before the extraction guards (semantic density, useLLM, etc.)
+  // because journal disk scanning is independent of LLM extraction.
+  let journalUpserted = 0;
+  if (message.role === "assistant") {
+    journalUpserted = upsertJournalMemoriesFromDisk(
+      message.createdAt,
+      effectiveScopeId,
+      messageId,
+    );
+  }
+
   const text = extractTextFromStoredMessageContent(message.content);
   if (!hasSemanticDensity(text)) {
     log.debug(
       { messageId },
       "Skipping extraction — message lacks semantic density",
     );
-    return 0;
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
+    return journalUpserted;
   }
 
   const config = getConfig();
   const extractionConfig = config.memory.extraction;
-  const effectiveScopeId = scopeId ?? "default";
 
   // Resolve the guardian's persona to provide personality-aware extraction
   // context. Currently uses the guardian persona for all conversations —
@@ -602,7 +643,8 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const userPersona = resolveGuardianPersona();
 
   if (!extractionConfig.useLLM) {
-    return 0;
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
+    return journalUpserted;
   }
 
   const extracted = await extractItemsWithLLM(
@@ -614,7 +656,10 @@ export async function extractAndUpsertMemoryItemsForMessage(
     userPersona,
   );
 
-  if (extracted.length === 0) return 0;
+  if (extracted.length === 0) {
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
+    return journalUpserted;
+  }
 
   // Guard: re-check after the async LLM call. The event loop yields during
   // extractItemsWithLLM, so another task could have marked the conversation
@@ -624,7 +669,8 @@ export async function extractAndUpsertMemoryItemsForMessage(
       { messageId, conversationId },
       "Skipping upsert — conversation marked failed during extraction",
     );
-    return 0;
+    triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
+    return journalUpserted;
   }
 
   let upserted = 0;
@@ -820,15 +866,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
   }
 
-  // Directly create journal memories from any journal files written during
-  // this message, bypassing LLM extraction (which would summarize/rewrite them).
-  if (message.role === "assistant") {
-    upserted += upsertJournalMemoriesFromDisk(
-      message.createdAt,
-      effectiveScopeId,
-      messageId,
-    );
-  }
+  upserted += journalUpserted;
 
   log.debug(
     { messageId, extracted: extracted.length, upserted },
@@ -836,16 +874,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   );
 
   // Trigger conversation starters generation when new items are upserted
-  if (upserted > 0) {
-    try {
-      maybeEnqueueConversationStartersJob(effectiveScopeId);
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to check conversation starters cadence",
-      );
-    }
-  }
+  triggerConversationStartersIfNeeded(upserted, effectiveScopeId);
 
   return upserted;
 }
