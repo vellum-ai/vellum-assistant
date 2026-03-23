@@ -6,6 +6,7 @@ import os
 import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
+private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 // Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"
 // Intermediate builds may have written under this key before the compat fix.
@@ -2000,6 +2001,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Evict the oldest cached ChatViewModel that is not the active conversation,
     /// keeping at most `maxCachedViewModels` entries in the dictionary.
     private func evictStaleCachedViewModels() {
+        var evictedCount = 0
         while chatViewModels.count > maxCachedViewModels {
             // Find the oldest non-active, non-busy VM so we never cancel an in-flight response
             // just because the user switched conversations.
@@ -2012,7 +2014,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             chatViewModels.removeValue(forKey: victim)
             unsubscribeFromBusyState(for: victim)
             vmAccessOrder.removeAll { $0 == victim }
+            evictedCount += 1
             log.info("LRU evicted VM for conversation \(victim)")
+        }
+        if evictedCount > 0 {
+            os_signpost(.event, log: stallLog, name: "LRU.evict", "%{public}d VMs", evictedCount)
         }
     }
 
