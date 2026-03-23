@@ -214,6 +214,15 @@ public final class EventStreamClient {
                     userMessage: message,
                     retryable: false
                 )))
+            case .insufficientBalance(let detail, _):
+                self.broadcastMessage(.conversationError(ConversationErrorMessage(
+                    conversationId: conversationId,
+                    code: .providerBilling,
+                    userMessage: detail,
+                    retryable: false,
+                    errorCategory: "credits_exhausted",
+                    failedMessageContent: content
+                )))
             case .error(_, let message, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: conversationId,
@@ -243,6 +252,15 @@ public final class EventStreamClient {
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log.error("SSE connection failed with status \(statusCode)")
+                    if statusCode == 402 {
+                        self.broadcastMessage(.conversationError(ConversationErrorMessage(
+                            conversationId: "",
+                            code: .providerBilling,
+                            userMessage: "Your balance has run out. Add funds to continue using the assistant.",
+                            retryable: false,
+                            errorCategory: "credits_exhausted"
+                        )))
+                    }
                     if statusCode == 403 {
                         self.sseReconnectDelay = 1.0
                     }

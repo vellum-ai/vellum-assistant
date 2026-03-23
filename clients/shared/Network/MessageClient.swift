@@ -18,6 +18,8 @@ public enum MessageSendResult: Sendable {
     case authRequired
     /// Message blocked by secret-ingress check.
     case secretBlocked(message: String)
+    /// The organization's balance is depleted (HTTP 402).
+    case insufficientBalance(detail: String, failedMessageContent: String?)
     /// Generic HTTP or network error.
     case error(statusCode: Int?, message: String, failedMessageContent: String?)
 }
@@ -131,6 +133,11 @@ public struct MessageClient: MessageClientProtocol {
                 let errorBody = String(data: response.data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (422): \(errorBody)")
                 return .error(statusCode: 422, message: "Failed to send message (HTTP 422)", failedMessageContent: content)
+            } else if response.statusCode == 402 {
+                let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+                let detail = (json?["detail"] as? String) ?? "Insufficient balance. Please add funds to continue."
+                log.warning("Send message blocked by billing guard (402)")
+                return .insufficientBalance(detail: detail, failedMessageContent: content)
             } else {
                 let errorBody = String(data: response.data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(response.statusCode)): \(errorBody)")
