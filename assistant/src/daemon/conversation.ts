@@ -176,6 +176,14 @@ export class Conversation {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ trustContext?: TrustContext;
+  /**
+   * Per-turn snapshots of persona-relevant context, captured at the start of
+   * each message processing turn. The system prompt callback reads these
+   * instead of the live fields so that a concurrent request cannot swap
+   * another actor's persona mid-turn.
+   */
+  /** @internal */ currentTurnTrustContext?: TrustContext;
+  /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -359,8 +367,8 @@ export class Conversation {
           ? systemPrompt
           : (() => {
               const persona = resolvePersonaContext(
-                this.trustContext,
-                this.channelCapabilities,
+                this.currentTurnTrustContext,
+                this.currentTurnChannelCapabilities,
               );
               return buildSystemPrompt({
                 hasNoClient: this.hasNoClient,

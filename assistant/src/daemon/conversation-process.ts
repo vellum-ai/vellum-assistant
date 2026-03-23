@@ -31,7 +31,10 @@ import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
+import type {
+  ChannelCapabilities,
+  TrustContext,
+} from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import type {
@@ -80,6 +83,11 @@ export interface ProcessConversationContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   trustContext?: TrustContext;
+  channelCapabilities?: ChannelCapabilities;
+  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
+  currentTurnTrustContext?: TrustContext;
+  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
+  currentTurnChannelCapabilities?: ChannelCapabilities;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(
     content: string,
@@ -281,6 +289,11 @@ export async function drainQueue(
       conversation.addPreactivatedSkillId("computer-use");
     }
   }
+
+  // Snapshot persona context at turn start so later tool turns can't pick up
+  // a different actor's context if a concurrent request mutates the live fields.
+  conversation.currentTurnTrustContext = conversation.trustContext;
+  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
 
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
@@ -561,6 +574,10 @@ export async function processMessage(
   displayContent?: string,
 ): Promise<string> {
   await conversation.ensureActorScopedHistory();
+  // Snapshot persona context at turn start so later tool turns can't pick up
+  // a different actor's context if a concurrent request mutates the live fields.
+  conversation.currentTurnTrustContext = conversation.trustContext;
+  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;
   conversation.currentPage = currentPage;
   const trimmedContent = content.trim();
