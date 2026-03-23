@@ -112,8 +112,12 @@ mock.module("../channels/permission-profiles.js", () => ({
   isToolAllowedInChannel: () => true,
 }));
 
+import { initializeDb, resetDb } from "../memory/db.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+
+// Initialize the DB so ToolApprovalHandler tests can use grant tables
+initializeDb();
 
 // ── Helper factories ─────────────────────────────────────────────────
 
@@ -577,6 +581,7 @@ describe("trusted_auto_approve", () => {
 });
 
 afterAll(() => {
+  resetDb();
   try {
     rmSync(testDir, { recursive: true });
   } catch {
