@@ -2,7 +2,8 @@
  * Unit tests for TwiML generation with voice quality profiles.
  *
  * Tests that generateTwiML correctly uses profile values for
- * ttsProvider, voice, language, and transcriptionProvider.
+ * ttsProvider, voice, language, transcriptionProvider,
+ * profanityFilter, and interruptSensitivity.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -26,6 +27,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('ttsProvider="Google"');
@@ -40,6 +43,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "ElevenLabs",
       voice: "voice123-turbo_v2_5-1_0.5_0.75",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('ttsProvider="ElevenLabs"');
@@ -52,6 +57,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('voice="Google.en-US-Journey-O"');
@@ -63,6 +70,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "ElevenLabs",
       voice: "abc123-turbo_v2_5-1_0.5_0.75",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('voice="abc123-turbo_v2_5-1_0.5_0.75"');
@@ -74,6 +83,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Google",
       ttsProvider: "Google",
       voice: "Google.es-MX-Standard-A",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('language="es-MX"');
@@ -85,6 +96,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Google",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('transcriptionProvider="Google"');
@@ -96,6 +109,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: 'voice<>&"test',
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('voice="voice&lt;&gt;&amp;&quot;test"');
@@ -108,6 +123,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain(`callSessionId=${callSessionId}`);
@@ -119,6 +136,8 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).toContain('interruptible="true"');
@@ -131,8 +150,70 @@ describe("generateTwiML with voice quality profile", () => {
       transcriptionProvider: "Deepgram",
       ttsProvider: "Google",
       voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
     });
 
     expect(twiml).not.toContain("welcomeGreeting=");
+  });
+
+  test('TwiML includes profanityFilter="false"', () => {
+    const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, {
+      language: "en-US",
+      transcriptionProvider: "Deepgram",
+      ttsProvider: "Google",
+      voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
+    });
+
+    expect(twiml).toContain('profanityFilter="false"');
+  });
+
+  test('TwiML includes interruptSensitivity="low" when profile has low', () => {
+    const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, {
+      language: "en-US",
+      transcriptionProvider: "Deepgram",
+      ttsProvider: "Google",
+      voice: "Google.en-US-Journey-O",
+      profanityFilter: false,
+      interruptSensitivity: "low",
+    });
+
+    expect(twiml).toContain('interruptSensitivity="low"');
+  });
+
+  test("custom interruptSensitivity values are reflected correctly", () => {
+    const twimlMedium = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "Google",
+        voice: "Google.en-US-Journey-O",
+        profanityFilter: false,
+        interruptSensitivity: "medium",
+      },
+    );
+
+    expect(twimlMedium).toContain('interruptSensitivity="medium"');
+
+    const twimlHigh = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "Google",
+        voice: "Google.en-US-Journey-O",
+        profanityFilter: false,
+        interruptSensitivity: "high",
+      },
+    );
+
+    expect(twimlHigh).toContain('interruptSensitivity="high"');
   });
 });
