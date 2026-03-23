@@ -1,10 +1,18 @@
 import { existsSync, readFileSync } from "fs";
 
 import { findAssistantByName } from "../lib/assistant-config.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   loadGuardianToken,
   leaseGuardianToken,
 } from "../lib/guardian-token.js";
+import {
+  readPlatformToken,
+  fetchOrganizationId,
+  rollbackPlatformAssistant,
+  platformImportPreflight,
+  platformImportBundle,
+} from "../lib/platform-client.js";
 import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
 
 function printUsage(): void {
@@ -152,6 +160,252 @@ interface ImportResponse {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Platform (Vellum-hosted) restore via Django migration import
+// ---------------------------------------------------------------------------
+
+async function restorePlatform(
+  entry: AssistantEntry,
+  name: string,
+  bundleData: Buffer,
+  opts: { version?: string; dryRun: boolean },
+): Promise<void> {
+  // Step 1 — Authenticate
+  const token = readPlatformToken();
+  if (!token) {
+    console.error("Not logged in. Run 'vellum login' first.");
+    process.exit(1);
+  }
+
+  let orgId: string;
+  try {
+    orgId = await fetchOrganizationId(token);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("401") || msg.includes("403")) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  // Step 2 — Dry-run path
+  if (opts.dryRun) {
+    if (opts.version) {
+      console.error(
+        "Dry-run is not supported with --version. Use `vellum restore --from <path> --dry-run` for data-only preflight.",
+      );
+      process.exit(1);
+    }
+
+    console.log("Running preflight analysis...\n");
+
+    let preflightResult: { statusCode: number; body: Record<string, unknown> };
+    try {
+      preflightResult = await platformImportPreflight(bundleData, token, orgId);
+    } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        console.error("Error: Preflight request timed out after 2 minutes.");
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    if (
+      preflightResult.statusCode === 401 ||
+      preflightResult.statusCode === 403
+    ) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+      process.exit(1);
+    }
+
+    if (preflightResult.statusCode === 404) {
+      console.error(
+        "No managed assistant found. Ensure your assistant is running.",
+      );
+      process.exit(1);
+    }
+
+    if (preflightResult.statusCode === 409) {
+      console.error(
+        "Multiple assistants found. This is a platform configuration issue.",
+      );
+      process.exit(1);
+    }
+
+    if (
+      preflightResult.statusCode === 502 ||
+      preflightResult.statusCode === 503 ||
+      preflightResult.statusCode === 504
+    ) {
+      console.error(
+        `Assistant is unreachable. Try 'vellum wake ${name}' first.`,
+      );
+      process.exit(1);
+    }
+
+    if (preflightResult.statusCode !== 200) {
+      console.error(
+        `Error: Preflight check failed (${preflightResult.statusCode}): ${JSON.stringify(preflightResult.body)}`,
+      );
+      process.exit(1);
+    }
+
+    const result = preflightResult.body as unknown as PreflightResponse;
+
+    if (!result.can_import) {
+      if (result.validation?.errors?.length) {
+        console.error("Import blocked by validation errors:");
+        for (const err of result.validation.errors) {
+          console.error(
+            `  - ${err.message}${err.path ? ` (${err.path})` : ""}`,
+          );
+        }
+      }
+      if (result.conflicts?.length) {
+        console.error("Import blocked by conflicts:");
+        for (const conflict of result.conflicts) {
+          console.error(
+            `  - ${conflict.message}${conflict.path ? ` (${conflict.path})` : ""}`,
+          );
+        }
+      }
+      process.exit(1);
+    }
+
+    // Print summary table
+    const summary = result.summary ?? {
+      files_to_create: 0,
+      files_to_overwrite: 0,
+      files_unchanged: 0,
+      total_files: 0,
+    };
+    console.log("Preflight analysis:");
+    console.log(`  Files to create:    ${summary.files_to_create}`);
+    console.log(`  Files to overwrite: ${summary.files_to_overwrite}`);
+    console.log(`  Files unchanged:    ${summary.files_unchanged}`);
+    console.log(`  Total:              ${summary.total_files}`);
+    console.log("");
+
+    const conflicts = result.conflicts ?? [];
+    console.log(
+      `Conflicts: ${conflicts.length > 0 ? conflicts.map((c) => c.message).join(", ") : "none"}`,
+    );
+
+    // List individual files with their action
+    if (result.files && result.files.length > 0) {
+      console.log("");
+      console.log("Files:");
+      for (const file of result.files) {
+        console.log(`  [${file.action}] ${file.path}`);
+      }
+    }
+
+    return;
+  }
+
+  // Step 3 — Version rollback (if --version set)
+  if (opts.version) {
+    console.log(
+      `Rolling back to version ${opts.version} before restoring data...`,
+    );
+
+    try {
+      await rollbackPlatformAssistant(token, orgId, opts.version);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("401") || msg.includes("403")) {
+        console.error("Authentication failed. Run 'vellum login' to refresh.");
+        process.exit(1);
+      }
+      console.error(`Error: Rollback failed — ${msg}`);
+      process.exit(1);
+    }
+
+    console.log(
+      `Rolled back to ${opts.version}. Proceeding with data restore...`,
+    );
+  }
+
+  // Step 4 — Data import
+  console.log("Importing backup data...");
+
+  let importResult: { statusCode: number; body: Record<string, unknown> };
+  try {
+    importResult = await platformImportBundle(bundleData, token, orgId);
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.error("Error: Import request timed out after 2 minutes.");
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  if (importResult.statusCode === 401 || importResult.statusCode === 403) {
+    console.error("Authentication failed. Run 'vellum login' to refresh.");
+    process.exit(1);
+  }
+
+  if (importResult.statusCode === 404) {
+    console.error(
+      "No managed assistant found. Ensure your assistant is running.",
+    );
+    process.exit(1);
+  }
+
+  if (importResult.statusCode === 409) {
+    console.error(
+      "Multiple assistants found. This is a platform configuration issue.",
+    );
+    process.exit(1);
+  }
+
+  if (
+    importResult.statusCode === 502 ||
+    importResult.statusCode === 503 ||
+    importResult.statusCode === 504
+  ) {
+    console.error(`Assistant is unreachable. Try 'vellum wake ${name}' first.`);
+    process.exit(1);
+  }
+
+  const result = importResult.body as unknown as ImportResponse;
+
+  if (!result.success) {
+    console.error(
+      `Error: Import failed — ${result.message ?? result.reason ?? "unknown reason"}`,
+    );
+    for (const err of result.errors ?? []) {
+      console.error(`  - ${err.message}${err.path ? ` (${err.path})` : ""}`);
+    }
+    process.exit(1);
+  }
+
+  // Print import report
+  const summary = result.summary ?? {
+    total_files: 0,
+    files_created: 0,
+    files_overwritten: 0,
+    files_skipped: 0,
+    backups_created: 0,
+  };
+  console.log("Restore complete.");
+  console.log(`  Files created:     ${summary.files_created}`);
+  console.log(`  Files overwritten: ${summary.files_overwritten}`);
+  console.log(`  Files skipped:     ${summary.files_skipped}`);
+  console.log(`  Backups created:   ${summary.backups_created}`);
+
+  // Print warnings if any
+  const warnings = result.warnings ?? [];
+  if (warnings.length > 0) {
+    console.log("");
+    console.log("Warnings:");
+    for (const warning of warnings) {
+      console.log(`  ⚠️  ${warning}`);
+    }
+  }
+}
+
 export async function restore(): Promise<void> {
   const { name, fromPath, version, dryRun, help } = parseArgs(process.argv);
 
@@ -201,6 +455,14 @@ export async function restore(): Promise<void> {
   const bundleData = readFileSync(fromPath);
   const sizeMB = (bundleData.byteLength / (1024 * 1024)).toFixed(2);
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
+
+  // Detect topology and route platform assistants through Django import
+  const cloud =
+    entry.cloud || (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
+  if (cloud === "vellum") {
+    await restorePlatform(entry, name, bundleData, { version, dryRun });
+    return;
+  }
 
   // Obtain auth token (acquired before dry-run or before data import;
   // re-acquired after version rollback since containers restart).
@@ -304,18 +566,6 @@ export async function restore(): Promise<void> {
   } else {
     // Version rollback (when --version is specified)
     if (version) {
-      const cloud =
-        entry.cloud ||
-        (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
-      if (cloud !== "docker") {
-        console.error(
-          "Restore with --version is only supported for Docker assistants. " +
-            "For managed assistants, use `vellum rollback --version <version>` to change the version, " +
-            "then `vellum restore --from <path>` to import data.",
-        );
-        process.exit(1);
-      }
-
       console.log(`Rolling back to version ${version}...`);
       await performDockerRollback(entry, { targetVersion: version });
       console.log("");
