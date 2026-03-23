@@ -67,26 +67,15 @@ struct MarkdownSegmentView: View, Equatable {
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let language, !language.isEmpty {
-                            Text(language)
-                                .font(.system(size: scaledCodeLabelSize, weight: .medium))
-                                .foregroundColor(mutedTextColor)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.top, VSpacing.xs)
-                        }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(code)
-                                .font(.custom("DMMono-Regular", size: 13))
-                                .foregroundColor(textColor)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: true, vertical: true)
-                                .padding(VSpacing.sm)
-                        }
-                    }
-                    .optionalMaxWidth(maxContentWidth)
-                    .background(codeBackgroundColor)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    CodeBlockView(
+                        language: language,
+                        code: code,
+                        scaledCodeLabelSize: scaledCodeLabelSize,
+                        textColor: textColor,
+                        mutedTextColor: mutedTextColor,
+                        codeBackgroundColor: codeBackgroundColor,
+                        maxContentWidth: maxContentWidth
+                    )
 
                 case .table(let headers, let rows):
                     MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
@@ -375,6 +364,62 @@ struct MarkdownSegmentView: View, Equatable {
         }
 
         return result
+    }
+}
+
+// MARK: - Code Block View
+
+/// Renders a fenced code block with an optional language label and a
+/// hover-revealed copy-to-clipboard button.
+private struct CodeBlockView: View {
+    let language: String?
+    let code: String
+    let scaledCodeLabelSize: CGFloat
+    let textColor: Color
+    let mutedTextColor: Color
+    let codeBackgroundColor: Color
+    let maxContentWidth: CGFloat?
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let language, !language.isEmpty {
+                // Header bar with language label + copy button
+                HStack {
+                    Text(language)
+                        .font(.system(size: scaledCodeLabelSize, weight: .medium))
+                        .foregroundStyle(mutedTextColor)
+                    Spacer()
+                    VCopyButton(text: code, size: .compact)
+                        .opacity(isHovered ? 1 : 0)
+                        .animation(VAnimation.fast, value: isHovered)
+                }
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.top, VSpacing.xs)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(.custom("DMMono-Regular", size: 13))
+                    .foregroundStyle(textColor)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(VSpacing.sm)
+            }
+        }
+        .optionalMaxWidth(maxContentWidth)
+        .background(codeBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(alignment: .topTrailing) {
+            if language == nil || language?.isEmpty == true {
+                VCopyButton(text: code, size: .compact)
+                    .opacity(isHovered ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHovered)
+                    .padding(VSpacing.xs)
+            }
+        }
+        .onHover { isHovered = $0 }
     }
 }
 
