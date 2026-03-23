@@ -6,7 +6,6 @@ export interface VoiceQualityProfile {
   speechModel?: string;
   ttsProvider: string;
   voice: string;
-  profanityFilter: boolean;
   interruptSensitivity: string;
   hints: string[];
 }
@@ -78,7 +77,6 @@ export function resolveVoiceQualityProfile(
     speechModel: effectiveSpeechModel,
     ttsProvider: fishAudio ? "Google" : "ElevenLabs",
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
-    profanityFilter: false,
     interruptSensitivity: voice.interruptSensitivity ?? "low",
     hints: voice.hints ?? [],
   };

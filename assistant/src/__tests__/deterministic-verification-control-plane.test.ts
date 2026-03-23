@@ -128,7 +128,6 @@ describe("TwiML parameter propagation", () => {
     transcriptionProvider: "deepgram",
     ttsProvider: "google",
     voice: "en-US-Standard-A",
-    profanityFilter: false,
     interruptSensitivity: "low",
   };
 

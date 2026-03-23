@@ -125,20 +125,6 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("voice1-turbo_v2_5-0.9_0.8_0.9");
   });
 
-  test("profanityFilter is always false", () => {
-    mockConfig = {
-      elevenlabs: { voiceId: "abc" },
-      calls: {
-        voice: {
-          language: "en-US",
-          transcriptionProvider: "Deepgram",
-        },
-      },
-    };
-    const profile = resolveVoiceQualityProfile();
-    expect(profile.profanityFilter).toBe(false);
-  });
-
   test("interruptSensitivity defaults to 'low' when not configured", () => {
     mockConfig = {
       elevenlabs: { voiceId: "abc" },
