@@ -13,6 +13,7 @@ struct MemoryItemDetailSheet: View {
     @State var editStatus: String
     @State var editImportance: Double
     @State var detailItem: MemoryItemPayload?
+    @State var editBaseline: MemoryItemPayload?
     @State var isSaving = false
     @State var showDeleteConfirm = false
     @State var errorMessage: String?
@@ -58,11 +59,12 @@ struct MemoryItemDetailSheet: View {
                         VButton(label: "Cancel", style: .outlined) {
                             isEditing = false
                             errorMessage = nil
-                            editSubject = item.subject
-                            editStatement = item.statement
-                            editKind = item.kind
-                            editStatus = item.status
-                            editImportance = item.importance ?? 0.5
+                            editBaseline = nil
+                            editSubject = displayItem.subject
+                            editStatement = displayItem.statement
+                            editKind = displayItem.kind
+                            editStatus = displayItem.status
+                            editImportance = displayItem.importance ?? 0.5
                         }
                         VButton(
                             label: isSaving ? "Saving..." : "Save",
@@ -88,6 +90,12 @@ struct MemoryItemDetailSheet: View {
                             leftIcon: VIcon.pencil.rawValue,
                             style: .primary
                         ) {
+                            editBaseline = displayItem
+                            editSubject = displayItem.subject
+                            editStatement = displayItem.statement
+                            editKind = displayItem.kind
+                            editStatus = displayItem.status
+                            editImportance = displayItem.importance ?? 0.5
                             isEditing = true
                         }
                     }
