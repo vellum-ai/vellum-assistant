@@ -12,6 +12,7 @@ export type {
   ImageGenerationService,
   InferenceService,
   IngressConfig,
+  JournalConfig,
   LogFileConfig,
   MemoryConfig,
   MemoryEmbeddingsConfig,
