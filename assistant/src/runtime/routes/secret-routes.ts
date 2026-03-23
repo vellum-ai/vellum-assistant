@@ -21,6 +21,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
+  getSecureKeyResultAsync,
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -350,13 +351,13 @@ export async function handleReadSecret(req: Request): Promise<Response> {
       );
     }
 
-    const value = await getSecureKeyAsync(accountKey);
+    const { value, unreachable } = await getSecureKeyResultAsync(accountKey);
     if (value === undefined) {
-      return Response.json({ found: false });
+      return Response.json({ found: false, unreachable });
     }
 
     if (reveal) {
-      return Response.json({ found: true, value });
+      return Response.json({ found: true, value, unreachable: false });
     }
 
     // Mask the value: show first 10 chars and last 4, hiding at least 3
@@ -366,7 +367,7 @@ export async function handleReadSecret(req: Request): Promise<Response> {
     const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
     const masked = `${value.slice(0, prefixLen)}...${suffixLen > 0 ? value.slice(-suffixLen) : ""}`;
 
-    return Response.json({ found: true, masked });
+    return Response.json({ found: true, masked, unreachable: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, "Failed to read secret via HTTP");

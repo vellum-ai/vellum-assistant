@@ -151,11 +151,15 @@ export async function getSecureKeyResultViaDaemon(
   });
 
   if (res?.ok) {
-    const json = (await res.json()) as { found: boolean; value?: string };
+    const json = (await res.json()) as {
+      found: boolean;
+      value?: string;
+      unreachable?: boolean;
+    };
     if (json.found && json.value != null) {
       return { value: json.value, unreachable: false };
     }
-    return { value: undefined, unreachable: false };
+    return { value: undefined, unreachable: json.unreachable ?? false };
   }
 
   // Fall back to direct read when daemon is unreachable (null) OR returned
