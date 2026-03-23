@@ -260,6 +260,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Secrets
   { endpoint: "secrets", scopes: ["settings.write"] },
   { endpoint: "secrets:GET", scopes: ["settings.read"] },
+  { endpoint: "secrets/read", scopes: ["settings.read"] },
 
   // Pairing (authenticated)
   { endpoint: "pairing/register", scopes: ["settings.write"] },
