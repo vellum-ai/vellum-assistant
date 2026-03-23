@@ -75,6 +75,7 @@ let slackChannelConfigCalls: Array<{
   botToken?: string;
   appToken?: string;
 }> = [];
+let telegramSetupCalls: string[] = [];
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async (providerKey: string) => {
@@ -181,6 +182,60 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
   },
 }));
 
+mock.module("../daemon/handlers/config-telegram.js", () => ({
+  setupTelegram: async (_commands?: unknown, botToken?: string) => {
+    if (botToken) {
+      telegramSetupCalls.push(botToken);
+    }
+
+    const { credentialKey } = await import("../security/credential-key.js");
+    const { getSecureKeyAsync, setSecureKeyAsync } =
+      await import("../security/secure-keys.js");
+    const { upsertCredentialMetadata } =
+      await import("../tools/credentials/metadata-store.js");
+
+    const hasExistingBotToken = !!(await getSecureKeyAsync(
+      credentialKey("telegram", "bot_token"),
+    ));
+    const hasExistingWebhookSecret = !!(await getSecureKeyAsync(
+      credentialKey("telegram", "webhook_secret"),
+    ));
+
+    if (botToken === "123:invalid-token") {
+      return {
+        success: false,
+        hasBotToken: hasExistingBotToken,
+        hasWebhookSecret: hasExistingWebhookSecret,
+        connected: hasExistingBotToken && hasExistingWebhookSecret,
+        error:
+          'Telegram API validation failed: {"ok":false,"error_code":404,"description":"Not Found"}',
+      };
+    }
+
+    if (botToken) {
+      await setSecureKeyAsync(credentialKey("telegram", "bot_token"), botToken);
+      upsertCredentialMetadata("telegram", "bot_token", {});
+    }
+
+    await setSecureKeyAsync(
+      credentialKey("telegram", "webhook_secret"),
+      "generated-webhook-secret",
+    );
+    upsertCredentialMetadata("telegram", "webhook_secret", {});
+    manualConnectionStore["telegram"] = "active";
+
+    return {
+      success: true,
+      hasBotToken: true,
+      hasWebhookSecret: true,
+      connected: true,
+      botId: "123456",
+      botUsername: "testbot",
+      commandsRegistered: ["new", "help"],
+    };
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock public ingress URL — not available in unit tests. The connect
 // orchestrator dynamically imports this for non-interactive flows.
@@ -237,6 +292,7 @@ const _ctx: ToolContext = {
 beforeEach(() => {
   manualConnectionStore = {};
   slackChannelConfigCalls = [];
+  telegramSetupCalls = [];
 });
 
 afterAll(() => {
@@ -725,6 +781,90 @@ describe("credential_store tool — prompt action", () => {
     expect(botResult.content).toContain("invalid_auth");
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBeUndefined();
+  });
+
+  test("telegram bot token prompt runs through the Telegram setup handler", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "123456:telegram-valid-token",
+        delivery: "store" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "telegram",
+        field: "bot_token",
+        label: "Telegram Bot Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(telegramSetupCalls).toEqual(["123456:telegram-valid-token"]);
+    expect(manualConnectionStore["telegram"]).toBe("active");
+    expect(result.content).toContain("Telegram connected as @testbot.");
+    expect(result.content).toContain("Registered commands: /new, /help.");
+    expect(
+      await getSecureKeyAsync(credentialKey("telegram", "bot_token")),
+    ).toBe("123456:telegram-valid-token");
+    expect(
+      await getSecureKeyAsync(credentialKey("telegram", "webhook_secret")),
+    ).toBe("generated-webhook-secret");
+  });
+
+  test("telegram bot token prompt rejects transient send delivery", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "123456:telegram-valid-token",
+        delivery: "transient_send" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "telegram",
+        field: "bot_token",
+        label: "Telegram Bot Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "Telegram bot credentials must be saved to secure storage",
+    );
+    expect(telegramSetupCalls).toEqual([]);
+  });
+
+  test("telegram bot token prompt surfaces setup handler validation errors", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "123:invalid-token",
+        delivery: "store" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "telegram",
+        field: "bot_token",
+        label: "Telegram Bot Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Telegram API validation failed");
+    expect(
+      await getSecureKeyAsync(credentialKey("telegram", "bot_token")),
     ).toBeUndefined();
   });
 
