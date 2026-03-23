@@ -17,9 +17,11 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => TEST_DIR,
 }));
 
-const { buildJournalContext, formatJournalRelativeTime } = await import(
-  "../prompts/journal-context.js"
-);
+const {
+  buildJournalContext,
+  formatJournalRelativeTime,
+  formatJournalAbsoluteTime,
+} = await import("../prompts/journal-context.js");
 
 describe("formatJournalRelativeTime", () => {
   test("returns 'just now' for times less than 60 seconds ago", () => {
@@ -59,6 +61,25 @@ describe("formatJournalRelativeTime", () => {
     expect(formatJournalRelativeTime(now - 30 * 24 * 60 * 60_000)).toBe(
       "4 weeks ago",
     );
+  });
+});
+
+describe("formatJournalAbsoluteTime", () => {
+  test("formats a timestamp as MM/DD/YY HH:MM", () => {
+    // 2025-03-15 14:30:00 UTC
+    const ts = new Date(2025, 2, 15, 14, 30, 0).getTime();
+    expect(formatJournalAbsoluteTime(ts)).toBe("03/15/25 14:30");
+  });
+
+  test("zero-pads single-digit months, days, hours, and minutes", () => {
+    // 2025-01-05 09:05:00
+    const ts = new Date(2025, 0, 5, 9, 5, 0).getTime();
+    expect(formatJournalAbsoluteTime(ts)).toBe("01/05/25 09:05");
+  });
+
+  test("handles midnight", () => {
+    const ts = new Date(2025, 5, 20, 0, 0, 0).getTime();
+    expect(formatJournalAbsoluteTime(ts)).toBe("06/20/25 00:00");
   });
 });
 
@@ -237,7 +258,7 @@ describe("buildJournalContext", () => {
     expect(result).not.toContain("LEAVING CONTEXT");
   });
 
-  test("includes relative timestamps in headers", () => {
+  test("includes both absolute and relative timestamps in headers", () => {
     const now = new Date();
 
     writeFileSync(join(journalDir, "recent.md"), "recent content");
@@ -246,6 +267,9 @@ describe("buildJournalContext", () => {
 
     const result = buildJournalContext(10)!;
     expect(result).toContain("3 hours ago");
+    // Should also contain the absolute timestamp in MM/DD/YY HH:MM format
+    const expected = formatJournalAbsoluteTime(recentTime.getTime());
+    expect(result).toContain(expected);
   });
 
   test("middle entries have plain headers with relative time", () => {
@@ -274,6 +298,7 @@ describe("buildJournalContext", () => {
 
     const result = buildJournalContext(3)!;
     // Middle entry should have plain header format (no MOST RECENT, no LEAVING CONTEXT)
-    expect(result).toMatch(/## middle\.md \(\d+ hours? ago\)/);
+    // Format: ## middle.md (MM/DD/YY HH:MM, N hours ago)
+    expect(result).toMatch(/## middle\.md \(\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}, \d+ hours? ago\)/);
   });
 });

@@ -4,6 +4,19 @@ import { join } from "node:path";
 import { getWorkspaceDir } from "../util/platform.js";
 
 /**
+ * Format a Unix-epoch millisecond value as "MM/DD/YY HH:MM".
+ */
+export function formatJournalAbsoluteTime(mtime: number): string {
+  const d = new Date(mtime);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear() % 100).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd}/${yy} ${hh}:${min}`;
+}
+
+/**
  * Return a human-readable relative timestamp from a Unix-epoch millisecond
  * value to "now".
  */
@@ -87,17 +100,19 @@ export function buildJournalContext(maxEntries: number): string | null {
       continue;
     }
     const relativeTime = formatJournalRelativeTime(entry.mtimeMs);
+    const absoluteTime = formatJournalAbsoluteTime(entry.mtimeMs);
+    const timestamp = `${absoluteTime}, ${relativeTime}`;
 
     let header: string;
     if (i === 0) {
-      header = `## ${entry.filename} — MOST RECENT (${relativeTime})`;
+      header = `## ${entry.filename} — MOST RECENT (${timestamp})`;
     } else if (i === entries.length - 1 && entries.length === maxEntries) {
-      header = `## ${entry.filename} — LEAVING CONTEXT (${relativeTime})`;
+      header = `## ${entry.filename} — LEAVING CONTEXT (${timestamp})`;
       header +=
         "\nNOTE: This is the oldest entry in your active context. When you write your next journal entry, carry forward anything from here that still matters to you — after that, this entry will only be available via the filesystem and memory recall.";
       header += "\n";
     } else {
-      header = `## ${entry.filename} (${relativeTime})`;
+      header = `## ${entry.filename} (${timestamp})`;
     }
 
     sections.push(header + "\n" + content);
