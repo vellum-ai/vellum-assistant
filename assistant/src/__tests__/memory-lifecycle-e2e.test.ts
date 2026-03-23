@@ -2,7 +2,7 @@
  * Memory lifecycle E2E regression test.
  *
  * Verifies the new memory pipeline end-to-end:
- * - 6-kind enum items (identity, preference, project, decision, constraint, event)
+ * - Standard-kind enum items (identity, preference, project, decision, constraint, event, journal, capability, ...)
  * - Supersession chains (supersedes/supersededBy fields)
  * - Hybrid search retrieval
  * - Two-layer XML injection format (<memory_context> with sections)
@@ -149,7 +149,7 @@ describe("Memory lifecycle E2E regression", () => {
     }
   });
 
-  test("extraction produces items with 6-kind enum and supersession chains form correctly", async () => {
+  test("extraction produces items with standard-kind enum and supersession chains form correctly", async () => {
     const db = getDb();
     const now = 1_701_100_000_000;
     const conversationId = "conv-memory-lifecycle";
@@ -186,7 +186,7 @@ describe("Memory lifecycle E2E regression", () => {
       ])
       .run();
 
-    // Seed items using the 6-kind enum
+    // Seed items using the standard-kind enum
     const kinds = [
       "identity",
       "preference",
