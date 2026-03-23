@@ -212,6 +212,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
+    "11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links), emojis, or special characters. Write plain conversational text only.",
     "</voice_call_control>",
   );
 
