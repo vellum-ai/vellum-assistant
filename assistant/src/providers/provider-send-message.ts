@@ -5,12 +5,10 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import { getLogger } from "../util/logger.js";
 import {
-  getFailoverProvider,
+  getProvider,
   initializeProviders,
   listProviders,
-  resolveProviderSelection,
 } from "./registry.js";
 import type {
   ContentBlock,
@@ -27,9 +25,6 @@ export interface ConfiguredProviderResult {
   usedFallbackPrimary: boolean;
 }
 
-const providerSelectionLog = getLogger("provider-selection");
-let fallbackWarningLogged = false;
-
 /**
  * Cached promise for the lazy initialization path inside
  * `resolveConfiguredProvider`. When multiple concurrent callers enter before
@@ -42,9 +37,6 @@ let lazyInitPromise: Promise<void> | null = null;
  * Resolve the configured provider with full selection metadata.
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
- *
- * Uses fail-open selection: if the configured provider is unavailable but
- * alternates from `config.providerOrder` exist, selects the first available.
  *
  * Returns `null` when no providers are available at all.
  */
@@ -64,32 +56,15 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
     }
   }
 
-  const providerOrder = Array.isArray(config.providerOrder)
-    ? config.providerOrder
-    : [];
   const inferenceProvider = config.services.inference.provider;
-  const selection = resolveProviderSelection(inferenceProvider, providerOrder);
-
-  if (!selection.selectedPrimary) {
-    return null;
-  }
-
-  if (selection.usedFallbackPrimary) {
-    const level = fallbackWarningLogged ? "debug" : "warn";
-    providerSelectionLog[level](
-      { configured: inferenceProvider, selected: selection.selectedPrimary },
-      "Configured provider unavailable, using fallback",
-    );
-    fallbackWarningLogged = true;
-  }
 
   try {
-    const provider = getFailoverProvider(inferenceProvider, providerOrder);
+    const provider = getProvider(inferenceProvider);
     return {
       provider,
       configuredProviderName: inferenceProvider,
-      selectedProviderName: selection.selectedPrimary,
-      usedFallbackPrimary: selection.usedFallbackPrimary,
+      selectedProviderName: inferenceProvider,
+      usedFallbackPrimary: false,
     };
   } catch {
     return null;
@@ -97,7 +72,7 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
 }
 
 /**
- * Resolve the configured provider through the registry/failover path.
+ * Resolve the configured provider through the registry.
  * Thin wrapper around `resolveConfiguredProvider()` for callsites
  * that only need the Provider instance.
  *
