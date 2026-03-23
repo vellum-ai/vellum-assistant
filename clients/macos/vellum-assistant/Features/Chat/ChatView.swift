@@ -264,6 +264,16 @@ struct ChatView: View {
                             containerWidth: containerWidth
                         )
 
+                        if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
+                            CreditsExhaustedBanner(
+                                onAddFunds: { onAddFunds?() },
+                                onDismiss: { onDismissCreditsExhausted?() }
+                            )
+                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, -VSpacing.sm)
+                        }
+
                         let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
                             from: messages,
                             displayedMessageCount: displayedMessageCount

@@ -1018,16 +1018,6 @@ struct MessageListView: View {
                         compactingIndicatorRow()
                     }
 
-                    // Inline credits-exhausted recovery banner
-                    if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
-                        CreditsExhaustedBanner(
-                            onAddFunds: { onAddFunds?() },
-                            onDismiss: { onDismissCreditsExhausted?() }
-                        )
-                        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-
                     Color.clear
                         .frame(height: 1)
                         .id("conversation-tail-anchor")
