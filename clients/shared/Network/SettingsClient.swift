@@ -44,6 +44,7 @@ public protocol SettingsClientProtocol {
     func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage?
     func patchConfig(_ partial: [String: Any]) async -> Bool
     func fetchConfig() async -> [String: Any]?
+    func checkApiKeyExists(provider: String) async -> Bool
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -585,6 +586,28 @@ public struct SettingsClient: SettingsClientProtocol {
         } catch {
             log.error("fetchConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
+        }
+    }
+
+    /// Checks whether the daemon's credential store contains an API key for the
+    /// given provider. Queries the daemon's `secrets/read` endpoint so the
+    /// result reflects the actual store used for inference, not the macOS app's
+    /// local keychain.
+    public func checkApiKeyExists(provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider]
+            let response = try await GatewayHTTPClient.post(
+                path: "secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool else {
+                return false
+            }
+            return found
+        } catch {
+            log.error("checkApiKeyExists error: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

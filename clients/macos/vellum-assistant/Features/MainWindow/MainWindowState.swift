@@ -239,12 +239,13 @@ public final class MainWindowState: ObservableObject {
 
     /// Re-evaluates whether the "API key not set" toast should appear based on
     /// authentication state, the workspace config's inference service mode, and
-    /// the selected provider's API key presence.
+    /// the selected provider's API key presence in the daemon's credential store.
     ///
     /// `needsInferenceApiKey` is `true` only when:
     /// - The user is **not** authenticated, AND
     /// - `services.inference.mode` is `"your-own"`, AND
-    /// - the configured provider (defaulting to `"anthropic"`) has no API key set.
+    /// - the configured provider (defaulting to `"anthropic"`) has no API key
+    ///   in the daemon's credential store.
     ///
     /// Authenticated users always have access to managed inference through the
     /// platform, so the banner is never shown for them.
@@ -254,21 +255,29 @@ public final class MainWindowState: ObservableObject {
             return
         }
         Task {
-            let config = await SettingsClient().fetchConfig() ?? [:]
-            await MainActor.run { applyInferenceApiKeyConfig(config) }
+            let client = SettingsClient()
+            let config = await client.fetchConfig() ?? [:]
+            let result = await resolveInferenceApiKeyNeeded(config: config, client: client)
+            await MainActor.run { needsInferenceApiKey = result }
         }
     }
 
-    private func applyInferenceApiKeyConfig(_ config: [String: Any]) {
+    /// Determines whether the inference API key banner should be shown by
+    /// checking the daemon's credential store rather than the macOS app's
+    /// local keychain.
+    private func resolveInferenceApiKeyNeeded(
+        config: [String: Any],
+        client: SettingsClientProtocol
+    ) async -> Bool {
         guard let services = config["services"] as? [String: Any],
               let inference = services["inference"] as? [String: Any],
               let mode = inference["mode"] as? String,
               mode == "your-own" else {
-            needsInferenceApiKey = false
-            return
+            return false
         }
         let provider = (inference["provider"] as? String) ?? "anthropic"
-        needsInferenceApiKey = APIKeyManager.getKey(for: provider) == nil
+        let exists = await client.checkApiKeyExists(provider: provider)
+        return !exists
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {

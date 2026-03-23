@@ -62,6 +62,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
         func patchConfig(_ partial: [String: Any]) async -> Bool { false }
         func fetchConfig() async -> [String: Any]? { nil }
+        func checkApiKeyExists(provider: String) async -> Bool { false }
     }
 
     private var connectionManager: GatewayConnectionManager!

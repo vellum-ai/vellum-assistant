@@ -189,4 +189,12 @@ final class MockSettingsClient: SettingsClientProtocol {
         fetchConfigCallCount += 1
         return fetchConfigResponse
     }
+
+    var checkApiKeyExistsCalls: [String] = []
+    var checkApiKeyExistsResponse: Bool = false
+
+    func checkApiKeyExists(provider: String) async -> Bool {
+        checkApiKeyExistsCalls.append(provider)
+        return checkApiKeyExistsResponse
+    }
 }
