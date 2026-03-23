@@ -10,7 +10,11 @@ export function sanitizeForTts(text: string): string {
   // 1. Markdown links: [text](url) → text
   //    Only matches the full [...](...) pattern — plain brackets like
   //    Fish Audio S2 annotations ([laughter], [breath]) pass through.
-  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  //    Handles one level of balanced parentheses in URLs (e.g. Wikipedia links).
+  result = result.replace(
+    /\[([^\]]+)\]\([^()]*(?:\([^()]*\))*[^()]*\)/g,
+    "$1",
+  );
 
   // 2. Bold+italic: ***text*** or ___text___ → text
   result = result.replace(/\*{3}(.+?)\*{3}/g, "$1");
@@ -20,11 +24,12 @@ export function sanitizeForTts(text: string): string {
   result = result.replace(/\*{2}(.+?)\*{2}/g, "$1");
   result = result.replace(/_{2}(.+?)_{2}/g, "$1");
 
-  // 4. Headers: strip leading # characters at line starts
-  result = result.replace(/^#{1,6}\s+/gm, "");
-
-  // 5. Code fences: strip ```...``` fences but keep content
+  // 4. Code fences: strip ```...``` fences but keep content
+  //    Must run before header stripping so # comments inside code blocks are preserved.
   result = result.replace(/```[^\n]*\n([\s\S]*?)```\n?/g, "$1");
+
+  // 5. Headers: strip leading # characters at line starts
+  result = result.replace(/^#{1,6}\s+/gm, "");
 
   // 6. Inline code: strip single backticks
   result = result.replace(/`([^`]+)`/g, "$1");
