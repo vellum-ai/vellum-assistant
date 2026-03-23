@@ -8,6 +8,7 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
     case decision
     case constraint
     case event
+    case journal
     case capability
 
     public var id: String { rawValue }
@@ -45,6 +46,7 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         case .decision:   return VColor.funYellow
         case .constraint: return VColor.funCoral
         case .event:      return VColor.funPink
+        case .journal:    return VColor.funBlue
         case .capability: return VColor.funRed
         }
     }
@@ -58,6 +60,7 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         case .decision:   return VIcon.gitBranch.rawValue
         case .constraint: return VIcon.shield.rawValue
         case .event:      return VIcon.calendar.rawValue
+        case .journal:    return VIcon.bookOpen.rawValue
         case .capability: return VIcon.zap.rawValue
         }
     }

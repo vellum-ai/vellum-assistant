@@ -197,7 +197,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Primary: `primaryDisabled`, `primaryBase`, `primaryHover`, `primaryActive`
 - System: `systemPositiveStrong`/`Weak`, `systemNegativeStrong`/`Hover`/`Weak`, `systemMidStrong`/`Weak`
 - Utility: `auxWhite`, `auxBlack` (non-adaptive)
-- Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen` (non-adaptive, decorative)
+- Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen`, `funBlue` (non-adaptive, decorative)
 - Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
 **VFont** — macOS HIG-aligned type scale:

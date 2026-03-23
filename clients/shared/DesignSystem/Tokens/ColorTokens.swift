@@ -388,6 +388,7 @@ public enum VColor {
     public static let funCoral  = Color(hex: 0xE9642F)
     public static let funTeal   = Color(hex: 0x0E9B8B)
     public static let funGreen  = Color(hex: 0x4C9B50)
+    public static let funBlue   = Color(hex: 0x3B82F6)
 
     // Role tag backgrounds — adaptive pastel backgrounds for contact role badges
     public static let tagAssistant = adaptiveColor(light: Color(hex: 0xF0D9E0), dark: Color(hex: 0x3D2A35))
