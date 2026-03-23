@@ -291,15 +291,16 @@ public enum GatewayHTTPClient {
         }
 
         // Rebuild with fresh credentials from the Keychain.
-        log.info("STREAM POST (retry-capable) \(url, privacy: .public) retrying after 401 refresh")
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
+        let retryUrl = retryRequest.url?.absoluteString ?? "<nil>"
+        log.info("STREAM POST (retry-capable) \(retryUrl, privacy: .public) retrying after 401 refresh")
         let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
         let retryStatus = (retryResponse as? HTTPURLResponse)?.statusCode ?? -1
         let retryContentLength = (retryResponse as? HTTPURLResponse)?.expectedContentLength ?? -1
-        log.info("STREAM POST (retry-capable) \(url, privacy: .public) retry → \(retryStatus) content-length=\(retryContentLength)")
+        log.info("STREAM POST (retry-capable) \(retryUrl, privacy: .public) retry → \(retryStatus) content-length=\(retryContentLength)")
         return (retryBytes, retryResponse)
     }
 
