@@ -75,8 +75,6 @@ export interface BackgroundProcessingParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
-  /** External message ID (e.g. Slack message ts) used for reaction indicators. */
-  externalMessageId?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
 }

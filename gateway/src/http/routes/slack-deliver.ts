@@ -613,12 +613,14 @@ export function createSlackDeliverHandler(
 
       // Slack Assistants API thread status indicator.
       // Sets or clears the native "is thinking..." status on a thread.
+      // Falls back to emoji reactions for installs without `assistant:write` scope.
       if (body.assistantThreadStatus) {
         const {
           channel,
           threadTs: statusThreadTs,
           status,
         } = body.assistantThreadStatus;
+        let statusSet = false;
         try {
           const res = await fetchImpl(
             "https://slack.com/api/assistant.threads.setStatus",
@@ -639,17 +641,59 @@ export function createSlackDeliverHandler(
             ok?: boolean;
             error?: string;
           };
-          if (!data.ok) {
+          if (data.ok) {
+            statusSet = true;
+          } else {
             tlog.warn(
               { chatId, slackError: data.error },
-              "Slack assistant.threads.setStatus returned error",
+              "Slack assistant.threads.setStatus returned error, falling back to reaction",
             );
           }
         } catch (err) {
           tlog.warn(
             { err, chatId },
-            "Failed to set Slack assistant thread status",
+            "Failed to set Slack assistant thread status, falling back to reaction",
           );
+        }
+
+        // Fallback: use eyes reaction when setStatus is unavailable
+        // (e.g. missing assistant:write scope on older installs).
+        if (!statusSet) {
+          const isSet = status.length > 0;
+          const method = isSet ? "reactions.add" : "reactions.remove";
+          try {
+            const res = await fetchImpl(`https://slack.com/api/${method}`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${botToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel,
+                name: "eyes",
+                timestamp: statusThreadTs,
+              }),
+            });
+            const data = (await res.json()) as {
+              ok?: boolean;
+              error?: string;
+            };
+            if (
+              !data.ok &&
+              data.error !== "already_reacted" &&
+              data.error !== "no_reaction"
+            ) {
+              tlog.warn(
+                { chatId, method, slackError: data.error },
+                "Slack reaction fallback returned error",
+              );
+            }
+          } catch (err) {
+            tlog.warn(
+              { err, chatId, method },
+              "Failed to deliver Slack reaction fallback",
+            );
+          }
         }
 
         return Response.json({ ok: true });
