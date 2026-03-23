@@ -1,4 +1,9 @@
-import { findContactByAddress, listContacts } from "../contacts/contact-store.js";
+import {
+  findContactByAddress,
+  findGuardianForChannel,
+  listContacts,
+  listGuardianChannels,
+} from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
 import { getLogger } from "../util/logger.js";
@@ -113,38 +118,48 @@ export function resolveCallHints(
     task: string | null;
     toNumber: string;
     fromNumber: string;
+    direction: "inbound" | "outbound";
     inviteFriendName: string | null;
     inviteGuardianName: string | null;
   } | null,
   staticHints: string[],
 ): string {
   const assistantName = getAssistantName();
-  const guardianName = resolveGuardianName();
+
+  // Look up the guardian contact for a displayName fallback (mirrors relay-server pattern)
+  let guardianDisplayName: string | undefined;
+  try {
+    const voiceGuardian = findGuardianForChannel("phone");
+    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
+    const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
+    guardianDisplayName = guardianContact?.displayName;
+  } catch (err) {
+    logger.warn({ err }, "Failed to look up guardian contact for STT hints");
+  }
+  const guardianName = resolveGuardianName(guardianDisplayName);
 
   let targetContactName: string | null = null;
   let callerContactName: string | null = null;
   let recentContactNames: string[] = [];
 
+  // For inbound calls, fromNumber is the caller (the interesting party);
+  // toNumber is the assistant's own Twilio number (not useful for contact lookup).
+  // For outbound calls, toNumber is who we're calling.
   try {
     if (session) {
-      const targetContact = findContactByAddress("phone", session.toNumber);
-      if (targetContact) {
-        targetContactName = targetContact.displayName;
+      const otherPartyNumber =
+        session.direction === "inbound" ? session.fromNumber : session.toNumber;
+      const otherPartyContact = findContactByAddress("phone", otherPartyNumber);
+      if (otherPartyContact) {
+        if (session.direction === "inbound") {
+          callerContactName = otherPartyContact.displayName;
+        } else {
+          targetContactName = otherPartyContact.displayName;
+        }
       }
     }
   } catch (err) {
-    logger.warn({ err }, "Failed to look up target contact for STT hints");
-  }
-
-  try {
-    if (session) {
-      const callerContact = findContactByAddress("phone", session.fromNumber);
-      if (callerContact) {
-        callerContactName = callerContact.displayName;
-      }
-    }
-  } catch (err) {
-    logger.warn({ err }, "Failed to look up caller contact for STT hints");
+    logger.warn({ err }, "Failed to look up contact for STT hints");
   }
 
   try {
