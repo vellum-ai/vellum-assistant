@@ -304,16 +304,18 @@ stateDiagram-v2
     Superseded --> Cleanup : cleanup_stale_superseded_items\n(delete from DB + Qdrant)
 ```
 
-**Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of six kinds:
+**Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of eight kinds:
 
-| Kind         | Description                                       | Base Lifetime |
-| ------------ | ------------------------------------------------- | ------------- |
-| `identity`   | Personal info, facts, relationships               | 6 months      |
-| `preference` | Likes, dislikes, preferred approaches/tools       | 3 months      |
-| `constraint` | Rules, requirements, directives                   | 1 month       |
-| `project`    | Project details, repos, tech stacks, action items | 2 weeks       |
-| `decision`   | Choices made, approaches selected                 | 2 weeks       |
-| `event`      | Deadlines, milestones, meetings, dates            | 3 days        |
+| Kind         | Description                                                        | Base Lifetime |
+| ------------ | ------------------------------------------------------------------ | ------------- |
+| `identity`   | Personal info, facts, relationships                                | 6 months      |
+| `preference` | Likes, dislikes, preferred approaches/tools                        | 3 months      |
+| `journal`    | Experiential reflections, journal-style notes, forward-looking items | 3 months      |
+| `constraint` | Rules, requirements, directives                                    | 1 month       |
+| `project`    | Project details, repos, tech stacks, action items                  | 2 weeks       |
+| `decision`   | Choices made, approaches selected                                  | 2 weeks       |
+| `event`      | Deadlines, milestones, meetings, dates                             | 3 days        |
+| `capability` | Skill catalog entries (system-generated, not LLM-extracted)        | never expires |
 
 **Supersession chains** replace the old conflict resolution system. When the LLM extracts a new item that updates an existing one, it sets `supersedes` to the old item's ID and `overrideConfidence` to one of three levels:
 
