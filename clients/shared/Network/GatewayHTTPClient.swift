@@ -213,12 +213,11 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let url = request.url?.absoluteString ?? "<nil>"
-        log.info("STREAM GET \(url, privacy: .public) body=0B")
+        logOutgoing(request)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
-        log.info("STREAM GET \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
         return (bytes, response)
     }
 
@@ -238,12 +237,11 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        let url = request.url?.absoluteString ?? "<nil>"
-        log.info("STREAM POST \(url, privacy: .public) body=\(body.count)B")
+        logOutgoing(request)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
-        log.info("STREAM POST \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
         return (bytes, response)
     }
 
@@ -267,17 +265,16 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        let url = request.url?.absoluteString ?? "<nil>"
-        log.info("STREAM POST (retry-capable) \(url, privacy: .public) body=\(body.count)B")
+        logOutgoing(request)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
-        log.info("STREAM POST (retry-capable) \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
 
-        guard let http = response as? HTTPURLResponse,
-              http.statusCode == 401,
-              !connection.isManaged else {
+        guard let http = response as? HTTPURLResponse else {
+            return (bytes, response)
+        }
+        logResponse(request, http: http)
+
+        guard http.statusCode == 401, !connection.isManaged else {
             return (bytes, response)
         }
 
@@ -295,12 +292,11 @@ public enum GatewayHTTPClient {
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
-        let retryUrl = retryRequest.url?.absoluteString ?? "<nil>"
-        log.info("STREAM POST (retry-capable) \(retryUrl, privacy: .public) retrying after 401 refresh")
+        logOutgoing(retryRequest)
         let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
-        let retryStatus = (retryResponse as? HTTPURLResponse)?.statusCode ?? -1
-        let retryContentLength = (retryResponse as? HTTPURLResponse)?.expectedContentLength ?? -1
-        log.info("STREAM POST (retry-capable) \(retryUrl, privacy: .public) retry → \(retryStatus) content-length=\(retryContentLength)")
+        if let retryHttp = retryResponse as? HTTPURLResponse {
+            logResponse(retryRequest, http: retryHttp)
+        }
         return (retryBytes, retryResponse)
     }
 
@@ -493,15 +489,36 @@ public enum GatewayHTTPClient {
         return request
     }
 
+    // MARK: - Logging Helpers
+
+    /// Extracts the URL path without query parameters for logging.
+    private static func logPath(from url: URL?) -> String {
+        guard let url = url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "<nil>"
+        }
+        components.query = nil
+        return components.string ?? url.absoluteString
+    }
+
+    private static func logOutgoing(_ request: URLRequest) {
+        let path = logPath(from: request.url)
+        let bodyLength = request.httpBody?.count ?? 0
+        log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) body=\(bodyLength)B")
+    }
+
+    private static func logResponse(_ request: URLRequest, http: HTTPURLResponse) {
+        let path = logPath(from: request.url)
+        log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) → \(http.statusCode) content-length=\(http.expectedContentLength)")
+    }
+
     /// Executes a `URLRequest` and wraps the result in a `Response`.
     private static func execute(_ request: URLRequest) async throws -> Response {
-        let url = request.url?.absoluteString ?? "<nil>"
-        let bodyLength = request.httpBody?.count ?? 0
-        log.info("\(request.httpMethod ?? "?", privacy: .public) \(url, privacy: .public) body=\(bodyLength)B")
-
+        logOutgoing(request)
         let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        log.info("\(request.httpMethod ?? "?", privacy: .public) \(url, privacy: .public) → \(statusCode) body=\(data.count)B")
         return Response(data: data, statusCode: statusCode)
     }
 
