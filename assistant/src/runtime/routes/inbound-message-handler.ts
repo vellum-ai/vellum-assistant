@@ -507,6 +507,15 @@ export async function handleChannelInbound(
     !result.duplicate &&
     !guardianReplyResult.skipApprovalInterception
   ) {
+    // Extract the original approval message timestamp for Slack button
+    // cleanup. When a Slack block_actions payload is forwarded, the gateway
+    // sets sourceMetadata.messageId to the ts of the message containing
+    // the button. This lets us edit the message after resolution.
+    const approvalMessageTs =
+      sourceChannel === "slack" && typeof sourceMetadata?.messageId === "string"
+        ? sourceMetadata.messageId
+        : undefined;
+
     const approvalResult = await handleApprovalInterception({
       conversationId: result.conversationId,
       callbackData: body.callbackData,
@@ -520,6 +529,7 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
+      approvalMessageTs,
     });
 
     if (approvalResult.handled) {
@@ -596,6 +606,27 @@ export async function handleChannelInbound(
             "Failed to record seen signal for stale callback",
           );
         }
+      }
+
+      // On Slack, edit the original approval message to remove stale buttons
+      // and deliver an ephemeral error so the user gets visible feedback
+      // instead of a silent no-op (JARVIS-299).
+      if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
+        deliverChannelReply(
+          replyCallbackUrl,
+          {
+            chatId: conversationExternalId,
+            text: "This approval request has been resolved.",
+            messageTs: approvalMessageTs,
+            assistantId: canonicalAssistantId,
+          },
+          mintBearerToken(),
+        ).catch((err) => {
+          log.error(
+            { err, conversationId: result.conversationId },
+            "Failed to edit stale Slack approval message",
+          );
+        });
       }
 
       return Response.json({
