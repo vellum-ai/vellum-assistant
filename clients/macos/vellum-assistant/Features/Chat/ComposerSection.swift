@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 struct ComposerSection: View {
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isSending: Bool
     let hasPendingConfirmation: Bool
     var onAllowPendingConfirmation: (() -> Void)? = nil
@@ -40,7 +39,6 @@ struct ComposerSection: View {
 
             ComposerView(
                 inputText: $inputText,
-                hasAPIKey: hasAPIKey,
                 isSending: isSending,
                 hasPendingConfirmation: hasPendingConfirmation,
                 onAllowPendingConfirmation: onAllowPendingConfirmation,

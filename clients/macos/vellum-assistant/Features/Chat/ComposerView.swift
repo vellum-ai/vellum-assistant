@@ -37,7 +37,6 @@ struct ComposerView: View {
     }
 
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isSending: Bool
     let hasPendingConfirmation: Bool
     var onAllowPendingConfirmation: (() -> Void)? = nil
@@ -123,7 +122,7 @@ struct ComposerView: View {
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
-        .disabled(!hasAPIKey || !isInteractionEnabled)
+        .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
             // Delay focus slightly so the NSTextView field editor is fully
@@ -397,7 +396,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { onAttach() }
                 )
-                .disabled(!hasAPIKey)
+
                 .vTooltip("Attach file")
 
                 Spacer()
@@ -421,7 +420,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { onVoiceModeToggle?() }
                 )
-                .disabled(!hasAPIKey)
+
                 .vTooltip("Live voice conversation")
 
                 // Dictate button
@@ -432,7 +431,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
-                .disabled(!hasAPIKey)
+
                 .vTooltip(micTooltipText)
 
                 // Send button (always visible, disabled when empty)
@@ -456,7 +455,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
-                .disabled(!hasAPIKey)
+
                 .vTooltip(micTooltipText)
 
                 // Send button
@@ -480,7 +479,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { onVoiceModeToggle?() }
                 )
-                .disabled(!hasAPIKey)
+
 
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
@@ -489,7 +488,7 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
-                .disabled(!hasAPIKey)
+
 
                 VButton(
                     label: "Send message",
@@ -651,8 +650,7 @@ VStreamingWaveform(
     var canSend: Bool {
         // Block send while an attachment is still loading: the user tapping Send
         // before the async load completes would drop the attachment from the message.
-        hasAPIKey
-            && !isLoadingAttachment
+        !isLoadingAttachment
             && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
 

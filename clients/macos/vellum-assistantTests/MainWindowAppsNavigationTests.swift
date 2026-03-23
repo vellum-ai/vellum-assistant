@@ -7,7 +7,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     // MARK: - showPanel(.apps)
 
     func testShowAppsPanelSetsSelectionToApps() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.selection = .conversation(UUID())
 
         state.showPanel(.apps)
@@ -16,7 +16,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     }
 
     func testShowAppsPanelIsIdempotent() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.showPanel(.apps)
         XCTAssertEqual(state.selection, .panel(.apps))
 
@@ -26,7 +26,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     }
 
     func testShowAppsPanelClearsConversationVisible() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         // Simulate a prior app-edit flow that left isAppChatOpen = true
         // by toggling the chat dock while in an app editing state.
         let conversationId = UUID()
@@ -43,7 +43,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     // MARK: - dismissOverlay() clears sticky state
 
     func testDismissOverlayClearsAppChatState() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         let conversationId = UUID()
         state.selection = .conversation(conversationId)
         // Navigate to app editing then dismiss.
@@ -61,7 +61,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     /// panel and transition to the conversation, not keep the app open.
     func testSelectingConversationFromAppEditingDismissesApp() {
         // GIVEN the user is editing an app alongside a conversation
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         let originalConversationId = UUID()
         state.selection = .appEditing(appId: "test-app", conversationId: originalConversationId)
 
@@ -78,7 +78,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     // MARK: - closeDynamicPanel() clears sticky state
 
     func testCloseDynamicPanelClearsAppChatState() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.selection = .app("test-app")
         state.closeDynamicPanel()
 
