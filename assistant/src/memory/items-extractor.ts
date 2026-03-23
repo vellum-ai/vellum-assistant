@@ -1,4 +1,4 @@
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
@@ -188,7 +188,8 @@ Rules:
 - Do NOT extract claims about actions the assistant performed, outcomes it achieved, or progress it reported (e.g., "I booked an appointment", "I sent the email"). Only extract facts stated by the user or from external sources — the assistant's self-reports are not reliable memory material.
 - Do NOT extract raw code snippets, JSON fragments, YAML, configuration values, log output, or data structures. Only extract the human-readable meaning or intent behind such content, not the literal syntax.
 - Prefer fewer high-quality items over many low-quality ones.
-- If the message contains no memorable information, return an empty array.`;
+- If the message contains no memorable information, return an empty array.
+- The preceding conversation context (if provided) is for disambiguation only. Extract items ONLY from the final message after the --- separator, not from the context messages.`;
 
   if (messageRole === "assistant") {
     instructions += `
@@ -320,6 +321,7 @@ async function extractItemsWithLLM(
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
   messageRole: string,
+  precedingMessages: Array<{ role: string; content: string }>,
   userPersona?: string | null,
 ): Promise<ExtractedItem[]> {
   const provider = await getConfiguredProvider();
@@ -342,8 +344,25 @@ async function extractItemsWithLLM(
     messageRole === "assistant"
       ? `[This message is from ${assistantName}]\n\n`
       : `[This message is from the user]\n\n`;
+
+  // Build user content with optional preceding conversation context
+  const contextParts: string[] = [];
+  for (const msg of precedingMessages) {
+    const msgText = extractTextFromStoredMessageContent(msg.content);
+    if (msgText.length === 0) continue;
+    const roleLabel =
+      msg.role === "assistant"
+        ? (getAssistantName() ?? "assistant")
+        : "user";
+    contextParts.push(`[${roleLabel}]: ${msgText}`);
+  }
+  let userContent = `${messagePrefix}${text}`;
+  if (contextParts.length > 0) {
+    userContent = `Preceding conversation context:\n${contextParts.join("\n\n")}\n\n---\n\nMessage to extract from:\n${messagePrefix}${text}`;
+  }
+
   const response = await provider.sendMessage(
-    [userMessage(`${messagePrefix}${text}`)],
+    [userMessage(userContent)],
     [
       {
         name: "store_memory_items",
@@ -493,12 +512,32 @@ export async function extractAndUpsertMemoryItemsForMessage(
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      conversationId: messages.conversationId,
     })
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
 
   if (!message) return 0;
+
+  // Fetch up to 6 preceding messages from the same conversation for
+  // disambiguation context (e.g. resolving "that framework" or "yes, do it").
+  const effectiveConversationId = conversationId ?? message.conversationId;
+  const precedingMessages = effectiveConversationId
+    ? db
+        .select({ role: messages.role, content: messages.content })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, effectiveConversationId),
+            sql`${messages.createdAt} < ${message.createdAt}`,
+          ),
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(6)
+        .all()
+        .reverse()
+    : [];
 
   const text = extractTextFromStoredMessageContent(message.content);
   if (!hasSemanticDensity(text)) {
@@ -528,6 +567,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
     extractionConfig,
     effectiveScopeId,
     message.role,
+    precedingMessages,
     userPersona,
   );
 
