@@ -16,8 +16,12 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { CURRENT_POLICY_EPOCH } from "../policy.js";
 import { resolveScopeProfile } from "../scopes.js";
 import type { Scope, ScopeProfile } from "../types.js";
+// Cross-package import: gateway duplicates the epoch constant and both must
+// stay in sync. Importing directly is more reliable than regex-extracting.
+import { CURRENT_POLICY_EPOCH as GATEWAY_POLICY_EPOCH } from "../../../../../gateway/src/auth/policy.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -337,56 +341,11 @@ describe("scope profile contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("CURRENT_POLICY_EPOCH sync", () => {
-  /**
-   * The policy epoch constant is duplicated in assistant, gateway, and cli
-   * packages. This test reads the exported value from each source file and
-   * asserts they are all equal.
-   */
-
-  const EPOCH_FILES = [
-    {
-      label: "assistant",
-      path: resolve(PROJECT_ROOT, "assistant/src/runtime/auth/policy.ts"),
-    },
-    {
-      label: "gateway",
-      path: resolve(PROJECT_ROOT, "gateway/src/auth/policy.ts"),
-    },
-  ];
-
-  function extractEpoch(filePath: string): number {
-    const src = readFileSync(filePath, "utf-8");
-    const match = src.match(
-      /export\s+const\s+CURRENT_POLICY_EPOCH\s*=\s*(\d+)/,
-    );
-    if (!match) {
-      throw new Error(`Could not find CURRENT_POLICY_EPOCH in ${filePath}`);
-    }
-    return parseInt(match[1], 10);
-  }
-
-  test("all non-skill packages export the same CURRENT_POLICY_EPOCH value", () => {
-    const values = EPOCH_FILES.map((f) => ({
-      label: f.label,
-      epoch: extractEpoch(f.path),
-    }));
-
-    const canonical = values[0];
-    const mismatches = values.filter((v) => v.epoch !== canonical.epoch);
-
-    if (mismatches.length > 0) {
-      const summary = values
-        .map((v) => `  - ${v.label}: ${v.epoch}`)
-        .join("\n");
-      const message = [
-        "CURRENT_POLICY_EPOCH is out of sync across packages:",
-        "",
-        summary,
-        "",
-        "All locations must have the same value.",
+  test("assistant and gateway export the same CURRENT_POLICY_EPOCH value", () => {
+    expect(
+      CURRENT_POLICY_EPOCH,
+      `CURRENT_POLICY_EPOCH mismatch: assistant=${CURRENT_POLICY_EPOCH}, gateway=${GATEWAY_POLICY_EPOCH}. ` +
         "The canonical source is assistant/src/runtime/auth/policy.ts.",
-      ].join("\n");
-      expect(mismatches, message).toEqual([]);
-    }
+    ).toBe(GATEWAY_POLICY_EPOCH);
   });
 });
