@@ -65,10 +65,6 @@ import os
     /// empty string disables Sentry.
     nonisolated static let macosDSN: String =
         ProcessInfo.processInfo.environment["SENTRY_DSN_MACOS"] ?? ""
-    /// DSN for the assistant Sentry project. Read from SENTRY_DSN_ASSISTANT env var;
-    /// empty string disables Sentry for this project.
-    nonisolated static let assistantDSN: String =
-        ProcessInfo.processInfo.environment["SENTRY_DSN_ASSISTANT"] ?? ""
 
     /// Sends a manual problem report unconditionally, even when the user has
     /// opted out of automatic crash reporting.  The SDK is temporarily started
