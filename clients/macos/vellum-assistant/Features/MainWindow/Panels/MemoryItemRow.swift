@@ -17,7 +17,7 @@ struct MemoryItemRow: View {
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
                             .font(VFont.headline)
-                            .foregroundColor(VColor.contentEmphasized)
+                            .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
 
@@ -29,7 +29,7 @@ struct MemoryItemRow: View {
 
                     Text(item.statement)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
                 }
@@ -38,7 +38,7 @@ struct MemoryItemRow: View {
 
                 Text(item.relativeLastSeen)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
                     .accessibilityLabel("Delete memory")

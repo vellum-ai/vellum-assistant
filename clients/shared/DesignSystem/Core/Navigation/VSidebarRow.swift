@@ -149,7 +149,7 @@ public struct VSidebarRowTrailingIcon: View {
 
     public var body: some View {
         VIconView(.resolve(icon), size: 10)
-            .foregroundColor(iconColor)
+            .foregroundStyle(iconColor)
             .rotationEffect(rotation)
             .animation(VAnimation.fast, value: rotation)
     }

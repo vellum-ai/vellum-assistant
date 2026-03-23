@@ -83,7 +83,7 @@ struct MemoriesPanel: View {
 
     /// Kinds to show in the sidebar filter. Excludes system-managed kinds.
     private static let filterableKinds: [MemoryKind] = [
-        .identity, .preference, .project, .decision, .constraint, .event
+        .identity, .preference, .project, .decision, .constraint, .event, .journal
     ]
 
     var body: some View {
@@ -185,8 +185,8 @@ struct MemoriesPanel: View {
             }
         ) {
             Text("\(kindCount(for: kind))")
-                .font(.custom("Inter", size: 11))
-                .foregroundColor(VColor.contentTertiary)
+                .font(VFont.caption)
+                .foregroundStyle(VColor.contentTertiary)
         }
         .accessibilityLabel("\(label) filter")
         .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
