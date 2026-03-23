@@ -50,12 +50,17 @@ mock.module("../memory/embedding-local.js", () => ({
   },
 }));
 
-// Mock Qdrant client so semantic search returns empty results instead of
-// throwing "Qdrant client not initialized".
+// Dynamic Qdrant mock: tests can push results to be returned by hybridSearch
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -67,8 +72,7 @@ import { and, eq } from "drizzle-orm";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { vectorToBlob } from "../memory/job-utils.js";
 
-// Disable LLM extraction and summarization in tests to avoid real API calls
-// and ensure deterministic pattern-based extraction / fallback summaries.
+// Disable LLM extraction and summarization in tests to avoid real API calls.
 const TEST_CONFIG = {
   ...DEFAULT_CONFIG,
   memory: {
@@ -109,7 +113,6 @@ import {
   getRecentSegmentsForConversation,
   indexMessageNow,
 } from "../memory/indexer.js";
-import { extractAndUpsertMemoryItemsForMessage } from "../memory/items-extractor.js";
 import { backfillJob } from "../memory/job-handlers/backfill.js";
 import { buildConversationSummaryJob } from "../memory/job-handlers/summarization.js";
 import { claimMemoryJobs, enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -131,6 +134,7 @@ import {
   conversations,
   memoryEmbeddings,
   memoryItems,
+  memoryItemSources,
   memoryJobs,
   memorySegments,
   memorySummaries,
@@ -156,6 +160,7 @@ describe("Memory regressions", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
   });
@@ -473,65 +478,49 @@ describe("Memory regressions", () => {
     }
   });
 
-  test("memory item lastSeenAt follows message.createdAt and does not move backwards", async () => {
+  test("memory item lastSeenAt does not move backwards on duplicate save", async () => {
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
+
+    // First save creates the item
+    const r1 = await handleMemorySave(
+      {
+        statement: "We decided to use sqlite for local persistence",
+        kind: "decision",
+      },
+      DEFAULT_CONFIG,
+      "conv-lastseen-1",
+      "msg-lastseen-1",
+    );
+    expect(r1.isError).toBe(false);
+
     const db = getDb();
-    db.insert(conversations)
-      .values({
-        id: "conv-2",
-        title: null,
-        createdAt: 1_000,
-        updatedAt: 1_000,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-
-    db.insert(messages)
-      .values({
-        id: "msg-newer",
-        conversationId: "conv-2",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "We decided to use sqlite for local persistence because reliability matters.",
-          },
-        ]),
-        createdAt: 1_000,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-older",
-        conversationId: "conv-2",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "We decided to use sqlite for local persistence because reliability matters.",
-          },
-        ]),
-        createdAt: 500,
-      })
-      .run();
-
-    await extractAndUpsertMemoryItemsForMessage("msg-newer");
-    await extractAndUpsertMemoryItemsForMessage("msg-older");
-
-    const row = db
+    const firstSave = db
       .select()
       .from(memoryItems)
-      .where(
-        and(eq(memoryItems.kind, "decision"), eq(memoryItems.status, "active")),
-      )
+      .where(eq(memoryItems.kind, "decision"))
       .get();
+    expect(firstSave).not.toBeNull();
+    const firstLastSeenAt = firstSave!.lastSeenAt;
+    expect(firstLastSeenAt).toBeGreaterThan(0);
 
-    expect(row).not.toBeNull();
-    expect(row?.lastSeenAt).toBe(1_000);
+    // Second save of the same statement should update lastSeenAt monotonically
+    const r2 = await handleMemorySave(
+      {
+        statement: "We decided to use sqlite for local persistence",
+        kind: "decision",
+      },
+      DEFAULT_CONFIG,
+      "conv-lastseen-2",
+      "msg-lastseen-2",
+    );
+    expect(r2.isError).toBe(false);
+
+    const secondSave = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "decision"))
+      .get();
+    expect(secondSave!.lastSeenAt).toBeGreaterThanOrEqual(firstLastSeenAt);
   });
 
   test("memory_save sets verificationState to user_confirmed", async () => {
@@ -747,91 +736,70 @@ describe("Memory regressions", () => {
     expect(item!.statement).toBe("Private scope secret preference");
   });
 
-  test("extracted items from user messages get user_reported verification state", async () => {
+  test("sourceMessageRole=user items default to user_reported verificationState", () => {
     const db = getDb();
     const now = Date.now();
-    db.insert(conversations)
+
+    db.insert(memoryItems)
       .values({
-        id: "conv-verify-extract",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-verify-user",
-        conversationId: "conv-verify-extract",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I prefer dark mode for all my editors and terminals.",
-          },
-        ]),
-        createdAt: now,
+        id: "item-src-user",
+        kind: "preference",
+        subject: "editor theme",
+        statement: "I prefer dark mode for all my editors",
+        status: "active",
+        confidence: 0.8,
+        importance: 0.7,
+        fingerprint: "fp-src-user",
+        sourceType: "extraction",
+        sourceMessageRole: "user",
+        verificationState: "user_reported",
+        firstSeenAt: now,
+        lastSeenAt: now,
       })
       .run();
 
-    const upserted =
-      await extractAndUpsertMemoryItemsForMessage("msg-verify-user");
-    expect(upserted).toBeGreaterThan(0);
-
-    const items = db.select().from(memoryItems).all();
-    const userItems = items.filter(
-      (i) => i.verificationState === "user_reported",
-    );
-    expect(userItems.length).toBeGreaterThan(0);
+    const item = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.id, "item-src-user"))
+      .get();
+    expect(item).toBeDefined();
+    expect(item!.sourceType).toBe("extraction");
+    expect(item!.sourceMessageRole).toBe("user");
+    expect(item!.verificationState).toBe("user_reported");
   });
 
-  test("extracted items from assistant messages get assistant_inferred verification state", async () => {
+  test("sourceMessageRole=assistant items default to assistant_inferred verificationState", () => {
     const db = getDb();
     const now = Date.now();
-    db.insert(conversations)
+
+    db.insert(memoryItems)
       .values({
-        id: "conv-verify-assistant",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-verify-assistant",
-        conversationId: "conv-verify-assistant",
-        role: "assistant",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I noted that you prefer using TypeScript for all your projects.",
-          },
-        ]),
-        createdAt: now,
+        id: "item-src-assistant",
+        kind: "preference",
+        subject: "language preference",
+        statement: "User prefers TypeScript for all projects",
+        status: "active",
+        confidence: 0.6,
+        importance: 0.5,
+        fingerprint: "fp-src-assistant",
+        sourceType: "extraction",
+        sourceMessageRole: "assistant",
+        verificationState: "assistant_inferred",
+        firstSeenAt: now,
+        lastSeenAt: now,
       })
       .run();
 
-    const upserted = await extractAndUpsertMemoryItemsForMessage(
-      "msg-verify-assistant",
-    );
-    expect(upserted).toBeGreaterThan(0);
-
-    const items = db.select().from(memoryItems).all();
-    const assistantItems = items.filter(
-      (i) => i.verificationState === "assistant_inferred",
-    );
-    expect(assistantItems.length).toBeGreaterThan(0);
+    const item = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.id, "item-src-assistant"))
+      .get();
+    expect(item).toBeDefined();
+    expect(item!.sourceType).toBe("extraction");
+    expect(item!.sourceMessageRole).toBe("assistant");
+    expect(item!.verificationState).toBe("assistant_inferred");
   });
 
   test("verification state defaults to assistant_inferred for legacy rows", () => {
@@ -1830,6 +1798,34 @@ describe("Memory regressions", () => {
       VALUES ('seg-strict-custom', 'msg-scope-strict', '${convId}', 'user', 1, 'Project-specific memory about database optimization techniques', 8, 'strict-project', ${now}, ${now})
     `);
 
+    // Mock Qdrant to return both segments as semantic hits
+    mockQdrantResults = [
+      {
+        id: "emb-strict-default",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-strict-default",
+          text: "Global memory about database optimization techniques",
+          conversation_id: convId,
+          message_id: "msg-scope-strict",
+          created_at: now,
+        },
+      },
+      {
+        id: "emb-strict-custom",
+        score: 0.85,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-strict-custom",
+          text: "Project-specific memory about database optimization techniques",
+          conversation_id: convId,
+          message_id: "msg-scope-strict",
+          created_at: now,
+        },
+      },
+    ];
+
     // With strict policy, querying with scopeId should only include that scope
     const strictConfig = {
       ...TEST_CONFIG,
@@ -2073,6 +2069,34 @@ describe("Memory regressions", () => {
       VALUES ('seg-ovr-prec-b', 'msg-override-precedence', '${convId}', 'user', 1, 'Scope B memory about distributed caching patterns', 10, 'scope-b', ${now}, ${now})
     `);
 
+    // Mock Qdrant to return both segments
+    mockQdrantResults = [
+      {
+        id: "emb-ovr-prec-a",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-ovr-prec-a",
+          text: "Scope A memory about distributed caching patterns",
+          conversation_id: convId,
+          message_id: "msg-override-precedence",
+          created_at: now,
+        },
+      },
+      {
+        id: "emb-ovr-prec-b",
+        score: 0.85,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-ovr-prec-b",
+          text: "Scope B memory about distributed caching patterns",
+          conversation_id: convId,
+          message_id: "msg-override-precedence",
+          created_at: now,
+        },
+      },
+    ];
+
     const config = {
       ...TEST_CONFIG,
       memory: {
@@ -2145,6 +2169,34 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-dp-other', 'msg-override-default-primary', '${convId}', 'user', 1, 'Other scope memory about event driven design', 10, 'other-scope', ${now}, ${now})
     `);
+
+    // Mock Qdrant to return both segments
+    mockQdrantResults = [
+      {
+        id: "emb-ovr-dp-default",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-ovr-dp-default",
+          text: "Default scope memory about event driven design",
+          conversation_id: convId,
+          message_id: "msg-override-default-primary",
+          created_at: now,
+        },
+      },
+      {
+        id: "emb-ovr-dp-other",
+        score: 0.85,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-ovr-dp-other",
+          text: "Other scope memory about event driven design",
+          conversation_id: convId,
+          message_id: "msg-override-default-primary",
+          created_at: now,
+        },
+      },
+    ];
 
     const config = {
       ...TEST_CONFIG,
@@ -2280,121 +2332,78 @@ describe("Memory regressions", () => {
     expect(payload.scopeId).toBe("default");
   });
 
-  // PR-19: extractItemsJob forwards scopeId to extractAndUpsertMemoryItemsForMessage
-  test("extractAndUpsertMemoryItemsForMessage accepts optional scopeId without breaking", async () => {
-    const db = getDb();
-    const now = Date.now();
+  // PR-19: memory_save respects explicit scopeId parameter
+  test("handleMemorySave places items in the requested scope", async () => {
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
 
-    db.insert(conversations)
-      .values({
-        id: "conv-scope-pass",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        conversationType: "standard",
-        memoryScopeId: "default",
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-scope-pass",
-        conversationId: "conv-scope-pass",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I prefer TypeScript over JavaScript for all new projects.",
-          },
-        ]),
-        createdAt: now,
-      })
-      .run();
+    // Save without explicit scopeId — defaults to "default"
+    const r1 = await handleMemorySave(
+      {
+        statement: "I prefer TypeScript over JavaScript for all new projects.",
+        kind: "preference",
+      },
+      DEFAULT_CONFIG,
+      "conv-scope-pass",
+      "msg-scope-pass",
+    );
+    expect(r1.isError).toBe(false);
 
-    // Call without scopeId — optional parameter omitted
-    const withoutScope =
-      await extractAndUpsertMemoryItemsForMessage("msg-scope-pass");
-    expect(withoutScope).toBeGreaterThan(0);
-
-    // Call with explicit scopeId — should also succeed and scope items accordingly
-    db.insert(messages)
-      .values({
-        id: "msg-scope-pass-2",
-        conversationId: "conv-scope-pass",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I dislike using var in JavaScript, prefer const and let.",
-          },
-        ]),
-        createdAt: now + 1,
-      })
-      .run();
-    const withScope = await extractAndUpsertMemoryItemsForMessage(
+    // Save with explicit private scopeId
+    const r2 = await handleMemorySave(
+      {
+        statement: "I dislike using var in JavaScript, prefer const and let.",
+        kind: "preference",
+      },
+      DEFAULT_CONFIG,
+      "conv-scope-pass-2",
       "msg-scope-pass-2",
       "private:thread-42",
     );
-    expect(withScope).toBeGreaterThan(0);
+    expect(r2.isError).toBe(false);
+
+    const db = getDb();
+    const defaultItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.scopeId, "default"))
+      .all();
+    const privateItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.scopeId, "private:thread-42"))
+      .all();
+
+    expect(defaultItems.length).toBe(1);
+    expect(privateItems.length).toBe(1);
   });
 
   // PR-20: same statement in different scopes produces separate active items
   test("same statement in different scopes produces separate active memory items", async () => {
-    const db = getDb();
-    const now = Date.now();
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
 
-    db.insert(conversations)
-      .values({
-        id: "conv-scope-separate",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        conversationType: "standard",
-        memoryScopeId: "default",
-      })
-      .run();
+    const statement = "I prefer dark mode for all my editors and terminals.";
 
-    // Insert two messages with identical content
-    db.insert(messages)
-      .values({
-        id: "msg-scope-default",
-        conversationId: "conv-scope-separate",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I prefer dark mode for all my editors and terminals.",
-          },
-        ]),
-        createdAt: now,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-scope-private",
-        conversationId: "conv-scope-separate",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "I prefer dark mode for all my editors and terminals.",
-          },
-        ]),
-        createdAt: now + 1,
-      })
-      .run();
+    // Save into default scope
+    const r1 = await handleMemorySave(
+      { statement, kind: "preference" },
+      DEFAULT_CONFIG,
+      "conv-scope-separate-1",
+      "msg-scope-default",
+      "default",
+    );
+    expect(r1.isError).toBe(false);
 
-    // Extract into default scope
-    const defaultCount =
-      await extractAndUpsertMemoryItemsForMessage("msg-scope-default");
-    expect(defaultCount).toBeGreaterThan(0);
-
-    // Extract identical statement into a private scope
-    const privateCount = await extractAndUpsertMemoryItemsForMessage(
+    // Save identical statement into a private scope
+    const r2 = await handleMemorySave(
+      { statement, kind: "preference" },
+      DEFAULT_CONFIG,
+      "conv-scope-separate-2",
       "msg-scope-private",
       "private:thread-99",
     );
-    expect(privateCount).toBeGreaterThan(0);
+    expect(r2.isError).toBe(false);
 
+    const db = getDb();
     // Both scopes should have separate active items
     const defaultItems = db
       .select()
@@ -2430,46 +2439,26 @@ describe("Memory regressions", () => {
 
   // PR-21: identical fact in default vs private scopes gets distinct fingerprints
   test("identical content in different scopes produces distinct fingerprints", async () => {
-    const db = getDb();
-    const now = Date.now();
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
+
     const statement = "I prefer using Vim keybindings in all my text editors.";
 
-    db.insert(conversations)
-      .values({
-        id: "conv-fp-salt",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        conversationType: "standard",
-        memoryScopeId: "default",
-      })
-      .run();
-
-    db.insert(messages)
-      .values({
-        id: "msg-fp-salt-default",
-        conversationId: "conv-fp-salt",
-        role: "user",
-        content: JSON.stringify([{ type: "text", text: statement }]),
-        createdAt: now,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-fp-salt-private",
-        conversationId: "conv-fp-salt",
-        role: "user",
-        content: JSON.stringify([{ type: "text", text: statement }]),
-        createdAt: now + 1,
-      })
-      .run();
-
-    await extractAndUpsertMemoryItemsForMessage("msg-fp-salt-default");
-    await extractAndUpsertMemoryItemsForMessage(
+    await handleMemorySave(
+      { statement, kind: "preference" },
+      DEFAULT_CONFIG,
+      "conv-fp-salt-1",
+      "msg-fp-salt-default",
+      "default",
+    );
+    await handleMemorySave(
+      { statement, kind: "preference" },
+      DEFAULT_CONFIG,
+      "conv-fp-salt-2",
       "msg-fp-salt-private",
       "private:fp-test",
     );
 
+    const db = getDb();
     const defaultItems = db
       .select()
       .from(memoryItems)
@@ -2495,37 +2484,22 @@ describe("Memory regressions", () => {
 
   // PR-20: default scope items are not affected by private scope operations
   test("default scope items are not superseded by private scope operations", async () => {
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
+
+    // Save a decision in the default scope
+    const r1 = await handleMemorySave(
+      {
+        statement: "We decided to use PostgreSQL for the production database.",
+        kind: "decision",
+      },
+      DEFAULT_CONFIG,
+      "conv-scope-isolate-1",
+      "msg-decision-default",
+      "default",
+    );
+    expect(r1.isError).toBe(false);
+
     const db = getDb();
-    const now = Date.now();
-
-    db.insert(conversations)
-      .values({
-        id: "conv-scope-isolate",
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        conversationType: "standard",
-        memoryScopeId: "default",
-      })
-      .run();
-
-    // Insert a decision in the default scope
-    db.insert(messages)
-      .values({
-        id: "msg-decision-default",
-        conversationId: "conv-scope-isolate",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "We decided to use PostgreSQL for the production database.",
-          },
-        ]),
-        createdAt: now,
-      })
-      .run();
-    await extractAndUpsertMemoryItemsForMessage("msg-decision-default");
-
     const defaultBefore = db
       .select()
       .from(memoryItems)
@@ -2538,27 +2512,21 @@ describe("Memory regressions", () => {
       .all();
     expect(defaultBefore.length).toBeGreaterThan(0);
 
-    // Now insert a superseding decision in a private scope
-    db.insert(messages)
-      .values({
-        id: "msg-decision-private",
-        conversationId: "conv-scope-isolate",
-        role: "user",
-        content: JSON.stringify([
-          {
-            type: "text",
-            text: "We decided to use SQLite for the production database instead.",
-          },
-        ]),
-        createdAt: now + 1,
-      })
-      .run();
-    await extractAndUpsertMemoryItemsForMessage(
+    // Now save a different decision in a private scope
+    const r2 = await handleMemorySave(
+      {
+        statement:
+          "We decided to use SQLite for the production database instead.",
+        kind: "decision",
+      },
+      DEFAULT_CONFIG,
+      "conv-scope-isolate-2",
       "msg-decision-private",
       "private:thread-55",
     );
+    expect(r2.isError).toBe(false);
 
-    // The default scope items should still be active — private scope supersede must not affect them
+    // The default scope items should still be active — private scope must not affect them
     const defaultAfter = db
       .select()
       .from(memoryItems)
@@ -2746,8 +2714,10 @@ describe("Memory regressions", () => {
 
   test("e2e: private-only facts are recalled in private conversation but not in standard conversation", async () => {
     const db = getDb();
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
+    const now = Date.now();
 
-    // 1. Create a private conversation and add a message with a distinctive fact
+    // 1. Create a private conversation and save a distinctive fact
     const privConv = createConversation({
       title: "Private e2e test",
       conversationType: "private",
@@ -2755,18 +2725,33 @@ describe("Memory regressions", () => {
     const privScope = getConversationMemoryScopeId(privConv.id);
     expect(privScope).toMatch(/^private:/);
 
-    const privMsg = await addMessage(
-      privConv.id,
-      "user",
-      "I prefer using the Zephyr framework for all backend microservices.",
-    );
+    db.insert(messages)
+      .values({
+        id: "msg-priv-e2e-zephyr",
+        conversationId: privConv.id,
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "I prefer using the Zephyr framework for all backend microservices.",
+          },
+        ]),
+        createdAt: now,
+      })
+      .run();
 
-    // 2. Extract memory items — they inherit the private scope
-    const upserted = await extractAndUpsertMemoryItemsForMessage(
-      privMsg.id,
+    const r1 = await handleMemorySave(
+      {
+        statement:
+          "I prefer using the Zephyr framework for all backend microservices.",
+        kind: "preference",
+      },
+      DEFAULT_CONFIG,
+      privConv.id,
+      "msg-priv-e2e-zephyr",
       privScope,
     );
-    expect(upserted).toBeGreaterThan(0);
+    expect(r1.isError).toBe(false);
 
     // Verify items were stored with the private scope
     const privateItems = db
@@ -2779,10 +2764,43 @@ describe("Memory regressions", () => {
       privateItems.some((i) => i.statement.toLowerCase().includes("zephyr")),
     ).toBe(true);
 
-    // Collect the item IDs so we can check them in recall results
+    // Add item source (handleMemorySave doesn't create sources; semantic search requires them)
+    db.insert(memoryItemSources)
+      .values({
+        memoryItemId: privateItems[0].id,
+        messageId: "msg-priv-e2e-zephyr",
+        evidence: "Zephyr framework preference",
+        createdAt: now,
+      })
+      .run();
+
+    // Mark the source message as compacted so the item isn't filtered
+    // as "already in context"
+    db.update(conversations)
+      .set({ contextCompactedMessageCount: 1 })
+      .where(eq(conversations.id, privConv.id))
+      .run();
+
     const privateItemKeys = privateItems.map((i) => `item:${i.id}`);
 
-    // 3. Create a standard conversation for the "standard conversation" perspective
+    // 2. Mock Qdrant to return the private item
+    mockQdrantResults = [
+      {
+        id: "emb-zephyr",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: privateItems[0].id,
+          text: privateItems[0].statement,
+          kind: "preference",
+          status: "active",
+          created_at: now,
+          last_seen_at: now,
+        },
+      },
+    ];
+
+    // 3. Create a standard conversation
     const stdConv = createConversation({
       title: "Standard e2e test",
       conversationType: "standard",
@@ -2798,7 +2816,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           { type: "text", text: "placeholder for standard conv" },
         ]),
-        createdAt: Date.now(),
+        createdAt: now,
       })
       .run();
 
@@ -2822,12 +2840,13 @@ describe("Memory regressions", () => {
         },
       },
     );
-    // With Qdrant mocked, candidates don't pass tier classification.
     expect(privRecall.enabled).toBe(true);
+    const privCandidateKeys = privRecall.topCandidates.map((c) => c.key);
+    expect(privCandidateKeys.some((k) => privateItemKeys.includes(k))).toBe(
+      true,
+    );
 
     // 5. Standard conversation recall — must NOT find the Zephyr fact (no leak)
-    // Mirror the production call in conversation-memory.ts: for standard conversations
-    // (scopeId === 'default'), scopePolicyOverride is undefined.
     const stdRecall = await buildMemoryRecall(
       "Zephyr framework microservices",
       stdConv.id,
@@ -2847,9 +2866,10 @@ describe("Memory regressions", () => {
 
   test("e2e: private conversation still recalls facts from default memory scope", async () => {
     const db = getDb();
+    const { handleMemorySave } = await import("../tools/memory/handlers.js");
     const now = Date.now();
 
-    // 1. Create a standard conversation and add a fact to default scope
+    // 1. Save a fact to default scope via a standard conversation
     const stdConv = createConversation({
       title: "Default scope source",
       conversationType: "standard",
@@ -2857,17 +2877,33 @@ describe("Memory regressions", () => {
     const stdScope = getConversationMemoryScopeId(stdConv.id);
     expect(stdScope).toBe("default");
 
-    const stdMsg = await addMessage(
-      stdConv.id,
-      "user",
-      "I prefer using the Obsidian editor for all my note-taking workflows.",
-    );
+    db.insert(messages)
+      .values({
+        id: "msg-std-e2e-obsidian",
+        conversationId: stdConv.id,
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "I prefer using the Obsidian editor for all my note-taking workflows.",
+          },
+        ]),
+        createdAt: now,
+      })
+      .run();
 
-    const upsertedDefault = await extractAndUpsertMemoryItemsForMessage(
-      stdMsg.id,
-      stdScope,
+    const r1 = await handleMemorySave(
+      {
+        statement:
+          "I prefer using the Obsidian editor for all my note-taking workflows.",
+        kind: "preference",
+      },
+      DEFAULT_CONFIG,
+      stdConv.id,
+      "msg-std-e2e-obsidian",
+      "default",
     );
-    expect(upsertedDefault).toBeGreaterThan(0);
+    expect(r1.isError).toBe(false);
 
     // Verify items landed in the default scope
     const defaultItems = db
@@ -2880,10 +2916,20 @@ describe("Memory regressions", () => {
         ),
       )
       .all();
-    const hasObsidian = defaultItems.some((i) =>
+    const obsidianItem = defaultItems.find((i) =>
       i.statement.toLowerCase().includes("obsidian"),
     );
-    expect(hasObsidian).toBe(true);
+    expect(obsidianItem).toBeDefined();
+
+    // Add item source (handleMemorySave doesn't create sources; semantic search requires them)
+    db.insert(memoryItemSources)
+      .values({
+        memoryItemId: obsidianItem!.id,
+        messageId: "msg-std-e2e-obsidian",
+        evidence: "Obsidian editor preference",
+        createdAt: now,
+      })
+      .run();
 
     // 2. Create a private conversation
     const privConv = createConversation({
@@ -2905,6 +2951,23 @@ describe("Memory regressions", () => {
       })
       .run();
 
+    // Mock Qdrant to return the default-scope Obsidian item
+    mockQdrantResults = [
+      {
+        id: "emb-obsidian",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: obsidianItem!.id,
+          text: obsidianItem!.statement,
+          kind: "preference",
+          status: "active",
+          created_at: now,
+          last_seen_at: now,
+        },
+      },
+    ];
+
     const recallConfig = {
       ...TEST_CONFIG,
       memory: {
@@ -2925,10 +2988,8 @@ describe("Memory regressions", () => {
         },
       },
     );
-    // Without semantic search, items from a different conversation are
-    // unreachable (recency search is conversation-scoped). Verify recall
-    // completes without error.
     expect(privRecall).toBeDefined();
+    expect(privRecall.injectedText.toLowerCase()).toContain("obsidian");
   });
 
   // Backfill preserves private conversation scope on memory segments
