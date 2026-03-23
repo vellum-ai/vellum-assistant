@@ -70,9 +70,7 @@ function printHelp(): void {
   console.log("  recover  Restore a previously retired local assistant");
   console.log("  restore  Restore a .vbundle backup into a running assistant");
   console.log("  retire   Delete an assistant instance");
-  console.log(
-    "  rollback  Roll back a Docker assistant to the previous version",
-  );
+  console.log("  rollback  Roll back an assistant to a previous version");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");
