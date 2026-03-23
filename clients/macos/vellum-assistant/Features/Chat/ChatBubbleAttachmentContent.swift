@@ -138,8 +138,10 @@ private enum ImageActions {
     private static var sharingServicesCache: [String: [NSSharingService]] = [:]
 
     /// Returns cached sharing services for the given filename's extension.
-    /// On first call per extension, creates a lightweight probe file and calls
+    /// On first call per extension, writes a minimal valid image file and calls
     /// `NSSharingService.sharingServices(forItems:)` once, caching the result.
+    /// A real (non-empty) probe file is used because some services validate
+    /// media content and return fewer results for zero-byte placeholders.
     @available(macOS, deprecated: 13.0)
     private static func cachedSharingServices(for filename: String) -> [NSSharingService] {
         let ext = (filename as NSString).pathExtension.lowercased()
@@ -147,7 +149,16 @@ private enum ImageActions {
         if let cached = sharingServicesCache[key] { return cached }
         let probeURL = FileManager.default.temporaryDirectory.appendingPathComponent("vellum-share-probe.\(key)")
         if !FileManager.default.fileExists(atPath: probeURL.path) {
-            FileManager.default.createFile(atPath: probeURL.path, contents: Data())
+            // Write a minimal 1x1 PNG so services that validate content see a real image.
+            let tiny = NSImage(size: NSSize(width: 1, height: 1))
+            if let tiff = tiny.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff),
+               let data = rep.representation(using: .png, properties: [:]) {
+                try? data.write(to: probeURL)
+            } else {
+                // Fallback: create the file with empty data so the path exists.
+                FileManager.default.createFile(atPath: probeURL.path, contents: Data())
+            }
         }
         let services = NSSharingService.sharingServices(forItems: [probeURL])
         sharingServicesCache[key] = services
@@ -192,11 +203,15 @@ private enum ImageActions {
             Menu {
                 ForEach(Array(services.enumerated()), id: \.offset) { _, service in
                     Button {
-                        // Write temp file at action time (not during render)
-                        if let shareURL = writeTempFile(image, filename: filename, base64Data: base64Data)
-                            ?? writeTempFile(image, filename: filename) {
-                            service.perform(withItems: [shareURL])
-                        }
+                        // Write temp file at action time (not during render).
+                        // Try full-res first, fall back to thumbnail, fall back to
+                        // the probe file so the Share action is never a silent no-op.
+                        let shareURL = writeTempFile(image, filename: filename, base64Data: base64Data)
+                            ?? writeTempFile(image, filename: filename)
+                        let probeExt = (filename as NSString).pathExtension.lowercased()
+                        let fallback = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("vellum-share-probe.\(probeExt.isEmpty ? "png" : probeExt)")
+                        service.perform(withItems: [shareURL ?? fallback])
                     } label: {
                         Label {
                             Text(service.title)
