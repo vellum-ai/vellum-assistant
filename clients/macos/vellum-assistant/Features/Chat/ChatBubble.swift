@@ -212,6 +212,7 @@ struct ChatBubble: View {
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
         f.dateStyle = .none
         f.timeStyle = .short
         return f
@@ -219,12 +220,14 @@ struct ChatBubble: View {
 
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
         f.dateFormat = "MMM d"
         return f
     }()
 
     private static let detailedFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
         f.dateStyle = .full
         f.timeStyle = .long
         return f

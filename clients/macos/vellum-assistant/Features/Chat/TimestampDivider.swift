@@ -55,12 +55,14 @@ struct TimestampDivider: View {
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
         f.dateFormat = "h:mm a"
         return f
     }()
 
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
         f.dateFormat = "MMM d"
         return f
     }()
