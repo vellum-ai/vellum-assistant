@@ -68,11 +68,10 @@ struct MemoriesPanel: View {
     @StateObject private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
-    @State private var selectedKinds: Set<MemoryKind> = []
+    @State private var selectedKind: MemoryKind?
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var showKindFilterPopover = false
     @State private var showStatusFilterPopover = false
     @State private var showSortPopover = false
 
@@ -82,11 +81,20 @@ struct MemoriesPanel: View {
         _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
 
+    /// Kinds to show in the sidebar filter. Excludes system-managed kinds.
+    private static let filterableKinds: [MemoryKind] = [
+        .identity, .preference, .project, .decision, .constraint, .event
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterBar
-            contentView
-                .padding(.top, VSpacing.lg)
+            HStack(alignment: .top, spacing: VSpacing.xxl) {
+                kindSidebar
+                    .frame(width: 220)
+                contentView
+            }
+            .padding(.top, VSpacing.lg)
         }
         .task { await store.loadItems() }
         .task(id: focusedMemoryId) {
@@ -142,14 +150,11 @@ struct MemoriesPanel: View {
                     }
                 }
 
-            kindFilterDropdown
-                .frame(width: 200)
-
             statusFilterDropdown
-                .frame(width: 140)
+                .frame(width: 158)
 
             sortFilterDropdown
-                .frame(width: 160)
+                .frame(width: 158)
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
@@ -159,127 +164,44 @@ struct MemoriesPanel: View {
         .padding(.top, VSpacing.sm)
     }
 
-    // MARK: - Kind Filter Dropdown
+    // MARK: - Kind Sidebar
 
-    private var kindFilterLabel: String {
-        if selectedKinds.isEmpty {
-            return "All"
-        }
-        let sorted = MemoryKind.allCases.filter { selectedKinds.contains($0) }
-        if sorted.count <= 2 {
-            return sorted.map(\.label).joined(separator: ", ")
-        }
-        return "\(sorted.count) kinds"
-    }
-
-    private var kindFilterDropdown: some View {
-        Button {
-            showKindFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.filter, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(kindFilterLabel)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
+    private var kindSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            kindFilterRow(label: "All", kind: nil)
+            ForEach(Self.filterableKinds) { kind in
+                kindFilterRow(label: kind.label, kind: kind)
             }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Filter by kind: \(kindFilterLabel)")
-        .popover(isPresented: $showKindFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        selectedKinds.removeAll()
-                    }
-                    store.kindFilter = nil
-                    Task { await store.loadItems() }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.layoutGrid, size: 14)
-                            .foregroundColor(VColor.contentDefault)
-                            .frame(width: 20)
-                        Text("All")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                        Spacer()
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("All kinds")
-                .accessibilityAddTraits(selectedKinds.isEmpty ? .isSelected : [])
-
-                Divider().padding(.horizontal, VSpacing.sm)
-
-                ForEach(MemoryKind.allCases.sorted { $0.label < $1.label }) { kind in
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            if selectedKinds.contains(kind) {
-                                selectedKinds.remove(kind)
-                            } else {
-                                selectedKinds.insert(kind)
-                            }
-                            // All selected = same as none selected (show all)
-                            if selectedKinds.count == MemoryKind.allCases.count {
-                                selectedKinds.removeAll()
-                            }
-                        }
-                        // Single kind selected → use API filter; otherwise filter client-side
-                        if selectedKinds.count == 1, let only = selectedKinds.first {
-                            store.kindFilter = only.rawValue
-                        } else {
-                            store.kindFilter = nil
-                        }
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            if let icon = VIcon(rawValue: kind.icon) {
-                                VIconView(icon, size: 14)
-                                    .foregroundColor(VColor.contentDefault)
-                                    .frame(width: 20)
-                            }
-                            Text(kind.label)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                            Spacer()
-                            if selectedKinds.contains(kind) {
-                                VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(kind.label) filter")
-                    .accessibilityAddTraits(selectedKinds.contains(kind) ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 220)
         }
     }
 
-    /// Items filtered by selected kinds (client-side, for multi-select).
+    private func kindFilterRow(label: String, kind: MemoryKind?) -> some View {
+        VSidebarRow(
+            label: label,
+            isActive: selectedKind == kind,
+            action: {
+                withAnimation(VAnimation.fast) { selectedKind = kind }
+                store.kindFilter = kind?.rawValue
+                Task { await store.loadItems() }
+            }
+        ) {
+            Text("\(kindCount(for: kind))")
+                .font(.custom("Inter", size: 11))
+                .foregroundColor(VColor.contentTertiary)
+        }
+        .accessibilityLabel("\(label) filter")
+        .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
+    }
+
+    private func kindCount(for kind: MemoryKind?) -> Int {
+        guard let kind else { return store.items.count }
+        return store.items.filter { $0.kind == kind.rawValue }.count
+    }
+
+    /// Items filtered by selected kind.
     private var filteredItems: [MemoryItemPayload] {
-        guard selectedKinds.count > 1 else { return store.items }
-        let kindValues = Set(selectedKinds.map(\.rawValue))
-        return store.items.filter { kindValues.contains($0.kind) }
+        guard let kind = selectedKind else { return store.items }
+        return store.items.filter { $0.kind == kind.rawValue }
     }
 
     // MARK: - Status Filter Dropdown
@@ -289,20 +211,16 @@ struct MemoriesPanel: View {
             showStatusFilterPopover.toggle()
         } label: {
             HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(statusFilter.icon, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(statusFilter.rawValue)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(statusFilter.rawValue)
+                    .foregroundColor(VColor.contentDefault)
+                    .font(VFont.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
                     .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .frame(height: 32)
             .vInputChrome()
@@ -352,20 +270,16 @@ struct MemoriesPanel: View {
             showSortPopover.toggle()
         } label: {
             HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(sortOption.icon, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(sortOption.rawValue)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(sortOption.rawValue)
+                    .foregroundColor(VColor.contentDefault)
+                    .font(VFont.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
                     .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .frame(height: 32)
             .vInputChrome()
@@ -422,21 +336,15 @@ struct MemoriesPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredItems.isEmpty {
             VEmptyState(
-                title: selectedKinds.isEmpty ? "No Memories Yet" : "No Memories in Selected Kinds",
-                subtitle: selectedKinds.isEmpty
+                title: selectedKind == nil ? "No Memories Yet" : "No \(selectedKind!.label) Memories",
+                subtitle: selectedKind == nil
                     ? "Your assistant learns and remembers things from your conversations. Memories will appear here as they're created."
-                    : "Try selecting different kinds or clearing the filter.",
+                    : "Try selecting a different kind or clearing the filter.",
                 icon: VIcon.bookOpen.rawValue
             )
         } else {
             ScrollView {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: VSpacing.md),
-                        GridItem(.flexible(), spacing: VSpacing.md)
-                    ],
-                    spacing: VSpacing.md
-                ) {
+                LazyVStack(spacing: VSpacing.sm) {
                     ForEach(filteredItems) { item in
                         MemoryItemRow(
                             item: item,
