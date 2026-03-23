@@ -25,4 +25,14 @@ public final class DevModeManager: ObservableObject {
     public func toggle() {
         isDevMode.toggle()
     }
+
+    /// Thread-safe read of dev mode state directly from UserDefaults.
+    /// Use this from non-MainActor contexts (e.g. `LockfileAssistant.loadAll()`).
+    public nonisolated static var isDevModeEnabled: Bool {
+        #if DEBUG
+        UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
+        #else
+        UserDefaults.standard.bool(forKey: "devModeEnabled")
+        #endif
+    }
 }

@@ -109,12 +109,6 @@ public struct LockfileAssistant {
         development == true
     }
 
-    /// Provider for the current dev-mode state, set by the app at launch.
-    /// When non-nil, `loadAll()` filters entries: `true` returns development
-    /// assistants, `false` returns live assistants. When `nil`, all entries
-    /// are returned (no filtering).
-    public static var isDevModeProvider: (() -> Bool)? = nil
-
     /// The resolved workspace directory for this assistant, accounting for both
     /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
     public var workspaceDir: String? {
@@ -133,9 +127,8 @@ public struct LockfileAssistant {
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    /// When `isDevModeProvider` is set, filters by development mode:
-    /// `true` returns development assistants, `false` returns live assistants.
-    /// When `nil`, all entries are returned (no filtering).
+    /// Filters by dev mode: when `DevModeManager.shared.isDevMode` is `true`,
+    /// returns only development assistants; when `false`, returns only live assistants.
     public static func loadAll() -> [LockfileAssistant] {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
@@ -157,15 +150,10 @@ public struct LockfileAssistant {
             return dateA > dateB
         }
 
-        let filtered: [[String: Any]]
-        if let provider = isDevModeProvider {
-            let showDev = provider()
-            filtered = sorted.filter { entry in
-                let isDev = entry["development"] as? Bool ?? false
-                return showDev ? isDev : !isDev
-            }
-        } else {
-            filtered = sorted
+        let showDev = DevModeManager.isDevModeEnabled
+        let filtered = sorted.filter { entry in
+            let isDev = entry["development"] as? Bool ?? false
+            return showDev ? isDev : !isDev
         }
 
         return filtered.compactMap { entry -> LockfileAssistant? in
