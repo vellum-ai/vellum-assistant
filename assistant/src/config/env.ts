@@ -13,7 +13,10 @@
  * imported from platform/logger without circular imports.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceConfigPath } from "../util/platform.js";
 import { checkUnrecognizedEnvVars } from "./env-registry.js";
 
 const log = getLogger("env");
@@ -137,6 +140,27 @@ export function getOllamaBaseUrlEnv(): string | undefined {
 
 // ── Platform ─────────────────────────────────────────────────────────────────
 
+/**
+ * Read the platform base URL from the workspace config file
+ * (~/.vellum/workspace/config.json → platform.baseUrl).
+ */
+function getConfigPlatformUrl(): string | undefined {
+  try {
+    const configPath = getWorkspaceConfigPath();
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const platform = raw.platform as Record<string, unknown> | undefined;
+    const baseUrl = platform?.baseUrl;
+    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 let _platformBaseUrlOverride: string | undefined;
 
 export function setPlatformBaseUrl(value: string | undefined): void {
@@ -144,7 +168,12 @@ export function setPlatformBaseUrl(value: string | undefined): void {
 }
 
 export function getPlatformBaseUrl(): string {
-  return str("VELLUM_PLATFORM_URL") ?? _platformBaseUrlOverride ?? "";
+  return (
+    getConfigPlatformUrl() ||
+    str("VELLUM_PLATFORM_URL") ||
+    _platformBaseUrlOverride ||
+    "https://platform.vellum.ai"
+  );
 }
 
 let _platformAssistantIdOverride: string | undefined;

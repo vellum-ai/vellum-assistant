@@ -13,12 +13,9 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import { getPlatformBaseUrl } from "../config/env.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getWorkspaceConfigPath,
-  getWorkspaceSkillsDir,
-  readPlatformToken,
-} from "../util/platform.js";
+import { getWorkspaceSkillsDir, readPlatformToken } from "../util/platform.js";
 import { deleteSkillCapabilityMemory } from "./skill-memory.js";
 
 const log = getLogger("catalog-install");
@@ -70,27 +67,6 @@ export function getRepoSkillsDir(): string | undefined {
 
 // ─── Platform API ────────────────────────────────────────────────────────────
 
-function getConfigPlatformUrl(): string | undefined {
-  try {
-    const configPath = getWorkspaceConfigPath();
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const platform = raw.platform as Record<string, unknown> | undefined;
-    const baseUrl = platform?.baseUrl;
-    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
-  } catch {
-    // ignore
-  }
-  return undefined;
-}
-
-function getPlatformUrl(): string {
-  return process.env.VELLUM_PLATFORM_URL ?? getConfigPlatformUrl() ?? "";
-}
-
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = readPlatformToken();
@@ -103,10 +79,7 @@ function buildHeaders(): Record<string, string> {
 // ─── Catalog operations ──────────────────────────────────────────────────────
 
 export async function fetchCatalog(): Promise<CatalogSkill[]> {
-  const platformUrl = getPlatformUrl();
-  if (!platformUrl) {
-    return [];
-  }
+  const platformUrl = getPlatformBaseUrl();
   const url = `${platformUrl}/v1/skills/`;
   const response = await fetch(url, {
     headers: buildHeaders(),
@@ -214,12 +187,7 @@ export async function fetchAndExtractSkill(
   skillId: string,
   destDir: string,
 ): Promise<void> {
-  const platformUrl = getPlatformUrl();
-  if (!platformUrl) {
-    throw new Error(
-      `Cannot fetch skill "${skillId}": VELLUM_PLATFORM_URL is not configured.`,
-    );
-  }
+  const platformUrl = getPlatformBaseUrl();
   const url = `${platformUrl}/v1/skills/${encodeURIComponent(skillId)}/`;
   const response = await fetch(url, {
     headers: buildHeaders(),
