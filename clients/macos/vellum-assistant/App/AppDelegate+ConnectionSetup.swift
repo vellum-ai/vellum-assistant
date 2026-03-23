@@ -256,8 +256,8 @@ extension AppDelegate {
                             "home": msg.home
                         ]
                     )
-                case .avatarUpdated:
-                    AvatarAppearanceManager.shared.reloadAvatar()
+                case .avatarUpdated(let msg):
+                    AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     HostToolExecutor.executeHostBashRequest(msg)
