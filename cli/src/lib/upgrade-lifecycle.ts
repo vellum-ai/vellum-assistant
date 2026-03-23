@@ -302,11 +302,21 @@ export async function performDockerRollback(
       const isNewer = (() => {
         if (target.major !== current.major) return target.major > current.major;
         if (target.minor !== current.minor) return target.minor > current.minor;
-        return target.patch >= current.patch;
+        return target.patch > current.patch;
       })();
       if (isNewer) {
         const msg =
           "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+      const isSame =
+        target.major === current.major &&
+        target.minor === current.minor &&
+        target.patch === current.patch;
+      if (isSame) {
+        const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
         console.error(msg);
         emitCliError("VERSION_DIRECTION", msg);
         process.exit(1);
