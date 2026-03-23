@@ -39,6 +39,17 @@ function toProviderKey(provider: string): string {
 }
 
 /**
+ * Extract the bare provider slug (e.g. "google") from either a raw CLI
+ * argument or a canonical provider key (e.g. "integration:google").
+ * Platform API paths expect the bare slug, not the internal key.
+ */
+function toBareProvider(provider: string): string {
+  return provider.startsWith("integration:")
+    ? provider.slice("integration:".length)
+    : provider;
+}
+
+/**
  * Validate that a provider supports managed OAuth and that managed mode is
  * enabled. Returns the managed config key on success, or writes an error and
  * returns null.
@@ -102,7 +113,7 @@ async function fetchActiveConnections(
   cmd: Command,
 ): Promise<PlatformConnectionEntry[] | null> {
   const params = new URLSearchParams();
-  params.set("provider", provider);
+  params.set("provider", toBareProvider(provider));
   params.set("status", "ACTIVE");
 
   const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
@@ -311,7 +322,7 @@ Examples:
           if (!client) return;
 
           // Call the platform's OAuth start endpoint
-          const startPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/${encodeURIComponent(provider)}/start/`;
+          const startPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/${encodeURIComponent(toBareProvider(provider))}/start/`;
 
           const body: Record<string, unknown> = {};
           if (opts.scopes && opts.scopes.length > 0) {
