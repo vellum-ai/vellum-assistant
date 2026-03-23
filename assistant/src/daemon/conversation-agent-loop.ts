@@ -236,6 +236,7 @@ export interface AgentLoopConversationContext {
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  inboundEventId?: string;
   trustContext?: TrustContext;
   assistantId?: string;
   voiceCallControlPrompt?: string;
@@ -1777,6 +1778,8 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // Inbound event IDs are single-turn metadata — clear at turn end.
+    ctx.inboundEventId = undefined;
 
     if (userMessageId) {
       const didMutateHistory = consolidateAssistantMessages(

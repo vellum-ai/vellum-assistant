@@ -110,6 +110,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
   cesClient?: CesClient;
+  /** Inbound event ID from channelInboundEvents. Set for channel-originating turns. */
+  inboundEventId?: string;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -191,6 +193,7 @@ export function createToolExecutor(
       hostBashProxy: ctx.hostBashProxy,
       hostFileProxy: ctx.hostFileProxy,
       cesClient: ctx.cesClient,
+      inboundEventId: ctx.inboundEventId,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }

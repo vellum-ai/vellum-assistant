@@ -40,10 +40,7 @@ import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import {
-  getProvider,
-  initializeProviders,
-} from "../providers/registry.js";
+import { getProvider, initializeProviders } from "../providers/registry.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -702,9 +699,7 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getProvider(
-          config.services.inference.provider,
-        );
+        let provider = getProvider(config.services.inference.provider);
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
@@ -891,6 +886,7 @@ export class DaemonServer {
       conversation.setHostCuProxy(undefined);
     }
     conversation.setCommandIntent(options?.commandIntent ?? null);
+    conversation.setInboundEventId(options?.inboundEventId ?? null);
     conversation.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,

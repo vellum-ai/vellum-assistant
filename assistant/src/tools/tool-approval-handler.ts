@@ -4,6 +4,7 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import { RiskLevel } from "../permissions/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -268,9 +269,15 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
+    const toolForGrant = getTool(name);
     if (
       isUntrustedTrustClass(context.trustClass) &&
-      requiresGuardianApprovalForActor(name, input, executionTarget)
+      requiresGuardianApprovalForActor(name, input, executionTarget) &&
+      !(
+        context.trustClass === "trusted_contact" &&
+        toolForGrant?.trustedAutoApprove === true &&
+        toolForGrant?.defaultRiskLevel === RiskLevel.Low
+      )
     ) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
