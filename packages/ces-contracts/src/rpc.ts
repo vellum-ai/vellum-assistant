@@ -33,7 +33,7 @@
  * - `list_credentials` — List all credential account names
  */
 
-import { z } from "zod/v4";
+import { z } from "zod";
 import {
   AuditRecordSummarySchema,
   GrantProposalSchema,

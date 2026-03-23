@@ -7,7 +7,7 @@
  * module so that both sides can depend on it without circular references.
  */
 
-import { z } from "zod/v4";
+import { z } from "zod";
 import { RpcErrorSchema } from "./error.js";
 
 // ---------------------------------------------------------------------------
