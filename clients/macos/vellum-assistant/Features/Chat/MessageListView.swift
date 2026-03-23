@@ -88,7 +88,7 @@ extension EnvironmentValues {
 /// For the message array we use a hash-based fingerprint rather than
 /// storing the full array, keeping equality checks O(1) after an
 /// O(visible-messages) fingerprint computation.
-private struct PrecomputedCacheKey: Equatable {
+struct PrecomputedCacheKey: Equatable {
     let messageFingerprint: Int
     let isSending: Bool
     let isThinking: Bool
