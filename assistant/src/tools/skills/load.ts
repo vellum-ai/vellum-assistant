@@ -167,8 +167,20 @@ export class SkillLoadTool implements Tool {
       !loaded.skill &&
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
+      log.info(
+        {
+          skillId: selector,
+          errorCode: loaded.errorCode,
+          vellumDev: process.env.VELLUM_DEV,
+        },
+        "Skill not found locally, attempting auto-install from catalog",
+      );
       try {
         const installed = await autoInstallFromCatalog(selector);
+        log.info(
+          { skillId: selector, installed },
+          "Auto-install from catalog result",
+        );
         if (installed) {
           log.info({ skillId: selector }, "Auto-installed skill from catalog");
           loaded = loadSkillBySelector(selector);
@@ -184,6 +196,11 @@ export class SkillLoadTool implements Tool {
           isError: true,
         };
       }
+    } else if (!loaded.skill) {
+      log.warn(
+        { skillId: selector, errorCode: loaded.errorCode, error: loaded.error },
+        "Skill not found but errorCode did not match auto-install conditions",
+      );
     }
 
     if (!loaded.skill) {

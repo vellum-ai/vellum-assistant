@@ -54,12 +54,10 @@ export function getSkillsIndexPath(): string {
 }
 
 /**
- * Resolve the repo-level skills/ directory when running in dev mode.
- * Returns the path if VELLUM_DEV is set and the directory exists, or undefined.
+ * Resolve the repo-level skills/ directory when running from the source tree.
+ * Returns the path if skills/catalog.json exists relative to this file, or undefined.
  */
 export function getRepoSkillsDir(): string | undefined {
-  if (!process.env.VELLUM_DEV) return undefined;
-
   // assistant/src/skills/catalog-install.ts -> ../../../skills/
   const candidate = join(import.meta.dir, "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
