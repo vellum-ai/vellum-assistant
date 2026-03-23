@@ -18,6 +18,7 @@ import { maybeEnqueueConversationStartersJob } from "./conversation-starters-cad
 import { getDb } from "./db.js";
 import { computeMemoryFingerprint } from "./fingerprint.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
+import { upsertJournalMemoriesFromDisk } from "./journal-memory.js";
 import { extractTextFromStoredMessageContent } from "./message-content.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
@@ -167,7 +168,6 @@ Extract items in these categories:
 - decision: Choices made, approaches selected, trade-offs resolved
 - constraint: Rules, requirements, things that must/must not be done, explicit directives on how the assistant should behave
 - event: Deadlines, milestones, meetings, releases, dates
-- journal: Experiential reflections, journal-style notes, upcoming events, things the user or assistant explicitly wants to carry forward
 
 For each item, provide:
 - kind: One of the categories above
@@ -231,9 +231,6 @@ Good extractions from assistant messages:
 
 - "I've refactored the auth middleware to use JWT validation and added rate limiting to the login endpoint."
   → kind: project, subject: "Auth middleware changes", statement: "Auth middleware was refactored to use JWT validation with rate limiting on the login endpoint"
-
-- "I just wrote a journal entry about the project kickoff — feeling optimistic about the timeline"
-  → kind: journal, subject: "Project kickoff reflection", statement: "Feeling optimistic about the project timeline after the kickoff meeting"
 
 Do NOT extract:
 - "I'll check that file for you" → assistant operational statement with no lasting information
@@ -497,6 +494,7 @@ async function extractItemsWithLLM(
   for (const raw of input.items) {
     // Apply kind migration map for old kind names, then validate
     const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
+    if (resolvedKind === "journal") continue; // journal memories created directly from disk
     if (!VALID_KINDS.has(resolvedKind)) continue;
     if (!raw.subject || !raw.statement) continue;
     const subject = String(raw.subject).trim();
@@ -820,6 +818,16 @@ export async function extractAndUpsertMemoryItemsForMessage(
       .run();
 
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
+  }
+
+  // Directly create journal memories from any journal files written during
+  // this message, bypassing LLM extraction (which would summarize/rewrite them).
+  if (message.role === "assistant") {
+    upserted += upsertJournalMemoriesFromDisk(
+      message.createdAt,
+      effectiveScopeId,
+      messageId,
+    );
   }
 
   log.debug(
