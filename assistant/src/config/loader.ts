@@ -47,7 +47,9 @@ function ensureMigratedDataDir(): void {
  * single parse is sufficient to cascade defaults through every nesting level.
  */
 export function applyNestedDefaults(config: unknown): AssistantConfig {
-  return AssistantConfigSchema.parse(config) as AssistantConfig;
+  return structuredClone(
+    AssistantConfigSchema.parse(config),
+  ) as AssistantConfig;
 }
 
 function cloneDefaultConfig(): AssistantConfig {
