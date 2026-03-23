@@ -613,7 +613,7 @@ struct MessageListView: View {
                 log.debug("Scroll restore: stage 2 (200ms) — retrying via coordinator")
             } else {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId)) scrollEvent=\(hasReceivedScrollEvent))")
+                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId), privacy: .public) scrollEvent=\(hasReceivedScrollEvent) outcome=\(String(describing: restoreOutcome), privacy: .public) anchorMinY=\(anchorTracker.lastMinY) viewportH=\(scrollViewportHeight) msgCount=\(messages.count))")
             }
 
             if !Task.isCancelled { scrollRestoreTask = nil }
@@ -1174,7 +1174,17 @@ struct MessageListView: View {
                     os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                     recordScrollLoopEvent(.anchorPreferenceChange)
                     anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
-                    if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                    if !hasFreshAnchorMeasurement {
+                        hasFreshAnchorMeasurement = true
+                        // First finite anchor measurement after a conversation switch.
+                        // LazyVStack may report the anchor as "within viewport" before
+                        // materializing message cells, causing the coordinator to skip
+                        // the scrollTo. Bypass the coordinator and scroll directly so
+                        // messages are visible without user interaction.
+                        if !hasReceivedScrollEvent && anchorMessageId == nil {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
                     scheduleTranscriptSnapshot()
                     // Geometry tracking only — no per-frame scrollTo calls here.
                     // All bottom-follow work is handled by the ChatBottomPinCoordinator
@@ -1451,6 +1461,7 @@ struct MessageListView: View {
                     // History just loaded but the coordinator's initial-restore session
                     // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
                     // so messages are visible without requiring user scroll interaction.
+                    log.debug("Scroll restore fallback: messages.count=\(messages.count) isNearBottom=\(isNearBottom) isSuppressing=\(isSuppressingBottomScroll)")
                     requestBottomPin(reason: .initialRestore, proxy: proxy)
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
