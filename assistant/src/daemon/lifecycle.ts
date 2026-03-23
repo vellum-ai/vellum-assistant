@@ -28,6 +28,10 @@ import {
   CesUnavailableError,
   createCesProcessManager,
 } from "../credential-execution/process-manager.js";
+import {
+  awaitCesClientWithTimeout,
+  DEFAULT_CES_STARTUP_TIMEOUT_MS,
+} from "../credential-execution/startup-timeout.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -465,17 +469,17 @@ export async function runDaemon(): Promise<void> {
       // inside clientPromise. Await it (with a 20s timeout) so the CES client
       // is available before provider initialization.
       if (cesResult.clientPromise) {
-        const client = await Promise.race([
+        const client = await awaitCesClientWithTimeout(
           cesResult.clientPromise,
-          new Promise<undefined>((resolve) =>
-            setTimeout(() => {
+          {
+            timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
+            onTimeout: () => {
               log.warn(
                 "CES handshake timed out after 20s — falling back to direct credential store",
               );
-              resolve(undefined);
-            }, 20_000),
-          ),
-        ]);
+            },
+          },
+        );
         if (client) {
           setCesClient(client);
         }
