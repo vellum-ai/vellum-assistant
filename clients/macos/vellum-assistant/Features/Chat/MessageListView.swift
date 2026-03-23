@@ -569,7 +569,15 @@ struct MessageListView: View {
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
             scrollTracking.avatarLastAppliedAt = nil
-            if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            // During an active send, the LazyVStack may transiently deallocate
+            // the tail anchor view during re-layout (e.g. thinking indicator
+            // insertion, rich UI expansion), producing a non-finite preference.
+            // Keep the avatar at its last known position so it doesn't flash
+            // off-screen and back. Once the layout settles, a finite anchor
+            // will arrive and the avatar resumes normal tracking.
+            if !isSending && avatarDisplayY != .infinity {
+                avatarDisplayY = .infinity
+            }
             return
         }
 
