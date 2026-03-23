@@ -116,4 +116,9 @@ public struct ConversationError: Equatable {
     public var isCreditsExhausted: Bool {
         errorCategory?.hasSuffix("credits_exhausted") == true
     }
+
+    /// Whether this error indicates that no provider is configured for inference.
+    public var isProviderNotConfigured: Bool {
+        category == .providerNotConfigured
+    }
 }
