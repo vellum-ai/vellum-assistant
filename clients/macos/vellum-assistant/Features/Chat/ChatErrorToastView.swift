@@ -204,89 +204,33 @@ struct ChatConversationErrorToast: View {
 /// Uses a warm, encouraging tone with a visual gauge and clear CTA.
 struct CreditsExhaustedBanner: View {
     let onAddFunds: () -> Void
-    let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top section: gauge + message
-            VStack(spacing: VSpacing.md) {
-                // Header row with dismiss
-                HStack {
-                    Spacer()
-                    Button {
-                        onDismiss()
-                    } label: {
-                        VIconView(.x, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss")
-                }
-
-                // Empty gauge indicator
-                creditsGauge
-
-                // Message
-                VStack(spacing: VSpacing.xs) {
-                    Text("Your balance has run out")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentEmphasized)
-                    Text("Add funds to pick up where you left off.")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                }
+        HStack(spacing: VSpacing.xl) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("💰  Your balance has run out")
+                    .font(VFont.headline)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text("Add funds to pick up where you left off.")
+                    .font(VFont.bodyMedium)
+                    .foregroundStyle(VColor.contentSecondary)
             }
-            .padding(.top, VSpacing.sm)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Divider
-            Rectangle()
-                .fill(VColor.borderBase)
-                .frame(height: 1)
-
-            // CTA section
-            HStack {
-                VButton(label: "Add Funds", style: .primary, isFullWidth: true) {
-                    onAddFunds()
-                }
+            VButton(label: "Add Funds", style: .primary) {
+                onAddFunds()
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
         }
+        .padding(VSpacing.lg)
         .background(VColor.surfaceActive)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.borderBase, lineWidth: 1)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
         )
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    // MARK: - Credits Gauge
-
-    /// Visual gauge showing an empty credits state — a horizontal bar
-    /// that's fully depleted with a small amber indicator at the empty end.
-    private var creditsGauge: some View {
-        VStack(spacing: VSpacing.xs) {
-            ZStack(alignment: .leading) {
-                // Track
-                Capsule()
-                    .fill(VColor.contentTertiary.opacity(0.3))
-                    .frame(height: 6)
-
-                // Empty fill (small indicator showing "0")
-                Capsule()
-                    .fill(VColor.systemMidStrong)
-                    .frame(width: 8, height: 6)
-            }
-            .frame(maxWidth: .infinity)
-
-            // Label
-            Text("$0.00 remaining")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
