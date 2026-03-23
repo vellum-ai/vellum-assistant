@@ -425,6 +425,184 @@ describe("migrateLegacyEntry", () => {
   });
 });
 
+describe("development filtering", () => {
+  beforeEach(() => {
+    try {
+      rmSync(join(testDir, ".vellum.lock.json"));
+    } catch {
+      // file may not exist
+    }
+  });
+
+  test("loadAllAssistants returns all entries when development is undefined", () => {
+    /**
+     * Tests that the default behavior returns both live and development assistants.
+     */
+
+    // GIVEN a lockfile with both live and development entries
+    writeLockfile({
+      assistants: [
+        makeEntry("live-bot"),
+        makeEntry("dev-bot", "http://localhost:7822", { development: true }),
+      ],
+    });
+
+    // WHEN we load all assistants without filtering
+    const all = loadAllAssistants();
+
+    // THEN both entries should be returned
+    expect(all).toHaveLength(2);
+  });
+
+  test("loadAllAssistants filters to live-only when development is false", () => {
+    /**
+     * Tests that passing development: false excludes development assistants.
+     */
+
+    // GIVEN a lockfile with both live and development entries
+    writeLockfile({
+      assistants: [
+        makeEntry("live-bot"),
+        makeEntry("dev-bot", "http://localhost:7822", { development: true }),
+      ],
+    });
+
+    // WHEN we load assistants filtering for live only
+    const live = loadAllAssistants({ development: false });
+
+    // THEN only the live entry should be returned
+    expect(live).toHaveLength(1);
+    expect(live[0].assistantId).toBe("live-bot");
+  });
+
+  test("loadAllAssistants filters to dev-only when development is true", () => {
+    /**
+     * Tests that passing development: true returns only development assistants.
+     */
+
+    // GIVEN a lockfile with both live and development entries
+    writeLockfile({
+      assistants: [
+        makeEntry("live-bot"),
+        makeEntry("dev-bot", "http://localhost:7822", { development: true }),
+      ],
+    });
+
+    // WHEN we load assistants filtering for development only
+    const devOnly = loadAllAssistants({ development: true });
+
+    // THEN only the development entry should be returned
+    expect(devOnly).toHaveLength(1);
+    expect(devOnly[0].assistantId).toBe("dev-bot");
+  });
+
+  test("loadAllAssistants treats undefined development field as live", () => {
+    /**
+     * Tests that entries without a development field are treated as live assistants.
+     */
+
+    // GIVEN a lockfile with an entry that has no development field
+    writeLockfile({
+      assistants: [makeEntry("no-flag")],
+    });
+
+    // WHEN we filter for live assistants
+    const live = loadAllAssistants({ development: false });
+
+    // THEN the entry should be included (undefined means live)
+    expect(live).toHaveLength(1);
+    expect(live[0].assistantId).toBe("no-flag");
+
+    // AND when we filter for development assistants
+    const dev = loadAllAssistants({ development: true });
+
+    // THEN the entry should be excluded
+    expect(dev).toHaveLength(0);
+  });
+
+  test("findAssistantByName respects development filter", () => {
+    /**
+     * Tests that findAssistantByName filters by development mode.
+     */
+
+    // GIVEN a lockfile with a development assistant
+    writeLockfile({
+      assistants: [
+        makeEntry("my-bot", "http://localhost:7821", { development: true }),
+      ],
+    });
+
+    // WHEN we search for it with development: true
+    const found = findAssistantByName("my-bot", { development: true });
+
+    // THEN it should be found
+    expect(found).not.toBeNull();
+    expect(found!.assistantId).toBe("my-bot");
+
+    // AND when we search for it with development: false
+    const notFound = findAssistantByName("my-bot", { development: false });
+
+    // THEN it should not be found
+    expect(notFound).toBeNull();
+  });
+
+  test("loadLatestAssistant respects development filter", () => {
+    /**
+     * Tests that loadLatestAssistant filters by development mode and returns
+     * the most recently hatched matching entry.
+     */
+
+    // GIVEN a lockfile with live and development entries
+    writeLockfile({
+      assistants: [
+        makeEntry("old-live", "http://localhost:7821", {
+          hatchedAt: "2024-01-01T00:00:00Z",
+        }),
+        makeEntry("new-dev", "http://localhost:7822", {
+          hatchedAt: "2025-06-15T00:00:00Z",
+          development: true,
+        }),
+        makeEntry("new-live", "http://localhost:7823", {
+          hatchedAt: "2025-01-01T00:00:00Z",
+        }),
+      ],
+    });
+
+    // WHEN we load the latest live assistant
+    const latestLive = loadLatestAssistant({ development: false });
+
+    // THEN it should be the most recent live entry
+    expect(latestLive).not.toBeNull();
+    expect(latestLive!.assistantId).toBe("new-live");
+
+    // AND when we load the latest development assistant
+    const latestDev = loadLatestAssistant({ development: true });
+
+    // THEN it should be the development entry
+    expect(latestDev).not.toBeNull();
+    expect(latestDev!.assistantId).toBe("new-dev");
+  });
+
+  test("saveAssistantEntry preserves the development flag", () => {
+    /**
+     * Tests that the development flag round-trips through save and load.
+     */
+
+    // GIVEN a development assistant entry
+    const entry = makeEntry("dev-round-trip", "http://localhost:7821", {
+      development: true,
+    });
+
+    // WHEN we save and reload it
+    saveAssistantEntry(entry);
+    const all = loadAllAssistants();
+
+    // THEN the development flag should be preserved
+    expect(all).toHaveLength(1);
+    expect(all[0].development).toBe(true);
+  });
+});
+
 describe("legacy migration via loadAllAssistants", () => {
   beforeEach(() => {
     try {

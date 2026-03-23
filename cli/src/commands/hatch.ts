@@ -812,6 +812,7 @@ async function hatchLocal(
     hatchedAt: new Date().toISOString(),
     serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources,
+    ...(watch ? { development: true } : {}),
   };
   if (!restart) {
     saveAssistantEntry(localEntry);

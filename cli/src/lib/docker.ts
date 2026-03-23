@@ -1173,6 +1173,7 @@ export async function hatchDocker(
         cesDigest: imageDigests?.["credential-executor"],
         networkName: res.network,
       },
+      ...(watch ? { development: true } : {}),
     };
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);

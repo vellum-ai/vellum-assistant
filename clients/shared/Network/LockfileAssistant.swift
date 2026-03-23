@@ -46,6 +46,7 @@ public struct LockfileAssistant {
     public let containerInfo: ContainerInfo?
     public let previousServiceGroupVersion: String?
     public let previousContainerInfo: ContainerInfo?
+    public let development: Bool?
 
     public init(
         assistantId: String,
@@ -63,7 +64,8 @@ public struct LockfileAssistant {
         serviceGroupVersion: String? = nil,
         containerInfo: ContainerInfo? = nil,
         previousServiceGroupVersion: String? = nil,
-        previousContainerInfo: ContainerInfo? = nil
+        previousContainerInfo: ContainerInfo? = nil,
+        development: Bool? = nil
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -81,6 +83,7 @@ public struct LockfileAssistant {
         self.containerInfo = containerInfo
         self.previousServiceGroupVersion = previousServiceGroupVersion
         self.previousContainerInfo = previousContainerInfo
+        self.development = development
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -100,6 +103,12 @@ public struct LockfileAssistant {
         cloud.lowercased() == "docker"
     }
 
+    /// Whether this assistant was hatched in development mode (watch/dev).
+    /// `nil` or `false` means this is a live (production) assistant.
+    public var isDevelopment: Bool {
+        development == true
+    }
+
     /// The resolved workspace directory for this assistant, accounting for both
     /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
     public var workspaceDir: String? {
@@ -113,12 +122,14 @@ public struct LockfileAssistant {
         return nil
     }
 
-    public static func loadLatest() -> LockfileAssistant? {
-        loadAll().first
+    public static func loadLatest(development: Bool? = nil) -> LockfileAssistant? {
+        loadAll(development: development).first
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    public static func loadAll() -> [LockfileAssistant] {
+    /// When `development` is `nil`, returns all entries (no filtering).
+    /// When `true`, returns only development entries. When `false`, returns only live entries.
+    public static func loadAll(development: Bool? = nil) -> [LockfileAssistant] {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return []
@@ -139,7 +150,17 @@ public struct LockfileAssistant {
             return dateA > dateB
         }
 
-        return sorted.compactMap { entry -> LockfileAssistant? in
+        let filtered: [[String: Any]]
+        if let development {
+            filtered = sorted.filter { entry in
+                let isDev = entry["development"] as? Bool ?? false
+                return development ? isDev : !isDev
+            }
+        } else {
+            filtered = sorted
+        }
+
+        return filtered.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
             let serviceGroupVersion = entry["serviceGroupVersion"] as? String
@@ -184,14 +205,15 @@ public struct LockfileAssistant {
                 serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
                 previousServiceGroupVersion: previousServiceGroupVersion,
-                previousContainerInfo: previousContainerInfo
+                previousContainerInfo: previousContainerInfo,
+                development: entry["development"] as? Bool
             )
         }
     }
 
     /// Find an assistant by its ID in the lockfile.
-    public static func loadByName(_ name: String) -> LockfileAssistant? {
-        loadAll().first { $0.assistantId == name }
+    public static func loadByName(_ name: String, development: Bool? = nil) -> LockfileAssistant? {
+        loadAll(development: development).first { $0.assistantId == name }
     }
 
     /// Resolve the instance directory for the currently connected assistant.

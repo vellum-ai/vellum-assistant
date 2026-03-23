@@ -98,6 +98,9 @@ export interface AssistantEntry {
   previousDbMigrationVersion?: number;
   /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */
   previousWorkspaceMigrationId?: string;
+  /** When true, indicates this assistant was hatched in development mode (watch/dev).
+   *  Undefined or false means this is a live (production) assistant. */
+  development?: boolean;
   [key: string]: unknown;
 }
 
@@ -263,6 +266,21 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
   return mutated;
 }
 
+/**
+ * Filter assistant entries by development mode.
+ * - `undefined`: return all entries (no filtering)
+ * - `true`: return only development entries
+ * - `false`: return only live (non-development) entries
+ */
+function filterByDevelopment(
+  entries: AssistantEntry[],
+  development: boolean | undefined,
+): AssistantEntry[] {
+  if (development === undefined) return entries;
+  if (development) return entries.filter((e) => e.development === true);
+  return entries.filter((e) => !e.development);
+}
+
 function readAssistants(): AssistantEntry[] {
   const data = readLockfile();
   const entries = data.assistants;
@@ -293,8 +311,10 @@ function writeAssistants(entries: AssistantEntry[]): void {
   writeLockfile(data);
 }
 
-export function loadLatestAssistant(): AssistantEntry | null {
-  const entries = readAssistants();
+export function loadLatestAssistant(
+  opts: { development?: boolean } = {},
+): AssistantEntry | null {
+  const entries = filterByDevelopment(readAssistants(), opts.development);
   if (entries.length === 0) {
     return null;
   }
@@ -306,8 +326,11 @@ export function loadLatestAssistant(): AssistantEntry | null {
   return sorted[0];
 }
 
-export function findAssistantByName(name: string): AssistantEntry | null {
-  const entries = readAssistants();
+export function findAssistantByName(
+  name: string,
+  opts: { development?: boolean } = {},
+): AssistantEntry | null {
+  const entries = filterByDevelopment(readAssistants(), opts.development);
   return entries.find((e) => e.assistantId === name) ?? null;
 }
 
@@ -329,8 +352,10 @@ export function removeAssistantEntry(assistantId: string): void {
   writeLockfile(data);
 }
 
-export function loadAllAssistants(): AssistantEntry[] {
-  return readAssistants();
+export function loadAllAssistants(
+  opts: { development?: boolean } = {},
+): AssistantEntry[] {
+  return filterByDevelopment(readAssistants(), opts.development);
 }
 
 export function getActiveAssistant(): string | null {
@@ -350,9 +375,12 @@ export function setActiveAssistant(assistantId: string): void {
  * 2. Active assistant set via `vellum use`
  * 3. Sole local assistant (when exactly one exists)
  */
-export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
+export function resolveTargetAssistant(
+  nameArg?: string,
+  opts: { development?: boolean } = {},
+): AssistantEntry {
   if (nameArg) {
-    const entry = findAssistantByName(nameArg);
+    const entry = findAssistantByName(nameArg, opts);
     if (!entry) {
       console.error(`No assistant found with name '${nameArg}'.`);
       process.exit(1);
@@ -362,12 +390,12 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
 
   const active = getActiveAssistant();
   if (active) {
-    const entry = findAssistantByName(active);
+    const entry = findAssistantByName(active, opts);
     if (entry) return entry;
     // Active assistant no longer exists in lockfile — fall through
   }
 
-  const all = readAssistants();
+  const all = filterByDevelopment(readAssistants(), opts.development);
   const locals = all.filter((e) => e.cloud === "local");
   if (locals.length === 1) return locals[0];
 
