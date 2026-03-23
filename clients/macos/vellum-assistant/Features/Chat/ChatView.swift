@@ -102,6 +102,15 @@ struct ChatView: View {
     /// Dismisses the credits-exhausted banner.
     var onDismissCreditsExhausted: (() -> Void)? = nil
 
+    // MARK: - Provider Not Configured (inline banner)
+
+    /// Non-nil when the conversation ended because no provider is configured.
+    var providerNotConfiguredError: ConversationError? = nil
+    /// Opens the Models & Services settings tab.
+    var onOpenModelsAndServices: (() -> Void)? = nil
+    /// Dismisses the provider-not-configured banner.
+    var onDismissProviderNotConfigured: (() -> Void)? = nil
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -264,6 +273,16 @@ struct ChatView: View {
                         if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
                             CreditsExhaustedBanner(
                                 onAddFunds: { onAddFunds?() }
+                            )
+                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, -VSpacing.sm)
+                        }
+
+                        if let _ = providerNotConfiguredError {
+                            MissingApiKeyBanner(
+                                onOpenSettings: { onOpenModelsAndServices?() },
+                                onDismiss: { onDismissProviderNotConfigured?() }
                             )
                             .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                             .frame(maxWidth: .infinity)
