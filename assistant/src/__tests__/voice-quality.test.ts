@@ -124,4 +124,76 @@ describe("resolveVoiceQualityProfile", () => {
     const profile = resolveVoiceQualityProfile();
     expect(profile.voice).toBe("voice1-turbo_v2_5-0.9_0.8_0.9");
   });
+
+  test("profanityFilter is always false", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.profanityFilter).toBe(false);
+  });
+
+  test("interruptSensitivity defaults to 'low' when not configured", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.interruptSensitivity).toBe("low");
+  });
+
+  test("interruptSensitivity reflects configured value", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+          interruptSensitivity: "high",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.interruptSensitivity).toBe("high");
+  });
+
+  test("hints defaults to empty array when not configured", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.hints).toEqual([]);
+  });
+
+  test("hints reflects configured values", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+          hints: ["Vellum", "Velissa", "AI assistant"],
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.hints).toEqual(["Vellum", "Velissa", "AI assistant"]);
+  });
 });
