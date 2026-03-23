@@ -9,8 +9,6 @@ import {
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-const DEFAULT_PLATFORM_URL = "";
-
 function getXdgConfigHome(): string {
   return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
 }
@@ -19,22 +17,33 @@ function getPlatformTokenPath(): string {
   return join(getXdgConfigHome(), "vellum", "platform-token");
 }
 
-export function getPlatformUrl(): string {
-  return process.env.VELLUM_PLATFORM_URL ?? DEFAULT_PLATFORM_URL;
+/**
+ * Read the platform base URL from the workspace config file
+ * (~/.vellum/workspace/config.json → platform.baseUrl).
+ */
+function getConfigPlatformUrl(): string | undefined {
+  try {
+    const configPath = join(homedir(), ".vellum", "workspace", "config.json");
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const platform = raw.platform as Record<string, unknown> | undefined;
+    const baseUrl = platform?.baseUrl;
+    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
+  } catch {
+    // ignore
+  }
+  return undefined;
 }
 
-/**
- * Returns the platform URL, throwing a clear error if it is not configured.
- * Use this in functions that need a valid URL to make HTTP requests.
- */
-function requirePlatformUrl(): string {
-  const url = getPlatformUrl();
-  if (!url) {
-    throw new Error(
-      "VELLUM_PLATFORM_URL is not configured. Set it in your environment or .env file.",
-    );
-  }
-  return url;
+export function getPlatformUrl(): string {
+  return (
+    getConfigPlatformUrl() ||
+    process.env.VELLUM_PLATFORM_URL ||
+    "https://platform.vellum.ai"
+  );
 }
 
 export function readPlatformToken(): string | null {
@@ -74,7 +83,7 @@ interface OrganizationListResponse {
 }
 
 export async function fetchOrganizationId(token: string): Promise<string> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const url = `${platformUrl}/v1/organizations/`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
@@ -106,7 +115,7 @@ interface AllauthSessionResponse {
 }
 
 export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
-  const url = `${requirePlatformUrl()}/_allauth/app/v1/auth/session`;
+  const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
@@ -137,7 +146,7 @@ export async function rollbackPlatformAssistant(
   orgId: string,
   version?: string,
 ): Promise<{ detail: string; version: string | null }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/assistants/rollback/`, {
     method: "POST",
     headers: {
@@ -181,7 +190,7 @@ export async function platformInitiateExport(
   orgId: string,
   description?: string,
 ): Promise<{ jobId: string; status: string }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/migrations/export/`, {
     method: "POST",
     headers: {
@@ -214,7 +223,7 @@ export async function platformPollExportStatus(
   token: string,
   orgId: string,
 ): Promise<{ status: string; downloadUrl?: string; error?: string }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(
     `${platformUrl}/v1/migrations/export/${jobId}/status/`,
     {
@@ -268,7 +277,7 @@ export async function platformImportPreflight(
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(
     `${platformUrl}/v1/migrations/import-preflight/`,
     {
@@ -295,7 +304,7 @@ export async function platformImportBundle(
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/migrations/import/`, {
     method: "POST",
     headers: {
