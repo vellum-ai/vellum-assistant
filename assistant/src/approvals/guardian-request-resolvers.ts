@@ -40,6 +40,22 @@ const log = getLogger("guardian-request-resolvers");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Determines whether a Slack delivery should use ephemeral mode.
+ *
+ * Ephemeral messages (`chat.postEphemeral`) require a real channel ID
+ * (starts with `C` for public/private channels, or `D` for DM conversations).
+ * When the chat ID is a user ID (starts with `U`), `chat.postEphemeral` fails
+ * with `channel_not_found`. In that case the message is already going to a DM
+ * opened by `chat.postMessage`, so ephemeral isn't needed.
+ *
+ * Returns `true` only when the source channel is Slack AND the chatId is a
+ * shared channel (starts with `C`), meaning other users could see the message.
+ */
+function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
+  return sourceChannel === "slack" && chatId.startsWith("C");
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -377,8 +393,11 @@ const accessRequestResolver: GuardianRequestResolver = {
             text: "Your access request has been denied by the guardian.",
             assistantId,
           };
-          // On Slack, deliver as ephemeral so only the requester sees the denial
-          if (channel === "slack" && requesterExternalUserId) {
+          // On Slack shared channels, deliver as ephemeral so only the requester sees the denial
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
             denialPayload.ephemeral = true;
             denialPayload.user = requesterExternalUserId;
           }
@@ -531,13 +550,23 @@ const accessRequestResolver: GuardianRequestResolver = {
         `Give them this verification code: \`${session.secret}\`. ` +
         `The code expires in 10 minutes.`;
       try {
+        const codePayload: Parameters<typeof deliverChannelReply>[1] = {
+          chatId: channelDeliveryContext.guardianChatId,
+          text: codeText,
+          assistantId,
+        };
+        // On Slack shared channels, deliver the verification code as ephemeral
+        // so only the guardian sees the secret — not all channel members.
+        if (
+          shouldUseEphemeral(channel, channelDeliveryContext.guardianChatId) &&
+          ctx.actor.actorExternalUserId
+        ) {
+          codePayload.ephemeral = true;
+          codePayload.user = ctx.actor.actorExternalUserId;
+        }
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
-          {
-            chatId: channelDeliveryContext.guardianChatId,
-            text: codeText,
-            assistantId,
-          },
+          codePayload,
           channelDeliveryContext.bearerToken,
         );
       } catch (err) {
@@ -614,8 +643,11 @@ const accessRequestResolver: GuardianRequestResolver = {
               "Please enter the 6-digit verification code you receive from the guardian.",
             assistantId,
           };
-          // On Slack, deliver as ephemeral so only the requester sees
-          if (channel === "slack" && requesterExternalUserId) {
+          // On Slack shared channels, deliver as ephemeral so only the requester sees
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
             approvalPayload.ephemeral = true;
             approvalPayload.user = requesterExternalUserId;
           }
@@ -640,7 +672,10 @@ const accessRequestResolver: GuardianRequestResolver = {
               "deliver the verification code. Please try again later.",
             assistantId,
           };
-          if (channel === "slack" && requesterExternalUserId) {
+          if (
+            shouldUseEphemeral(channel, requesterChatId) &&
+            requesterExternalUserId
+          ) {
             failurePayload.ephemeral = true;
             failurePayload.user = requesterExternalUserId;
           }
@@ -766,7 +801,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
               assistantId,
             };
           if (
-            request.sourceChannel === "slack" &&
+            shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
             request.requesterExternalUserId
           ) {
             grantDenialPayload.ephemeral = true;
@@ -864,7 +899,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
             assistantId,
           };
         if (
-          request.sourceChannel === "slack" &&
+          shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
           request.requesterExternalUserId
         ) {
           grantApprovalPayload.ephemeral = true;
