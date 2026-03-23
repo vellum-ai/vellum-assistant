@@ -85,9 +85,13 @@ public struct GuardianClient: GuardianClientProtocol {
             "deviceId": deviceId
         ]
 
+        // Generate a one-time bootstrap secret in memory (never stored on disk).
+        let bootstrapSecret = UUID().uuidString
+        let extraHeaders = ["x-bootstrap-secret": bootstrapSecret]
+
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/init", json: body, timeout: 15
+                path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15
             )
             guard response.isSuccess else {
                 log.error("Access token bootstrap failed (HTTP \(response.statusCode))")

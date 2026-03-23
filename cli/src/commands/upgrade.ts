@@ -377,9 +377,6 @@ async function upgradeDocker(
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
-  // Generate a fresh bootstrap secret for the gateway.
-  const bootstrapSecret = randomBytes(32).toString("hex");
-
   // Extract or generate the shared JWT signing key. Pre-env-var instances
   // won't have it in capturedEnv, so generate fresh in that case.
   const signingKey =
@@ -480,7 +477,6 @@ async function upgradeDocker(
   await startContainers(
     {
       signingKey,
-      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
