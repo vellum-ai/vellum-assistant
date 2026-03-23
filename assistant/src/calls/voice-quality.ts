@@ -59,12 +59,20 @@ export function resolveVoiceQualityProfile(
   const voice = cfg.calls.voice;
   const configuredTts = voice.ttsProvider ?? "elevenlabs";
   const fishAudio = configuredTts === "fish-audio";
+  const isGoogle = voice.transcriptionProvider === "Google";
+  // Treat the legacy Deepgram default ("nova-3") as unset when provider is
+  // Google — upgraded workspaces may still have it persisted from prior defaults.
+  const effectiveSpeechModel =
+    voice.speechModel == null ||
+    (voice.speechModel === "nova-3" && isGoogle)
+      ? isGoogle
+        ? undefined
+        : "nova-3"
+      : voice.speechModel;
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
-    speechModel:
-      voice.speechModel ??
-      (voice.transcriptionProvider === "Google" ? undefined : "nova-3"),
+    speechModel: effectiveSpeechModel,
     ttsProvider: fishAudio ? "Google" : "ElevenLabs",
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
