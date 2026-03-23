@@ -69,13 +69,9 @@ const mockProvider: Provider = {
 let resolvedProvider: {
   provider: Provider;
   configuredProviderName: string;
-  selectedProviderName: string;
-  usedFallbackPrimary: boolean;
 } | null = {
   provider: mockProvider,
   configuredProviderName: "anthropic",
-  selectedProviderName: "anthropic",
-  usedFallbackPrimary: false,
 };
 
 mock.module("../providers/provider-send-message.js", () => ({
@@ -130,8 +126,6 @@ describe("ProviderCommitMessageGenerator", () => {
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "anthropic",
-      selectedProviderName: "anthropic",
-      usedFallbackPrimary: false,
     };
   });
 
@@ -343,8 +337,6 @@ describe("ProviderCommitMessageGenerator", () => {
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "ollama",
-      selectedProviderName: "ollama",
-      usedFallbackPrimary: false,
     };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
@@ -364,8 +356,6 @@ describe("ProviderCommitMessageGenerator", () => {
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "exotic-provider",
-      selectedProviderName: "exotic-provider",
-      usedFallbackPrimary: false,
     };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
@@ -383,8 +373,6 @@ describe("ProviderCommitMessageGenerator", () => {
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "ollama",
-      selectedProviderName: "ollama",
-      usedFallbackPrimary: false,
     };
     currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
       ollama: "llama3.2:3b",
@@ -404,28 +392,4 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(options.config.model).toBe("llama3.2:3b");
   });
 
-  // 15. Fail-open fallback provider uses fallback provider's fast-model mapping
-  test("configured provider unavailable -> selected fallback provider model mapping is used", async () => {
-    currentConfig.services.inference.provider = "anthropic";
-    mockSecureKeys = { openai: "sk-openai" };
-    resolvedProvider = {
-      provider: mockProvider,
-      configuredProviderName: "anthropic",
-      selectedProviderName: "openai",
-      usedFallbackPrimary: true,
-    };
-    mockSendMessage.mockResolvedValueOnce(
-      makeSuccessResponse("fix: fail-open commit"),
-    );
-
-    const gen = getCommitMessageGenerator();
-    const result = await gen.generateCommitMessage(baseContext, {
-      changedFiles: baseContext.changedFiles,
-    });
-
-    expect(result.source).toBe("llm");
-    const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe("gpt-4o-mini");
-  });
 });

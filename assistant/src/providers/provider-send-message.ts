@@ -21,8 +21,6 @@ import type {
 export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;
-  selectedProviderName: string;
-  usedFallbackPrimary: boolean;
 }
 
 /**
@@ -63,8 +61,6 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
     return {
       provider,
       configuredProviderName: inferenceProvider,
-      selectedProviderName: inferenceProvider,
-      usedFallbackPrimary: false,
     };
   } catch {
     return null;

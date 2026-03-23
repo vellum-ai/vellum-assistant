@@ -160,18 +160,17 @@ export class ProviderCommitMessageGenerator {
     }
 
     const provider = resolved.provider;
-    const selectedProviderName = resolved.selectedProviderName;
+    const providerName = resolved.configuredProviderName;
 
-    // Step 2b: API key preflight for the selected provider (skip keyless).
-    if (!KEYLESS_PROVIDERS.has(selectedProviderName)) {
-      const providerApiKey = await getSecureKeyAsync(selectedProviderName);
+    // Step 2b: API key preflight for the configured provider (skip keyless).
+    if (!KEYLESS_PROVIDERS.has(providerName)) {
+      const providerApiKey = await getSecureKeyAsync(providerName);
       if (!providerApiKey) {
         log.debug(
           {
-            selectedProvider: selectedProviderName,
-            configuredProvider: config.services.inference.provider,
+            provider: providerName,
           },
-          "Selected provider API key missing; falling back to deterministic",
+          "Provider API key missing; falling back to deterministic",
         );
         return buildDeterministicResult(context, "missing_provider_api_key");
       }
@@ -203,13 +202,13 @@ export class ProviderCommitMessageGenerator {
 
     // Step 5: Fast model preflight — resolve before any provider call
     const fastModel =
-      llmConfig.providerFastModelOverrides[selectedProviderName] ??
-      PROVIDER_DEFAULT_FAST_MODELS[selectedProviderName];
+      llmConfig.providerFastModelOverrides[providerName] ??
+      PROVIDER_DEFAULT_FAST_MODELS[providerName];
 
     if (!fastModel) {
       log.debug(
         {
-          provider: selectedProviderName,
+          provider: providerName,
           configuredProvider: config.services.inference.provider,
         },
         "No fast model resolvable for provider; falling back to deterministic",
