@@ -254,6 +254,7 @@ struct MissingApiKeyBanner: View {
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
             }
 
             VStack(spacing: VSpacing.xs) {
