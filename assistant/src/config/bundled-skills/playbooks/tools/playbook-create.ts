@@ -101,6 +101,7 @@ export async function executePlaybookCreate(
         importance: 0.8,
         fingerprint,
         sourceType: "tool",
+        verificationState: "user_confirmed",
         scopeId,
         firstSeenAt: now,
         lastSeenAt: now,
