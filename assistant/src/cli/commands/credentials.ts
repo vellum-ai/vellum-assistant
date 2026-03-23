@@ -13,11 +13,11 @@ import {
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
-  deleteSecureKeyAsync,
-  getSecureKeyAsync,
-  getSecureKeyResultAsync,
-  setSecureKeyAsync,
-} from "../../security/secure-keys.js";
+  deleteSecureKeyViaDaemon,
+  getSecureKeyViaDaemon,
+  getSecureKeyResultViaDaemon,
+  setSecureKeyViaDaemon,
+} from "../lib/daemon-credential-client.js";
 import {
   assertMetadataWritable,
   type CredentialMetadata,
@@ -310,7 +310,7 @@ Examples:
 
         const credentials = await Promise.all(
           allMetadata.map(async (m) => {
-            const secret = await getSecureKeyAsync(
+            const secret = await getSecureKeyViaDaemon(
               credentialKey(m.service, m.field),
             );
             const connection = connectionsByProvider.get(m.service);
@@ -418,11 +418,14 @@ Examples:
       ) => {
         try {
           const { service, field } = opts;
-          const storageKey = credentialKey(service, field);
 
           assertMetadataWritable();
 
-          const stored = await setSecureKeyAsync(storageKey, value);
+          const stored = await setSecureKeyViaDaemon(
+            "credential",
+            `${service}:${field}`,
+            value,
+          );
           if (!stored) {
             writeOutput(cmd, {
               ok: false,
@@ -485,11 +488,13 @@ Examples:
     .action(async (opts: { service: string; field: string }, cmd: Command) => {
       try {
         const { service, field } = opts;
-        const storageKey = credentialKey(service, field);
 
         assertMetadataWritable();
 
-        const secretResult = await deleteSecureKeyAsync(storageKey);
+        const secretResult = await deleteSecureKeyViaDaemon(
+          "credential",
+          `${service}:${field}`,
+        );
         if (secretResult === "error") {
           writeOutput(cmd, {
             ok: false,
@@ -610,7 +615,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultAsync(storageKey);
+            await getSecureKeyResultViaDaemon(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
             if (unreachable) {
@@ -747,7 +752,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultAsync(storageKey);
+            await getSecureKeyResultViaDaemon(storageKey);
 
           if (secret == null || secret.length === 0) {
             if (unreachable) {
