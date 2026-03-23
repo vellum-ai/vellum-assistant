@@ -57,12 +57,17 @@ export function buildJournalContext(maxEntries: number): string | null {
     (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
   );
 
-  // Collect file info with mtime
+  // Collect file info with mtime, skipping unreadable entries
   const entries = mdFiles
-    .map((f) => {
-      const filepath = join(journalDir, f);
-      const stat = statSync(filepath);
-      return { filename: f, filepath, mtimeMs: stat.mtimeMs };
+    .flatMap((f) => {
+      try {
+        const filepath = join(journalDir, f);
+        const stat = statSync(filepath);
+        if (!stat.isFile()) return [];
+        return [{ filename: f, filepath, mtimeMs: stat.mtimeMs }];
+      } catch {
+        return [];
+      }
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, maxEntries);
@@ -75,7 +80,12 @@ export function buildJournalContext(maxEntries: number): string | null {
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const content = readFileSync(entry.filepath, "utf-8");
+    let content: string;
+    try {
+      content = readFileSync(entry.filepath, "utf-8");
+    } catch {
+      continue;
+    }
     const relativeTime = formatJournalRelativeTime(entry.mtimeMs);
 
     let header: string;
