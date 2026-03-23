@@ -26,8 +26,8 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import type { CallStatus } from "./types.js";
 import { resolveCallHints } from "./stt-hints.js";
+import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");

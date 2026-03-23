@@ -46,11 +46,11 @@ import {
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
 import { synthesizeWithFishAudio } from "./fish-audio-client.js";
-import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
+import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
   CALL_OPENING_ACK_MARKER,
