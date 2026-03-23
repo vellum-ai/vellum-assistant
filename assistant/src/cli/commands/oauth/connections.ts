@@ -19,7 +19,6 @@ import {
   getProviderBehavior,
   resolveService,
 } from "../../../oauth/provider-behaviors.js";
-import { credentialKey } from "../../../security/credential-key.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import {
   assertMetadataWritable,
@@ -538,8 +537,7 @@ Examples:
             "client_secret",
           ];
           for (const field of legacyFields) {
-            const key = credentialKey(providerKey, field);
-            const result = await deleteSecureKeyViaDaemon("credential", key);
+            const result = await deleteSecureKeyViaDaemon("credential", `${providerKey}:${field}`);
             if (result === "deleted") cleanedUp = true;
 
             const metaDeleted = deleteCredentialMetadata(providerKey, field);
