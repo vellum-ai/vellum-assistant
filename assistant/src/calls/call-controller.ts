@@ -46,6 +46,7 @@ import {
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
 import { synthesizeWithFishAudio } from "./fish-audio-client.js";
+import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
@@ -553,10 +554,12 @@ export class CallController {
 
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
+      const cleaned = sanitizeForTts(safeText);
+      if (cleaned.length === 0) return;
       if (useFishAudio) {
-        fishAudioTextBuffer += safeText;
+        fishAudioTextBuffer += cleaned;
       } else {
-        this.relay.sendTextToken(safeText, false);
+        this.relay.sendTextToken(cleaned, false);
       }
     };
 
@@ -671,7 +674,8 @@ export class CallController {
     // single REST API call. The full text gives Fish Audio better context
     // for prosody and intonation. Audio streams back via chunked transfer
     // encoding and is forwarded to Twilio as it arrives.
-    if (useFishAudio && fishAudioTextBuffer.trim().length > 0) {
+    const sanitizedFishText = sanitizeForTts(fishAudioTextBuffer.trim());
+    if (useFishAudio && sanitizedFishText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
       let handle: ReturnType<typeof createStreamingEntry> | null = null;
       try {
@@ -683,7 +687,7 @@ export class CallController {
         const abortController = new AbortController();
         this.activeFishAbort = abortController;
         await synthesizeWithFishAudio(
-          fishAudioTextBuffer.trim(),
+          sanitizedFishText,
           config.fishAudio,
           {
             onChunk: (chunk) => handle!.push(chunk),
@@ -730,7 +734,7 @@ export class CallController {
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: responseText,
     });
-    const spokenText = stripInternalSpeechMarkers(responseText).trim();
+    const spokenText = sanitizeForTts(stripInternalSpeechMarkers(responseText)).trim();
     if (spokenText.length > 0) {
       const session = getCallSession(this.callSessionId);
       if (session) {
