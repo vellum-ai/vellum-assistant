@@ -75,6 +75,27 @@ extension EnvironmentValues {
     /// Debounced task for transcript snapshot updates, coalescing rapid scroll
     /// events into a single snapshot capture per 150ms window.
     var snapshotDebounceTask: Task<Void, Never>?
+
+    // MARK: - PrecomputedState Cache
+
+    /// Cache key for the last computed `PrecomputedMessageListState`.
+    var cachedPrecomputedKey: PrecomputedCacheKey?
+    /// Cached result for `precomputedState`, returned on cache hit.
+    var cachedPrecomputedState: PrecomputedMessageListState?
+}
+
+/// Lightweight key that captures all inputs to `precomputedState`.
+/// For the message array we use a hash-based fingerprint rather than
+/// storing the full array, keeping equality checks O(1) after an
+/// O(visible-messages) fingerprint computation.
+private struct PrecomputedCacheKey: Equatable {
+    let messageFingerprint: Int
+    let isSending: Bool
+    let isThinking: Bool
+    let isCompacting: Bool
+    let assistantStatusText: String?
+    let activeSubagentFingerprint: Int
+    let displayedMessageCount: Int
 }
 
 struct MessageListView: View {
@@ -237,6 +258,57 @@ struct MessageListView: View {
         )
     }
 
+    /// Computes a lightweight fingerprint over visible messages that detects
+    /// additions, deletions, streaming updates, and confirmation state changes
+    /// without storing the full message array.
+    private func computeMessageFingerprint() -> Int {
+        var hasher = Hasher()
+        hasher.combine(messages.count)
+        hasher.combine(displayedMessageCount)
+        let visible = visibleMessages
+        hasher.combine(visible.count)
+        for msg in visible {
+            hasher.combine(msg.id)
+            hasher.combine(msg.textSegments.count)
+            if let last = msg.textSegments.last {
+                hasher.combine(last.count)
+            }
+            hasher.combine(msg.toolCalls.count)
+            for toolCall in msg.toolCalls {
+                hasher.combine(toolCall.isComplete)
+            }
+            hasher.combine(msg.isStreaming)
+            if let conf = msg.confirmation {
+                // ToolConfirmationState is Equatable but not Hashable/RawRepresentable;
+                // map to an int tag for hashing.
+                switch conf.state {
+                case .pending: hasher.combine(0)
+                case .approved: hasher.combine(1)
+                case .denied: hasher.combine(2)
+                case .timedOut: hasher.combine(3)
+                }
+            } else {
+                hasher.combine(-1)
+            }
+        }
+        return hasher.finalize()
+    }
+
+    /// Computes a fingerprint over active subagents that captures identity,
+    /// parent assignment, status, label, and error — not just count.
+    private static func computeSubagentFingerprint(_ subagents: [SubagentInfo]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(subagents.count)
+        for s in subagents {
+            hasher.combine(s.id)
+            hasher.combine(s.parentMessageId)
+            hasher.combine(s.label)
+            hasher.combine(s.status)
+            hasher.combine(s.error)
+        }
+        return hasher.finalize()
+    }
+
     /// The active pending confirmation request ID, derived from the visible
     /// messages. Used by onChange to detect new confirmation appearances.
     private var currentPendingRequestId: String? {
@@ -247,7 +319,36 @@ struct MessageListView: View {
     /// Moving these out of the LazyVStack closure ensures O(n) scans
     /// (timestamp indices, subagent grouping, turn detection) run once
     /// per body evaluation rather than being re-evaluated on layout passes.
+    ///
+    /// Memoized behind a lightweight input fingerprint stored on the
+    /// non-reactive `ScrollTrackingState`. Cache hit returns immediately
+    /// after an O(visible-messages) fingerprint comparison; cache miss
+    /// runs the full computation. Storing on the class (not @State)
+    /// ensures cache updates never trigger additional body re-evaluations.
     private var precomputedState: PrecomputedMessageListState {
+        let key = PrecomputedCacheKey(
+            messageFingerprint: computeMessageFingerprint(),
+            isSending: isSending,
+            isThinking: isThinking,
+            isCompacting: isCompacting,
+            assistantStatusText: assistantStatusText,
+            activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
+            displayedMessageCount: displayedMessageCount
+        )
+
+        if key == scrollTracking.cachedPrecomputedKey,
+           let cached = scrollTracking.cachedPrecomputedState {
+            #if DEBUG
+            // Spot-check cache correctness in debug builds.
+            let freshMessages = visibleMessages
+            assert(
+                cached.displayMessages.count == freshMessages.count,
+                "precomputedState cache stale: displayMessages count \(cached.displayMessages.count) vs \(freshMessages.count)"
+            )
+            #endif
+            return cached
+        }
+
         let displayMessages = visibleMessages
         let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
         let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
@@ -326,7 +427,7 @@ struct MessageListView: View {
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
         let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
 
-        return PrecomputedMessageListState(
+        let result = PrecomputedMessageListState(
             displayMessages: displayMessages,
             messageIndexById: messageIndexById,
             activePendingRequestId: activePendingRequestId,
@@ -348,6 +449,10 @@ struct MessageListView: View {
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
             effectiveStatusText: effectiveStatusText
         )
+
+        scrollTracking.cachedPrecomputedKey = key
+        scrollTracking.cachedPrecomputedState = result
+        return result
     }
 
     func canFork(from message: ChatMessage) -> Bool {
