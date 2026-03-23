@@ -36,10 +36,11 @@ run_step() {
 step_kill_bun_processes() {
     BUN_PIDS=$(pgrep -f "bun run" 2>/dev/null || true)
     if [ -n "$BUN_PIDS" ]; then
-        if ! echo "$BUN_PIDS" | xargs kill -9 2>&1; then
+        if ! echo "$BUN_PIDS" | xargs kill -9 2>/dev/null; then
             echo "      ⚠️  Warning: Some bun processes could not be killed"
+        else
+            echo "      ✅ Killed bun run processes: $BUN_PIDS"
         fi
-        echo "      ✅ Killed bun run processes: $BUN_PIDS"
     else
         echo "      ⏭️  No bun run processes found, skipping"
     fi
@@ -52,7 +53,7 @@ step_uninstall_bun() {
         # Clean up shell profile references
         for profile in ~/.bashrc ~/.bash_profile ~/.zshrc ~/.zprofile; do
             if [ -f "$profile" ]; then
-                if ! sed -i '' '/\.bun/d' "$profile" 2>&1; then
+                if ! sed -i '' '/\.bun/d' "$profile" 2>/dev/null; then
                     echo "      ⚠️  Warning: Failed to clean bun references from $profile"
                 fi
             fi
@@ -66,10 +67,11 @@ step_uninstall_bun() {
 step_kill_qdrant_processes() {
     QDRANT_PIDS=$(pgrep -f "qdrant" 2>/dev/null || true)
     if [ -n "$QDRANT_PIDS" ]; then
-        if ! echo "$QDRANT_PIDS" | xargs kill -9 2>&1; then
+        if ! echo "$QDRANT_PIDS" | xargs kill -9 2>/dev/null; then
             echo "      ⚠️  Warning: Some qdrant processes could not be killed"
+        else
+            echo "      ✅ Killed qdrant processes: $QDRANT_PIDS"
         fi
-        echo "      ✅ Killed qdrant processes: $QDRANT_PIDS"
     else
         echo "      ⏭️  No qdrant processes found, skipping"
     fi
@@ -78,10 +80,11 @@ step_kill_qdrant_processes() {
 step_kill_vellum_processes() {
     VELLUM_PIDS=$(pgrep -f "Vellum" 2>/dev/null || true)
     if [ -n "$VELLUM_PIDS" ]; then
-        if ! echo "$VELLUM_PIDS" | xargs kill -9 2>&1; then
+        if ! echo "$VELLUM_PIDS" | xargs kill -9 2>/dev/null; then
             echo "      ⚠️  Warning: Some Vellum processes could not be killed"
+        else
+            echo "      ✅ Killed Vellum processes: $VELLUM_PIDS"
         fi
-        echo "      ✅ Killed Vellum processes: $VELLUM_PIDS"
     else
         echo "      ⏭️  No Vellum processes found, skipping"
     fi
@@ -99,10 +102,11 @@ step_remove_vellum_dir() {
 step_kill_embed_workers() {
     EMBED_PIDS=$(pgrep -f "embed-worker" 2>/dev/null || true)
     if [ -n "$EMBED_PIDS" ]; then
-        if ! echo "$EMBED_PIDS" | xargs kill -9 2>&1; then
+        if ! echo "$EMBED_PIDS" | xargs kill -9 2>/dev/null; then
             echo "       ⚠️  Warning: Some embedding worker processes could not be killed"
+        else
+            echo "       ✅ Killed embedding worker processes: $EMBED_PIDS"
         fi
-        echo "       ✅ Killed embedding worker processes: $EMBED_PIDS"
     else
         echo "       ⏭️  No embedding worker processes found, skipping"
     fi
@@ -208,7 +212,7 @@ step_remove_dock_entry() {
                     echo "       ✅ Removed Vellum from Dock persistent apps (index $i)"
                 fi
             done
-            if ! killall Dock 2>&1; then
+            if ! killall Dock 2>/dev/null; then
                 echo "       ⚠️  Warning: Could not restart Dock"
             else
                 echo "       ✅ Dock restarted"
@@ -225,7 +229,7 @@ step_uninstall_docker() {
     DOCKER_REMOVED=false
     if [ -d "/Applications/Docker.app" ]; then
         # Quit Docker if running
-        if ! osascript -e 'quit app "Docker"' 2>&1; then
+        if ! osascript -e 'quit app "Docker"' 2>/dev/null; then
             echo "       ⚠️  Warning: Could not quit Docker.app — it may not be running"
         fi
         sleep 2
@@ -281,10 +285,10 @@ step_uninstall_colima() {
         done
     fi
     if [ -n "$COLIMA_BIN" ]; then
-        if ! "$COLIMA_BIN" stop 2>&1; then
+        if ! "$COLIMA_BIN" stop 2>/dev/null; then
             echo "       ⚠️  Warning: 'colima stop' failed — VM may not have been running"
         fi
-        if ! "$COLIMA_BIN" delete --force 2>&1; then
+        if ! "$COLIMA_BIN" delete --force 2>/dev/null; then
             echo "       ⚠️  Warning: 'colima delete --force' failed — will clean up state directories manually"
         else
             echo "       ✅ Stopped and deleted Colima VM"
@@ -336,7 +340,7 @@ step_uninstall_homebrew() {
     fi
     if [ -n "$BREW_BIN" ]; then
         # Use Homebrew's official uninstall script
-        if ! NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>&1; then
+        if ! NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>/dev/null; then
             echo "       ⚠️  Warning: Homebrew uninstall script failed — cleaning up directories manually"
         fi
         # Clean up any remaining Homebrew directories
