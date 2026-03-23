@@ -1070,6 +1070,7 @@ public final class SettingsStore: ObservableObject {
         do {
             let response = try await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
             if response.isSuccess {
+                NotificationCenter.default.post(name: .daemonCredentialDidChange, object: nil)
                 return (true, nil, false)
             }
             // 5xx errors are server-side / transient — don't treat them as
@@ -1148,6 +1149,7 @@ public final class SettingsStore: ObservableObject {
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
             _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            NotificationCenter.default.post(name: .daemonCredentialDidChange, object: nil)
         }
         return true
     }
