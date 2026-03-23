@@ -656,6 +656,7 @@ struct ChatContentView: View {
         case .contextTooLarge: return .fileText
         case .providerBilling: return .creditCard
         case .authenticationRequired: return .lock
+        case .providerNotConfigured: return .keyRound
         case .unknown: return .triangleAlert
         }
     }
