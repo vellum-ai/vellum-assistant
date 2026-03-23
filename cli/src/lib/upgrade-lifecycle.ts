@@ -267,8 +267,6 @@ export async function rollbackMigrations(
 export interface PerformDockerRollbackOptions {
   /** Specific version to roll back to. */
   targetVersion?: string;
-  /** Path to a .vbundle to restore after the version change (used by restore command). */
-  restoreBackupPath?: string;
 }
 
 /**
@@ -283,13 +281,12 @@ export interface PerformDockerRollbackOptions {
  * - Readiness check
  * - Lockfile update with rollback state
  * - Auto-rollback on failure
- * - Backup restore (if restoreBackupPath is provided)
  */
 export async function performDockerRollback(
   entry: AssistantEntry,
   options: PerformDockerRollbackOptions,
 ): Promise<void> {
-  const { targetVersion, restoreBackupPath } = options;
+  const { targetVersion } = options;
 
   if (!targetVersion) {
     throw new Error("targetVersion is required for performDockerRollback");
@@ -311,7 +308,7 @@ export async function performDockerRollback(
         const msg =
           "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
         console.error(msg);
-        emitCliError("UNKNOWN", msg);
+        emitCliError("VERSION_DIRECTION", msg);
         process.exit(1);
       }
     }
@@ -603,29 +600,6 @@ export async function performDockerRollback(
         undefined,
         true,
       );
-    }
-
-    // Restore backup if a restoreBackupPath was provided
-    if (restoreBackupPath) {
-      await broadcastUpgradeEvent(
-        entry.runtimeUrl,
-        entry.assistantId,
-        buildProgressEvent(UPGRADE_PROGRESS.RESTORING),
-      );
-      console.log(`📦 Restoring data from backup...`);
-      console.log(`   Source: ${restoreBackupPath}`);
-      const restored = await restoreBackup(
-        entry.runtimeUrl,
-        entry.assistantId,
-        restoreBackupPath,
-      );
-      if (restored) {
-        console.log("   ✅ Data restored successfully\n");
-      } else {
-        console.warn(
-          "   ⚠️  Data restore failed (rollback continues without data restoration)\n",
-        );
-      }
     }
 
     // Capture new digests from the rolled-back containers

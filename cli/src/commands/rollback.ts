@@ -175,7 +175,7 @@ async function rollbackPlatform(
       if (!isOlder) {
         const msg = `Target version ${version} is not older than the current version ${currentVersion}. Use \`vellum upgrade --version ${version}\` to upgrade.`;
         console.error(msg);
-        emitCliError("INVALID_VERSION", msg);
+        emitCliError("VERSION_DIRECTION", msg);
         process.exit(1);
       }
     }
