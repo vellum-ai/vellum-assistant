@@ -212,17 +212,11 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
-    // Auto-deny any pending ACP permission requests so they don't linger
-    // until the 5-minute timeout fires.
-    const pending = pendingInteractions.getByConversation(
-      entry.parentConversationId,
-    );
-    for (const interaction of pending) {
-      if (
-        interaction.kind === "acp_confirmation" &&
-        interaction.directResolve
-      ) {
-        pendingInteractions.resolve(interaction.requestId);
+    // Auto-deny pending ACP permission requests for THIS session only,
+    // so other sessions on the same parent conversation are unaffected.
+    for (const requestId of entry.clientHandler.pendingRequestIds) {
+      const interaction = pendingInteractions.resolve(requestId);
+      if (interaction?.directResolve) {
         interaction.directResolve("deny");
       }
     }

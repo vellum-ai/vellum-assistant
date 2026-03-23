@@ -53,6 +53,8 @@ interface TerminalState {
 export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
+  /** Tracks pending ACP permission requestIds for cleanup on session close. */
+  readonly pendingRequestIds = new Set<string>();
 
   /** Returns the full agent response text accumulated from agent_message_chunk events. */
   get responseText(): string {
@@ -210,6 +212,7 @@ export class VellumAcpClientHandler implements Client {
         }
       }, timeoutMs);
 
+      this.pendingRequestIds.add(requestId);
       pendingInteractions.register(requestId, {
         conversation: null,
         conversationId: this.parentConversationId,
@@ -226,6 +229,7 @@ export class VellumAcpClientHandler implements Client {
         },
         directResolve: (decision: UserDecision) => {
           clearTimeout(timer);
+          this.pendingRequestIds.delete(requestId);
           const optionId = mapDecisionToOptionId(decision, options);
           resolve(optionId);
         },
