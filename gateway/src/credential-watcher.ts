@@ -139,6 +139,7 @@ export class CredentialWatcher {
       // A poll is already in flight — flag that another round is needed
       // so credential updates arriving mid-poll aren't silently dropped.
       this.pendingPoll = true;
+      if (forceChanged) this.pendingForceChanged = true;
       return;
     }
     this.polling = true;
@@ -185,7 +186,9 @@ export class CredentialWatcher {
       this.polling = false;
       if (this.pendingPoll) {
         this.pendingPoll = false;
-        void this.pollOnce();
+        const force = this.pendingForceChanged;
+        this.pendingForceChanged = false;
+        void this.pollOnce(force);
       }
     }
   }

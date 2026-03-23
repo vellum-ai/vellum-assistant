@@ -584,10 +584,15 @@ export class SlackSocketModeClient {
 
     // Enrich actor display name if the sync cache missed.
     // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
-    // so this adds negligible latency on subsequent messages.
+    // so this adds negligible latency on subsequent messages. A 3s timeout
+    // ensures the event is always emitted even if the Slack API hangs.
     const actor = normalized.event.actor;
     if (actor?.actorExternalId && !actor.displayName) {
-      resolveSlackUser(actor.actorExternalId, this.config.botToken)
+      const USER_RESOLVE_TIMEOUT_MS = 3_000;
+      Promise.race([
+        resolveSlackUser(actor.actorExternalId, this.config.botToken),
+        new Promise<undefined>((r) => setTimeout(r, USER_RESOLVE_TIMEOUT_MS)),
+      ])
         .then((userInfo) => {
           if (userInfo) {
             actor.displayName = userInfo.displayName;
@@ -596,7 +601,6 @@ export class SlackSocketModeClient {
           this.onEvent(normalized!);
         })
         .catch(() => {
-          // Still emit even if resolution fails — raw ID is better than nothing
           this.onEvent(normalized!);
         });
       return;
