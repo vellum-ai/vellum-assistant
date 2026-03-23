@@ -982,7 +982,8 @@ struct MessageListView: View {
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog
+                            providerCatalog: providerCatalog,
+                            providerCatalogHash: MessageCellView.hashCatalog(providerCatalog)
                         )
                         .equatable()
                     }
@@ -1696,8 +1697,7 @@ private struct MessageCellView: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
             && lhs.configuredProviders == rhs.configuredProviders
-            && lhs.providerCatalog.count == rhs.providerCatalog.count
-            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) })
+            && lhs.providerCatalogHash == rhs.providerCatalogHash
             && lhs.isTTSEnabled == rhs.isTTSEnabled
     }
 
@@ -1740,6 +1740,20 @@ private struct MessageCellView: View, Equatable {
     let selectedModel: String
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
+    let providerCatalogHash: Int
+
+    static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
+        var hasher = Hasher()
+        for entry in catalog {
+            hasher.combine(entry.id)
+            hasher.combine(entry.displayName)
+            for model in entry.models {
+                hasher.combine(model.id)
+                hasher.combine(model.displayName)
+            }
+        }
+        return hasher.finalize()
+    }
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
