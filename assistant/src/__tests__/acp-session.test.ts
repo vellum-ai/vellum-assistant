@@ -163,7 +163,7 @@ describe("VellumAcpClientHandler", () => {
       const msg = sent[0] as any;
       expect(msg.type).toBe("confirmation_request");
       expect(msg.toolName).toBe("ACP Agent: Run command");
-      expect(msg.riskLevel).toBe("execute"); // passes through toolKind directly
+      expect(msg.riskLevel).toBe("medium"); // ACP defaults to medium
       expect(msg.persistentDecisionsAllowed).toBe(false);
       expect(msg.allowlistOptions).toEqual([]);
       // ACP-specific fields passed through for client rendering
@@ -201,7 +201,7 @@ describe("VellumAcpClientHandler", () => {
       } as any);
 
       const msg = sent[0] as any;
-      expect(msg.riskLevel).toBe("edit"); // passes through toolKind directly
+      expect(msg.riskLevel).toBe("medium"); // ACP defaults to medium
 
       const interaction = pendingInteractions.resolve(msg.requestId);
       interaction!.directResolve!("deny");
@@ -212,7 +212,7 @@ describe("VellumAcpClientHandler", () => {
       });
     });
 
-    test("passes toolKind through as riskLevel", async () => {
+    test("defaults riskLevel to medium for all ACP permissions", async () => {
       handler.requestPermission({
         toolCall: {
           title: "Read file",
@@ -222,7 +222,7 @@ describe("VellumAcpClientHandler", () => {
       } as any);
 
       const msg = sent[0] as any;
-      expect(msg.riskLevel).toBe("read");
+      expect(msg.riskLevel).toBe("medium");
     });
 
     test("ACP registration survives sendToVellum overwrite (makeEventSender race)", async () => {

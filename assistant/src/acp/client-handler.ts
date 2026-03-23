@@ -188,7 +188,7 @@ export class VellumAcpClientHandler implements Client {
       requestId,
       toolName,
       input,
-      riskLevel: toolKind,
+      riskLevel: "medium",
       allowlistOptions: [],
       scopeOptions: [],
       persistentDecisionsAllowed: false,
@@ -215,7 +215,7 @@ export class VellumAcpClientHandler implements Client {
         confirmationDetails: {
           toolName,
           input,
-          riskLevel: toolKind,
+          riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],
           persistentDecisionsAllowed: false,
