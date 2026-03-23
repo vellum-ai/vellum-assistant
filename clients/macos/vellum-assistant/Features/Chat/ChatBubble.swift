@@ -108,32 +108,52 @@ struct ChatBubble: View {
 
         // Eagerly compute interleaved content cache so the first body
         // evaluation uses the correct layout path (no flash).
-        let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
-        _cachedHasInterleavedContent = State(initialValue: interleaved)
-
-        if interleaved {
-            let groups = Self.computeContentGroupsStatic(
-                contentOrder: message.contentOrder,
-                hasInterleavedContent: interleaved
-            )
-            _cachedContentGroups = State(initialValue: groups)
-
-            var trailingTextIds = Set<String>()
-            for group in groups {
-                guard case .toolCalls(let indices) = group else { continue }
-                if Self.computeHasTextAfterToolGroupStatic(
-                    toolIndices: indices,
-                    contentOrder: message.contentOrder,
-                    textSegments: message.textSegments,
-                    hasText: !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ) {
-                    trailingTextIds.insert(group.stableId)
-                }
-            }
-            _cachedToolGroupsWithTrailingText = State(initialValue: trailingTextIds)
+        // Check the static cache first to avoid redundant O(k²) computation
+        // for completed messages in old conversations during scroll.
+        if let cached = Self.cachedInterleavedResult(for: message) {
+            _cachedHasInterleavedContent = State(initialValue: cached.hasInterleaved)
+            _cachedContentGroups = State(initialValue: cached.groups)
+            _cachedToolGroupsWithTrailingText = State(initialValue: cached.trailingTextIds)
         } else {
-            _cachedContentGroups = State(initialValue: [])
-            _cachedToolGroupsWithTrailingText = State(initialValue: [])
+            let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
+            _cachedHasInterleavedContent = State(initialValue: interleaved)
+
+            if interleaved {
+                let groups = Self.computeContentGroupsStatic(
+                    contentOrder: message.contentOrder,
+                    hasInterleavedContent: interleaved
+                )
+                _cachedContentGroups = State(initialValue: groups)
+
+                var trailingTextIds = Set<String>()
+                for group in groups {
+                    guard case .toolCalls(let indices) = group else { continue }
+                    if Self.computeHasTextAfterToolGroupStatic(
+                        toolIndices: indices,
+                        contentOrder: message.contentOrder,
+                        textSegments: message.textSegments,
+                        hasText: !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
+                        trailingTextIds.insert(group.stableId)
+                    }
+                }
+                _cachedToolGroupsWithTrailingText = State(initialValue: trailingTextIds)
+
+                // Store in static cache for future init() calls
+                Self.storeInterleavedResult(
+                    InterleavedCacheValue(hasInterleaved: interleaved, groups: groups, trailingTextIds: trailingTextIds),
+                    for: message
+                )
+            } else {
+                _cachedContentGroups = State(initialValue: [])
+                _cachedToolGroupsWithTrailingText = State(initialValue: [])
+
+                // Store non-interleaved result in static cache
+                Self.storeInterleavedResult(
+                    InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
+                    for: message
+                )
+            }
         }
     }
     /// Injected from the parent instead of observing the shared singleton directly.

@@ -1545,7 +1545,7 @@ public struct SkillInvocationData: Equatable {
 }
 
 /// Identifies a content block within a ChatMessage for interleaving order.
-public enum ContentBlockRef: Equatable {
+public enum ContentBlockRef: Hashable {
     case text(Int)
     case toolCall(Int)
     case surface(Int)
