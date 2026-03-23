@@ -74,7 +74,6 @@ beforeEach(() => {
       );
     },
   );
-  mockFetch.preconnect = originalFetch.preconnect;
   globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch;
 });
 
