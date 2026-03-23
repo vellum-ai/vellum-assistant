@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   findContactByChannelExternalId,
@@ -31,9 +31,16 @@ export interface PersonaContext {
  */
 function readPersonaFile(filePath: string): string | null {
   if (!existsSync(filePath)) return null;
-  const raw = readFileSync(filePath, "utf-8");
-  const content = stripCommentLines(raw).trim();
-  return content.length > 0 ? content : null;
+
+  try {
+    const content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
+    if (content.length === 0) return null;
+    log.debug({ path: filePath }, "Loaded persona file");
+    return content;
+  } catch (err) {
+    log.warn({ err, path: filePath }, "Failed to read persona file");
+    return null;
+  }
 }
 
 // ── User persona ───────────────────────────────────────────────────
@@ -75,8 +82,15 @@ export function resolveUserPersona(
     }
   }
 
-  // Resolve file path
+  // Resolve file path — validate basename to prevent path traversal
   if (filename) {
+    if (basename(filename) !== filename || filename.includes("..")) {
+      log.warn(
+        { userFile: filename },
+        "Contact userFile contains path traversal; ignoring",
+      );
+      return readPersonaFile(defaultPath);
+    }
     const filePath = join(usersDir, filename);
     if (existsSync(filePath)) {
       return readPersonaFile(filePath);
