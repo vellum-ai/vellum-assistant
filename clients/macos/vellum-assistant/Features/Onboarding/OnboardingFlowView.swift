@@ -266,16 +266,22 @@ struct OnboardingFlowView: View {
         defer { isResolvingAssociatedManagedAssistant = false }
 
         do {
-            if let activation = try await ManagedAssistantConnectionCoordinator().activateAssociatedManagedAssistantIfPresent() {
-                log.info("Authenticated with associated managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
-                onComplete()
-                return
-            }
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
 
-            log.info("Authenticated account has no associated managed assistant — advancing to hosting selector")
-            state.advance()
+            if activation.reusedExisting {
+                // Assistant is already provisioned and running — safe to proceed.
+                log.info("Authenticated with existing managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
+                onComplete()
+            } else {
+                // Newly created — enter hatching UI and wait for readiness.
+                log.info("Authenticated and created new managed assistant \(activation.assistant.id, privacy: .public); entering hatching flow")
+                state.hasExistingManagedAssistant = false
+                state.isManagedHatch = true
+                state.isHatching = true
+                await awaitManagedAssistantReady(assistantId: activation.assistant.id)
+            }
         } catch {
-            log.error("Failed to discover associated managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
+            log.error("Failed to activate managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
             state.advance()
         }
     }

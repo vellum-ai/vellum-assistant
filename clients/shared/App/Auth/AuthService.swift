@@ -219,59 +219,6 @@ public final class AuthService {
 
     // MARK: - Platform Assistant API
 
-    /// Fetch the current user's managed assistant.
-    /// Returns `.found` with the assistant on 200, `.notFound` on 404.
-    public func getCurrentAssistant(organizationId: String) async throws -> PlatformAssistantResult {
-        let urlString = "\(baseURL)/v1/assistants/current/"
-        guard let url = URL(string: urlString) else {
-            throw PlatformAPIError.invalidURL
-        }
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "GET"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
-
-        if let token = await SessionTokenManager.getTokenAsync() {
-            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        } else {
-            throw PlatformAPIError.authenticationRequired
-        }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: urlRequest)
-        } catch {
-            throw PlatformAPIError.networkError(error.localizedDescription)
-        }
-
-        let httpResponse = response as? HTTPURLResponse
-        let statusCode = httpResponse?.statusCode ?? 0
-
-        log.debug("Platform request GET assistants/current/ -> \(statusCode)")
-
-        if statusCode == 404 {
-            return .notFound
-        }
-
-        if statusCode == 401 || statusCode == 403 {
-            throw PlatformAPIError.authenticationRequired
-        }
-
-        guard (200..<300).contains(statusCode) else {
-            let detail = String(data: data, encoding: .utf8)
-            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
-        }
-
-        do {
-            let assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
-            return .found(assistant)
-        } catch {
-            throw PlatformAPIError.decodingError(error.localizedDescription)
-        }
-    }
-
     /// Retrieve a specific managed assistant by ID.
     public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
         let urlString = "\(baseURL)/v1/assistants/\(id)/"
@@ -328,13 +275,14 @@ public final class AuthService {
         }
     }
 
-    /// Create a new managed assistant via the platform hatch endpoint.
+    /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
+    /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
     public func hatchAssistant(
         organizationId: String,
         name: String? = nil,
         description: String? = nil,
         anthropicApiKey: String? = nil
-    ) async throws -> PlatformAssistant {
+    ) async throws -> HatchAssistantResult {
         let urlString = "\(baseURL)/v1/assistants/hatch/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -382,10 +330,17 @@ public final class AuthService {
             throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
         }
 
+        let assistant: PlatformAssistant
         do {
-            return try JSONDecoder().decode(PlatformAssistant.self, from: data)
+            assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+
+        if statusCode == 200 {
+            return .reusedExisting(assistant)
+        } else {
+            return .createdNew(assistant)
         }
     }
 

@@ -115,64 +115,18 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: "connectedOrganizationId"))
     }
 
-    func testActivateAssociatedManagedAssistantIfPresentPersistsManagedSelection() async throws {
-        let assistant = PlatformAssistant(id: "managed-existing", name: "Existing")
-        let coordinator = ManagedAssistantConnectionCoordinator(
-            bootstrapService: MockManagedAssistantBootstrapService(
-                discoveredAssistant: assistant
-            ),
-            userDefaults: defaults,
-            runtimeURLProvider: { "https://platform.example.com" },
-            updateAssistantTag: { _ in },
-            lockfilePath: lockfilePath
-        )
-
-        let result = try await coordinator.activateAssociatedManagedAssistantIfPresent()
-
-        XCTAssertEqual(result?.assistant.id, assistant.id)
-        XCTAssertEqual(result?.reusedExisting, true)
-        XCTAssertEqual(defaults.string(forKey: "connectedAssistantId"), assistant.id)
-
-        let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let assistants = json?["assistants"] as? [[String: Any]]
-        XCTAssertEqual(assistants?.count, 1)
-        XCTAssertEqual(assistants?.first?["assistantId"] as? String, assistant.id)
-        XCTAssertEqual(assistants?.first?["cloud"] as? String, "vellum")
-    }
-
-    func testActivateAssociatedManagedAssistantIfPresentReturnsNilWhenAccountHasNoManagedAssistant() async throws {
-        let coordinator = ManagedAssistantConnectionCoordinator(
-            bootstrapService: MockManagedAssistantBootstrapService(
-                discoveredAssistant: nil
-            ),
-            userDefaults: defaults,
-            runtimeURLProvider: { "https://platform.example.com" },
-            updateAssistantTag: { _ in },
-            lockfilePath: lockfilePath
-        )
-
-        let result = try await coordinator.activateAssociatedManagedAssistantIfPresent()
-
-        XCTAssertNil(result)
-        XCTAssertNil(defaults.string(forKey: "connectedAssistantId"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: lockfilePath))
-    }
 }
 
 @MainActor
 private final class MockManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {
     private let outcome: ManagedBootstrapOutcome?
-    private let discoveredAssistant: PlatformAssistant?
     private let onEnsureManagedAssistant: (() -> Void)?
 
     init(
         outcome: ManagedBootstrapOutcome? = nil,
-        discoveredAssistant: PlatformAssistant? = nil,
         onEnsureManagedAssistant: (() -> Void)? = nil
     ) {
         self.outcome = outcome
-        self.discoveredAssistant = discoveredAssistant
         self.onEnsureManagedAssistant = onEnsureManagedAssistant
     }
 
@@ -186,9 +140,5 @@ private final class MockManagedAssistantBootstrapService: ManagedAssistantBootst
             fatalError("ensureManagedAssistant called without a configured outcome")
         }
         return outcome
-    }
-
-    func discoverManagedAssistant() async throws -> PlatformAssistant? {
-        discoveredAssistant
     }
 }
