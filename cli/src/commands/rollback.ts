@@ -206,6 +206,19 @@ async function rollbackPlatform(
     }
   }
 
+  // Authenticate before broadcasting any SSE events so that a missing
+  // token does not leave connected clients showing a perpetual spinner.
+  const token = readPlatformToken();
+  if (!token) {
+    const msg =
+      "Error: Not logged in. Run `vellum login --token <token>` first.";
+    console.error(msg);
+    emitCliError("AUTH_FAILED", msg);
+    process.exit(1);
+  }
+
+  const orgId = await fetchOrganizationId(token);
+
   console.log(
     `🔄 Rolling back platform-hosted assistant '${entry.assistantId}' to ${version}...\n`,
   );
@@ -217,18 +230,6 @@ async function rollbackPlatform(
     entry.assistantId,
     buildStartingEvent(version, 90),
   );
-
-  // Authenticate and call the platform API
-  const token = readPlatformToken();
-  if (!token) {
-    const msg =
-      "Error: Not logged in. Run `vellum login --token <token>` first.";
-    console.error(msg);
-    emitCliError("AUTH_FAILED", msg);
-    process.exit(1);
-  }
-
-  const orgId = await fetchOrganizationId(token);
 
   const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
   const body = {
