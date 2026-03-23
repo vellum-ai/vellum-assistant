@@ -22,7 +22,6 @@ import {
   loadBootstrapSecret,
   saveBootstrapSecret,
 } from "../lib/guardian-token";
-import { restoreBackup } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
   broadcastUpgradeEvent,
@@ -32,36 +31,57 @@ import {
   buildUpgradeCommitMessage,
   captureContainerEnv,
   CONTAINER_ENV_EXCLUDE_KEYS,
+  performDockerRollback,
   rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
 
-function parseArgs(): { name: string | null } {
+function parseArgs(): { name: string | null; version: string | null } {
   const args = process.argv.slice(3);
   let name: string | null = null;
+  let version: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--help" || arg === "-h") {
-      console.log("Usage: vellum rollback [<name>]");
+      console.log("Usage: vellum rollback [<name>] [--version <version>]");
       console.log("");
-      console.log("Roll back a Docker assistant to the previous version.");
+      console.log(
+        "Roll back an assistant to a previous version. Data is preserved.",
+      );
       console.log("");
       console.log("Arguments:");
       console.log(
-        "  <name>  Name of the assistant to roll back (default: active or only assistant)",
+        "  <name>               Name of the assistant (default: active or only assistant)",
+      );
+      console.log("");
+      console.log("Options:");
+      console.log(
+        "  --version <version>  Target version to roll back to (default: previous version)",
       );
       console.log("");
       console.log("Examples:");
       console.log(
-        "  vellum rollback                # Roll back the active assistant",
+        "  vellum rollback                              # Roll back to the previous version",
       );
       console.log(
-        "  vellum rollback my-assistant   # Roll back a specific assistant by name",
+        "  vellum rollback my-assistant                  # Roll back a specific assistant",
+      );
+      console.log(
+        "  vellum rollback my-assistant --version v1.2.3 # Roll back to a specific version",
       );
       process.exit(0);
+    } else if (arg === "--version") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --version requires a value");
+        emitCliError("UNKNOWN", "--version requires a value");
+        process.exit(1);
+      }
+      version = next;
+      i++;
     } else if (!arg.startsWith("-")) {
       name = arg;
     } else {
@@ -71,7 +91,7 @@ function parseArgs(): { name: string | null } {
     }
   }
 
-  return { name };
+  return { name, version };
 }
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -130,7 +150,7 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
 }
 
 export async function rollback(): Promise<void> {
-  const { name } = parseArgs();
+  const { name, version } = parseArgs();
   const entry = resolveTargetAssistant(name);
   const cloud = resolveCloud(entry);
 
@@ -142,6 +162,26 @@ export async function rollback(): Promise<void> {
     emitCliError("UNSUPPORTED_TOPOLOGY", msg);
     process.exit(1);
   }
+
+  // ---------- Targeted version rollback (--version specified) ----------
+  if (version) {
+    try {
+      await performDockerRollback(entry, { targetVersion: version });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(`\n❌ Rollback failed: ${detail}`);
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+      emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // ---------- Saved-state rollback (no --version) ----------
 
   // Verify rollback state exists
   if (!entry.previousServiceGroupVersion || !entry.previousContainerInfo) {
@@ -317,40 +357,6 @@ export async function rollback(): Promise<void> {
     const ready = await waitForReady(entry.runtimeUrl);
 
     if (ready) {
-      // Restore data from the backup created for the specific upgrade being
-      // rolled back. We use the persisted preUpgradeBackupPath rather than
-      // scanning for the latest backup on disk — if the most recent upgrade's
-      // backup failed, a global scan would find a stale backup from a prior
-      // cycle and overwrite newer user data.
-      const backupPath = entry.preUpgradeBackupPath as string | undefined;
-      if (backupPath) {
-        // Progress: restoring data (gateway is back up at this point)
-        await broadcastUpgradeEvent(
-          entry.runtimeUrl,
-          entry.assistantId,
-          buildProgressEvent(UPGRADE_PROGRESS.RESTORING),
-        );
-
-        console.log(`📦 Restoring data from pre-upgrade backup...`);
-        console.log(`   Source: ${backupPath}`);
-        const restored = await restoreBackup(
-          entry.runtimeUrl,
-          entry.assistantId,
-          backupPath,
-        );
-        if (restored) {
-          console.log("   ✅ Data restored successfully\n");
-        } else {
-          console.warn(
-            "   ⚠️  Data restore failed (rollback continues without data restoration)\n",
-          );
-        }
-      } else {
-        console.log(
-          "ℹ️  No pre-upgrade backup was created for this upgrade, skipping data restoration\n",
-        );
-      }
-
       // Capture new digests from the rolled-back containers
       const newDigests = await captureImageRefs(res);
 
@@ -407,6 +413,9 @@ export async function rollback(): Promise<void> {
 
       console.log(
         `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,
+      );
+      console.log(
+        "\nTip: To also restore data from before the upgrade, use `vellum restore --from <backup-path>`.",
       );
     } else {
       console.error(
