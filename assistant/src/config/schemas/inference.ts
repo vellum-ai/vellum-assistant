@@ -26,8 +26,8 @@ export const ThinkingConfigSchema = z
   .describe("Extended thinking (chain-of-thought) configuration");
 
 export const EffortSchema = z
-  .enum(["low", "medium", "high"], {
-    error: 'effort must be "low", "medium", or "high"',
+  .enum(["low", "medium", "high", "max"], {
+    error: 'effort must be "low", "medium", "high", or "max"',
   })
   .default("high")
   .describe(

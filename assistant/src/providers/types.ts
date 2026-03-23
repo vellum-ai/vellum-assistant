@@ -130,7 +130,7 @@ export type ProviderEvent =
 export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
-  effort?: "low" | "medium" | "high";
+  effort?: "low" | "medium" | "high" | "max";
   [key: string]: unknown;
 }
 

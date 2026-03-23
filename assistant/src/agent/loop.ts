@@ -23,7 +23,7 @@ export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean };
-  effort: "low" | "medium" | "high";
+  effort: "low" | "medium" | "high" | "max";
   toolChoice?:
     | { type: "auto" }
     | { type: "any" }
