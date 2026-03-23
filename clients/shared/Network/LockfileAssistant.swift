@@ -109,6 +109,12 @@ public struct LockfileAssistant {
         development == true
     }
 
+    /// Provider for the current dev-mode state, set by the app at launch.
+    /// When non-nil, `loadAll()` filters entries: `true` returns development
+    /// assistants, `false` returns live assistants. When `nil`, all entries
+    /// are returned (no filtering).
+    public static var isDevModeProvider: (() -> Bool)? = nil
+
     /// The resolved workspace directory for this assistant, accounting for both
     /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
     public var workspaceDir: String? {
@@ -122,14 +128,15 @@ public struct LockfileAssistant {
         return nil
     }
 
-    public static func loadLatest(development: Bool? = nil) -> LockfileAssistant? {
-        loadAll(development: development).first
+    public static func loadLatest() -> LockfileAssistant? {
+        loadAll().first
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    /// When `development` is `nil`, returns all entries (no filtering).
-    /// When `true`, returns only development entries. When `false`, returns only live entries.
-    public static func loadAll(development: Bool? = nil) -> [LockfileAssistant] {
+    /// When `isDevModeProvider` is set, filters by development mode:
+    /// `true` returns development assistants, `false` returns live assistants.
+    /// When `nil`, all entries are returned (no filtering).
+    public static func loadAll() -> [LockfileAssistant] {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return []
@@ -151,10 +158,11 @@ public struct LockfileAssistant {
         }
 
         let filtered: [[String: Any]]
-        if let development {
+        if let provider = isDevModeProvider {
+            let showDev = provider()
             filtered = sorted.filter { entry in
                 let isDev = entry["development"] as? Bool ?? false
-                return development ? isDev : !isDev
+                return showDev ? isDev : !isDev
             }
         } else {
             filtered = sorted
@@ -212,8 +220,8 @@ public struct LockfileAssistant {
     }
 
     /// Find an assistant by its ID in the lockfile.
-    public static func loadByName(_ name: String, development: Bool? = nil) -> LockfileAssistant? {
-        loadAll(development: development).first { $0.assistantId == name }
+    public static func loadByName(_ name: String) -> LockfileAssistant? {
+        loadAll().first { $0.assistantId == name }
     }
 
     /// Resolve the instance directory for the currently connected assistant.
