@@ -1983,6 +1983,7 @@ private struct ConversationScrollbarVisibilityController: NSViewRepresentable, E
         }
 
         func update(isAppActive: Bool, suppressScrollbar: Bool) {
+            guard isAppActive != self.isAppActive || suppressScrollbar != self.suppressScrollbar else { return }
             let wasActive = self.isAppActive
             self.isAppActive = isAppActive
             self.suppressScrollbar = suppressScrollbar
