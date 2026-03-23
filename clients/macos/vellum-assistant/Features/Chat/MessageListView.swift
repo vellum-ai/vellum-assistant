@@ -941,7 +941,7 @@ struct MessageListView: View {
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
-                    os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+                    let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
                     let state = precomputedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in
