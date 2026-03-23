@@ -30,9 +30,9 @@ final class ConversationManagerDebouncedEvictionTests: XCTestCase {
         // and the most recent ones should be retained.
         var insertedIds: [UUID] = []
 
-        // ConversationManager starts with one active conversation; that consumes
-        // one slot in the cache, so we need 12 additional VMs to exceed
-        // maxCachedViewModels (10) and trigger eviction.
+        // ConversationManager starts in draft mode (draftViewModel, not in
+        // chatViewModels), so chatViewModels starts empty. Insert 12 VMs to
+        // exceed maxCachedViewModels (10) and trigger eviction.
         for _ in 0..<12 {
             let id = UUID()
             let vm = conversationManager.makeViewModel()
@@ -85,9 +85,10 @@ final class ConversationManagerDebouncedEvictionTests: XCTestCase {
         // Wait for the single debounced eviction to complete.
         try await Task.sleep(for: .milliseconds(300))
 
-        // Count how many of our injected VMs survived. The cache should be
-        // trimmed to maxCachedViewModels (10), which includes the initial
-        // active conversation VM.
+        // Count how many of our injected VMs survived. ConversationManager
+        // starts in draft mode (draftViewModel, not in chatViewModels), so
+        // chatViewModels starts empty. After inserting 12 and evicting, the
+        // cache should be trimmed to maxCachedViewModels (10).
         var survivingCount = 0
         for id in insertedIds {
             if conversationManager.existingChatViewModel(for: id) != nil {
@@ -95,10 +96,7 @@ final class ConversationManagerDebouncedEvictionTests: XCTestCase {
             }
         }
 
-        // At most maxCachedViewModels - 1 of our injected VMs should survive
-        // (the initial conversation occupies one slot). Allow some flexibility
-        // since existingChatViewModel promotes to MRU.
-        XCTAssertLessThanOrEqual(survivingCount + 1, 10,
+        XCTAssertLessThanOrEqual(survivingCount, 10,
             "Cache should be trimmed to at most maxCachedViewModels entries")
     }
 }
