@@ -469,15 +469,16 @@ export async function runDaemon(): Promise<void> {
         let timedOut = false;
         const client = await Promise.race([
           cesResult.clientPromise,
-          new Promise<undefined>((resolve) =>
-            setTimeout(() => {
+          new Promise<undefined>((resolve) => {
+            const timer = setTimeout(() => {
               timedOut = true;
               log.warn(
                 "CES handshake timed out after 10s — falling back to direct credential store",
               );
               resolve(undefined);
-            }, 10_000),
-          ),
+            }, 10_000);
+            cesResult.clientPromise!.finally(() => clearTimeout(timer));
+          }),
         ]);
         if (client) {
           setCesClient(client);
