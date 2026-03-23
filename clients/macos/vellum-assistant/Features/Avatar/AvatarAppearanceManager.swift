@@ -99,6 +99,11 @@ final class AvatarAppearanceManager {
 
     private var identityObserver: NSObjectProtocol?
 
+    /// File-system watcher for the avatar image so external changes (e.g. CLI writes) trigger a reload.
+    @ObservationIgnored private var avatarFileWatcher: DispatchSourceFileSystemObject?
+    /// Directory watcher to detect avatar file creation/deletion.
+    @ObservationIgnored private var avatarDirWatcher: DispatchSourceFileSystemObject?
+
     /// Workspace path for custom avatar -- canonical storage location.
     nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
         URL(fileURLWithPath: homeDirectory)
@@ -139,6 +144,8 @@ final class AvatarAppearanceManager {
         // bundled Vellum logo.
         updateDockLabel()
 
+        startAvatarFileWatcher()
+
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
         // reflects the new name.
@@ -160,6 +167,105 @@ final class AvatarAppearanceManager {
                 self.updateDockLabel()
             }
         }
+    }
+
+    // MARK: - Avatar File Watcher
+
+    /// Sets up watchers so that external writes to avatar-image.png
+    /// (e.g. the CLI) are picked up automatically.
+    ///
+    /// Strategy:
+    /// - Watch the **file** for `.write` to catch in-place overwrites (cp).
+    /// - Watch the **directory** for `.write` to catch file creation/deletion
+    ///   (atomic rename pattern, or first-time creation). When the directory
+    ///   changes, re-establish the file watcher in case the fd went stale.
+    private func startAvatarFileWatcher() {
+        avatarFileWatcher?.cancel()
+        avatarFileWatcher = nil
+        avatarDirWatcher?.cancel()
+        avatarDirWatcher = nil
+
+        let avatarPath = customAvatarURL.path
+        let avatarDir = customAvatarURL.deletingLastPathComponent().path
+
+        // Ensure the directory exists.
+        try? FileManager.default.createDirectory(
+            atPath: avatarDir,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        // Watch the file itself for in-place overwrites.
+        watchAvatarFile(at: avatarPath)
+
+        // Watch the directory for file creation/deletion/rename.
+        let dirFd = open(avatarDir, O_EVTONLY)
+        guard dirFd >= 0 else { return }
+
+        let dirSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: dirFd,
+            eventMask: [.write],
+            queue: .global(qos: .utility)
+        )
+        dirSource.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                log.info("Avatar directory changed — re-establishing file watcher")
+                self.watchAvatarFile(at: avatarPath)
+                self.reloadAvatarFromDisk()
+            }
+        }
+        dirSource.setCancelHandler {
+            close(dirFd)
+        }
+        dirSource.resume()
+        avatarDirWatcher = dirSource
+    }
+
+    /// Watch a specific file path for `.write` events.
+    private func watchAvatarFile(at path: String) {
+        avatarFileWatcher?.cancel()
+        avatarFileWatcher = nil
+
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                log.info("Avatar file changed on disk — reloading")
+                self.reloadAvatarFromDisk()
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        avatarFileWatcher = source
+    }
+
+    /// Reloads the avatar directly from disk without an HTTP round-trip.
+    /// Used by the file watcher so that local changes are picked up immediately
+    /// and not overwritten by a potentially stale gateway response.
+    private func reloadAvatarFromDisk() {
+        cachedChatAvatar = nil
+        cachedFallbackAvatar = nil
+        cachedFallbackName = nil
+        cachedFullFallbackAvatar = nil
+        cachedFullFallbackName = nil
+
+        let path = customAvatarURL.path
+        if let image = NSImage(contentsOfFile: path) {
+            customAvatarImage = image
+        } else {
+            customAvatarImage = nil
+        }
+        updateDockIcon()
     }
 
     // MARK: - Component Fetch
@@ -268,7 +374,7 @@ final class AvatarAppearanceManager {
     /// and re-reads the identity so the dock label reflects the current assistant.
     /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
-        reloadAvatar(avatarPath: nil)
+        reloadAvatar(avatarPath: customAvatarURL.path)
     }
 
     /// Reloads the avatar, optionally using a local file path for an immediate

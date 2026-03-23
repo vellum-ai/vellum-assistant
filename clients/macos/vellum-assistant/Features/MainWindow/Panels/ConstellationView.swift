@@ -771,9 +771,6 @@ struct ConstellationView: View {
     /// component is present the avatar is a built character, not a custom upload.
     private var hasCustomAvatar: Bool {
         appearance.customAvatarImage != nil
-            && appearance.characterBodyShape == nil
-            && appearance.characterEyeStyle == nil
-            && appearance.characterColor == nil
     }
 
     /// Computes tree layout synchronously and populates all state vars.

@@ -11,7 +11,13 @@
         "properties": {
           "setting": {
             "type": "string",
-            "enum": ["activation_key", "conversation_timeout", "fish_audio_reference_id", "tts_provider", "tts_voice_id"],
+            "enum": [
+              "activation_key",
+              "conversation_timeout",
+              "fish_audio_reference_id",
+              "tts_provider",
+              "tts_voice_id"
+            ],
             "description": "The voice setting to change"
           },
           "value": {
@@ -79,6 +85,28 @@
       },
       "executor": "tools/navigate-settings-tab.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "set_avatar",
+      "description": "Set the assistant's avatar to an image file. Copies the source image to the canonical avatar location (data/avatar/avatar-image.png), removes any native character avatar files, and notifies the app to refresh. Use this when the user asks to set, change, or update the avatar to a specific image (e.g. from a conversation attachment).",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_path": {
+            "type": "string",
+            "description": "Path to the image file. Can be absolute or relative to the workspace directory (e.g. 'conversations/<id>/attachments/Dropped Image.png')."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
+          }
+        },
+        "required": ["image_path"]
+      },
+      "executor": "tools/avatar-update.ts",
+      "execution_target": "sandbox"
     }
   ]
 }

@@ -96,7 +96,10 @@ struct IdentityPanel: View {
 
                             // Large centered avatar
                             Group {
-                                if let body = appearance.characterBodyShape,
+                                if appearance.customAvatarImage != nil {
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                } else if let body = appearance.characterBodyShape,
                                    let eyes = appearance.characterEyeStyle,
                                    let color = appearance.characterColor {
                                     AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
