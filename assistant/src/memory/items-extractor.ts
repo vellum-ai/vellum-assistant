@@ -582,18 +582,32 @@ export async function extractAndUpsertMemoryItemsForMessage(
         .reverse()
     : [];
 
+  const effectiveScopeId = scopeId ?? "default";
+
+  // Directly create journal memories from any journal files written during
+  // this message, bypassing LLM extraction (which would summarize/rewrite them).
+  // This must run before the extraction guards (semantic density, useLLM, etc.)
+  // because journal disk scanning is independent of LLM extraction.
+  let journalUpserted = 0;
+  if (message.role === "assistant") {
+    journalUpserted = upsertJournalMemoriesFromDisk(
+      message.createdAt,
+      effectiveScopeId,
+      messageId,
+    );
+  }
+
   const text = extractTextFromStoredMessageContent(message.content);
   if (!hasSemanticDensity(text)) {
     log.debug(
       { messageId },
       "Skipping extraction — message lacks semantic density",
     );
-    return 0;
+    return journalUpserted;
   }
 
   const config = getConfig();
   const extractionConfig = config.memory.extraction;
-  const effectiveScopeId = scopeId ?? "default";
 
   // Resolve the guardian's persona to provide personality-aware extraction
   // context. Currently uses the guardian persona for all conversations —
@@ -602,7 +616,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const userPersona = resolveGuardianPersona();
 
   if (!extractionConfig.useLLM) {
-    return 0;
+    return journalUpserted;
   }
 
   const extracted = await extractItemsWithLLM(
@@ -614,7 +628,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
     userPersona,
   );
 
-  if (extracted.length === 0) return 0;
+  if (extracted.length === 0) return journalUpserted;
 
   // Guard: re-check after the async LLM call. The event loop yields during
   // extractItemsWithLLM, so another task could have marked the conversation
@@ -624,7 +638,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
       { messageId, conversationId },
       "Skipping upsert — conversation marked failed during extraction",
     );
-    return 0;
+    return journalUpserted;
   }
 
   let upserted = 0;
@@ -820,15 +834,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
   }
 
-  // Directly create journal memories from any journal files written during
-  // this message, bypassing LLM extraction (which would summarize/rewrite them).
-  if (message.role === "assistant") {
-    upserted += upsertJournalMemoriesFromDisk(
-      message.createdAt,
-      effectiveScopeId,
-      messageId,
-    );
-  }
+  upserted += journalUpserted;
 
   log.debug(
     { messageId, extracted: extracted.length, upserted },
