@@ -739,7 +739,7 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.degradation).toBeDefined();
     expect(result.degradation!.semanticUnavailable).toBe(true);
     expect(result.degradation!.reason).toBe("embedding_provider_down");
-    expect(result.degradation!.fallbackSources).toContain("recency");
+    expect(result.degradation!.fallbackSources).toEqual([]);
   });
 
   // -----------------------------------------------------------------------
@@ -1248,6 +1248,35 @@ describe("Memory Retriever Pipeline", () => {
         now - 50_000,
       );
 
+      // Simulate Qdrant returning both segments as semantic hits so they
+      // enter the candidate map (recency search was removed).
+      mockQdrantResults.push(
+        {
+          id: "qdrant-compact-fork-1",
+          score: 0.9,
+          payload: {
+            target_type: "segment",
+            target_id: "seg-compact-fork",
+            text: "compacted parent topic detail",
+            created_at: now - 100_000,
+            message_id: "fork-compact-msg-1",
+            conversation_id: forkConv,
+          },
+        },
+        {
+          id: "qdrant-compact-fork-2",
+          score: 0.85,
+          payload: {
+            target_type: "segment",
+            target_id: "seg-in-context-fork",
+            text: "recent fork topic detail",
+            created_at: now - 50_000,
+            message_id: "fork-compact-msg-3",
+            conversation_id: forkConv,
+          },
+        },
+      );
+
       const result = await buildMemoryRecall(
         "compacted parent topic",
         forkConv,
@@ -1257,7 +1286,7 @@ describe("Memory Retriever Pipeline", () => {
       expect(result.enabled).toBe(true);
       // The segment from the compacted fork message survives filtering
       // (its source message is no longer in context). The in-context segment
-      // is filtered out. Recency search returns both, but only the compacted
+      // is filtered out. Semantic search returns both, but only the compacted
       // one survives step 5b.
       expect(result.mergedCount).toBeGreaterThan(0);
     });
