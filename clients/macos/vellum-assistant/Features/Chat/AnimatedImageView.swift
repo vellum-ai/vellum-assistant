@@ -16,6 +16,7 @@ struct AnimatedImageView: View {
     @State private var loadedImage: NSImage?
     @State private var imageData: Data?
     @State private var isLoading = true
+    @State private var isGIF: Bool = false
     @Environment(\.displayScale) private var displayScale
 
     // MARK: - In-memory cache
@@ -49,7 +50,7 @@ struct AnimatedImageView: View {
 
     var body: some View {
         Group {
-            if let data = imageData, isAnimatedGIF(data) {
+            if let data = imageData, isGIF {
                 GIFView(data: data)
                     .frame(
                         width: min(gifSize.width, maxDimension),
@@ -150,6 +151,7 @@ struct AnimatedImageView: View {
         if let entry = Self.cache.object(forKey: effectiveKey) {
             self.loadedImage = entry.image
             self.imageData = entry.gifData
+            self.isGIF = entry.gifData != nil
             return
         }
 
@@ -157,6 +159,7 @@ struct AnimatedImageView: View {
         if let fileURL = localFileURL {
             imageData = try? Data(contentsOf: fileURL)
             loadedImage = imageData.flatMap { NSImage(data: $0) }
+            if let data = imageData { isGIF = isAnimatedGIF(data) }
             cacheLoadedImage(forKey: effectiveKey)
             return
         }
@@ -168,6 +171,7 @@ struct AnimatedImageView: View {
             let data = try await ImageCache.shared.imageData(for: url)
             self.imageData = data
             self.loadedImage = NSImage(data: data)
+            self.isGIF = isAnimatedGIF(data)
             cacheLoadedImage(forKey: effectiveKey)
         } catch {
             // Keep placeholder on failure
@@ -185,8 +189,8 @@ struct AnimatedImageView: View {
         let pixelWidth = rep?.pixelsWide ?? Int(image.size.width)
         let pixelHeight = rep?.pixelsHigh ?? Int(image.size.height)
         let imageCost = pixelWidth * pixelHeight * 4
-        let gifDataCost = imageData.map { isAnimatedGIF($0) ? $0.count : 0 } ?? 0
-        let gifData = imageData.flatMap { isAnimatedGIF($0) ? $0 : nil }
+        let gifDataCost = imageData.map { isGIF ? $0.count : 0 } ?? 0
+        let gifData = imageData.flatMap { isGIF ? $0 : nil }
 
         let entry = CachedImageEntry(image: image, gifData: gifData)
         Self.cache.setObject(entry, forKey: key, cost: imageCost + gifDataCost)
