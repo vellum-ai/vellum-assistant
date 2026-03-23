@@ -8,9 +8,17 @@ export interface TieredCandidate extends Candidate {
   sourceLabel?: string;
 }
 
+/**
+ * Map a composite relevance score to an injection tier.
+ *
+ * Thresholds are intentionally set lower than raw-embedding ceilings because
+ * the multiplicative scoring pipeline (semantic × recency × metadata) compresses
+ * the effective score range.  Lowering the gates lets moderately-relevant items
+ * surface rather than being silently dropped.
+ */
 export function classifyTier(score: number): Tier | null {
-  if (score > 0.8) return 1;
-  if (score > 0.6) return 2;
+  if (score > 0.6) return 1;
+  if (score > 0.4) return 2;
   return null;
 }
 
