@@ -583,28 +583,21 @@ struct ChatBubble: View {
             let text = message.text
             guard !message.isStreaming,
                   text.count > Self.asyncParseThreshold,
-                  Self.segmentCache[text] == nil,
+                  Self.segmentCache.object(forKey: text as NSString) == nil,
                   asyncSegments[text] == nil else { return }
             let result = await MarkdownParseActor.shared.parse(text)
             guard !Task.isCancelled else { return }
             asyncSegments[text] = result
-            // Backfill synchronous cache with guardrails (size limit, byte
-            // tracking, eviction) — mirrors the logic in cachedSegments.
-            // Re-check cache after await to avoid double-counting bytes when
+            // Backfill synchronous cache with cost tracking.
+            // Re-check cache after await to avoid double-inserting when
             // multiple bubbles parse the same text concurrently.
             if text.count <= Self.maxCacheableTextLength,
-               Self.segmentCache[text] == nil {
-                if Self.segmentCache.count >= Self.maxCacheSize {
-                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
-                        Self.segmentCache.removeValue(forKey: lruKey)
-                    }
-                }
-                Self.lruCounter += 1
-                let cost = Self.estimatedBytes(for: text)
-                Self.segmentCache[text] = (result, Self.lruCounter)
-                Self.estimatedCacheBytes += cost
-                Self.evictIfOverBudget()
+               Self.segmentCache.object(forKey: text as NSString) == nil {
+                Self.segmentCache.setObject(
+                    SegmentCacheEntry(result),
+                    forKey: text as NSString,
+                    cost: text.utf8.count * 10
+                )
             }
         }
     }
@@ -639,58 +632,41 @@ struct ChatBubble: View {
     /// miss, reducing scroll jank from synchronous markdown parsing.
     static let asyncParseThreshold = 500
 
-    // MARK: - LRU Caches
+    // MARK: - Segment Cache
     //
-    // Each cache entry stores (value, accessTime) where accessTime is a
-    // monotonically increasing counter. On eviction the entry with the
-    // lowest accessTime is removed (least-recently-used).
+    // NSCache handles eviction automatically based on countLimit and
+    // totalCostLimit, eliminating the O(n) min(by:) scans of the old
+    // hand-rolled LRU dictionary.
 
-    // UInt64 to avoid silent overflow after billions of cache accesses in long-running sessions.
-    @MainActor static var lruCounter: UInt64 = 0
-
-    @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: UInt64)]()
-    static let maxCacheSize = 100
+    @MainActor static var segmentCache: NSCache<NSString, SegmentCacheEntry> = {
+        let cache = NSCache<NSString, SegmentCacheEntry>()
+        cache.countLimit = 500
+        cache.totalCostLimit = 5_000_000
+        return cache
+    }()
 
     // MARK: - Cache Guardrails
     //
     // Prevents a single huge message from consuming disproportionate cache
     // space.  Text over `maxCacheableTextLength` is parsed but never stored.
-    // `estimatedCacheBytes` tracks a rough byte budget across the segment
-    // cache; when it exceeds `maxCacheBytes` the oldest entries are evicted.
 
     static let maxCacheableTextLength = 10_000
-    static let maxCacheBytes = 5_000_000
-    /// Rough byte estimate of all entries in segmentCache.  Updated on insert/evict.
-    @MainActor static var estimatedCacheBytes: Int = 0
-
-    /// Estimate the in-memory cost of caching the given text's parsed result.
-    /// Uses `utf8.count * 10` as a conservative multiplier: parsed MarkdownSegment
-    /// arrays carry overhead beyond raw bytes (segment structs, string copies,
-    /// enum metadata), so 3x was too low and allowed the budget to be exceeded.
-    static func estimatedBytes(for text: String) -> Int {
-        text.utf8.count * 10
-    }
-
-    /// Evicts the oldest entries from segmentCache until
-    /// `estimatedCacheBytes` drops below `maxCacheBytes`.
-    @MainActor static func evictIfOverBudget() {
-        while estimatedCacheBytes > maxCacheBytes {
-            guard let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key else { break }
-            let cost = estimatedBytes(for: lruKey)
-            segmentCache.removeValue(forKey: lruKey)
-            estimatedCacheBytes -= cost
-        }
-    }
 
     // MARK: - Streaming Dedup Caches
     //
-    // During streaming, the LRU caches above skip storing results to avoid
+    // During streaming, the segment cache skips storing results to avoid
     // filling up with intermediate text states. However SwiftUI reevaluates
     // view bodies multiple times per token, often with identical text.
     // These single-entry caches hold the last-parsed streaming result so
     // redundant reevaluations return instantly without re-parsing.
 
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+}
+
+/// NSObject wrapper for `[MarkdownSegment]` to satisfy NSCache's NSObject value requirement.
+final class SegmentCacheEntry: NSObject {
+    let segments: [MarkdownSegment]
+    init(_ segments: [MarkdownSegment]) { self.segments = segments }
 }
 
 /// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.

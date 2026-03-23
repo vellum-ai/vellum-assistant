@@ -25,28 +25,21 @@ extension ChatBubble {
             // Only run async parsing for large, non-streaming text with a cache miss
             guard !streaming,
                   segmentText.count > Self.asyncParseThreshold,
-                  Self.segmentCache[segmentText] == nil,
+                  Self.segmentCache.object(forKey: segmentText as NSString) == nil,
                   asyncSegments[segmentText] == nil else { return }
             let result = await MarkdownParseActor.shared.parse(segmentText)
             guard !Task.isCancelled else { return }
             asyncSegments[segmentText] = result
-            // Backfill the synchronous cache with guardrails (size limit,
-            // byte tracking, eviction) — mirrors the logic in cachedSegments.
-            // Re-check cache after await to avoid double-counting bytes when
+            // Backfill the synchronous cache with cost tracking.
+            // Re-check cache after await to avoid double-inserting when
             // multiple bubbles parse the same text concurrently.
             if segmentText.count <= Self.maxCacheableTextLength,
-               Self.segmentCache[segmentText] == nil {
-                if Self.segmentCache.count >= Self.maxCacheSize {
-                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
-                        Self.segmentCache.removeValue(forKey: lruKey)
-                    }
-                }
-                Self.lruCounter += 1
-                let cost = Self.estimatedBytes(for: segmentText)
-                Self.segmentCache[segmentText] = (result, Self.lruCounter)
-                Self.estimatedCacheBytes += cost
-                Self.evictIfOverBudget()
+               Self.segmentCache.object(forKey: segmentText as NSString) == nil {
+                Self.segmentCache.setObject(
+                    SegmentCacheEntry(result),
+                    forKey: segmentText as NSString,
+                    cost: segmentText.utf8.count * 10
+                )
             }
         }
     }
@@ -55,10 +48,8 @@ extension ChatBubble {
     /// large messages that haven't been synchronously cached yet.
     func resolveSegments(for text: String, isStreaming: Bool) -> [MarkdownSegment] {
         // Check the synchronous cache first (fast path for all sizes)
-        if let cached = Self.segmentCache[text] {
-            Self.lruCounter += 1
-            Self.segmentCache[text] = (cached.value, Self.lruCounter)
-            return cached.value
+        if let cached = Self.segmentCache.object(forKey: text as NSString) {
+            return cached.segments
         }
         // For large text with a cache miss, return async result or plain placeholder
         if !isStreaming, text.count > Self.asyncParseThreshold {
@@ -73,15 +64,13 @@ extension ChatBubble {
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.
-    /// When `isStreaming` is true the result is not stored in the main LRU
+    /// When `isStreaming` is true the result is not stored in the main
     /// cache (to avoid filling it with intermediate text states), but a
     /// single-entry dedup cache returns the previous result when the text
     /// hasn't changed between SwiftUI reevaluations.
     static func cachedSegments(for text: String, isStreaming: Bool = false) -> [MarkdownSegment] {
-        if let cached = segmentCache[text] {
-            lruCounter += 1
-            segmentCache[text] = (cached.value, lruCounter)
-            return cached.value
+        if let cached = segmentCache.object(forKey: text as NSString) {
+            return cached.segments
         }
         // Streaming dedup: return the last-parsed result when text is unchanged.
         if isStreaming, let last = lastStreamingSegments, last.text == text {
@@ -95,18 +84,11 @@ extension ChatBubble {
         // Skip caching for very long text to avoid a single huge entry
         // evicting many smaller, more frequently accessed entries.
         if text.count > maxCacheableTextLength { return result }
-        if segmentCache.count >= maxCacheSize {
-            // Evict the least-recently-used entry (lowest accessTime).
-            if let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                estimatedCacheBytes -= estimatedBytes(for: lruKey)
-                segmentCache.removeValue(forKey: lruKey)
-            }
-        }
-        lruCounter += 1
-        let cost = estimatedBytes(for: text)
-        segmentCache[text] = (result, lruCounter)
-        estimatedCacheBytes += cost
-        evictIfOverBudget()
+        segmentCache.setObject(
+            SegmentCacheEntry(result),
+            forKey: text as NSString,
+            cost: text.utf8.count * 10
+        )
         return result
     }
 
