@@ -126,9 +126,12 @@ public struct LockfileAssistant {
         loadAll().first
     }
 
+    /// Returns the latest visible assistant, filtered by dev mode.
+    public static func loadLatestVisible() -> LockfileAssistant? {
+        loadVisible().first
+    }
+
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    /// Filters by dev mode: when `DevModeManager.shared.isDevMode` is `true`,
-    /// returns only development assistants; when `false`, returns only live assistants.
     public static func loadAll() -> [LockfileAssistant] {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
@@ -150,13 +153,7 @@ public struct LockfileAssistant {
             return dateA > dateB
         }
 
-        let showDev = DevModeManager.isDevModeEnabled
-        let filtered = sorted.filter { entry in
-            let isDev = entry["development"] as? Bool ?? false
-            return showDev ? isDev : !isDev
-        }
-
-        return filtered.compactMap { entry -> LockfileAssistant? in
+        return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
             let serviceGroupVersion = entry["serviceGroupVersion"] as? String
@@ -204,6 +201,16 @@ public struct LockfileAssistant {
                 previousContainerInfo: previousContainerInfo,
                 development: entry["development"] as? Bool
             )
+        }
+    }
+
+    /// Returns all assistant entries filtered by the current dev mode setting.
+    /// In dev mode, returns only development assistants; otherwise, returns only live assistants.
+    /// Use this for UI-layer listing; use `loadAll()` for operational lookups.
+    public static func loadVisible() -> [LockfileAssistant] {
+        let showDev = DevModeManager.isDevModeEnabled
+        return loadAll().filter { entry in
+            showDev ? entry.isDevelopment : !entry.isDevelopment
         }
     }
 
