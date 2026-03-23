@@ -41,9 +41,11 @@ const PROVIDER_ENV_VARS: Record<string, string> =
 /**
  * Attempt an authenticated HTTP request to the running daemon.
  *
- * Returns the Response on success, or `null` if the daemon is not reachable
- * or the request fails for any reason. Callers fall back to direct
- * secure-keys.ts when this returns `null`.
+ * Returns the Response for ANY HTTP response (including non-ok status codes)
+ * so callers can distinguish "daemon rejected the request" from "daemon
+ * unreachable". Returns `null` only when the daemon is genuinely unreachable
+ * (health check fails or network error). Callers fall back to direct
+ * secure-keys.ts only when this returns `null`.
  */
 async function daemonFetch(
   path: string,
@@ -69,9 +71,8 @@ async function daemonFetch(
     if (!res.ok) {
       log.warn(
         { path, status: res.status },
-        "Daemon credential request failed — falling back to direct access",
+        "Daemon credential request returned non-ok status",
       );
-      return null;
     }
 
     return res;
@@ -126,11 +127,13 @@ export async function getSecureKeyViaDaemon(
     body: JSON.stringify({ type: "api_key", name: account, reveal: true }),
   });
 
-  if (res) {
+  if (res?.ok) {
     const json = (await res.json()) as { found: boolean; value?: string };
     return json.found ? json.value : undefined;
   }
 
+  // Fall back to direct read when daemon is unreachable (null) OR returned
+  // a non-ok response — reads are safe to retry via direct access.
   return getSecureKeyAsync(account);
 }
 
@@ -147,7 +150,7 @@ export async function getSecureKeyResultViaDaemon(
     body: JSON.stringify({ type: "api_key", name: account, reveal: true }),
   });
 
-  if (res) {
+  if (res?.ok) {
     const json = (await res.json()) as { found: boolean; value?: string };
     if (json.found && json.value != null) {
       return { value: json.value, unreachable: false };
@@ -155,6 +158,8 @@ export async function getSecureKeyResultViaDaemon(
     return { value: undefined, unreachable: false };
   }
 
+  // Fall back to direct read when daemon is unreachable (null) OR returned
+  // a non-ok response — reads are safe to retry via direct access.
   return getSecureKeyResultAsync(account);
 }
 
@@ -172,11 +177,19 @@ export async function setSecureKeyViaDaemon(
     body: JSON.stringify({ type, name, value }),
   });
 
-  if (res) {
+  if (res?.ok) {
     const json = (await res.json()) as { success: boolean };
     return json.success;
   }
 
+  if (res) {
+    // Daemon is running but deliberately rejected the write (e.g. 422
+    // validation failure, 400 bad input). Do NOT fall back — the daemon's
+    // rejection is authoritative and bypassing it would skip validation.
+    return false;
+  }
+
+  // Daemon unreachable — fall back to direct write.
   // For credentials, derive the canonical storage key (credential/service/field)
   // to match the daemon path which uses credentialKey().
   const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
@@ -196,11 +209,19 @@ export async function deleteSecureKeyViaDaemon(
     body: JSON.stringify({ type, name }),
   });
 
-  if (res) {
+  if (res?.ok) {
     const json = (await res.json()) as { success: boolean };
     return json.success ? "deleted" : "error";
   }
 
+  if (res) {
+    // Daemon is running but rejected the delete. Map common status codes
+    // to appropriate results without falling back to direct access.
+    if (res.status === 404) return "not-found";
+    return "error";
+  }
+
+  // Daemon unreachable — fall back to direct delete.
   // For credentials, derive the canonical storage key (credential/service/field)
   // to match the daemon path which uses credentialKey().
   const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
