@@ -84,6 +84,9 @@ describe("local CES discovery", () => {
     if (result.mode === "unavailable") {
       expect(result.reason).toContain("CES executable not found");
       expect(result.mode).toBe("unavailable");
+    } else if (result.mode === "local-source") {
+      // Source entry point exists in the monorepo — verify the success shape.
+      expect(result.sourcePath).toBeTruthy();
     } else {
       // Binary exists in this environment — verify the success shape.
       expect(result.mode).toBe("local");
@@ -95,9 +98,9 @@ describe("local CES discovery", () => {
 
   test("never returns a fallback or in-process mode", () => {
     const result = discoverLocalCes();
-    // The result must be either "local" (with a valid path) or "unavailable".
+    // The result must be "local", "local-source", or "unavailable".
     // There must never be a fallback mode like "in-process" or "degraded".
-    expect(["local", "unavailable"]).toContain(result.mode);
+    expect(["local", "local-source", "unavailable"]).toContain(result.mode);
   });
 });
 
