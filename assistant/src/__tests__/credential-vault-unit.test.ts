@@ -75,7 +75,7 @@ let slackChannelConfigCalls: Array<{
   botToken?: string;
   appToken?: string;
 }> = [];
-let telegramSetupCalls: string[] = [];
+let telegramConfigCalls: string[] = [];
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async (providerKey: string) => {
@@ -183,9 +183,9 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
 }));
 
 mock.module("../daemon/handlers/config-telegram.js", () => ({
-  setupTelegram: async (_commands?: unknown, botToken?: string) => {
+  setTelegramConfig: async (botToken?: string) => {
     if (botToken) {
-      telegramSetupCalls.push(botToken);
+      telegramConfigCalls.push(botToken);
     }
 
     const { credentialKey } = await import("../security/credential-key.js");
@@ -231,7 +231,6 @@ mock.module("../daemon/handlers/config-telegram.js", () => ({
       connected: true,
       botId: "123456",
       botUsername: "testbot",
-      commandsRegistered: ["new", "help"],
     };
   },
 }));
@@ -292,7 +291,7 @@ const _ctx: ToolContext = {
 beforeEach(() => {
   manualConnectionStore = {};
   slackChannelConfigCalls = [];
-  telegramSetupCalls = [];
+  telegramConfigCalls = [];
 });
 
 afterAll(() => {
@@ -784,7 +783,7 @@ describe("credential_store tool — prompt action", () => {
     ).toBeUndefined();
   });
 
-  test("telegram bot token prompt runs through the Telegram setup handler", async () => {
+  test("telegram bot token prompt runs through the Telegram config handler", async () => {
     const ctxWithPrompt: ToolContext = {
       ..._ctx,
       requestSecret: async () => ({
@@ -804,10 +803,10 @@ describe("credential_store tool — prompt action", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(telegramSetupCalls).toEqual(["123456:telegram-valid-token"]);
+    expect(telegramConfigCalls).toEqual(["123456:telegram-valid-token"]);
     expect(manualConnectionStore["telegram"]).toBe("active");
     expect(result.content).toContain("Telegram connected as @testbot.");
-    expect(result.content).toContain("Registered commands: /new, /help.");
+    expect(result.content).not.toContain("Registered commands");
     expect(
       await getSecureKeyAsync(credentialKey("telegram", "bot_token")),
     ).toBe("123456:telegram-valid-token");
@@ -839,10 +838,10 @@ describe("credential_store tool — prompt action", () => {
     expect(result.content).toContain(
       "Telegram bot credentials must be saved to secure storage",
     );
-    expect(telegramSetupCalls).toEqual([]);
+    expect(telegramConfigCalls).toEqual([]);
   });
 
-  test("telegram bot token prompt surfaces setup handler validation errors", async () => {
+  test("telegram bot token prompt surfaces config handler validation errors", async () => {
     const ctxWithPrompt: ToolContext = {
       ..._ctx,
       requestSecret: async () => ({

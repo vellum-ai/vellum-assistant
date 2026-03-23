@@ -13,7 +13,16 @@ describe("telegram-setup skill regression", () => {
       '`credential_store` with `action: "prompt"`',
     );
     expect(skillContent).toContain(
-      "same Telegram setup handler used by Settings",
+      "same Telegram config handler used by Settings",
+    );
+  });
+
+  test("keeps default command registration explicit so custom commands are preserved", () => {
+    expect(skillContent).toContain(
+      "If this bot already has custom commands configured and the user wants to keep them, skip this step.",
+    );
+    expect(skillContent).toContain(
+      "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/commands",
     );
   });
 

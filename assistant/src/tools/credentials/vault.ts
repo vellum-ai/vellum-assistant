@@ -4,7 +4,7 @@ import {
   type SlackChannelConfigResult,
 } from "../../daemon/handlers/config-slack-channel.js";
 import {
-  setupTelegram,
+  setTelegramConfig,
   type TelegramConfigResult,
 } from "../../daemon/handlers/config-telegram.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
@@ -90,7 +90,7 @@ async function storeSlackChannelCredential(
 async function storeTelegramBotCredential(
   value: string,
 ): Promise<TelegramConfigResult> {
-  return setupTelegram(undefined, value);
+  return setTelegramConfig(value);
 }
 
 type ManagedCredentialResult =
@@ -134,14 +134,8 @@ function formatTelegramStatus(result: TelegramConfigResult): string {
     const botLabel = result.botUsername
       ? `@${result.botUsername}`
       : "the Telegram bot";
-    const commandsLabel =
-      result.commandsRegistered && result.commandsRegistered.length > 0
-        ? ` Registered commands: ${result.commandsRegistered
-            .map((command) => `/${command}`)
-            .join(", ")}.`
-        : "";
     const warningLabel = result.warning ? ` ${result.warning}` : "";
-    return ` Telegram connected as ${botLabel}.${commandsLabel}${warningLabel}`;
+    return ` Telegram connected as ${botLabel}.${warningLabel}`;
   }
   if (result.warning) {
     return ` ${result.warning}`;

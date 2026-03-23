@@ -8,6 +8,9 @@ let oauthConnectionStore: Record<
   { id: string; status: string; accountInfo?: string | null }
 > = {};
 const syncCalls: Array<{ providerKey: string; accountInfo?: string }> = [];
+const ensureCalls: Array<{ providerKey: string; accountInfo?: string }> = [];
+const platformCallbackCalls: Array<{ path: string; type: string }> = [];
+let usePlatformCallbacks = false;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ telegram: {}, ui: {} }),
@@ -19,8 +22,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../inbound/platform-callback-registration.js", () => ({
-  registerCallbackRoute: async () => {},
-  shouldUsePlatformCallbacks: () => false,
+  registerCallbackRoute: async (path: string, type: string) => {
+    platformCallbackCalls.push({ path, type });
+  },
+  shouldUsePlatformCallbacks: () => usePlatformCallbacks,
 }));
 
 mock.module("../daemon/handlers/shared.js", () => ({
@@ -54,7 +59,12 @@ mock.module("../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../oauth/manual-token-connection.js", () => ({
-  ensureManualTokenConnection: async () => {},
+  ensureManualTokenConnection: async (
+    providerKey: string,
+    accountInfo?: string,
+  ) => {
+    ensureCalls.push({ providerKey, accountInfo });
+  },
   removeManualTokenConnection: () => {},
   syncManualTokenConnection: async (
     providerKey: string,
@@ -91,12 +101,16 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 const originalFetch = globalThis.fetch;
 
 import { getTelegramConfig } from "../daemon/handlers/config-telegram.js";
+import { setTelegramConfig } from "../daemon/handlers/config-telegram.js";
 
 describe("Telegram config handler", () => {
   beforeEach(() => {
     secureKeyStore = {};
     oauthConnectionStore = {};
     syncCalls.length = 0;
+    ensureCalls.length = 0;
+    platformCallbackCalls.length = 0;
+    usePlatformCallbacks = false;
     globalThis.fetch = originalFetch;
   });
 
@@ -117,5 +131,49 @@ describe("Telegram config handler", () => {
       { providerKey: "telegram", accountInfo: "@testbot" },
     ]);
     expect(oauthConnectionStore["telegram"]?.accountInfo).toBe("@testbot");
+  });
+
+  test("SET config keeps non-managed mode on the token-plus-webhook path", async () => {
+    const fetchCalls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      fetchCalls.push(url);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: { id: 987654321, username: "freshbot" },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    const result = await setTelegramConfig(
+      "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      connected: true,
+      hasBotToken: true,
+      hasWebhookSecret: true,
+      botId: "987654321",
+      botUsername: "freshbot",
+    });
+    expect(secureKeyStore[credentialKey("telegram", "bot_token")]).toBe(
+      "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
+    );
+    expect(secureKeyStore[credentialKey("telegram", "webhook_secret")]).toEqual(
+      expect.any(String),
+    );
+    expect(fetchCalls).toEqual([
+      "https://api.telegram.org/bot123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678/getMe",
+    ]);
+    expect(platformCallbackCalls).toEqual([]);
+    expect(ensureCalls).toEqual([
+      { providerKey: "telegram", accountInfo: "@freshbot" },
+    ]);
   });
 });

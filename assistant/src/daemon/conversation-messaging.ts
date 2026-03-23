@@ -490,29 +490,51 @@ export function redirectToSecurePrompt(
           "Ingress redirect: transient credential injected",
         );
       } else {
-        const { credentialKey: credKey } =
-          await import("../security/credential-key.js");
-        const key = credKey(target.service, target.field);
-        const stored = await setSecureKeyAsync(key, result.value);
-        if (stored) {
-          try {
-            upsertCredentialMetadata(target.service, target.field, {});
-          } catch (e) {
-            log.debug(
-              { err: e, service: target.service, field: target.field },
-              "Non-critical credential metadata upsert failed",
+        if (target.service === "telegram" && target.field === "bot_token") {
+          const { setTelegramConfig } =
+            await import("./handlers/config-telegram.js");
+          const configResult = await setTelegramConfig(result.value);
+          if (configResult.success) {
+            wasStored = true;
+            log.info(
+              { service: target.service, field: target.field },
+              "Ingress redirect: Telegram credential configured",
+            );
+          } else {
+            log.warn(
+              {
+                service: target.service,
+                field: target.field,
+                error: configResult.error,
+              },
+              "Ingress redirect: Telegram configuration failed",
             );
           }
-          wasStored = true;
-          log.info(
-            { service: target.service, field: target.field },
-            "Ingress redirect: credential stored",
-          );
         } else {
-          log.warn(
-            { service: target.service, field: target.field },
-            "Ingress redirect: secure storage write failed",
-          );
+          const { credentialKey: credKey } =
+            await import("../security/credential-key.js");
+          const key = credKey(target.service, target.field);
+          const stored = await setSecureKeyAsync(key, result.value);
+          if (stored) {
+            try {
+              upsertCredentialMetadata(target.service, target.field, {});
+            } catch (e) {
+              log.debug(
+                { err: e, service: target.service, field: target.field },
+                "Non-critical credential metadata upsert failed",
+              );
+            }
+            wasStored = true;
+            log.info(
+              { service: target.service, field: target.field },
+              "Ingress redirect: credential stored",
+            );
+          } else {
+            log.warn(
+              { service: target.service, field: target.field },
+              "Ingress redirect: secure storage write failed",
+            );
+          }
         }
       }
 

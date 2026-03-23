@@ -79,7 +79,7 @@ Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which 
 - Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded a setup guide for Telegram. It will walk you through connecting a Telegram bot to your assistant."_
 
-The telegram-setup skill handles: collecting the bot token via the secure credential prompt, routing it through the same Telegram setup handler used by Settings (which validates the token, provisions the webhook secret, stores bot metadata, and registers default bot commands), and checking webhook delivery prerequisites, including surfacing managed callback-registration failures. **Never accept a Telegram bot token pasted in plaintext chat - always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
+The telegram-setup skill handles: collecting the bot token via the secure credential prompt, routing it through the same Telegram config handler used by Settings (which validates the token, provisions the webhook secret, and stores bot metadata), optionally registering the default `/new` and `/help` commands without overwriting custom ones, and checking webhook delivery prerequisites, including surfacing managed callback-registration failures. **Never accept a Telegram bot token pasted in plaintext chat - always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
 
 The telegram-setup skill also includes **channel verification**, which links your Telegram account for verified message delivery.
 

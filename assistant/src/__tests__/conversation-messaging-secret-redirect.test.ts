@@ -8,6 +8,14 @@ import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { credentialKey } from "../security/credential-key.js";
 
 const setSecureKeyMock = mock((_key?: string, _value?: string) => true);
+const setTelegramConfigMock = mock((_botToken?: string) => ({
+  success: true,
+  hasBotToken: true,
+  hasWebhookSecret: true,
+  connected: true,
+  botId: "123456",
+  botUsername: "testbot",
+}));
 const upsertCredentialMetadataMock = mock(
   (_service?: string, _field?: string, _metadata?: unknown) => {},
 );
@@ -30,6 +38,11 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => "deleted" as const,
   listSecureKeysAsync: async () => ({ accounts: [], unreachable: false }),
   _resetBackend: () => {},
+}));
+
+mock.module("../daemon/handlers/config-telegram.js", () => ({
+  setTelegramConfig: async (botToken?: string) =>
+    setTelegramConfigMock(botToken),
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
@@ -64,12 +77,21 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 describe("session-messaging secret redirect", () => {
   beforeEach(() => {
     setSecureKeyMock.mockReset();
+    setTelegramConfigMock.mockReset();
     upsertCredentialMetadataMock.mockReset();
     metadataByKey.clear();
     setSecureKeyMock.mockImplementation(() => true);
+    setTelegramConfigMock.mockImplementation((_botToken?: string) => ({
+      success: true,
+      hasBotToken: true,
+      hasWebhookSecret: true,
+      connected: true,
+      botId: "123456",
+      botUsername: "testbot",
+    }));
   });
 
-  test("maps Telegram Bot Token to canonical credential key and emits stored callback", async () => {
+  test("routes Telegram Bot Token through Telegram config and emits stored callback", async () => {
     const promptCalls: Array<{
       service: string;
       field: string;
@@ -102,15 +124,10 @@ describe("session-messaging secret redirect", () => {
       field: "bot_token",
       label: "Telegram Bot Token",
     });
-    expect(setSecureKeyMock).toHaveBeenCalledWith(
-      credentialKey("telegram", "bot_token"),
+    expect(setTelegramConfigMock).toHaveBeenCalledWith(
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
-    expect(upsertCredentialMetadataMock).toHaveBeenCalledWith(
-      "telegram",
-      "bot_token",
-      {},
-    );
+    expect(setSecureKeyMock).not.toHaveBeenCalled();
     expect(callbackRecord).toEqual({
       service: "telegram",
       field: "bot_token",
@@ -152,10 +169,10 @@ describe("session-messaging secret redirect", () => {
       field: "bot_token",
       label: "Telegram Bot Token",
     });
-    expect(setSecureKeyMock).toHaveBeenCalledWith(
-      credentialKey("telegram", "bot_token"),
+    expect(setTelegramConfigMock).toHaveBeenCalledWith(
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
+    expect(setSecureKeyMock).not.toHaveBeenCalled();
   });
 
   test("maps encoded known types to canonical credential key", async () => {
@@ -191,10 +208,10 @@ describe("session-messaging secret redirect", () => {
       field: "bot_token",
       label: "Telegram Bot Token",
     });
-    expect(setSecureKeyMock).toHaveBeenCalledWith(
-      credentialKey("telegram", "bot_token"),
+    expect(setTelegramConfigMock).toHaveBeenCalledWith(
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
+    expect(setSecureKeyMock).not.toHaveBeenCalled();
   });
 
   test("falls back to detected credential namespace for unknown secret types", async () => {
