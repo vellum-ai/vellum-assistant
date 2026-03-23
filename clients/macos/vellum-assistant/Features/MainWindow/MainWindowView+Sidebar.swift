@@ -152,7 +152,7 @@ extension MainWindowView {
 
     /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
     /// so each row is a pure value view that can be skipped via `Equatable`.
-    func makeSidebarRow(
+    private func makeSidebarRow(
         conversation: ConversationModel,
         onSelect: (() -> Void)? = nil
     ) -> SidebarConversationItem {
