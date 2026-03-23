@@ -457,44 +457,27 @@ export async function runDaemon(): Promise<void> {
 
     // When the credential backend flag is enabled, CES startup must complete
     // BEFORE provider initialization so credential reads can go through CES.
-    // Block with a 10-second timeout so startup isn't stalled; if the handshake
-    // hasn't finished yet, continue waiting in the background and promote the
-    // CES client as soon as it becomes available.
+    // Block with a 20-second timeout — fall back to direct credential store
+    // on timeout.
     if (isCesCredentialBackendEnabled(config)) {
       const cesResult = await cesStartupPromise;
       // startCesProcess() returns immediately — the actual handshake runs
-      // inside clientPromise. Await it (with a 10s timeout) so the CES client
+      // inside clientPromise. Await it (with a 20s timeout) so the CES client
       // is available before provider initialization.
       if (cesResult.clientPromise) {
-        let timedOut = false;
         const client = await Promise.race([
           cesResult.clientPromise,
-          new Promise<undefined>((resolve) => {
-            const timer = setTimeout(() => {
-              timedOut = true;
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => {
               log.warn(
-                "CES handshake timed out after 10s — falling back to direct credential store",
+                "CES handshake timed out after 20s — falling back to direct credential store",
               );
               resolve(undefined);
-            }, 10_000);
-            cesResult.clientPromise!.finally(() => clearTimeout(timer));
-          }),
+            }, 20_000),
+          ),
         ]);
         if (client) {
           setCesClient(client);
-        } else if (timedOut) {
-          // The handshake is still in flight — continue waiting in the
-          // background and promote the CES credential backend once it lands.
-          void cesResult.clientPromise
-            .then((deferredClient) => {
-              if (deferredClient) {
-                setCesClient(deferredClient);
-                log.info(
-                  "CES client promoted after deferred handshake completed",
-                );
-              }
-            })
-            .catch(() => {});
         }
       }
     }
