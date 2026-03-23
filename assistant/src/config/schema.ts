@@ -44,8 +44,6 @@ export type { FishAudioConfig } from "./schemas/fish-audio.js";
 export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
-export type { JournalConfig } from "./schemas/journal.js";
-export { JournalConfigSchema } from "./schemas/journal.js";
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
@@ -70,6 +68,8 @@ export {
   IngressRateLimitConfigSchema,
   IngressWebhookConfigSchema,
 } from "./schemas/ingress.js";
+export type { JournalConfig } from "./schemas/journal.js";
+export { JournalConfigSchema } from "./schemas/journal.js";
 export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
 export {
   AuditLogConfigSchema,
@@ -197,7 +197,6 @@ import {
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
-import { JournalConfigSchema } from "./schemas/journal.js";
 import {
   ContextWindowConfigSchema,
   EffortSchema,
@@ -205,6 +204,7 @@ import {
   ThinkingConfigSchema,
 } from "./schemas/inference.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
+import { JournalConfigSchema } from "./schemas/journal.js";
 import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
