@@ -230,6 +230,13 @@ describe("buildJournalContext", () => {
     expect(result).not.toContain("entry-4.md");
   });
 
+  test("maxEntries=1 with exactly one entry marks it MOST RECENT, not LEAVING CONTEXT", () => {
+    writeFileSync(join(journalDir, "solo.md"), "only entry");
+    const result = buildJournalContext(1)!;
+    expect(result).toContain("## solo.md — MOST RECENT");
+    expect(result).not.toContain("LEAVING CONTEXT");
+  });
+
   test("includes relative timestamps in headers", () => {
     const now = new Date();
 
