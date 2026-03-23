@@ -323,6 +323,7 @@ describe("resolveCallHints", () => {
       task: "Call Alice at Acme",
       toNumber: "+15551234567",
       fromNumber: "+15559876543",
+      direction: "outbound" as const,
       inviteFriendName: "Dave",
       inviteGuardianName: "Eve",
     };
@@ -351,6 +352,7 @@ describe("resolveCallHints", () => {
       task: null,
       toNumber: "+15551234567",
       fromNumber: "+15559876543",
+      direction: "outbound" as const,
       inviteFriendName: null,
       inviteGuardianName: null,
     };
@@ -375,6 +377,7 @@ describe("resolveCallHints", () => {
       task: null,
       toNumber: "+15551234567",
       fromNumber: "+15559876543",
+      direction: "outbound" as const,
       inviteFriendName: null,
       inviteGuardianName: null,
     };
