@@ -243,7 +243,7 @@ async function generateQueryEmbedding(
  *   2. Generate dense + sparse embeddings
  *   3. Hybrid search on Qdrant (dense + sparse RRF fusion)
  *   4. Deduplicate results
- *   5. Classify tiers (score > 0.8 → tier 1, > 0.6 → tier 2)
+ *   5. Classify tiers (score > 0.6 → tier 1, > 0.4 → tier 2)
  *   6. Enrich item candidates with metadata for staleness
  *   7. Compute staleness per item
  *   8. Demote very_stale tier 1 → tier 2
