@@ -50,11 +50,15 @@ function toBareProvider(provider: string): string {
 }
 
 /**
- * Validate that a provider supports managed OAuth and that managed mode is
- * enabled. Returns the managed config key on success, or writes an error and
- * returns null.
+ * Validate that a provider supports managed OAuth (has a managedServiceConfigKey).
+ * Does NOT check whether managed mode is currently enabled — use this for
+ * operations that should work regardless of the current mode (e.g. disconnect).
+ * Returns the managed config key on success, or writes an error and returns null.
  */
-function requireManagedProvider(provider: string, cmd: Command): string | null {
+function requireManagedCapableProvider(
+  provider: string,
+  cmd: Command,
+): string | null {
   const providerKey = toProviderKey(provider);
   const providerRow = getProvider(providerKey);
 
@@ -67,6 +71,19 @@ function requireManagedProvider(provider: string, cmd: Command): string | null {
     process.exitCode = 1;
     return null;
   }
+
+  return managedKey;
+}
+
+/**
+ * Validate that a provider supports managed OAuth AND that managed mode is
+ * currently enabled. Use this for operations that require active managed
+ * mode (e.g. connect). Returns the managed config key on success, or writes
+ * an error and returns null.
+ */
+function requireManagedProvider(provider: string, cmd: Command): string | null {
+  const managedKey = requireManagedCapableProvider(provider, cmd);
+  if (!managedKey) return null;
 
   const services: Services = getConfig().services;
   const managedEnabled =
@@ -421,7 +438,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          if (!requireManagedProvider(provider, cmd)) return;
+          if (!requireManagedCapableProvider(provider, cmd)) return;
 
           const client = await requirePlatformClient(cmd);
           if (!client) return;
