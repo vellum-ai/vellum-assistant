@@ -94,7 +94,7 @@ enum LogExporter {
         let baseURL = AuthService.shared.baseURL
         guard let url = URL(string: "\(baseURL)/v1/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
-            return
+            throw URLError(.badURL)
         }
 
         var request = URLRequest(url: url)
