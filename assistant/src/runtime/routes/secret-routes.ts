@@ -308,6 +308,71 @@ export async function handleAddSecret(
   }
 }
 
+export async function handleReadSecret(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    type?: string;
+    name?: string;
+    reveal?: boolean;
+  };
+
+  const { type, name, reveal } = body;
+
+  if (!type || typeof type !== "string") {
+    return httpError("BAD_REQUEST", "type is required", 400);
+  }
+  if (!name || typeof name !== "string") {
+    return httpError("BAD_REQUEST", "name is required", 400);
+  }
+
+  try {
+    let accountKey: string;
+
+    if (type === "api_key") {
+      accountKey = name;
+    } else if (type === "credential") {
+      const colonIdx = name.indexOf(":");
+      if (colonIdx < 1 || colonIdx === name.length - 1) {
+        return httpError(
+          "BAD_REQUEST",
+          'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
+          400,
+        );
+      }
+      const service = name.slice(0, colonIdx);
+      const field = name.slice(colonIdx + 1);
+      accountKey = credentialKey(service, field);
+    } else {
+      return httpError(
+        "BAD_REQUEST",
+        `Unknown secret type: ${type}. Valid types: api_key, credential`,
+        400,
+      );
+    }
+
+    const value = await getSecureKeyAsync(accountKey);
+    if (value === undefined) {
+      return Response.json({ found: false });
+    }
+
+    if (reveal) {
+      return Response.json({ found: true, value });
+    }
+
+    // Mask the value: show first 10 chars and last 4, hiding at least 3
+    const minHidden = 3;
+    const maxVisible = Math.max(1, value.length - minHidden);
+    const prefixLen = Math.min(10, maxVisible);
+    const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
+    const masked = `${value.slice(0, prefixLen)}...${suffixLen > 0 ? value.slice(-suffixLen) : ""}`;
+
+    return Response.json({ found: true, masked });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, type, name }, "Failed to read secret via HTTP");
+    return httpError("INTERNAL_ERROR", message, 500);
+  }
+}
+
 export async function handleDeleteSecret(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     type?: string;
@@ -440,6 +505,11 @@ export function secretRouteDefinitions(
       endpoint: "secrets",
       method: "DELETE",
       handler: async ({ req }) => handleDeleteSecret(req),
+    },
+    {
+      endpoint: "secrets/read",
+      method: "POST",
+      handler: async ({ req }) => handleReadSecret(req),
     },
   ];
 }
