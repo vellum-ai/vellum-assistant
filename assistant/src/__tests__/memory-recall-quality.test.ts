@@ -635,15 +635,6 @@ describe("Memory Recall Quality", () => {
         "Framework preference is React for this codebase.",
         now,
       );
-      insertSegment(
-        db,
-        "seg-invalid-status",
-        "msg-invalid-status",
-        "conv-invalid-status",
-        "user",
-        "Framework preference is React for this codebase.",
-        now,
-      );
 
       insertItem(db, {
         id: "item-framework-active",
@@ -667,12 +658,42 @@ describe("Memory Recall Quality", () => {
         firstSeenAt: now - 50_000,
       });
 
+      // Mock Qdrant to return both items — retriever should filter out invalidated
+      mockQdrantResults = [
+        {
+          id: "emb-framework-active",
+          score: 0.9,
+          payload: {
+            target_type: "item",
+            target_id: "item-framework-active",
+            text: "Framework preference is React for this codebase",
+            kind: "preference",
+            status: "active",
+            created_at: now,
+            last_seen_at: now,
+          },
+        },
+        {
+          id: "emb-framework-invalidated",
+          score: 0.85,
+          payload: {
+            target_type: "item",
+            target_id: "item-framework-invalidated",
+            text: "Framework preference is Angular for this codebase",
+            kind: "preference",
+            status: "invalidated",
+            created_at: now - 50_000,
+            last_seen_at: now - 50_000,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "framework preference",
         "conv-invalid-status",
         TEST_CONFIG,
       );
-      // Active segment content should be injected; invalidated item should not leak
+      // Active item content should be injected; invalidated item should not leak
       expect(recall.injectedText).toContain("React");
       expect(recall.injectedText).not.toContain("Angular");
     });
@@ -979,7 +1000,7 @@ describe("Memory Recall Quality", () => {
       );
     });
 
-    test("precision@k guard verifies pipeline completes with seeded segments", async () => {
+    test("precision@k guard verifies pipeline completes with seeded items", async () => {
       const db = getDb();
       const now = 1_700_000_700_000;
       insertConversation(db, "conv-pk", now, 3);
@@ -987,27 +1008,54 @@ describe("Memory Recall Quality", () => {
       const prefs = [
         {
           msg: "msg-pk-1",
-          seg: "seg-pk-1",
+          item: "item-pk-1",
           text: "I prefer dark mode over light mode",
+          subject: "display mode",
         },
         {
           msg: "msg-pk-2",
-          seg: "seg-pk-2",
+          item: "item-pk-2",
           text: "I like using TypeScript for all projects",
+          subject: "language preference",
         },
         {
           msg: "msg-pk-3",
-          seg: "seg-pk-3",
+          item: "item-pk-3",
           text: "I prefer tabs over spaces for indentation",
+          subject: "formatting preference",
         },
       ];
 
+      const qdrantResults: typeof mockQdrantResults = [];
       for (let i = 0; i < prefs.length; i++) {
         const p = prefs[i]!;
         const t = now + i * 1000;
         insertMessage(db, p.msg, "conv-pk", "user", p.text, t);
-        insertSegment(db, p.seg, p.msg, "conv-pk", "user", p.text, t);
+        insertItem(db, {
+          id: p.item,
+          kind: "preference",
+          subject: p.subject,
+          statement: p.text,
+          importance: 0.8,
+          firstSeenAt: t,
+        });
+        insertItemSource(db, p.item, p.msg, t);
+        qdrantResults.push({
+          id: `emb-${p.item}`,
+          score: 0.9 - i * 0.05,
+          payload: {
+            target_type: "item",
+            target_id: p.item,
+            text: p.text,
+            kind: "preference",
+            status: "active",
+            created_at: t,
+            last_seen_at: t,
+          },
+        });
       }
+
+      mockQdrantResults = qdrantResults;
 
       const recall = await buildMemoryRecall(
         "what do I prefer",
@@ -1015,7 +1063,7 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      // Recency-only candidates are promoted to tier 2 and injected.
+      // Semantic candidates are classified into tiers and injected.
       // Verify the pipeline recalled the preference content.
       expect(recall.enabled).toBe(true);
       assertPrecisionAtK(

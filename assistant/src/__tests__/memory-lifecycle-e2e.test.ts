@@ -44,10 +44,17 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Dynamic Qdrant mock: tests can push results to be returned by hybridSearch
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -60,7 +67,7 @@ const TEST_CONFIG = {
     ...DEFAULT_CONFIG.memory,
     embeddings: {
       ...DEFAULT_CONFIG.memory.embeddings,
-      provider: "openai" as const,
+      provider: "local" as const,
       required: false,
     },
     extraction: {
@@ -115,6 +122,7 @@ describe("Memory lifecycle E2E regression", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
   });
@@ -339,15 +347,46 @@ describe("Memory lifecycle E2E regression", () => {
       })
       .run();
 
-    db.run(`
-      INSERT INTO memory_segments (
-        id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at
-      ) VALUES (
-        'seg-injection-seed', 'msg-injection-seed', '${conversationId}', 'user', 0,
-        'My preferred timezone is America/Los_Angeles.', 10, 'default',
-        ${now + 10}, ${now + 10}
-      )
-    `);
+    // Seed an item (not a segment) so semantic search can find it
+    db.insert(memoryItems)
+      .values({
+        id: "item-injection-seed",
+        kind: "identity",
+        subject: "timezone",
+        statement: "My preferred timezone is America/Los_Angeles.",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: "fp-injection-seed",
+        firstSeenAt: now + 10,
+        lastSeenAt: now + 10,
+      })
+      .run();
+    db.insert(memoryItemSources)
+      .values({
+        memoryItemId: "item-injection-seed",
+        messageId: "msg-injection-seed",
+        evidence: "timezone preference",
+        createdAt: now + 10,
+      })
+      .run();
+
+    // Mock Qdrant to return the item as a semantic hit
+    mockQdrantResults = [
+      {
+        id: "emb-injection-seed",
+        score: 0.92,
+        payload: {
+          target_type: "item",
+          target_id: "item-injection-seed",
+          text: "My preferred timezone is America/Los_Angeles.",
+          kind: "identity",
+          status: "active",
+          created_at: now + 10,
+          last_seen_at: now + 10,
+        },
+      },
+    ];
 
     const recall = await buildMemoryRecall(
       "timezone",
