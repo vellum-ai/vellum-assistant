@@ -463,7 +463,7 @@ export async function runDaemon(): Promise<void> {
     if (isCesCredentialBackendEnabled(config)) {
       const cesResult = await cesStartupPromise;
       // startCesProcess() returns immediately — the actual handshake runs
-      // inside clientPromise. Await it (with a 3s timeout) so the CES client
+      // inside clientPromise. Await it (with a 10s timeout) so the CES client
       // is available before provider initialization.
       if (cesResult.clientPromise) {
         let timedOut = false;
@@ -473,10 +473,10 @@ export async function runDaemon(): Promise<void> {
             setTimeout(() => {
               timedOut = true;
               log.warn(
-                "CES handshake timed out after 3s — falling back to direct credential store",
+                "CES handshake timed out after 10s — falling back to direct credential store",
               );
               resolve(undefined);
-            }, 3000),
+            }, 10_000),
           ),
         ]);
         if (client) {
