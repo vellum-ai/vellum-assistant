@@ -84,7 +84,7 @@ export function resolveUserPersona(
 
   // Resolve file path — validate basename to prevent path traversal
   if (filename) {
-    if (basename(filename) !== filename || filename.includes("..")) {
+    if (basename(filename) !== filename || filename === ".." || filename === ".") {
       log.warn(
         { userFile: filename },
         "Contact userFile contains path traversal; ignoring",
