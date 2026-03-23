@@ -9,6 +9,7 @@ import {
   normalizeSlackMessageEdit,
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  resolveSlackUser,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
@@ -578,6 +579,26 @@ export class SlackSocketModeClient {
         },
         "Slack event dropped by normalization/routing",
       );
+      return;
+    }
+
+    // Enrich actor display name if the sync cache missed.
+    // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
+    // so this adds negligible latency on subsequent messages.
+    const actor = normalized.event.actor;
+    if (actor?.actorExternalId && !actor.displayName) {
+      resolveSlackUser(actor.actorExternalId, this.config.botToken)
+        .then((userInfo) => {
+          if (userInfo) {
+            actor.displayName = userInfo.displayName;
+            actor.username = userInfo.username;
+          }
+          this.onEvent(normalized!);
+        })
+        .catch(() => {
+          // Still emit even if resolution fails — raw ID is better than nothing
+          this.onEvent(normalized!);
+        });
       return;
     }
 
