@@ -754,7 +754,7 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(400);
     });
 
-    test("truncates long subject and statement", async () => {
+    test("preserves long subject and statement without truncation", async () => {
       const longSubject = "a".repeat(200);
       const longStatement = "b".repeat(1000);
       const ctx = makeJsonCtx("memory-items", "POST", {
@@ -767,8 +767,8 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as {
         item: { subject: string; statement: string };
       };
-      expect(body.item.subject.length).toBeLessThanOrEqual(80);
-      expect(body.item.statement.length).toBeLessThanOrEqual(500);
+      expect(body.item.subject).toBe(longSubject);
+      expect(body.item.statement).toBe(longStatement);
     });
 
     test("enqueues embed job on create", async () => {
