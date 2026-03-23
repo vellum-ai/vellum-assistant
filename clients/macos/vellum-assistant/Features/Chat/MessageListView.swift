@@ -520,6 +520,10 @@ struct MessageListView: View {
     }
 
     private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
+        // Circuit breaker: suppress @State mutations when a scroll loop is detected.
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        if scrollLoopGuard.isTripped(conversationId: convIdString) { return }
+
         let y = anchorY + ConversationAvatarFollower.verticalOffset
         // Dead-zone: skip @State update when position hasn't moved meaningfully.
         // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
@@ -548,11 +552,18 @@ struct MessageListView: View {
 
     private func updateAvatarFollower(anchorY: CGFloat) {
         recordScrollLoopEvent(.avatarFollowerUpdate)
-        // Compute visibility once and update @State only on boundary crossings.
+
+        // Compute visibility
         let nowVisible = anchorY.isFinite
             && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        let isTripped = scrollLoopGuard.isTripped(conversationId: convIdString)
         if isAvatarVisible != nowVisible {
-            isAvatarVisible = nowVisible
+            // When tripped, only allow hiding (removing UI is safe and prevents stale state).
+            // Showing (false→true) adds layout that could feed the loop — suppress it.
+            if !isTripped || !nowVisible {
+                isAvatarVisible = nowVisible
+            }
         }
 
         // Update non-reactive tracking position (no body re-evaluation).
@@ -569,7 +580,8 @@ struct MessageListView: View {
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
             scrollTracking.avatarLastAppliedAt = nil
-            if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            // Only mutate @State avatarDisplayY when circuit breaker isn't tripped
+            if !isTripped && avatarDisplayY != .infinity { avatarDisplayY = .infinity }
             return
         }
 
@@ -596,7 +608,10 @@ struct MessageListView: View {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
-            applyAvatarDisplayY(forAnchorY: anchorY)
+            // Only apply @State avatar position when circuit breaker isn't tripped
+            if !isTripped {
+                applyAvatarDisplayY(forAnchorY: anchorY)
+            }
             return
         }
 
@@ -615,7 +630,10 @@ struct MessageListView: View {
                 return
             }
             scrollTracking.pendingAvatarY = nil
-            applyAvatarDisplayY(forAnchorY: pending)
+            // Only apply @State avatar position when circuit breaker isn't tripped
+            if !scrollLoopGuard.isTripped(conversationId: conversationId?.uuidString ?? "unknown") {
+                applyAvatarDisplayY(forAnchorY: pending)
+            }
             avatarSmoothingTask = nil
         }
     }
