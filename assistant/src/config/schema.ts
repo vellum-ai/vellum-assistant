@@ -44,6 +44,8 @@ export type { FishAudioConfig } from "./schemas/fish-audio.js";
 export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
+export type { JournalConfig } from "./schemas/journal.js";
+export { JournalConfigSchema } from "./schemas/journal.js";
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
@@ -195,6 +197,7 @@ import {
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
+import { JournalConfigSchema } from "./schemas/journal.js";
 import {
   ContextWindowConfigSchema,
   EffortSchema,
@@ -266,6 +269,7 @@ export const AssistantConfigSchema = z
         "Custom pricing overrides for specific provider/model combinations",
       ),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
+    journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
