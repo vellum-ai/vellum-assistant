@@ -59,7 +59,7 @@ const memoryManageProperties = {
 export const memoryManageDefinition: ToolDefinition = {
   name: "memory_manage",
   description:
-    "Save, update, or delete memory items. Memory does not survive session restarts - if you want to remember something, save it now. Use 'save' for new information worth remembering (facts, preferences, mistakes, discoveries, gotchas), 'update' to correct existing items, 'delete' to remove outdated items. When a user says 'remember this', save immediately. For user profile or personality changes, update workspace files (USER.md, SOUL.md) instead.",
+    "Save, update, or delete memory items. If you want to remember something, save it now. Use 'save' for new information worth remembering (facts, preferences, mistakes, discoveries, gotchas), 'update' to correct existing items, 'delete' to remove outdated items. When a user says 'remember this', save immediately. Be proactive: if you learn something important that may be useful in the future, always call this tool — don't just say or hope you'll remember it. This is not a substitute for updating workspace files when relevant - do both.",
   input_schema: {
     type: "object",
     properties: memoryManageProperties,
