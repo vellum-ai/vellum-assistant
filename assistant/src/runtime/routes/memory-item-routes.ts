@@ -488,6 +488,7 @@ export async function handleCreateMemoryItem(
       importance: importance ?? 0.8,
       fingerprint,
       sourceType: "tool",
+      verificationState: "user_confirmed",
       scopeId,
       firstSeenAt: now,
       lastSeenAt: now,
@@ -530,6 +531,7 @@ export async function handleUpdateMemoryItem(
     status?: string;
     importance?: number;
     sourceType?: string;
+    verificationState?: string;
   };
 
   const db = getDb();
@@ -579,6 +581,22 @@ export async function handleUpdateMemoryItem(
   }
   if (body.sourceType !== undefined) {
     set.sourceType = body.sourceType;
+  }
+
+  // Accept verificationState from clients that haven't migrated to sourceType yet.
+  // Map verificationState → sourceType for forward compat, and write both fields.
+  if (body.verificationState !== undefined) {
+    set.verificationState = body.verificationState;
+    // Map verificationState to sourceType if sourceType wasn't explicitly provided
+    if (body.sourceType === undefined) {
+      set.sourceType =
+        body.verificationState === "user_confirmed" ? "tool" : "extraction";
+    }
+  }
+  // If sourceType was set (either directly or via mapping), also write verificationState
+  if (body.sourceType !== undefined && body.verificationState === undefined) {
+    set.verificationState =
+      body.sourceType === "tool" ? "user_confirmed" : "assistant_inferred";
   }
 
   // If subject, statement, or kind changed, recompute fingerprint

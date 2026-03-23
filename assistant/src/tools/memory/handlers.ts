@@ -93,6 +93,7 @@ export async function handleMemorySave(
           importance: 0.8,
           lastSeenAt: now,
           sourceType: "tool",
+          verificationState: "user_confirmed",
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -115,6 +116,7 @@ export async function handleMemorySave(
         importance: 0.8, // explicit saves are high importance
         fingerprint,
         sourceType: "tool",
+        verificationState: "user_confirmed",
         scopeId,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -221,6 +223,7 @@ export async function handleMemoryUpdate(
         lastSeenAt: now,
         importance: 0.8,
         sourceType: "tool",
+        verificationState: "user_confirmed",
       })
       .where(eq(memoryItems.id, existing.id))
       .run();

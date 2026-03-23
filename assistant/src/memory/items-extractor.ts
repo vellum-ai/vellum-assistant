@@ -643,6 +643,20 @@ export async function extractAndUpsertMemoryItemsForMessage(
     if (existing) {
       memoryItemId = existing.id;
       effectiveStatus = "active";
+      // Preserve sourceType for tool-sourced items — extraction should not
+      // demote items the user explicitly saved.
+      const effectiveSourceType =
+        existing.sourceType === "tool" ? "tool" : "extraction";
+
+      // Dual-write verificationState alongside sourceType for client compat.
+      // Promote from assistant_inferred → user_reported when re-seen from user.
+      const effectiveVerificationState =
+        message.role === "user" || existing.verificationState === "user_reported"
+          ? "user_reported"
+          : existing.verificationState === "user_confirmed"
+            ? "user_confirmed"
+            : "assistant_inferred";
+
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
@@ -653,8 +667,9 @@ export async function extractAndUpsertMemoryItemsForMessage(
             Math.max(existing.importance ?? 0, item.importance),
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
-          sourceType: "extraction",
+          sourceType: effectiveSourceType,
           sourceMessageRole: message.role,
+          verificationState: effectiveVerificationState,
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -672,6 +687,9 @@ export async function extractAndUpsertMemoryItemsForMessage(
           fingerprint: item.fingerprint,
           sourceType: "extraction",
           sourceMessageRole: message.role,
+          // Dual-write verificationState for client compat
+          verificationState:
+            message.role === "user" ? "user_reported" : "assistant_inferred",
           scopeId: effectiveScopeId,
           firstSeenAt: message.createdAt,
           lastSeenAt: seenAt,
