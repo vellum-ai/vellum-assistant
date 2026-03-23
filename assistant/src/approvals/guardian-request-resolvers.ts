@@ -520,11 +520,11 @@ const accessRequestResolver: GuardianRequestResolver = {
       let codeDelivered = true;
 
       // Deliver verification code to guardian
+      const codeText =
+        `You approved access for ${requesterExternalUserId}. ` +
+        `Give them this verification code: \`${session.secret}\`. ` +
+        `The code expires in 10 minutes.`;
       try {
-        const codeText =
-          `You approved access for ${requesterExternalUserId}. ` +
-          `Give them this verification code: \`${session.secret}\`. ` +
-          `The code expires in 10 minutes.`;
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
           {
@@ -542,13 +542,69 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered = false;
       }
 
-      // Notify the requester
+      // If the guardian approved in a shared channel (not a DM), also send
+      // them a DM with the verification code for better privacy and
+      // discoverability. On Slack, posting to a user ID opens a DM.
+      const guardianUserId = ctx.actor.actorExternalUserId;
+      if (
+        codeDelivered &&
+        channel === "slack" &&
+        guardianUserId &&
+        !channelDeliveryContext.guardianChatId.startsWith("D")
+      ) {
+        // Strip threadTs from the callback URL — it belongs to the shared
+        // channel thread and would cause thread_not_found errors in the DM.
+        let dmCallbackUrl = channelDeliveryContext.replyCallbackUrl;
+        try {
+          const url = new URL(channelDeliveryContext.replyCallbackUrl);
+          url.searchParams.delete("threadTs");
+          dmCallbackUrl = url.toString();
+        } catch {
+          // Malformed URL — use as-is
+        }
+
+        try {
+          await deliverChannelReply(
+            dmCallbackUrl,
+            {
+              chatId: guardianUserId,
+              text: codeText,
+              assistantId,
+            },
+            channelDeliveryContext.bearerToken,
+          );
+        } catch (err) {
+          // Best-effort: the code was already delivered in the shared channel
+          log.warn(
+            { err, guardianUserId },
+            "Failed to send guardian DM confirmation with verification code",
+          );
+        }
+      }
+
+      // Notify the requester. For Slack, route to DM via the user ID and
+      // strip threadTs (which belongs to the guardian's channel thread).
+      const requesterTargetChatId =
+        channel === "slack" && requesterExternalUserId
+          ? requesterExternalUserId
+          : requesterChatId;
+      let requesterCallbackUrl = channelDeliveryContext.replyCallbackUrl;
+      if (channel === "slack" && requesterExternalUserId) {
+        try {
+          const url = new URL(channelDeliveryContext.replyCallbackUrl);
+          url.searchParams.delete("threadTs");
+          requesterCallbackUrl = url.toString();
+        } catch {
+          // Malformed URL — use as-is
+        }
+      }
+
       if (codeDelivered) {
         try {
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+            requesterCallbackUrl,
             {
-              chatId: requesterChatId,
+              chatId: requesterTargetChatId,
               text:
                 "Your access request has been approved! " +
                 "Please enter the 6-digit verification code you receive from the guardian.",
@@ -566,9 +622,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       } else {
         try {
           await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
+            requesterCallbackUrl,
             {
-              chatId: requesterChatId,
+              chatId: requesterTargetChatId,
               text:
                 "Your access request was approved, but we were unable to " +
                 "deliver the verification code. Please try again later.",

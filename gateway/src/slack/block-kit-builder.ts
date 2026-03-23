@@ -178,6 +178,9 @@ export function approvalPrompt(opts: {
   return new BlockKitBuilder()
     .section(opts.message)
     .actions(buttons)
+    .contextMrkdwn(
+      "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
+    )
     .toBlocks();
 }
 
