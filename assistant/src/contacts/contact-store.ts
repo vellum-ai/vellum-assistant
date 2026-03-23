@@ -38,7 +38,7 @@ export function generateUserFileSlug(displayName: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 50) || "user";
+      .slice(0, 100) || "user";
 
   const db = getDb();
   const rows = db
