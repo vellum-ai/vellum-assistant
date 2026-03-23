@@ -71,7 +71,7 @@ struct DocumentEditorView: NSViewRepresentable {
 
     private func loadEditorHTML(webView: WKWebView, title: String, content: String) {
         let html = generateEditorHTML(title: title, initialContent: content)
-        webView.loadHTMLString(html, baseURL: URL(string: "http://document.vellum.local/"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://document.vellum.local/"))
     }
 
     // MARK: - Coordinator
@@ -114,7 +114,7 @@ struct DocumentEditorView: NSViewRepresentable {
             } else {
                 // Editor not ready yet, reload with new content
                 let html = generateEditorHTML(title: title, initialContent: markdown)
-                webView.loadHTMLString(html, baseURL: URL(string: "http://document.vellum.local/"))
+                webView.loadHTMLString(html, baseURL: URL(string: "https://document.vellum.local/"))
             }
         }
 
