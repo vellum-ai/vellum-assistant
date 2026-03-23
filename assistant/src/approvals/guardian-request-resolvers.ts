@@ -390,7 +390,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         try {
           const denialPayload: Parameters<typeof deliverChannelReply>[1] = {
             chatId: requesterChatId,
-            text: "Your access request has been denied by the guardian.",
+            text: "Your access request has been denied.",
             assistantId,
           };
           // On Slack shared channels, deliver as ephemeral so only the requester sees the denial
@@ -460,7 +460,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             desktopDeliverUrl,
             {
               chatId: targetChatId,
-              text: "Your access request has been denied by the guardian.",
+              text: "Your access request has been denied.",
               assistantId,
             },
             desktopBearerToken,

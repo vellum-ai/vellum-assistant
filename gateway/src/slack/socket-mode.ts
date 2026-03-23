@@ -9,6 +9,7 @@ import {
   normalizeSlackMessageEdit,
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  resolveSlackUser,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
@@ -578,6 +579,30 @@ export class SlackSocketModeClient {
         },
         "Slack event dropped by normalization/routing",
       );
+      return;
+    }
+
+    // Enrich actor display name if the sync cache missed.
+    // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
+    // so this adds negligible latency on subsequent messages. A 3s timeout
+    // ensures the event is always emitted even if the Slack API hangs.
+    const actor = normalized.event.actor;
+    if (actor?.actorExternalId && !actor.displayName) {
+      const USER_RESOLVE_TIMEOUT_MS = 3_000;
+      Promise.race([
+        resolveSlackUser(actor.actorExternalId, this.config.botToken),
+        new Promise<undefined>((r) => setTimeout(r, USER_RESOLVE_TIMEOUT_MS)),
+      ])
+        .then((userInfo) => {
+          if (userInfo) {
+            actor.displayName = userInfo.displayName;
+            actor.username = userInfo.username;
+          }
+          this.onEvent(normalized!);
+        })
+        .catch(() => {
+          this.onEvent(normalized!);
+        });
       return;
     }
 
