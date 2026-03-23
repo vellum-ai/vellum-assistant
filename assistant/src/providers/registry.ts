@@ -1,7 +1,6 @@
 import { getProviderKeyAsync } from "../security/secure-keys.js";
-import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
+import { ConfigError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
-import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
 import {
@@ -17,8 +16,6 @@ import type { Provider } from "./types.js";
 
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
-let cachedFailoverProvider: FailoverProvider | null = null;
-let cachedFailoverKey: string | null = null;
 
 export function registerProvider(name: string, provider: Provider): void {
   providers.set(name, provider);
@@ -32,88 +29,6 @@ export function getProvider(name: string): Provider {
     );
   }
   return provider;
-}
-
-export interface ProviderSelection {
-  /** Ordered list of available provider names */
-  availableProviders: string[];
-  /** The selected (effective) primary provider name, or null if none available */
-  selectedPrimary: string | null;
-  /** Whether the effective primary differs from the requested primary */
-  usedFallbackPrimary: boolean;
-}
-
-/**
- * Resolve provider selection from requested primary and provider order.
- * Dedupes [requestedPrimary, ...providerOrder], filtered to initialized providers.
- * Returns null selectedPrimary when no providers are available.
- */
-export function resolveProviderSelection(
-  requestedPrimary: string,
-  providerOrder: string[],
-): ProviderSelection {
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-
-  for (const name of [requestedPrimary, ...providerOrder]) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    if (providers.has(name)) {
-      ordered.push(name);
-    }
-  }
-
-  if (ordered.length === 0) {
-    return {
-      availableProviders: [],
-      selectedPrimary: null,
-      usedFallbackPrimary: false,
-    };
-  }
-
-  return {
-    availableProviders: ordered,
-    selectedPrimary: ordered[0],
-    usedFallbackPrimary: ordered[0] !== requestedPrimary,
-  };
-}
-
-/**
- * Build a provider that tries the effective primary provider first, then falls
- * back to others in the configured order. If the requested primary is not
- * available, automatically selects the first available provider from the
- * deduped [primaryName, ...providerOrder] list (fail-open).
- *
- * Throws ConfigError only when NO providers are available at all.
- * Caches the FailoverProvider instance so health state persists across calls.
- */
-export function getFailoverProvider(
-  primaryName: string,
-  providerOrder: string[],
-): Provider {
-  const selection = resolveProviderSelection(primaryName, providerOrder);
-
-  if (!selection.selectedPrimary) {
-    throw new ProviderNotConfiguredError(primaryName, listProviders());
-  }
-
-  const orderedProviders: Provider[] = selection.availableProviders.map(
-    (name) => providers.get(name)!,
-  );
-
-  if (orderedProviders.length === 1) {
-    return orderedProviders[0];
-  }
-
-  // Cache key from effective ordered providers (not raw input strings)
-  const cacheKey = selection.availableProviders.join(",");
-  if (cachedFailoverProvider && cachedFailoverKey === cacheKey) {
-    return cachedFailoverProvider;
-  }
-
-  cachedFailoverProvider = new FailoverProvider(orderedProviders);
-  cachedFailoverKey = cacheKey;
-  return cachedFailoverProvider;
 }
 
 export function listProviders(): string[] {
@@ -151,7 +66,6 @@ export interface ProvidersConfig {
       provider: string;
     };
   };
-  providerOrder?: string[];
   timeouts?: { providerStreamTimeoutSec?: number };
 }
 
@@ -170,53 +84,6 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
     return inferenceModel;
   }
   return getProviderDefaultModel(providerName);
-}
-
-export interface ProviderDebugStatus {
-  configuredPrimary: string;
-  activePrimary: string | null;
-  usedFallback: boolean;
-  registeredProviders: string[];
-  failoverHealth: ProviderHealthStatus[] | null;
-  overallHealth: "healthy" | "degraded" | "down";
-  routingSources: Record<string, "user-key" | "managed-proxy">;
-}
-
-export function getProviderDebugStatus(
-  configuredProvider: string,
-  providerOrder: string[],
-): ProviderDebugStatus {
-  const registered = listProviders();
-  const selection = resolveProviderSelection(configuredProvider, providerOrder);
-
-  let failoverHealth: ProviderHealthStatus[] | null = null;
-  if (cachedFailoverProvider) {
-    failoverHealth = cachedFailoverProvider.getHealthStatus();
-  }
-
-  let overallHealth: "healthy" | "degraded" | "down" = "down";
-  if (registered.length > 0 && selection.selectedPrimary) {
-    if (!failoverHealth) {
-      overallHealth = "healthy";
-    } else {
-      const healthyCount = failoverHealth.filter((h) => h.healthy).length;
-      if (healthyCount === failoverHealth.length) {
-        overallHealth = "healthy";
-      } else if (healthyCount > 0) {
-        overallHealth = "degraded";
-      }
-    }
-  }
-
-  return {
-    configuredPrimary: configuredProvider,
-    activePrimary: selection.selectedPrimary,
-    usedFallback: selection.usedFallbackPrimary,
-    registeredProviders: registered,
-    failoverHealth,
-    overallHealth,
-    routingSources: Object.fromEntries(routingSources),
-  };
 }
 
 /**
@@ -273,8 +140,6 @@ export async function initializeProviders(
 ): Promise<void> {
   providers.clear();
   routingSources.clear();
-  cachedFailoverProvider = null;
-  cachedFailoverKey = null;
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
