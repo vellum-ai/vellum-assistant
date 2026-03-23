@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { generateUserFileSlug } from "../../contacts/contact-store.js";
 import { getDb } from "../../memory/db.js";
@@ -68,6 +68,7 @@ export const seedPersonaDirsMigration: WorkspaceMigration = {
         .select()
         .from(contacts)
         .where(eq(contacts.role, "guardian"))
+        .orderBy(desc(contacts.createdAt))
         .limit(1)
         .get();
 
