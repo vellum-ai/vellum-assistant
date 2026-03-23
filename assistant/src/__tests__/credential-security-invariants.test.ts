@@ -180,8 +180,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "calls/twilio-rest.ts", // Twilio REST API credential lookup
       "calls/fish-audio-client.ts", // Fish Audio TTS API key lookup
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
-      "cli/commands/keys.ts", // CLI credential management commands
-      "cli/commands/credentials.ts", // CLI credential management commands
+      "cli/lib/daemon-credential-client.ts", // CLI-to-daemon credential routing intermediary
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
@@ -198,9 +197,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
-      "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (keychain credential existence check)
-      "cli/commands/doctor.ts", // CLI diagnostic API key verification via secure storage
       "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
       "config/bundled-skills/transcribe/tools/transcribe-media.ts", // transcription tool API key lookup
       "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
@@ -213,7 +210,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
-      "cli/commands/avatar.ts", // CLI avatar generation API key lookup
       "config/bundled-skills/slack/tools/shared.ts", // Slack skill bot token lookup
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
