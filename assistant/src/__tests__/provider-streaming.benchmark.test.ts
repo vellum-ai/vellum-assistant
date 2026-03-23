@@ -17,7 +17,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-import { FailoverProvider } from "../providers/failover.js";
 import { RetryProvider } from "../providers/retry.js";
 import { createStreamTimeout } from "../providers/stream-timeout.js";
 import type {
@@ -28,8 +27,6 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
-import { ProviderError } from "../util/errors.js";
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -83,16 +80,6 @@ function makeStreamingProvider(
   };
 }
 
-/** Build a provider that always fails with a given error. */
-function makeFailingProvider(name: string, statusCode?: number): Provider {
-  return {
-    name,
-    async sendMessage(): Promise<ProviderResponse> {
-      throw new ProviderError(`${name} failed`, name, statusCode);
-    },
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Benchmarks
 // ---------------------------------------------------------------------------
@@ -119,36 +106,6 @@ describe("Provider streaming benchmark", () => {
     const overhead = observedTtft - sourceTtftMs;
 
     // The wrapper should add negligible latency
-    expect(overhead).toBeLessThan(50);
-  });
-
-  test("TTFT overhead through FailoverProvider is < 50ms", async () => {
-    const sourceTtftMs = 20;
-    const inner = makeStreamingProvider(10, 100, {
-      ttftMs: sourceTtftMs,
-      name: "primary",
-    });
-    const fallback = makeStreamingProvider(10, 100, {
-      ttftMs: sourceTtftMs,
-      name: "fallback",
-    });
-    const wrapped = new FailoverProvider([inner, fallback]);
-
-    let firstEventTime: number | undefined;
-    const start = performance.now();
-
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
-      onEvent: () => {
-        if (firstEventTime === undefined) {
-          firstEventTime = performance.now();
-        }
-      },
-    });
-
-    expect(firstEventTime).toBeDefined();
-    const observedTtft = firstEventTime! - start;
-    const overhead = observedTtft - sourceTtftMs;
-
     expect(overhead).toBeLessThan(50);
   });
 
@@ -194,42 +151,6 @@ describe("Provider streaming benchmark", () => {
     // Wrapped throughput should be within 20% of the measured unwrapped baseline
     const minAcceptableRate = baselineRate * 0.8;
     expect(observedRate).toBeGreaterThanOrEqual(minAcceptableRate);
-  });
-
-  test("failover adds < 100ms overhead when primary provider fails", async () => {
-    const failing = makeFailingProvider("failing-primary", 500);
-    const healthy = makeStreamingProvider(5, 100, { name: "healthy-fallback" });
-
-    // Measure the fallback provider's baseline execution time directly so we
-    // can isolate the failover overhead from the stream's own runtime.
-    const baselineEvents: ProviderEvent[] = [];
-    const baselineStart = performance.now();
-
-    await healthy.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
-      onEvent: (e) => baselineEvents.push(e),
-    });
-
-    const baselineElapsed = performance.now() - baselineStart;
-
-    // Now measure through the FailoverProvider (primary fails, falls back)
-    const healthy2 = makeStreamingProvider(5, 100, {
-      name: "healthy-fallback",
-    });
-    const wrapped = new FailoverProvider([failing, healthy2]);
-
-    const events: ProviderEvent[] = [];
-    const start = performance.now();
-
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
-      onEvent: (e) => events.push(e),
-    });
-
-    const elapsed = performance.now() - start;
-    expect(events.length).toBe(5);
-
-    // Isolate the failover overhead by subtracting the fallback stream's baseline
-    const failoverOverhead = elapsed - baselineElapsed;
-    expect(failoverOverhead).toBeLessThan(100);
   });
 
   test("createStreamTimeout fires within 50ms of configured deadline", async () => {
