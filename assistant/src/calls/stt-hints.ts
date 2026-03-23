@@ -1,4 +1,9 @@
-import { DEFAULT_USER_REFERENCE } from "../prompts/user-reference.js";
+import { findContactByAddress, listContacts } from "../contacts/contact-store.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
+import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
+import { getLogger } from "../util/logger.js";
+
+const logger = getLogger("stt-hints");
 
 export interface SttHintsInput {
   staticHints: string[];
@@ -91,4 +96,55 @@ export function buildSttHints(input: SttHintsInput): string {
     return truncated;
   }
   return truncated.slice(0, lastComma);
+}
+
+/**
+ * Wire real data sources (contacts DB, identity helpers, config) into
+ * {@link buildSttHints}. All DB lookups are best-effort — errors are
+ * logged but never propagate so hints can never fail a call.
+ */
+export function resolveCallHints(
+  session: {
+    task: string | null;
+    toNumber: string;
+    fromNumber: string;
+    inviteFriendName: string | null;
+    inviteGuardianName: string | null;
+  } | null,
+  staticHints: string[],
+): string {
+  const assistantName = getAssistantName();
+  const guardianName = resolveGuardianName();
+
+  let targetContactName: string | null = null;
+  let recentContactNames: string[] = [];
+
+  try {
+    if (session) {
+      const targetContact = findContactByAddress("phone", session.toNumber);
+      if (targetContact) {
+        targetContactName = targetContact.displayName;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to look up target contact for STT hints");
+  }
+
+  try {
+    const recentContacts = listContacts(15);
+    recentContactNames = recentContacts.map((c) => c.displayName);
+  } catch (err) {
+    logger.warn({ err }, "Failed to list recent contacts for STT hints");
+  }
+
+  return buildSttHints({
+    staticHints,
+    assistantName,
+    guardianName,
+    taskDescription: session?.task ?? null,
+    targetContactName,
+    inviteFriendName: session?.inviteFriendName ?? null,
+    inviteGuardianName: session?.inviteGuardianName ?? null,
+    recentContactNames,
+  });
 }
