@@ -268,7 +268,7 @@ export async function platformDownloadExport(
 // ---------------------------------------------------------------------------
 
 export async function platformImportPreflight(
-  bundleData: Buffer,
+  bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
@@ -282,7 +282,7 @@ export async function platformImportPreflight(
         "X-Session-Token": token,
         "Vellum-Organization-Id": orgId,
       },
-      body: bundleData,
+      body: new Blob([bundleData]),
       signal: AbortSignal.timeout(120_000),
     },
   );
@@ -292,7 +292,7 @@ export async function platformImportPreflight(
 }
 
 export async function platformImportBundle(
-  bundleData: Buffer,
+  bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
@@ -304,7 +304,7 @@ export async function platformImportBundle(
       "X-Session-Token": token,
       "Vellum-Organization-Id": orgId,
     },
-    body: bundleData,
+    body: new Blob([bundleData]),
     signal: AbortSignal.timeout(120_000),
   });
 
