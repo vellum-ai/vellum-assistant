@@ -28,7 +28,6 @@ import {
   memoryItems,
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import { truncate } from "../../util/truncate.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
 
@@ -442,8 +441,8 @@ export async function handleCreateMemoryItem(
     );
   }
 
-  const trimmedSubject = truncate(subject.trim(), 80, "");
-  const trimmedStatement = truncate(statement.trim(), 500, "");
+  const trimmedSubject = subject.trim();
+  const trimmedStatement = statement.trim();
 
   const scopeId = "default";
   const fingerprint = computeMemoryFingerprint(
@@ -554,13 +553,13 @@ export async function handleUpdateMemoryItem(
     if (typeof body.subject !== "string") {
       return httpError("BAD_REQUEST", "subject must be a string", 400);
     }
-    set.subject = truncate(body.subject.trim(), 80, "");
+    set.subject = body.subject.trim();
   }
   if (body.statement !== undefined) {
     if (typeof body.statement !== "string") {
       return httpError("BAD_REQUEST", "statement must be a string", 400);
     }
-    set.statement = truncate(body.statement.trim(), 500, "");
+    set.statement = body.statement.trim();
   }
   if (body.kind !== undefined) {
     if (!isValidKind(body.kind)) {
