@@ -24,6 +24,11 @@ import {
 } from "../lib/guardian-token";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
+  fetchOrganizationId,
+  getPlatformUrl,
+  readPlatformToken,
+} from "../lib/platform-client.js";
+import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
   buildProgressEvent,
@@ -36,6 +41,7 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
+import { parseVersion } from "../lib/version-compat.js";
 import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 function parseArgs(): { name: string | null; version: string | null } {
@@ -49,7 +55,7 @@ function parseArgs(): { name: string | null; version: string | null } {
       console.log("Usage: vellum rollback [<name>] [--version <version>]");
       console.log("");
       console.log(
-        "Roll back an assistant to a previous version. Data is preserved.",
+        "Roll back a Docker or managed assistant to a previous version.",
       );
       console.log("");
       console.log("Arguments:");
@@ -59,18 +65,18 @@ function parseArgs(): { name: string | null; version: string | null } {
       console.log("");
       console.log("Options:");
       console.log(
-        "  --version <version>  Target version to roll back to (default: previous version)",
+        "  --version <version>  Target version to roll back to (required for managed, optional for Docker)",
       );
       console.log("");
       console.log("Examples:");
       console.log(
-        "  vellum rollback                              # Roll back to the previous version",
+        "  vellum rollback                              # Roll back Docker assistant to the previous version",
       );
       console.log(
-        "  vellum rollback my-assistant                  # Roll back a specific assistant",
+        "  vellum rollback my-assistant                  # Roll back a specific Docker assistant",
       );
       console.log(
-        "  vellum rollback my-assistant --version v1.2.3 # Roll back to a specific version",
+        "  vellum rollback my-assistant --version v1.2.3 # Roll back to a specific version (Docker or managed)",
       );
       process.exit(0);
     } else if (arg === "--version") {
@@ -149,21 +155,184 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   process.exit(1);
 }
 
+async function rollbackPlatform(
+  entry: AssistantEntry,
+  version: string,
+): Promise<void> {
+  const currentVersion = entry.serviceGroupVersion;
+
+  // Validate target version < current version
+  if (currentVersion) {
+    const current = parseVersion(currentVersion);
+    const target = parseVersion(version);
+    if (current && target) {
+      const isOlder =
+        target.major < current.major ||
+        (target.major === current.major && target.minor < current.minor) ||
+        (target.major === current.major &&
+          target.minor === current.minor &&
+          target.patch < current.patch);
+      if (!isOlder) {
+        const msg = `Target version ${version} is not older than the current version ${currentVersion}. Use \`vellum upgrade --version ${version}\` to upgrade.`;
+        console.error(msg);
+        emitCliError("INVALID_VERSION", msg);
+        process.exit(1);
+      }
+    }
+  }
+
+  const workspaceDir = entry.resources
+    ? join(entry.resources.instanceDir, ".vellum", "workspace")
+    : null;
+
+  // Workspace commit: BEFORE broadcast, matching upgradePlatform() order
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        buildUpgradeCommitMessage({
+          action: "rollback",
+          phase: "starting",
+          from: currentVersion ?? "unknown",
+          to: version,
+          topology: "managed",
+          assistantId: entry.assistantId,
+        }),
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  console.log(
+    `🔄 Rolling back platform-hosted assistant '${entry.assistantId}' to ${version}...\n`,
+  );
+
+  // Broadcast SSE "starting" event
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildStartingEvent(version, 90),
+  );
+
+  // Authenticate and call the platform API
+  const token = readPlatformToken();
+  if (!token) {
+    const msg =
+      "Error: Not logged in. Run `vellum login --token <token>` first.";
+    console.error(msg);
+    emitCliError("AUTH_FAILED", msg);
+    process.exit(1);
+  }
+
+  const orgId = await fetchOrganizationId(token);
+
+  const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
+  const body = {
+    assistant_id: entry.assistantId,
+    version,
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Session-Token": token,
+      "Vellum-Organization-Id": orgId,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(
+      `Error: Platform rollback failed (${response.status}): ${text}`,
+    );
+    emitCliError(
+      "PLATFORM_API_ERROR",
+      `Platform rollback failed (${response.status})`,
+      text,
+    );
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(currentVersion ?? "unknown", false),
+    );
+    process.exit(1);
+  }
+
+  // NOTE: We intentionally do NOT broadcast a "complete" event here.
+  // Matching managed upgrade behavior — the platform restarts async and
+  // the client detects completion via healthz polling.
+
+  // Workspace commit: Complete
+  if (workspaceDir) {
+    try {
+      await commitWorkspaceState(
+        workspaceDir,
+        buildUpgradeCommitMessage({
+          action: "rollback",
+          phase: "complete",
+          from: currentVersion ?? "unknown",
+          to: version,
+          topology: "managed",
+          assistantId: entry.assistantId,
+          result: "success",
+        }),
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  console.log("Rollback initiated. The assistant may be briefly unavailable.");
+}
+
 export async function rollback(): Promise<void> {
   const { name, version } = parseArgs();
   const entry = resolveTargetAssistant(name);
   const cloud = resolveCloud(entry);
 
-  // Only Docker assistants support rollback
+  // ---------- Managed (Vellum platform) rollback ----------
+  if (cloud === "vellum") {
+    if (!version) {
+      const msg =
+        "Managed assistants require --version. Use `vellum rollback --version <version>` to specify the target version.";
+      console.error(msg);
+      emitCliError("MISSING_VERSION", msg);
+      process.exit(1);
+    }
+
+    try {
+      await rollbackPlatform(entry, version);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(`\n❌ Rollback failed: ${detail}`);
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+      emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // ---------- Unsupported topologies ----------
   if (cloud !== "docker") {
-    const msg =
-      "Rollback is only supported for Docker assistants. For managed assistants, use the version picker to upgrade to the previous version.";
+    const msg = "Rollback is only supported for Docker and managed assistants.";
     console.error(msg);
     emitCliError("UNSUPPORTED_TOPOLOGY", msg);
     process.exit(1);
   }
 
-  // ---------- Targeted version rollback (--version specified) ----------
+  // ---------- Docker: Targeted version rollback (--version specified) ----------
   if (version) {
     try {
       await performDockerRollback(entry, { targetVersion: version });
@@ -181,7 +350,7 @@ export async function rollback(): Promise<void> {
     return;
   }
 
-  // ---------- Saved-state rollback (no --version) ----------
+  // ---------- Docker: Saved-state rollback (no --version) ----------
 
   // Verify rollback state exists
   if (!entry.previousServiceGroupVersion || !entry.previousContainerInfo) {
