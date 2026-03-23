@@ -5,6 +5,7 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
+private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 
 // MARK: - Scroll Suppression Environment
 
@@ -940,6 +941,7 @@ struct MessageListView: View {
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
+                    os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
                     let state = precomputedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in

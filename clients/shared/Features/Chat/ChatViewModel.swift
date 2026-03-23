@@ -138,10 +138,13 @@ public final class ChatViewModel: ObservableObject {
     private func flushCoalescedPublish() {
         subManagerPublishTask?.cancel()
         subManagerPublishTask = nil
+        os_signpost(.event, log: Self.stallLog, name: "ChatVM.flush")
         objectWillChange.send()
     }
 
     // MARK: - Debug publish-rate counters
+
+    private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 
     #if DEBUG
     private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
@@ -1241,6 +1244,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func sendMessage(hidden: Bool = false) {
+        os_signpost(.event, log: Self.stallLog, name: "sendMessage")
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = rawText
         let hasAttachments = !pendingAttachments.isEmpty
