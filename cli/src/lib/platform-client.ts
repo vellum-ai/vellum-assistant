@@ -268,7 +268,7 @@ export async function platformDownloadExport(
 // ---------------------------------------------------------------------------
 
 export async function platformImportPreflight(
-  bundleData: Uint8Array,
+  bundleData: Buffer,
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
@@ -292,7 +292,7 @@ export async function platformImportPreflight(
 }
 
 export async function platformImportBundle(
-  bundleData: Uint8Array,
+  bundleData: Buffer,
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
