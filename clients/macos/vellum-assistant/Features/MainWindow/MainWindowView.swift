@@ -698,9 +698,6 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
                 windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .daemonCredentialDidChange)) { _ in
-                windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
-            }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
             }

@@ -19,7 +19,6 @@ extension Notification.Name {
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
     static let inferenceConfigDidChange = Notification.Name("SettingsStore.inferenceConfigDidChange")
-    static let daemonCredentialDidChange = Notification.Name("SettingsStore.daemonCredentialDidChange")
 }
 
 /// Manages API keys using CredentialStorage (Keychain in Release, file-based

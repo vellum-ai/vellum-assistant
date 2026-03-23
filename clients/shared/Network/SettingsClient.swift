@@ -589,15 +589,13 @@ public struct SettingsClient: SettingsClientProtocol {
         }
     }
 
-    /// Checks whether the daemon's credential store contains an API key for the
-    /// given provider. Queries the daemon's `secrets/read` endpoint so the
-    /// result reflects the actual store used for inference, not the macOS app's
-    /// local keychain.
+    /// Checks whether the credential store contains an API key for the given
+    /// provider by querying the assistant-scoped `secrets/read` endpoint.
     public func checkApiKeyExists(provider: String) async -> Bool {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider]
             let response = try await GatewayHTTPClient.post(
-                path: "secrets/read", json: body, timeout: 5
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
             )
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
