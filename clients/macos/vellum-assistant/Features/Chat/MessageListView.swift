@@ -1174,7 +1174,17 @@ struct MessageListView: View {
                     os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
                     recordScrollLoopEvent(.anchorPreferenceChange)
                     anchorTracker.update(minY: accepted, viewportHeight: scrollViewportHeight)
-                    if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                    if !hasFreshAnchorMeasurement {
+                        hasFreshAnchorMeasurement = true
+                        // First finite anchor measurement after a conversation switch.
+                        // LazyVStack may report the anchor as "within viewport" before
+                        // materializing message cells, causing the coordinator to skip
+                        // the scrollTo. Bypass the coordinator and scroll directly so
+                        // messages are visible without user interaction.
+                        if !hasReceivedScrollEvent && anchorMessageId == nil {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
                     scheduleTranscriptSnapshot()
                     // Geometry tracking only — no per-frame scrollTo calls here.
                     // All bottom-follow work is handled by the ChatBottomPinCoordinator
@@ -1447,6 +1457,11 @@ struct MessageListView: View {
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
+                } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
+                    // History just loaded but the coordinator's initial-restore session
+                    // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
+                    // so messages are visible without requiring user scroll interaction.
+                    requestBottomPin(reason: .initialRestore, proxy: proxy)
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
