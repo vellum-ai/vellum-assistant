@@ -403,7 +403,7 @@ struct AssistantUpgradeSection: View {
             }
         } message: {
             if isRollback {
-                Text("Roll back to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+                Text("Rollback to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
             } else {
                 Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
             }
@@ -618,6 +618,12 @@ struct AssistantUpgradeSection: View {
             return "Could not find the assistant. Make sure it's still configured."
         case "UNSUPPORTED_TOPOLOGY":
             return "This assistant type doesn't support automatic upgrades. Upgrade your infrastructure manually."
+        case "VERSION_DIRECTION":
+            return "Cannot upgrade to an older version. Use the rollback option instead."
+        case "INVALID_VERSION":
+            return "The selected version is not valid for this operation."
+        case "MISSING_VERSION":
+            return "A target version is required. Select a version from the picker."
         default:
             return "Something went wrong. Share feedback to send logs to the team."
         }
