@@ -8,6 +8,7 @@
  */
 
 import { synthesizeWithFishAudio } from "../../calls/fish-audio-client.js";
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getMessageContent } from "../../daemon/handlers/conversation-history.js";
@@ -49,6 +50,15 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
           return httpError("BAD_REQUEST", "Message has no text content", 400);
         }
 
+        const sanitizedText = sanitizeForTts(result.text);
+        if (!sanitizedText) {
+          return httpError(
+            "BAD_REQUEST",
+            "Message has no speakable text content",
+            400,
+          );
+        }
+
         const { fishAudio } = config;
         if (!fishAudio?.referenceId) {
           return httpError(
@@ -60,7 +70,7 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
 
         try {
           const audioBuffer = await synthesizeWithFishAudio(
-            result.text,
+            sanitizedText,
             fishAudio,
           );
 
