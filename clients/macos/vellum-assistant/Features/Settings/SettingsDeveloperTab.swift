@@ -811,7 +811,7 @@ struct SettingsDeveloperTab: View {
 
     private var hatchNewAssistantSection: some View {
         SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
-            VButton(label: "Hatch...", style: .primary) {
+            VButton(label: "Hatch", style: .primary) {
                 showingHatchConfirmation = true
             }
             .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
