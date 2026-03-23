@@ -18,6 +18,16 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         allCases.filter { $0 != .capability }
     }
 
+    /// Kinds to show when editing an existing item.
+    /// Includes `userCreatableKinds` plus the item's current kind if not already present.
+    public static func editableKinds(current rawValue: String) -> [MemoryKind] {
+        var kinds = userCreatableKinds
+        if let current = MemoryKind(rawValue: rawValue), !kinds.contains(current) {
+            kinds.append(current)
+        }
+        return kinds
+    }
+
     /// Capitalised display label for the kind.
     public var label: String {
         switch self {
