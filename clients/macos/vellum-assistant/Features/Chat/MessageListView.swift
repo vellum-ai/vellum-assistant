@@ -553,13 +553,17 @@ struct MessageListView: View {
     private func updateAvatarFollower(anchorY: CGFloat) {
         recordScrollLoopEvent(.avatarFollowerUpdate)
 
-        // Compute visibility (but only mutate @State if circuit breaker isn't tripped)
+        // Compute visibility
         let nowVisible = anchorY.isFinite
             && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
         let convIdString = conversationId?.uuidString ?? "unknown"
         let isTripped = scrollLoopGuard.isTripped(conversationId: convIdString)
-        if !isTripped && isAvatarVisible != nowVisible {
-            isAvatarVisible = nowVisible
+        if isAvatarVisible != nowVisible {
+            // When tripped, only allow hiding (removing UI is safe and prevents stale state).
+            // Showing (false→true) adds layout that could feed the loop — suppress it.
+            if !isTripped || !nowVisible {
+                isAvatarVisible = nowVisible
+            }
         }
 
         // Update non-reactive tracking position (no body re-evaluation).
