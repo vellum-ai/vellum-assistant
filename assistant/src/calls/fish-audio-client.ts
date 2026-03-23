@@ -97,13 +97,13 @@ export async function synthesizeWithFishAudio(
           timeoutMs,
         );
       });
-      let readResult: ReadableStreamReadResult<Uint8Array>;
+      let done: boolean;
+      let value: Uint8Array | undefined;
       try {
-        readResult = await Promise.race([reader.read(), timeout]);
+        ({ done, value } = await Promise.race([reader.read(), timeout]));
       } finally {
         clearTimeout(timerId!);
       }
-      const { done, value } = readResult;
       if (done) break;
       if (value) {
         isFirstChunk = false;
