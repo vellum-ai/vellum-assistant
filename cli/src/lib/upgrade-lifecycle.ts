@@ -32,10 +32,10 @@ import { commitWorkspaceState } from "./workspace-git.js";
 
 /** User-facing progress messages shared across upgrade and rollback flows. */
 export const UPGRADE_PROGRESS = {
-  DOWNLOADING: "Downloading the update…",
+  DOWNLOADING: "Downloading…",
   BACKING_UP: "Saving a backup of your data…",
-  INSTALLING: "Installing the update…",
-  REVERTING: "The update didn't work. Reverting to the previous version…",
+  INSTALLING: "Installing…",
+  REVERTING: "Something went wrong. Reverting to the previous version…",
   REVERTING_MIGRATIONS: "Reverting database changes…",
   RESTORING: "Restoring your data…",
   SWITCHING: "Switching to the previous version…",
