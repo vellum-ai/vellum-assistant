@@ -6,7 +6,7 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
 
 describe("isUserCancellation", () => {
   it("returns false for non-AbortError even when abort flag is set", () => {
@@ -275,6 +275,20 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_WEB_SEARCH");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("web_search_ordering");
+    });
+  });
+
+  describe("provider not configured errors", () => {
+    it("classifies ProviderNotConfiguredError as PROVIDER_NOT_CONFIGURED", () => {
+      const err = new ProviderNotConfiguredError("anthropic", []);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+      expect(result.userMessage).toBe(
+        "No API key configured for inference. Add one in Settings to start chatting.",
+      );
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("provider_not_configured");
+      expect(result.debugDetails).toBeDefined();
     });
   });
 

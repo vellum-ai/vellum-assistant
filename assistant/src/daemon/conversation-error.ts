@@ -1,4 +1,4 @@
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
 import type {
   ConversationErrorCode,
   ConversationErrorMessage,
@@ -148,6 +148,18 @@ export function classifyConversationError(
   const rawDetails =
     (error instanceof Error ? error.stack : undefined) ?? message;
   const debugDetails = truncateDebugDetails(rawDetails);
+
+  // Dedicated classification for missing provider API key
+  if (error instanceof ProviderNotConfiguredError) {
+    return {
+      code: "PROVIDER_NOT_CONFIGURED",
+      userMessage:
+        "No API key configured for inference. Add one in Settings to start chatting.",
+      retryable: true,
+      errorCategory: "provider_not_configured",
+      debugDetails,
+    };
+  }
 
   // Phase-specific overrides
   if (ctx.phase === "regenerate") {
