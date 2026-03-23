@@ -115,12 +115,14 @@ describe("016-migrate-credentials-from-keychain migration", () => {
   });
 
   test(
-    "returns silently when broker is not available (does not throw)",
+    "throws when broker is not available (skips checkpoint for retry)",
     async () => {
       isAvailableFn.mockReturnValue(false);
 
-      // Migration 016 returns silently (unlike 015 which throws)
-      await migrateCredentialsFromKeychainMigration.run(WORKSPACE_DIR);
+      // Throwing skips the checkpoint so the migration retries on next startup
+      await expect(
+        migrateCredentialsFromKeychainMigration.run(WORKSPACE_DIR),
+      ).rejects.toThrow("Keychain broker not available after waiting");
 
       // Should not proceed to list or migrate keys
       expect(brokerListFn).not.toHaveBeenCalled();
