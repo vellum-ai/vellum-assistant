@@ -71,7 +71,7 @@ struct VellumAssistantApp: App {
                 }
                 Divider()
                 Button("Share Feedback") {
-                    appDelegate.sendLogsToSentry()
+                    appDelegate.sendFeedback()
                 }
             }
             // View menu: zoom shortcuts for discoverability.

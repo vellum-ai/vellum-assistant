@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import os
 import OSLog
-@preconcurrency import Sentry
 import VellumAssistantShared
 
 private let log = Logger(
@@ -40,169 +39,35 @@ enum LogExporter {
         AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
-    /// Collects logs, archives them, sends a lightweight Sentry event (no archive attachment),
-    /// and uploads the archive to the platform API for storage.
+    /// Collects logs, archives them, and uploads the archive to the platform API
+    /// (`POST /v1/feedback/`) for storage.
     /// Includes report metadata (reason, message) from the log report form.
     ///
-    /// Throws if the archive build fails. The caller is responsible for
-    /// presenting success/error feedback (e.g. via a toast).
-    static func sendLogsToSentry(formData: LogReportFormData) async throws {
+    /// Throws if the archive build or platform upload fails. The caller is
+    /// responsible for presenting success/error feedback (e.g. via a toast).
+    static func sendFeedback(formData: LogReportFormData) async throws {
         let fileManager = FileManager.default
         let archiveURL = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
+        defer {
+            try? fileManager.removeItem(at: archiveURL)
+        }
+
         do {
             try await buildArchive(destination: archiveURL, formData: formData)
         } catch {
-            log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+            log.error("Failed to build log archive: \(error.localizedDescription)")
             throw error
         }
 
-        // --- Phase 1: Lightweight Sentry event (no archive attachment) ---
-
-        let event = Event(level: .info)
-        let errorTitle: String
-        switch formData.scope {
-        case .conversation(_, let conversationTitle, _, _):
-            errorTitle = "\(formData.reason.displayName) feedback (conversation: \(conversationTitle))"
-        case .global:
-            errorTitle = "\(formData.reason.displayName) feedback"
-        }
-        event.message = SentryMessage(formatted: errorTitle)
-        // Set error so Sentry displays the error message (not "No error message provided").
-        event.error = NSError(
-            domain: "com.vellum.log-report",
-            code: 0,
-            userInfo: [NSLocalizedDescriptionKey: errorTitle]
-        )
-        var tags: [String: String] = [
-            "source": "log_report",
-            "report_reason": formData.reason.rawValue,
-            "logs_included": formData.includeLogs ? "true" : "false",
-            "log_time_range": formData.logTimeRange.rawValue,
-        ]
-        if case .conversation(let conversationId, _, _, _) = formData.scope {
-            tags["conversation_id"] = conversationId
-            tags["export_scope"] = "conversation"
-        } else {
-            tags["export_scope"] = "global"
-        }
-        // Surface active conversation state as tags so the Sentry event itself
-        // is useful for triage without downloading the log archive.
-        var extra: [String: Any] = [:]
-        let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
-        if let activeConversation = conversationManager?.activeConversation {
-            extra["conversation_title"] = activeConversation.title
-            if let conversationId = activeConversation.conversationId {
-                // Setting conversation_id enables cross-project search: find
-                // the daemon error that corresponds to a macOS log report by
-                // querying conversation_id in the assistant
-                // Sentry project.
-                // For conversation-scoped exports, conversation_id was already set
-                // to the reported conversation's ID above — don't overwrite it with
-                // the active conversation's ID.
-                if case .global = formData.scope {
-                    tags["conversation_id"] = conversationId
-                }
-            }
-        }
-        var errorCategoryString: String?
-        if let vm = conversationManager?.activeViewModel {
-            extra["message_count"] = vm.messages.count
-            if let conversationError = vm.conversationError {
-                let category = "\(conversationError.category)"
-                tags["conversation_error_category"] = category
-                errorCategoryString = category
-                if let debugDetails = conversationError.debugDetails {
-                    extra["conversation_error_debug_details"] = debugDetails
-                }
-            }
-            if let conversationId = vm.conversationId {
-                // For conversation-scoped exports, conversation_id reflects the
-                // reported conversation, not the active one — skip the overwrite.
-                if case .global = formData.scope {
-                    tags["conversation_id"] = conversationId
-                }
-            }
-        }
-        // When routing to the assistant project, tag the event so it's clear
-        // it originated from the macOS client (not the daemon itself).
-        if formData.reason == .somethingBroken && errorCategoryString != nil {
-            tags["client"] = "macos"
-        }
         let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let connectedAssistantForTags = connectedAssistantId.flatMap { LockfileAssistant.loadByName($0) }
-        if let assistantId = connectedAssistantId {
-            tags["assistant_id"] = assistantId
-        }
-        if let assistantVersion = connectedAssistantForTags?.serviceGroupVersion {
-            tags["assistant_version"] = assistantVersion
-        }
-        if !extra.isEmpty {
-            event.extra = extra
-        }
 
-        event.tags = tags
-        // Group reports by reason and error category so different root
-        // causes (e.g. providerApi vs contextTooLarge) create separate
-        // Sentry issues instead of being mixed into one.
-        let categoryComponent = errorCategoryString ?? "none"
-        event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
-
-        // User-provided context (message, email, category) is sent via
-        // Sentry's Feedback API, linked to the event. This keeps PII
-        // out of event tags/extras and lets us use Sentry's built-in
-        // feedback UI for triage.
-        let feedback = MetricKitManager.UserFeedbackData(
-            comments: formData.message.isEmpty ? "(No message provided)" : formData.message,
-            email: formData.email,
-            name: formData.name.isEmpty ? nil : formData.name
+        try await uploadFeedbackToPlatform(
+            archiveURL: archiveURL,
+            formData: formData,
+            connectedAssistantId: connectedAssistantId
         )
-
-        // Route assistant behavior reports to the assistant Sentry project
-        // so they appear alongside daemon issues for triage.
-        let dsn: String?
-        if formData.reason == .somethingBroken && errorCategoryString != nil {
-            if MetricKitManager.assistantDSN.isEmpty {
-                log.warning("SENTRY_DSN_ASSISTANT not configured; assistant behavior report will use default Sentry project")
-                dsn = nil
-            } else {
-                dsn = MetricKitManager.assistantDSN
-            }
-        } else {
-            dsn = nil
-        }
-
-        // Send lightweight Sentry event (no archive attachment) and capture the event ID
-        // for linking to the platform API upload.
-        let sentryEventId: SentryId? = await withCheckedContinuation { (continuation: CheckedContinuation<SentryId?, Never>) in
-            MetricKitManager.sendManualReport(
-                event,
-                attachments: [],
-                userFeedback: feedback,
-                dsn: dsn
-            ) { eventId in
-                continuation.resume(returning: eventId)
-            }
-        }
-
-        // --- Phase 2: Upload archive to platform API (background) ---
-        // Fire-and-forget so the caller can dismiss UI immediately
-        // after the Sentry event is captured. The archive is cleaned up
-        // after the upload completes (or fails).
-        let archiveURLCopy = archiveURL
-        Task.detached {
-            await uploadFeedbackToPlatform(
-                archiveURL: archiveURLCopy,
-                formData: formData,
-                sentryEventId: sentryEventId,
-                connectedAssistantId: connectedAssistantId,
-                connectedAssistant: connectedAssistantForTags
-            )
-
-            // Clean up the archive temp file after platform upload completes (or fails).
-            try? FileManager.default.removeItem(at: archiveURLCopy)
-        }
     }
 
     // MARK: - Platform Feedback Upload
@@ -220,15 +85,12 @@ enum LogExporter {
     }
 
     /// Uploads the feedback archive and metadata to the platform API.
-    /// Errors are logged but not surfaced to the user — the Sentry event
-    /// was already captured successfully in Phase 1.
+    /// Throws on network or HTTP errors so the caller can surface feedback.
     private static func uploadFeedbackToPlatform(
         archiveURL: URL,
         formData: LogReportFormData,
-        sentryEventId: SentryId?,
-        connectedAssistantId: String?,
-        connectedAssistant: LockfileAssistant?
-    ) async {
+        connectedAssistantId: String?
+    ) async throws {
         let baseURL = AuthService.shared.baseURL
         guard let url = URL(string: "\(baseURL)/v1/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
@@ -258,17 +120,14 @@ enum LogExporter {
         appendFormField(&body, boundary: boundary, name: "classification", value: feedbackClassification(for: formData.reason))
         appendFormField(&body, boundary: boundary, name: "email", value: formData.email)
 
-        if let eventId = sentryEventId {
-            appendFormField(&body, boundary: boundary, name: "sentry_event_id", value: eventId.sentryIdString)
-        }
-
         appendFormField(&body, boundary: boundary, name: "device_id", value: SentryDeviceInfo.deviceId)
 
         if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             appendFormField(&body, boundary: boundary, name: "client_version", value: clientVersion)
         }
 
-        if let assistantVersion = connectedAssistant?.serviceGroupVersion {
+        if let assistantId = connectedAssistantId,
+           let assistantVersion = LockfileAssistant.loadByName(assistantId)?.serviceGroupVersion {
             appendFormField(&body, boundary: boundary, name: "assistant_version", value: assistantVersion)
         }
 
@@ -293,15 +152,12 @@ enum LogExporter {
 
         request.httpBody = body
 
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                log.warning("Platform feedback upload failed with status \(http.statusCode)")
-            } else {
-                log.info("Platform feedback upload succeeded")
-            }
-        } catch {
-            log.warning("Platform feedback upload request failed: \(error.localizedDescription)")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            log.warning("Platform feedback upload failed with status \(http.statusCode)")
+            throw URLError(.badServerResponse)
+        } else {
+            log.info("Platform feedback upload succeeded")
         }
     }
 
@@ -406,8 +262,7 @@ enum LogExporter {
 
         // 10. Report metadata — reason and message from the log report form.
         // Always written regardless of includeLogs, since it contains the reason/message/email.
-        // Email is excluded from the archive since it's already sent via
-        // Sentry's Feedback API (linked to the event).
+        // Email is sent separately via the platform API form fields.
         if let formData {
             var metadata: [String: Any] = [
                 "reason": formData.reason.rawValue,
