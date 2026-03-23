@@ -19,18 +19,25 @@ import { memorySegments, memorySummaries } from "../schema.js";
 const log = getLogger("memory-jobs-worker");
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
-const SUMMARY_MAX_TOKENS = 800;
+const SUMMARY_MAX_TOKENS = 500;
 
 const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
-  "You are a memory summarization system. Your job is to produce a compact, information-dense summary of a conversation.",
+  "You compress conversation transcripts into compact summaries for semantic search and memory retrieval.",
+  "Focus on durable facts, not transient discussion.",
+  "Preserve: goals, decisions, constraints, preferences, names, technical details, actions taken.",
+  "Remove: filler, pleasantries, tool invocation details, transient status updates.",
   "",
-  "Guidelines:",
-  "- Focus on key facts, decisions, user preferences, and actionable information.",
-  "- Preserve concrete details: names, file paths, tool choices, technical decisions, constraints.",
-  "- Remove filler, pleasantries, and transient discussion that has no lasting value.",
-  "- Use concise bullet points grouped by topic.",
-  "- Target 400-600 tokens. Be dense but readable.",
-  "- If updating an existing summary with new data, merge new information and remove anything that was superseded.",
+  "Return concise markdown:",
+  "## Topic",
+  "One-line description of what the conversation is about.",
+  "## Key Facts",
+  "Bullet points of concrete facts, names, decisions, preferences.",
+  "## Outcomes",
+  "What was decided, resolved, or accomplished.",
+  "## Open Items",
+  "Unresolved questions, pending tasks, or follow-ups (omit section if none).",
+  "",
+  "Target 200-400 tokens. Be dense.",
 ].join("\n");
 
 export async function buildConversationSummaryJob(
@@ -62,9 +69,8 @@ export async function buildConversationSummaryJob(
 
   // Build segment text for LLM input (chronological order)
   const segmentTexts = rows
-    .slice(0, 30)
     .reverse()
-    .map((row) => `[${row.role}] ${truncate(row.text, 400)}`)
+    .map((row) => `[${row.role}] ${truncate(row.text, 600)}`)
     .join("\n\n");
 
   const summaryText = await summarizeWithLLM(
@@ -208,14 +214,18 @@ async function summarizeWithLLM(
 }
 
 function buildFallbackSummary(
-  _existingSummary: string | null,
+  existingSummary: string | null,
   newContent: string,
   label: string,
 ): string {
   const lines = newContent.split("\n").filter((l) => l.trim().length > 0);
-  const snippets = lines
-    .slice(0, 20)
-    .map((l) => `- ${truncate(l.trim(), 180)}`);
-  const parts: string[] = [`${label} summary`, "", ...snippets];
+  if (lines.length === 0) return existingSummary ?? `${label} (no content)`;
+  const head = lines.slice(0, 3).map((l) => `- ${truncate(l.trim(), 200)}`);
+  const tail =
+    lines.length > 6
+      ? lines.slice(-3).map((l) => `- ${truncate(l.trim(), 200)}`)
+      : [];
+  const parts = [`${label} summary`, "", ...head];
+  if (tail.length > 0) parts.push("", "...", "", ...tail);
   return parts.join("\n");
 }
