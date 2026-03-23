@@ -68,7 +68,9 @@ function printHelp(): void {
     "  ps       List assistants (or processes for a specific assistant)",
   );
   console.log("  recover  Restore a previously retired local assistant");
-  console.log("  restore  Restore a .vbundle backup into a running assistant");
+  console.log(
+    "  restore  Restore data (and optionally version) from a .vbundle backup",
+  );
   console.log("  retire   Delete an assistant instance");
   console.log("  rollback  Roll back an assistant to a previous version");
   console.log("  setup    Configure API keys interactively");
