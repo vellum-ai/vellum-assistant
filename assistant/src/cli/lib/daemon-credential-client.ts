@@ -25,7 +25,6 @@ import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
-  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -160,37 +159,6 @@ export async function getSecureKeyResultViaDaemon(
 }
 
 /**
- * Retrieve a masked version of a secret value. Uses the daemon
- * POST /v1/secrets/read endpoint (without reveal), falling back to
- * a direct read + local masking.
- */
-export async function getMaskedKeyViaDaemon(
-  account: string,
-): Promise<string | null> {
-  const res = await daemonFetch("/v1/secrets/read", {
-    method: "POST",
-    body: JSON.stringify({ type: "api_key", name: account }),
-  });
-
-  if (res) {
-    const json = (await res.json()) as {
-      found: boolean;
-      masked?: string;
-    };
-    return json.found && json.masked ? json.masked : null;
-  }
-
-  // Fallback: direct read + local masking (same logic as daemon)
-  const key = await getSecureKeyAsync(account);
-  if (!key || key.length === 0) return null;
-  const minHidden = 3;
-  const maxVisible = Math.max(1, key.length - minHidden);
-  const prefixLen = Math.min(10, maxVisible);
-  const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
-  return `${key.slice(0, prefixLen)}...${suffixLen > 0 ? key.slice(-suffixLen) : ""}`;
-}
-
-/**
  * Store a secret via the daemon POST /v1/secrets endpoint. Falls back to
  * direct `setSecureKeyAsync()` when the daemon is not running.
  */
@@ -237,23 +205,6 @@ export async function deleteSecureKeyViaDaemon(
   // to match the daemon path which uses credentialKey().
   const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
   return deleteSecureKeyAsync(storageKey);
-}
-
-/**
- * List all credential accounts via the daemon GET /v1/secrets endpoint.
- * Falls back to direct `listSecureKeysAsync()` when the daemon is not running.
- */
-export async function listSecureKeysViaDaemon(): Promise<string[]> {
-  const res = await daemonFetch("/v1/secrets", {
-    method: "GET",
-  });
-
-  if (res) {
-    const json = (await res.json()) as { accounts: string[] };
-    return json.accounts;
-  }
-
-  return listSecureKeysAsync();
 }
 
 /**
