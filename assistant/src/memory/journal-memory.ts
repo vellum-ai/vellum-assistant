@@ -64,7 +64,9 @@ export function upsertJournalMemoriesFromDisk(
         const withoutDate = basename.replace(/^\d{4}-\d{2}-\d{2}-?/, "");
         const withSpaces = withoutDate.replace(/-/g, " ");
         const subject =
-          withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+          withSpaces.length > 0
+            ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1)
+            : basename;
 
         const fingerprint = computeMemoryFingerprint(
           scopeId,
