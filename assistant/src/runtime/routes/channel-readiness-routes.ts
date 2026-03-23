@@ -63,10 +63,15 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
 export async function handleRefreshChannelReadiness(
   req: Request,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as {
-    channel?: ChannelId;
-    includeRemote?: boolean;
-  };
+  let body: { channel?: ChannelId; includeRemote?: boolean };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json(
+      { success: false, error: "Invalid JSON in request body" },
+      { status: 400 },
+    );
+  }
 
   const service = getReadinessService();
 
