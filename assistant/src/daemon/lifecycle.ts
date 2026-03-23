@@ -457,7 +457,7 @@ export async function runDaemon(): Promise<void> {
 
     // When the credential backend flag is enabled, CES startup must complete
     // BEFORE provider initialization so credential reads can go through CES.
-    // Block with a 3-second timeout so startup isn't stalled; if the handshake
+    // Block with a 10-second timeout so startup isn't stalled; if the handshake
     // hasn't finished yet, continue waiting in the background and promote the
     // CES client as soon as it becomes available.
     if (isCesCredentialBackendEnabled(config)) {
