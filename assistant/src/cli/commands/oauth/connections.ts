@@ -24,7 +24,7 @@ import {
   assertMetadataWritable,
   deleteCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
-import { isLinux, isMacOS } from "../../../util/platform.js";
+import { openInBrowser } from "../../../util/browser.js";
 import {
   deleteSecureKeyViaDaemon,
   getSecureKeyViaDaemon,
@@ -537,7 +537,10 @@ Examples:
             "client_secret",
           ];
           for (const field of legacyFields) {
-            const result = await deleteSecureKeyViaDaemon("credential", `${providerKey}:${field}`);
+            const result = await deleteSecureKeyViaDaemon(
+              "credential",
+              `${providerKey}:${field}`,
+            );
             if (result === "deleted") cleanedUp = true;
 
             const metaDeleted = deleteCredentialMetadata(providerKey, field);
@@ -683,26 +686,7 @@ Examples:
             clientId,
             clientSecret,
             isInteractive: !!opts.openBrowser,
-            openUrl: opts.openBrowser
-              ? (url) => {
-                  if (isMacOS()) {
-                    Bun.spawn(["open", url], {
-                      stdout: "ignore",
-                      stderr: "ignore",
-                    });
-                  } else if (isLinux()) {
-                    Bun.spawn(["xdg-open", url], {
-                      stdout: "ignore",
-                      stderr: "ignore",
-                    });
-                  } else {
-                    // Fallback: print URL for manual opening (stderr to keep --json stdout clean)
-                    process.stderr.write(
-                      `Open this URL to authorize:\n\n${url}\n`,
-                    );
-                  }
-                }
-              : undefined,
+            openUrl: opts.openBrowser ? openInBrowser : undefined,
             ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
           });
 
