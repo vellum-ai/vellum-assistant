@@ -234,10 +234,9 @@ export class AcpSessionManager {
    * Kills all agent processes and clears the session map.
    */
   closeAll(): void {
-    for (const entry of this.sessions.values()) {
-      entry.process.kill();
+    for (const acpSessionId of [...this.sessions.keys()]) {
+      this.close(acpSessionId);
     }
-    this.sessions.clear();
   }
 
   /**
