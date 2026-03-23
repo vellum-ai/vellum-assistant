@@ -215,7 +215,7 @@ struct SettingsGeneralTab: View {
             title: "Uninstall",
             subtitle: "Stops all assistants, archives your data, and moves Vellum to the Trash"
         ) {
-            VButton(label: "Uninstall Vellum...", style: .danger) {
+            VButton(label: "Uninstall Vellum", style: .danger) {
                 AppDelegate.shared?.performUninstall()
             }
         }
