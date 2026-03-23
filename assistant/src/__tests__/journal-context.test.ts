@@ -17,46 +17,46 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => TEST_DIR,
 }));
 
-const { buildJournalContext, formatRelativeTime } = await import(
+const { buildJournalContext, formatJournalRelativeTime } = await import(
   "../prompts/journal-context.js"
 );
 
-describe("formatRelativeTime", () => {
+describe("formatJournalRelativeTime", () => {
   test("returns 'just now' for times less than 60 seconds ago", () => {
     const now = Date.now();
-    expect(formatRelativeTime(now - 30_000)).toBe("just now");
-    expect(formatRelativeTime(now - 1_000)).toBe("just now");
-    expect(formatRelativeTime(now)).toBe("just now");
+    expect(formatJournalRelativeTime(now - 30_000)).toBe("just now");
+    expect(formatJournalRelativeTime(now - 1_000)).toBe("just now");
+    expect(formatJournalRelativeTime(now)).toBe("just now");
   });
 
   test("returns minutes for times between 1-59 minutes ago", () => {
     const now = Date.now();
-    expect(formatRelativeTime(now - 60_000)).toBe("1 minute ago");
-    expect(formatRelativeTime(now - 5 * 60_000)).toBe("5 minutes ago");
-    expect(formatRelativeTime(now - 59 * 60_000)).toBe("59 minutes ago");
+    expect(formatJournalRelativeTime(now - 60_000)).toBe("1 minute ago");
+    expect(formatJournalRelativeTime(now - 5 * 60_000)).toBe("5 minutes ago");
+    expect(formatJournalRelativeTime(now - 59 * 60_000)).toBe("59 minutes ago");
   });
 
   test("returns hours for times between 1-23 hours ago", () => {
     const now = Date.now();
-    expect(formatRelativeTime(now - 60 * 60_000)).toBe("1 hour ago");
-    expect(formatRelativeTime(now - 3 * 60 * 60_000)).toBe("3 hours ago");
-    expect(formatRelativeTime(now - 23 * 60 * 60_000)).toBe("23 hours ago");
+    expect(formatJournalRelativeTime(now - 60 * 60_000)).toBe("1 hour ago");
+    expect(formatJournalRelativeTime(now - 3 * 60 * 60_000)).toBe("3 hours ago");
+    expect(formatJournalRelativeTime(now - 23 * 60 * 60_000)).toBe("23 hours ago");
   });
 
   test("returns days for times between 1-6 days ago", () => {
     const now = Date.now();
-    expect(formatRelativeTime(now - 24 * 60 * 60_000)).toBe("1 day ago");
-    expect(formatRelativeTime(now - 3 * 24 * 60 * 60_000)).toBe("3 days ago");
-    expect(formatRelativeTime(now - 6 * 24 * 60 * 60_000)).toBe("6 days ago");
+    expect(formatJournalRelativeTime(now - 24 * 60 * 60_000)).toBe("1 day ago");
+    expect(formatJournalRelativeTime(now - 3 * 24 * 60 * 60_000)).toBe("3 days ago");
+    expect(formatJournalRelativeTime(now - 6 * 24 * 60 * 60_000)).toBe("6 days ago");
   });
 
   test("returns weeks for times 7 or more days ago", () => {
     const now = Date.now();
-    expect(formatRelativeTime(now - 7 * 24 * 60 * 60_000)).toBe("1 week ago");
-    expect(formatRelativeTime(now - 14 * 24 * 60 * 60_000)).toBe(
+    expect(formatJournalRelativeTime(now - 7 * 24 * 60 * 60_000)).toBe("1 week ago");
+    expect(formatJournalRelativeTime(now - 14 * 24 * 60 * 60_000)).toBe(
       "2 weeks ago",
     );
-    expect(formatRelativeTime(now - 30 * 24 * 60 * 60_000)).toBe(
+    expect(formatJournalRelativeTime(now - 30 * 24 * 60 * 60_000)).toBe(
       "4 weeks ago",
     );
   });

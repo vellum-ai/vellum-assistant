@@ -7,7 +7,7 @@ import { getWorkspaceDir } from "../util/platform.js";
  * Return a human-readable relative timestamp from a Unix-epoch millisecond
  * value to "now".
  */
-export function formatRelativeTime(mtime: number): string {
+export function formatJournalRelativeTime(mtime: number): string {
   const diffMs = Date.now() - mtime;
   const diffSec = Math.floor(diffMs / 1000);
 
@@ -76,7 +76,7 @@ export function buildJournalContext(maxEntries: number): string | null {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const content = readFileSync(entry.filepath, "utf-8");
-    const relativeTime = formatRelativeTime(entry.mtimeMs);
+    const relativeTime = formatJournalRelativeTime(entry.mtimeMs);
 
     let header: string;
     if (i === 0) {
