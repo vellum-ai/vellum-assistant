@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "GatewayHTTPClient")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayHTTPClient")
 
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
