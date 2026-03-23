@@ -141,6 +141,8 @@ export interface SkillToolEntry {
   executor: string;
   /** Where the tool script runs. */
   execution_target: "host" | "sandbox";
+  /** When true, trusted contacts can auto-approve this tool without guardian approval (low-risk only). */
+  trusted_auto_approve?: boolean;
 }
 
 /**

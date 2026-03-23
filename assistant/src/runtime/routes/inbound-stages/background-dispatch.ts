@@ -199,6 +199,7 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          inboundEventId: eventId,
         },
         sourceChannel,
         sourceInterface,

@@ -137,6 +137,17 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   const execution_target =
     entry.execution_target as SkillToolEntry["execution_target"];
 
+  // trusted_auto_approve (optional boolean, defaults to false)
+  let trusted_auto_approve: boolean | undefined;
+  if ("trusted_auto_approve" in entry) {
+    if (typeof entry.trusted_auto_approve !== "boolean") {
+      throw new Error(
+        `${prefix}: "trusted_auto_approve" must be a boolean if provided`,
+      );
+    }
+    trusted_auto_approve = entry.trusted_auto_approve;
+  }
+
   return {
     name,
     description,
@@ -145,6 +156,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
     input_schema,
     executor,
     execution_target,
+    ...(trusted_auto_approve ? { trusted_auto_approve } : {}),
   };
 }
 

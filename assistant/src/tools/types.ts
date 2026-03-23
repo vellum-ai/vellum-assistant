@@ -179,6 +179,8 @@ export interface ToolContext {
   hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
   cesClient?: CesClient;
+  /** Inbound event ID from channelInboundEvents. Set for channel-originating turns. Used to correlate tool execution to the exact inbound Slack/Telegram/etc message. */
+  inboundEventId?: string;
 }
 
 export interface DiffInfo {
@@ -278,6 +280,8 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /** When true, trusted contacts can auto-approve this tool without guardian approval (low-risk only). */
+  trustedAutoApprove?: boolean;
   getDefinition(): ToolDefinition;
   execute(
     input: Record<string, unknown>,

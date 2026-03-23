@@ -132,6 +132,8 @@ export interface ConversationCreateOptions {
   strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Channel inbound event ID for correlating tools to the originating message. */
+  inboundEventId?: string;
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
 }

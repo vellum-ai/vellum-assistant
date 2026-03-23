@@ -37,6 +37,7 @@ export function createSkillTool(
     executionTarget: entry.execution_target as ExecutionTarget,
     ownerSkillVersionHash: versionHash,
     ownerSkillBundled: bundled,
+    trustedAutoApprove: entry.trusted_auto_approve ?? false,
 
     getDefinition(): ToolDefinition {
       return {

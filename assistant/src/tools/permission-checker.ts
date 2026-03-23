@@ -8,6 +8,7 @@ import {
 } from "../permissions/checker.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
+import { RiskLevel } from "../permissions/types.js";
 import {
   getEffectiveMode,
   setConversationMode,
@@ -152,7 +153,11 @@ export class PermissionChecker {
             { toolName: name, riskLevel },
             "dangerouslySkipPermissions active — auto-approving without prompt",
           );
-          return { allowed: true, decision: "dangerously_skip_permissions", riskLevel };
+          return {
+            allowed: true,
+            decision: "dangerously_skip_permissions",
+            riskLevel,
+          };
         }
 
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
@@ -179,6 +184,29 @@ export class PermissionChecker {
           return {
             allowed: true,
             decision: "guardian_auto_approve",
+            riskLevel,
+          };
+        }
+
+        // Trusted contacts with trustedAutoApprove + low-risk tools can
+        // auto-approve without guardian involvement. This works for both
+        // interactive and non-interactive sessions — Slack trusted contacts
+        // are interactive when a guardian binding exists, so restricting to
+        // non-interactive only would prevent the feature from working.
+        if (
+          context.trustClass === "trusted_contact" &&
+          tool.trustedAutoApprove === true &&
+          tool.defaultRiskLevel === RiskLevel.Low &&
+          !context.requireFreshApproval &&
+          !isDynamicSkillLoad
+        ) {
+          log.info(
+            { toolName: name, riskLevel },
+            "Auto-approving for trusted contact with trustedAutoApprove flag",
+          );
+          return {
+            allowed: true,
+            decision: "trusted_auto_approve",
             riskLevel,
           };
         }
