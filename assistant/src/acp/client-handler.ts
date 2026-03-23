@@ -174,7 +174,6 @@ export class VellumAcpClientHandler implements Client {
         ? (rawInput as Record<string, unknown>)
         : { command: rawInput };
 
-    const riskLevel = mapToolKindToRiskLevel(toolKind);
     const toolName = `ACP Agent: ${toolTitle}`;
     const acpOptions = options.map((opt) => ({
       optionId: opt.optionId,
@@ -189,7 +188,7 @@ export class VellumAcpClientHandler implements Client {
       requestId,
       toolName,
       input,
-      riskLevel,
+      riskLevel: toolKind,
       allowlistOptions: [],
       scopeOptions: [],
       persistentDecisionsAllowed: false,
@@ -216,7 +215,7 @@ export class VellumAcpClientHandler implements Client {
         confirmationDetails: {
           toolName,
           input,
-          riskLevel,
+          riskLevel: toolKind,
           allowlistOptions: [],
           scopeOptions: [],
           persistentDecisionsAllowed: false,
@@ -382,26 +381,6 @@ export class VellumAcpClientHandler implements Client {
       this.terminals.delete(params.terminalId);
     }
     return {};
-  }
-}
-
-/**
- * Maps an ACP ToolKind to a risk level for the confirmation_request.
- *
- * ACP ToolKind values: "read" | "edit" | "delete" | "move" | "search" |
- * "execute" | "think" | "fetch" | "switch_mode" | "other"
- */
-function mapToolKindToRiskLevel(toolKind: string): string {
-  switch (toolKind) {
-    case "execute":
-      return "high";
-    case "edit":
-    case "delete":
-    case "move":
-      return "medium";
-    default:
-      // read, search, think, fetch, switch_mode, other
-      return "low";
   }
 }
 
