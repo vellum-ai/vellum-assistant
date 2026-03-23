@@ -65,8 +65,13 @@ function parseArgs(argv: string[]): {
     if (args[i] === "--from" && args[i + 1]) {
       fromPath = args[i + 1];
       i++; // skip the value
-    } else if (args[i] === "--version" && args[i + 1]) {
-      version = args[i + 1];
+    } else if (args[i] === "--version") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --version requires a value");
+        process.exit(1);
+      }
+      version = next;
       i++; // skip the value
     } else if (args[i] === "--dry-run") {
       // already handled above
