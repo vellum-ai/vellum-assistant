@@ -154,7 +154,7 @@ export async function rollbackPlatformAssistant(
   };
 
   if (response.status === 200) {
-    return { detail: body.detail, version: body.version };
+    return { detail: body.detail ?? "", version: body.version ?? null };
   }
 
   if (response.status === 400) {
