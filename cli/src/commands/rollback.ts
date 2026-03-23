@@ -177,24 +177,18 @@ async function rollbackPlatform(
   }
 
   // Workspace commit: BEFORE broadcast, matching upgradePlatform() order
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "rollback",
-        phase: "starting",
-        from: currentVersion ?? "unknown",
-        to: version,
-        topology: "managed",
-        assistantId: entry.assistantId,
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "starting",
+      from: currentVersion ?? "unknown",
+      to: version,
+      topology: "managed",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   // Authenticate before broadcasting any SSE events so that a missing
   // token does not leave connected clients showing a perpetual spinner.
@@ -260,25 +254,19 @@ async function rollbackPlatform(
   // the client detects completion via healthz polling.
 
   // Workspace commit: Complete
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "rollback",
-        phase: "complete",
-        from: currentVersion ?? "unknown",
-        to: version,
-        topology: "managed",
-        assistantId: entry.assistantId,
-        result: "success",
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "rollback",
+      phase: "complete",
+      from: currentVersion ?? "unknown",
+      to: version,
+      topology: "managed",
+      assistantId: entry.assistantId,
+      result: "success",
+    }),
+  );
 
   console.log("Rollback initiated. The assistant may be briefly unavailable.");
 }
@@ -373,24 +361,18 @@ export async function rollback(): Promise<void> {
 
   try {
     // Record rollback start in workspace git history
-    try {
-      await commitWorkspaceViaGateway(
-        entry.runtimeUrl,
-        entry.assistantId,
-        buildUpgradeCommitMessage({
-          action: "rollback",
-          phase: "starting",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: entry.previousServiceGroupVersion ?? "unknown",
-          topology: "docker",
-          assistantId: entry.assistantId,
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "rollback",
+        phase: "starting",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: entry.previousServiceGroupVersion ?? "unknown",
+        topology: "docker",
+        assistantId: entry.assistantId,
+      }),
+    );
 
     console.log(
       `🔄 Rolling back Docker assistant '${instanceName}' to ${entry.previousServiceGroupVersion}...\n`,
@@ -536,25 +518,19 @@ export async function rollback(): Promise<void> {
       );
 
       // Record successful rollback in workspace git history
-      try {
-        await commitWorkspaceViaGateway(
-          entry.runtimeUrl,
-          entry.assistantId,
-          buildUpgradeCommitMessage({
-            action: "rollback",
-            phase: "complete",
-            from: entry.serviceGroupVersion ?? "unknown",
-            to: entry.previousServiceGroupVersion ?? "unknown",
-            topology: "docker",
-            assistantId: entry.assistantId,
-            result: "success",
-          }),
-        );
-      } catch (err) {
-        console.warn(
-          `⚠️  Failed to create post-rollback workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      await commitWorkspaceViaGateway(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildUpgradeCommitMessage({
+          action: "rollback",
+          phase: "complete",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: entry.previousServiceGroupVersion ?? "unknown",
+          topology: "docker",
+          assistantId: entry.assistantId,
+          result: "success",
+        }),
+      );
 
       console.log(
         `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,

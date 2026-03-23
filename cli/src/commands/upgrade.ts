@@ -274,24 +274,18 @@ async function upgradeDocker(
   }
 
   // Record version transition start in workspace git history
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "upgrade",
-        phase: "starting",
-        from: entry.serviceGroupVersion ?? "unknown",
-        to: versionTag,
-        topology: "docker",
-        assistantId: entry.assistantId,
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "upgrade",
+      phase: "starting",
+      from: entry.serviceGroupVersion ?? "unknown",
+      to: versionTag,
+      topology: "docker",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   console.log("💾 Capturing existing container environment...");
   const capturedEnv = await captureContainerEnv(res.assistantContainer);
@@ -478,25 +472,19 @@ async function upgradeDocker(
     );
 
     // Record successful upgrade in workspace git history
-    try {
-      await commitWorkspaceViaGateway(
-        entry.runtimeUrl,
-        entry.assistantId,
-        buildUpgradeCommitMessage({
-          action: "upgrade",
-          phase: "complete",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: versionTag,
-          topology: "docker",
-          assistantId: entry.assistantId,
-          result: "success",
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "upgrade",
+        phase: "complete",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: versionTag,
+        topology: "docker",
+        assistantId: entry.assistantId,
+        result: "success",
+      }),
+    );
 
     console.log(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
@@ -729,24 +717,18 @@ async function upgradePlatform(
   }
 
   // Record version transition start in workspace git history
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "upgrade",
-        phase: "starting",
-        from: entry.serviceGroupVersion ?? "unknown",
-        to: version ?? "latest",
-        topology: "managed",
-        assistantId: entry.assistantId,
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "upgrade",
+      phase: "starting",
+      from: entry.serviceGroupVersion ?? "unknown",
+      to: version ?? "latest",
+      topology: "managed",
+      assistantId: entry.assistantId,
+    }),
+  );
 
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
@@ -818,25 +800,19 @@ async function upgradePlatform(
   // version actually appears after the platform restarts the service group.
 
   // Record successful upgrade in workspace git history
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildUpgradeCommitMessage({
-        action: "upgrade",
-        phase: "complete",
-        from: entry.serviceGroupVersion ?? "unknown",
-        to: version ?? "latest",
-        topology: "managed",
-        assistantId: entry.assistantId,
-        result: "success",
-      }),
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "upgrade",
+      phase: "complete",
+      from: entry.serviceGroupVersion ?? "unknown",
+      to: version ?? "latest",
+      topology: "managed",
+      assistantId: entry.assistantId,
+      result: "success",
+    }),
+  );
 
   console.log(`✅ ${result.detail}`);
   if (result.version) {
@@ -865,17 +841,11 @@ async function upgradePrepare(
   );
 
   // 2. Workspace commit: record pre-update state
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
+  );
 
   // 3. Progress: saving backup
   await broadcastUpgradeEvent(
@@ -941,17 +911,11 @@ async function upgradeFinalize(
   );
 
   // 2. Workspace commit: record successful update
-  try {
-    await commitWorkspaceViaGateway(
-      entry.runtimeUrl,
-      entry.assistantId,
-      `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
-    );
-  } catch (err) {
-    console.warn(
-      `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await commitWorkspaceViaGateway(
+    entry.runtimeUrl,
+    entry.assistantId,
+    `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
+  );
 }
 
 export async function upgrade(): Promise<void> {
