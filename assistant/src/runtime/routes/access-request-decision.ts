@@ -116,7 +116,7 @@ export async function deliverVerificationCodeToGuardian(params: {
 }): Promise<DeliveryResult> {
   const text =
     `You approved access for ${params.requesterIdentifier}. ` +
-    `Give them this verification code: *\`${params.verificationCode}\`*. ` +
+    `Give them this verification code: \`${params.verificationCode}\`. ` +
     `The code expires in 10 minutes.`;
 
   try {
@@ -189,7 +189,7 @@ export async function deliverVerificationCodeToRequester(params: {
 }): Promise<DeliveryResult> {
   const text =
     `Great news — your access request was approved! ` +
-    `Your verification code is: *\`${params.verificationCode}\`*. ` +
+    `Your verification code is: \`${params.verificationCode}\`. ` +
     `Reply with it here to complete verification. The code expires in 10 minutes.`;
 
   const target = resolveRequesterTarget(params);
