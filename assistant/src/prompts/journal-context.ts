@@ -48,9 +48,9 @@ export function formatJournalRelativeTime(mtime: number): string {
 /**
  * Build a journal context section for inclusion in the system prompt.
  *
- * Reads `{workspaceDir}/journal/*.md` files, sorts by mtime (newest first),
- * and returns a formatted string with relative timestamps. Returns `null`
- * when no entries are available.
+ * Reads `{workspaceDir}/journal/*.md` files, sorts by creation time
+ * (newest first), and returns a formatted string with timestamps.
+ * Returns `null` when no entries are available.
  */
 export function buildJournalContext(maxEntries: number): string | null {
   if (maxEntries <= 0) return null;
@@ -70,19 +70,19 @@ export function buildJournalContext(maxEntries: number): string | null {
     (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
   );
 
-  // Collect file info with mtime, skipping unreadable entries
+  // Collect file info with birthtime (creation time), skipping unreadable entries
   const entries = mdFiles
     .flatMap((f) => {
       try {
         const filepath = join(journalDir, f);
         const stat = statSync(filepath);
         if (!stat.isFile()) return [];
-        return [{ filename: f, filepath, mtimeMs: stat.mtimeMs }];
+        return [{ filename: f, filepath, birthtimeMs: stat.birthtimeMs }];
       } catch {
         return [];
       }
     })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .sort((a, b) => b.birthtimeMs - a.birthtimeMs)
     .slice(0, maxEntries);
 
   if (entries.length === 0) return null;
@@ -99,8 +99,8 @@ export function buildJournalContext(maxEntries: number): string | null {
     } catch {
       continue;
     }
-    const relativeTime = formatJournalRelativeTime(entry.mtimeMs);
-    const absoluteTime = formatJournalAbsoluteTime(entry.mtimeMs);
+    const relativeTime = formatJournalRelativeTime(entry.birthtimeMs);
+    const absoluteTime = formatJournalAbsoluteTime(entry.birthtimeMs);
     const timestamp = `${absoluteTime}, ${relativeTime}`;
 
     let header: string;
