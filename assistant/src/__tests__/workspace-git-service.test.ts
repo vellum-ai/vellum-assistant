@@ -70,21 +70,19 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("session-token");
     });
 
-    test("sets git identity correctly", async () => {
+    test("sets git identity via env vars on commits", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const userName = execFileSync("git", ["config", "user.name"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-      const userEmail = execFileSync("git", ["config", "user.email"], {
+      // GIVEN the initial commit was created by ensureInitialized
+      // WHEN we check the commit author
+      const author = execFileSync("git", ["log", "-1", "--pretty=%an <%ae>"], {
         cwd: testDir,
         encoding: "utf-8",
       }).trim();
 
-      expect(userName).toBe("Vellum Assistant");
-      expect(userEmail).toBe("assistant@vellum.ai");
+      // THEN the identity is set via env vars
+      expect(author).toBe("Vellum Assistant <assistant@vellum.ai>");
     });
 
     test("multiple ensureInitialized calls are idempotent", async () => {
@@ -681,8 +679,8 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("*.sock");
     });
 
-    test("existing repo gets local identity set on init", async () => {
-      // Set up a pre-existing git repo with a different identity
+    test("existing repo uses env var identity for new commits", async () => {
+      // GIVEN a pre-existing git repo with a different local identity
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Old Name"], {
         cwd: testDir,
@@ -694,25 +692,22 @@ describe("WorkspaceGitService", () => {
       execFileSync("git", ["add", "-A"], { cwd: testDir });
       execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
-      // Initialize the service — should set identity
+      // WHEN the service initializes and creates a new commit
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
+      writeFileSync(join(testDir, "file2.txt"), "content2");
+      await service.commitChanges("test commit");
 
-      const userName = execFileSync("git", ["config", "user.name"], {
+      // THEN the new commit uses the env var identity, not the old local config
+      const author = execFileSync("git", ["log", "-1", "--pretty=%an <%ae>"], {
         cwd: testDir,
         encoding: "utf-8",
       }).trim();
-      const userEmail = execFileSync("git", ["config", "user.email"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-
-      expect(userName).toBe("Vellum Assistant");
-      expect(userEmail).toBe("assistant@vellum.ai");
+      expect(author).toBe("Vellum Assistant <assistant@vellum.ai>");
     });
 
     test("existing repo with correct config is idempotent", async () => {
-      // Set up a repo that already has everything configured correctly
+      // GIVEN a repo that already has everything configured correctly
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Vellum Assistant"], {
         cwd: testDir,
@@ -732,27 +727,22 @@ describe("WorkspaceGitService", () => {
         "utf-8",
       );
 
-      // Initialize the service — should be a no-op
+      // WHEN the service initializes
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      // Verify nothing changed
+      // THEN gitignore is unchanged
       const gitignoreAfter = readFileSync(join(testDir, ".gitignore"), "utf-8");
       expect(gitignoreAfter).toBe(gitignoreBefore);
 
-      const userName = execFileSync("git", ["config", "user.name"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-      expect(userName).toBe("Vellum Assistant");
-
+      // AND the branch is main
       const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
         cwd: testDir,
         encoding: "utf-8",
       }).trim();
       expect(branch).toBe("main");
 
-      // No errors, no duplicate rules
+      // AND no duplicate rules were added
       const ruleCount = (gitignoreAfter.match(/data\/db\//g) || []).length;
       expect(ruleCount).toBe(1);
     });

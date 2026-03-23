@@ -37,6 +37,19 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
   }
   env.GIT_CEILING_DIRECTORIES = workspaceDir;
 
+  // Set commit identity via env vars rather than local git config.
+  // This is more robust than `git config user.name` because it does not
+  // require .git to exist yet, avoids "not in a git directory" errors
+  // during initialization, and is the standard approach for automated
+  // git tools (CI/CD systems, bots, etc.).
+  const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
+  const gitEmail =
+    process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
+  env.GIT_AUTHOR_NAME = gitName;
+  env.GIT_COMMITTER_NAME = gitName;
+  env.GIT_AUTHOR_EMAIL = gitEmail;
+  env.GIT_COMMITTER_EMAIL = gitEmail;
+
   const home = process.env.HOME ?? "";
   const extraDirs = [
     "/opt/homebrew/bin",
@@ -420,7 +433,6 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
-                await this.ensureCommitIdentityLocked();
                 await this.ensureOnMainLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
@@ -438,7 +450,6 @@ export class WorkspaceGitService {
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
-          await this.ensureCommitIdentityLocked();
           await this.ensureOnMainLocked();
 
           // Create initial commit synchronously within the lock to prevent
@@ -745,19 +756,6 @@ export class WorkspaceGitService {
         "\n";
       writeFileSync(gitignorePath, gitignore, "utf-8");
     }
-  }
-
-  /**
-   * Ensure local git identity is configured for automated commits.
-   * Idempotent: git config set is a no-op if the value is already correct.
-   * Must be called with the mutex lock held.
-   */
-  private async ensureCommitIdentityLocked(): Promise<void> {
-    const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
-    const gitEmail =
-      process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
-    await this.execGit(["config", "user.name", gitName]);
-    await this.execGit(["config", "user.email", gitEmail]);
   }
 
   /**
