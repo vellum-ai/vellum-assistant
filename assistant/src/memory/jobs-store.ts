@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, notInArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
@@ -84,6 +84,38 @@ export function enqueueMemoryJob(
     })
     .run();
   return id;
+}
+
+/**
+ * Upsert a debounced job: if a pending job of the same type and conversation
+ * already exists, push its `runAfter` forward instead of creating a duplicate.
+ * This prevents rapid message indexing from spawning redundant jobs.
+ */
+export function upsertDebouncedJob(
+  type: MemoryJobType,
+  payload: { conversationId: string },
+  runAfter: number,
+): void {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, type),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    db.update(memoryJobs)
+      .set({ runAfter, updatedAt: Date.now() })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+  } else {
+    enqueueMemoryJob(type, payload, runAfter);
+  }
 }
 
 export function enqueueCleanupStaleSupersededItemsJob(
