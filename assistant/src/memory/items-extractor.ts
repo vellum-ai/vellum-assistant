@@ -62,6 +62,13 @@ const VALID_KINDS = new Set<string>([
   "journal",
 ]);
 
+/**
+ * Kinds the LLM is allowed to produce during extraction. Excludes "journal"
+ * because journal memories are created directly from disk files — any
+ * LLM-produced journal items would be silently dropped, wasting tokens.
+ */
+const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
+
 /** Maps old kind names to their new equivalents for graceful migration. */
 const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   profile: "identity",
@@ -419,7 +426,7 @@ async function extractItemsWithLLM(
                 properties: {
                   kind: {
                     type: "string",
-                    enum: [...VALID_KINDS],
+                    enum: EXTRACTION_KINDS,
                     description: "Category of memory item",
                   },
                   subject: {
