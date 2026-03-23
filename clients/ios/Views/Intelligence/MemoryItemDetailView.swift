@@ -153,7 +153,7 @@ struct MemoryItemDetailView: View {
         Section("Classification") {
             if isEditing {
                 Picker("Kind", selection: $editKind) {
-                    ForEach(MemoryKind.editableKinds(current: liveItem.kind)) { kind in
+                    ForEach(MemoryKind.editableKinds(current: editBaseline?.kind ?? liveItem.kind)) { kind in
                         Text(kind.label).tag(kind.rawValue)
                     }
                 }

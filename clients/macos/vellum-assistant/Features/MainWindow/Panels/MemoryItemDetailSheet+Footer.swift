@@ -9,17 +9,18 @@ extension MemoryItemDetailSheet {
     }
 
     func save() {
+        guard let baseline = editBaseline else { return }
         isSaving = true
         errorMessage = nil
         Task {
-            let newSubject = editSubject != item.subject ? editSubject : nil
-            let newStatement = editStatement != item.statement ? editStatement : nil
-            let newKind = editKind != item.kind ? editKind : nil
-            let newStatus = editStatus != item.status ? editStatus : nil
-            let newImportance = editImportance != (item.importance ?? 0.5) ? editImportance : nil
+            let newSubject = editSubject != baseline.subject ? editSubject : nil
+            let newStatement = editStatement != baseline.statement ? editStatement : nil
+            let newKind = editKind != baseline.kind ? editKind : nil
+            let newStatus = editStatus != baseline.status ? editStatus : nil
+            let newImportance = editImportance != (baseline.importance ?? 0.5) ? editImportance : nil
 
             let result = await store.updateItem(
-                id: item.id,
+                id: baseline.id,
                 subject: newSubject,
                 statement: newStatement,
                 kind: newKind,
@@ -29,6 +30,7 @@ extension MemoryItemDetailSheet {
 
             isSaving = false
             if result != nil {
+                editBaseline = nil
                 onDismiss()
             } else {
                 errorMessage = "Failed to save changes. Please try again."

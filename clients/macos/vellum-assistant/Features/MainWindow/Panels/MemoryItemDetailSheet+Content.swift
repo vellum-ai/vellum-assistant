@@ -131,7 +131,7 @@ extension MemoryItemDetailSheet {
                 VDropdown(
                     placeholder: "Kind",
                     selection: $editKind,
-                    options: MemoryKind.editableKinds(current: displayItem.kind).map { ($0.label, $0.rawValue) }
+                    options: MemoryKind.editableKinds(current: editBaseline?.kind ?? displayItem.kind).map { ($0.label, $0.rawValue) }
                 )
             }
 
