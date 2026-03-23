@@ -22,6 +22,20 @@ describe("sanitizeForTts", () => {
       );
       expect(sanitizeForTts("[breath] ok")).toBe("[breath] ok");
     });
+
+    test("handles URLs with balanced parentheses (e.g. Wikipedia)", () => {
+      expect(
+        sanitizeForTts(
+          "See [Function](https://en.wikipedia.org/wiki/Function_(mathematics))",
+        ),
+      ).toBe("See Function");
+    });
+
+    test("handles URLs with multiple balanced parentheses groups", () => {
+      expect(
+        sanitizeForTts("[link](http://example.com/a_(b)_c_(d))"),
+      ).toBe("link");
+    });
   });
 
   describe("bold and italic", () => {
@@ -98,6 +112,20 @@ describe("sanitizeForTts", () => {
     test("strips inline code backticks", () => {
       expect(sanitizeForTts("Use `console.log` here")).toBe(
         "Use console.log here",
+      );
+    });
+
+    test("preserves # comments inside code fences", () => {
+      const input = "Example:\n```python\n# This is a comment\nprint('hi')\n```\nDone.";
+      expect(sanitizeForTts(input)).toBe(
+        "Example:\n# This is a comment\nprint('hi')\nDone.",
+      );
+    });
+
+    test("preserves shell comments inside code fences", () => {
+      const input = "Run:\n```bash\n## Install deps\napt-get install curl\n```";
+      expect(sanitizeForTts(input)).toBe(
+        "Run:\n## Install deps\napt-get install curl\n",
       );
     });
   });
