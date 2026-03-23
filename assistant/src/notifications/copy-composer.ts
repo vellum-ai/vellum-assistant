@@ -99,7 +99,14 @@ export function buildAccessRequestIdentityLine(
   const sanitizedExternalId = actorExternalId
     ? sanitizeIdentityField(actorExternalId)
     : undefined;
-  const parts = [requester];
+  // When the requester is a raw Slack user ID (e.g. the fallback path in
+  // access-request-helper sets senderIdentifier to the raw actorExternalId),
+  // format it as a Slack mention so it renders as a clickable display name.
+  const formattedRequester =
+    sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
+      ? `<@${requester}>`
+      : requester;
+  const parts = [formattedRequester];
   if (sanitizedUsername && sanitizedUsername !== requester) {
     parts.push(`@${sanitizedUsername}`);
   }

@@ -648,6 +648,20 @@ describe("notification decision strategy", () => {
       expect(line).not.toContain("<@U04BTP01B2S>");
     });
 
+    test("does not duplicate Slack mention when senderIdentifier equals raw external ID", () => {
+      // When actorDisplayName and actorUsername are missing, senderIdentifier
+      // falls back to the raw actorExternalId. The identity line should produce
+      // exactly one <@U...> mention, not two.
+      const line = buildAccessRequestIdentityLine({
+        senderIdentifier: "U04BTP01B2S",
+        actorExternalId: "U04BTP01B2S",
+        sourceChannel: "slack",
+      });
+      const mentionCount = (line.match(/<@U04BTP01B2S>/g) || []).length;
+      expect(mentionCount).toBe(1);
+      expect(line).toContain("via slack");
+    });
+
     test("does not use <@U...> format for non-user-ID external IDs on Slack", () => {
       const line = buildAccessRequestIdentityLine({
         senderIdentifier: "Alice",
