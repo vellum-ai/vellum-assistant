@@ -135,6 +135,70 @@ extension MainWindowView {
         }
     }
 
+    // MARK: - Sidebar Row Factory
+
+    private func isConversationSelected(_ conversation: ConversationModel) -> Bool {
+        switch windowState.selection {
+        case .panel:
+            return false
+        case .conversation(let id):
+            return id == conversation.id
+        case .appEditing(_, let conversationId):
+            return conversationId == conversation.id
+        case .app, .none:
+            return conversation.id == windowState.persistentConversationId
+        }
+    }
+
+    /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
+    /// so each row is a pure value view that can be skipped via `Equatable`.
+    func makeSidebarRow(
+        conversation: ConversationModel,
+        onSelect: (() -> Void)? = nil
+    ) -> SidebarConversationItem {
+        SidebarConversationItem(
+            conversation: conversation,
+            isSelected: isConversationSelected(conversation),
+            interactionState: conversationManager.interactionState(for: conversation.id),
+            isHovered: sidebar.isHoveredConversation == conversation.id,
+            isPendingDeletion: sidebar.conversationPendingDeletion == conversation.id,
+            selectConversation: { selectConversation(conversation) },
+            onSelect: onSelect,
+            onTogglePin: {
+                withAnimation(VAnimation.standard) {
+                    if conversation.isPinned {
+                        conversationManager.unpinConversation(id: conversation.id)
+                    } else {
+                        conversationManager.pinConversation(id: conversation.id)
+                    }
+                }
+            },
+            onArchive: { conversationManager.archiveConversation(id: conversation.id) },
+            onBeginArchive: { sidebar.conversationPendingDeletion = conversation.id },
+            onConfirmArchive: {
+                conversationManager.archiveConversation(id: conversation.id)
+                sidebar.conversationPendingDeletion = nil
+            },
+            onStartRename: {
+                sidebar.renamingConversationId = conversation.id
+                sidebar.renameText = conversation.title
+            },
+            onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
+            onHoverChange: { hovering in
+                withAnimation(VAnimation.fast) {
+                    sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
+                }
+            },
+            onDragStart: {
+                sidebar.draggingConversationId = conversation.id
+                sidebar.isHoveredConversation = nil
+            },
+            onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
+                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
+            } : nil
+        )
+    }
+
     // MARK: - Pinned App Helpers
 
     /// A pinned app row — delegates layout to `SidebarPrimaryRow` for both
@@ -226,13 +290,8 @@ extension MainWindowView {
                     }
 
                     ForEach(displayedConversations) { conversation in
-                        SidebarConversationItem(
-                            conversation: conversation,
-                            conversationManager: conversationManager,
-                            windowState: windowState,
-                            sidebar: sidebar,
-                            selectConversation: { selectConversation(conversation) }
-                        )
+                        makeSidebarRow(conversation: conversation)
+                            .equatable()
                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetConversationId == conversation.id {
@@ -296,13 +355,8 @@ extension MainWindowView {
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.conversations.count == 1, let conversation = group.conversations.first {
                                 // Single-conversation group: render inline without a disclosure wrapper
-                                SidebarConversationItem(
-                                    conversation: conversation,
-                                    conversationManager: conversationManager,
-                                    windowState: windowState,
-                                    sidebar: sidebar,
-                                    selectConversation: { selectConversation(conversation) }
-                                )
+                                makeSidebarRow(conversation: conversation)
+                                    .equatable()
                                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetConversationId == conversation.id {
@@ -376,13 +430,8 @@ extension MainWindowView {
                                 // Expanded child rows
                                 if isGroupExpanded {
                                     ForEach(group.conversations) { conversation in
-                                        SidebarConversationItem(
-                                            conversation: conversation,
-                                            conversationManager: conversationManager,
-                                            windowState: windowState,
-                                            sidebar: sidebar,
-                                            selectConversation: { selectConversation(conversation) }
-                                        )
+                                        makeSidebarRow(conversation: conversation)
+                                            .equatable()
                                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                 if sidebar.dropTargetConversationId == conversation.id {
