@@ -14,6 +14,7 @@ import { migrateCredentialsToKeychainMigration } from "./015-migrate-credentials
 import { extractFeatureFlagsToProtectedMigration } from "./016-extract-feature-flags-to-protected.js";
 import { migrateCredentialsFromKeychainMigration } from "./016-migrate-credentials-from-keychain.js";
 import { seedPersonaDirsMigration } from "./017-seed-persona-dirs.js";
+import { rekeyCompoundCredentialKeysMigration } from "./018-rekey-compound-credential-keys.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -39,4 +40,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   migrateCredentialsFromKeychainMigration,
   seedPersonaDirsMigration,
   extractFeatureFlagsToProtectedMigration,
+  rekeyCompoundCredentialKeysMigration,
 ];

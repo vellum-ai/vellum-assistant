@@ -98,6 +98,13 @@ async function daemonFetch(
  * field name is extracted correctly.
  */
 function deriveCredentialStorageKey(name: string): string {
+  // Already a canonical storage key (credential/service/field) — return as-is
+  // to avoid double-encoding (e.g. "credential/integration:google/access_token"
+  // would otherwise become "credential/credential/integration/google/access_token").
+  if (name.startsWith("credential/")) {
+    return name;
+  }
+
   const colonIdx = name.lastIndexOf(":");
   if (colonIdx < 1 || colonIdx === name.length - 1) {
     // Malformed — return raw name so the caller stores *something*.
