@@ -87,21 +87,33 @@ export async function synthesizeWithFishAudio(
   const reader = response.body.getReader();
   let isFirstChunk = true;
 
-  while (true) {
-    const timeoutMs = isFirstChunk ? FIRST_CHUNK_TIMEOUT_MS : IDLE_TIMEOUT_MS;
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
-        timeoutMs,
-      ),
-    );
-    const { done, value } = await Promise.race([reader.read(), timeout]);
-    if (done) break;
-    if (value) {
-      isFirstChunk = false;
-      chunks.push(value);
-      options?.onChunk?.(value);
+  try {
+    while (true) {
+      const timeoutMs = isFirstChunk ? FIRST_CHUNK_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+      let timerId: ReturnType<typeof setTimeout>;
+      const timeout = new Promise<never>((_, reject) => {
+        timerId = setTimeout(
+          () => reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      });
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await Promise.race([reader.read(), timeout]);
+      } finally {
+        clearTimeout(timerId!);
+      }
+      const { done, value } = readResult;
+      if (done) break;
+      if (value) {
+        isFirstChunk = false;
+        chunks.push(value);
+        options?.onChunk?.(value);
+      }
     }
+  } catch (err) {
+    await reader.cancel();
+    throw err;
   }
 
   const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
