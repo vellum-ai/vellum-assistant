@@ -16,8 +16,13 @@ const deliveredMessages: Array<{
   body: Record<string, unknown>;
 }> = [];
 
+let deliveryShouldFail = false;
+
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (url: string, body: Record<string, unknown>) => {
+    if (deliveryShouldFail) {
+      throw new Error("simulated delivery failure");
+    }
     deliveredMessages.push({ url, body });
   },
 }));
@@ -48,6 +53,7 @@ const noopLogger = new Proxy({} as pino.Logger, {
 describe("deliverStaleApprovalReply deduplication", () => {
   beforeEach(() => {
     deliveredMessages.length = 0;
+    deliveryShouldFail = false;
     clearStaleNotificationCache();
   });
 
@@ -139,5 +145,27 @@ describe("deliverStaleApprovalReply deduplication", () => {
 
     await deliverStaleApprovalReply(params);
     expect(deliveredMessages).toHaveLength(2);
+  });
+
+  test("does not cache dedup key when delivery fails, allowing retries", async () => {
+    const params = {
+      scenario: "approval_already_resolved" as const,
+      sourceChannel: "slack" as const,
+      replyCallbackUrl: "https://example.com/reply",
+      chatId: "chat-1",
+      assistantId: "asst-1",
+      logger: noopLogger,
+      errorLogMessage: "test",
+    };
+
+    // First attempt fails — should not cache the dedup key
+    deliveryShouldFail = true;
+    await deliverStaleApprovalReply(params);
+    expect(deliveredMessages).toHaveLength(0);
+
+    // Second attempt succeeds — should not be suppressed by dedup
+    deliveryShouldFail = false;
+    await deliverStaleApprovalReply(params);
+    expect(deliveredMessages).toHaveLength(1);
   });
 });

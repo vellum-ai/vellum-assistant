@@ -45,10 +45,9 @@ interface DeliverApprovalReplyParams {
 
 /**
  * Compose a generative approval message and deliver it as a channel reply.
- * Swallows delivery errors and logs them — callers don't need their own
- * try/catch blocks.
+ * Throws on failure — callers decide whether to swallow or propagate.
  */
-async function deliverApprovalReply(
+async function composeAndDeliver(
   params: DeliverApprovalReplyParams,
 ): Promise<void> {
   const {
@@ -58,24 +57,35 @@ async function deliverApprovalReply(
     assistantId,
     bearerToken,
     approvalCopyGenerator,
-    logger,
-    errorLogMessage,
-    errorLogContext,
   } = params;
 
+  const text = await composeApprovalMessageGenerative(
+    context,
+    {},
+    approvalCopyGenerator,
+  );
+  await deliverChannelReply(
+    replyCallbackUrl,
+    { chatId, text, assistantId },
+    bearerToken,
+  );
+}
+
+/**
+ * Compose a generative approval message and deliver it as a channel reply.
+ * Swallows delivery errors and logs them — callers don't need their own
+ * try/catch blocks.
+ */
+async function deliverApprovalReply(
+  params: DeliverApprovalReplyParams,
+): Promise<void> {
   try {
-    const text = await composeApprovalMessageGenerative(
-      context,
-      {},
-      approvalCopyGenerator,
-    );
-    await deliverChannelReply(
-      replyCallbackUrl,
-      { chatId, text, assistantId },
-      bearerToken,
-    );
+    await composeAndDeliver(params);
   } catch (err) {
-    logger.error({ err, ...errorLogContext }, errorLogMessage);
+    params.logger.error(
+      { err, ...params.errorLogContext },
+      params.errorLogMessage,
+    );
   }
 }
 
@@ -112,6 +122,15 @@ export async function deliverStaleApprovalReply(
 ): Promise<void> {
   const { scenario, sourceChannel, extraContext, ...rest } = params;
 
+  const replyParams: DeliverApprovalReplyParams = {
+    ...rest,
+    context: {
+      scenario,
+      channel: sourceChannel,
+      ...extraContext,
+    },
+  };
+
   // Deduplicate "already resolved" ephemeral messages per chat.
   // If the same (chatId, scenario) pair was notified within the TTL, skip.
   if (scenario === "approval_already_resolved") {
@@ -119,20 +138,22 @@ export async function deliverStaleApprovalReply(
     if (recentStaleNotifications.has(dedupeKey)) {
       return;
     }
-    recentStaleNotifications.add(dedupeKey);
-    setTimeout(() => {
-      recentStaleNotifications.delete(dedupeKey);
-    }, STALE_DEDUP_TTL_MS);
+
+    // Cache the dedup key only after successful delivery so that failures
+    // don't silently suppress retries for the TTL window.
+    try {
+      await composeAndDeliver(replyParams);
+      recentStaleNotifications.add(dedupeKey);
+      setTimeout(() => {
+        recentStaleNotifications.delete(dedupeKey);
+      }, STALE_DEDUP_TTL_MS);
+    } catch (err) {
+      rest.logger.error({ err, ...rest.errorLogContext }, rest.errorLogMessage);
+    }
+    return;
   }
 
-  await deliverApprovalReply({
-    ...rest,
-    context: {
-      scenario,
-      channel: sourceChannel,
-      ...extraContext,
-    },
-  });
+  await deliverApprovalReply(replyParams);
 }
 
 // ---------------------------------------------------------------------------
