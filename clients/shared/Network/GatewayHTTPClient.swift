@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "GatewayHTTPClient")
 
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
@@ -210,7 +213,13 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        return try await URLSession.shared.bytes(for: request)
+        let url = request.url?.absoluteString ?? "<nil>"
+        log.info("STREAM GET \(url, privacy: .public) body=0B")
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
+        log.info("STREAM GET \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
+        return (bytes, response)
     }
 
     /// Performs an authenticated streaming POST request against the gateway.
@@ -229,7 +238,13 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        return try await URLSession.shared.bytes(for: request)
+        let url = request.url?.absoluteString ?? "<nil>"
+        log.info("STREAM POST \(url, privacy: .public) body=\(body.count)B")
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
+        log.info("STREAM POST \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
+        return (bytes, response)
     }
 
     /// Performs an authenticated streaming POST request with automatic 401 retry
@@ -252,8 +267,13 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
+        let url = request.url?.absoluteString ?? "<nil>"
+        log.info("STREAM POST (retry-capable) \(url, privacy: .public) body=\(body.count)B")
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let contentLength = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
+        log.info("STREAM POST (retry-capable) \(url, privacy: .public) → \(statusCode) content-length=\(contentLength)")
 
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 401,
@@ -271,11 +291,16 @@ public enum GatewayHTTPClient {
         }
 
         // Rebuild with fresh credentials from the Keychain.
+        log.info("STREAM POST (retry-capable) \(url, privacy: .public) retrying after 401 refresh")
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
-        return try await URLSession.shared.bytes(for: retryRequest)
+        let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
+        let retryStatus = (retryResponse as? HTTPURLResponse)?.statusCode ?? -1
+        let retryContentLength = (retryResponse as? HTTPURLResponse)?.expectedContentLength ?? -1
+        log.info("STREAM POST (retry-capable) \(url, privacy: .public) retry → \(retryStatus) content-length=\(retryContentLength)")
+        return (retryBytes, retryResponse)
     }
 
     // MARK: - Internals
@@ -469,8 +494,13 @@ public enum GatewayHTTPClient {
 
     /// Executes a `URLRequest` and wraps the result in a `Response`.
     private static func execute(_ request: URLRequest) async throws -> Response {
+        let url = request.url?.absoluteString ?? "<nil>"
+        let bodyLength = request.httpBody?.count ?? 0
+        log.info("\(request.httpMethod ?? "?", privacy: .public) \(url, privacy: .public) body=\(bodyLength)B")
+
         let (data, response) = try await URLSession.shared.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        log.info("\(request.httpMethod ?? "?", privacy: .public) \(url, privacy: .public) → \(statusCode) body=\(data.count)B")
         return Response(data: data, statusCode: statusCode)
     }
 
