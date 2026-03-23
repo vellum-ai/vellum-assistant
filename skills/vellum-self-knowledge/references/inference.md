@@ -35,7 +35,7 @@ Relevant config paths and what they control:
 | `services.inference.model` | The active model ID (e.g. `claude-opus-4-6`, `gpt-5.2`) |
 | `services.inference.provider` | The active provider: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter` |
 | `services.inference.mode` | `"your-own"` (user's API key) vs `"managed"` (platform proxy) |
-| `effort` | Inference effort level: `"low"`, `"medium"`, `"high"` |
+| `effort` | Inference effort level: `"low"`, `"medium"`, `"high"`, `"max"` |
 | `thinking.enabled` | Whether extended thinking (chain-of-thought) is active |
 
 Read any of these with `assistant config get <path>`, e.g.:
