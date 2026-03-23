@@ -14,10 +14,15 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceConfigPath } from "../util/platform.js";
-import { checkUnrecognizedEnvVars } from "./env-registry.js";
+import {
+  checkUnrecognizedEnvVars,
+  getBaseDataDir,
+  getWorkspaceDirOverride,
+} from "./env-registry.js";
 
 const log = getLogger("env");
 
@@ -143,10 +148,17 @@ export function getOllamaBaseUrlEnv(): string | undefined {
 /**
  * Read the platform base URL from the workspace config file
  * (~/.vellum/workspace/config.json → platform.baseUrl).
+ *
+ * Resolves the workspace directory inline (same logic as platform.ts) to
+ * avoid importing from util/platform.js, which many tests mock without
+ * providing every export.
  */
 function getConfigPlatformUrl(): string | undefined {
   try {
-    const configPath = getWorkspaceConfigPath();
+    const wsDir =
+      getWorkspaceDirOverride() ||
+      join(getBaseDataDir() || homedir(), ".vellum", "workspace");
+    const configPath = join(wsDir, "config.json");
     if (!existsSync(configPath)) return undefined;
     const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
       string,
