@@ -63,14 +63,18 @@ export function handleConfirmationSignal(): void {
       return;
     }
 
-    interaction.conversation!.handleConfirmationResponse(
-      requestId,
-      decision,
-      undefined,
-      undefined,
-      undefined,
-      { source: "button" },
-    );
+    if (interaction.directResolve) {
+      interaction.directResolve(decision);
+    } else {
+      interaction.conversation!.handleConfirmationResponse(
+        requestId,
+        decision,
+        undefined,
+        undefined,
+        undefined,
+        { source: "button" },
+      );
+    }
     log.info({ requestId, decision }, "Confirmation resolved via signal file");
   } catch (err) {
     log.error({ err }, "Failed to handle confirmation signal");

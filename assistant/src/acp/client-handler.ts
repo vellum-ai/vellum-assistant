@@ -62,6 +62,7 @@ export class VellumAcpClientHandler implements Client {
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,
+    private readonly parentConversationId: string,
   ) {}
 
   async sessionUpdate(params: SessionNotification): Promise<void> {
@@ -194,6 +195,7 @@ export class VellumAcpClientHandler implements Client {
       persistentDecisionsAllowed: false,
       acpToolKind: toolKind,
       acpOptions,
+      conversationId: this.parentConversationId,
     });
 
     // Now overwrite with our ACP registration that has directResolve.
@@ -210,7 +212,7 @@ export class VellumAcpClientHandler implements Client {
 
       pendingInteractions.register(requestId, {
         conversation: null,
-        conversationId: `acp:${this.acpSessionId}`,
+        conversationId: this.parentConversationId,
         kind: "acp_confirmation",
         confirmationDetails: {
           toolName,

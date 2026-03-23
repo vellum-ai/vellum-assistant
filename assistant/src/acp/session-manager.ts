@@ -77,6 +77,7 @@ export class AcpSessionManager {
     const clientHandler = new VellumAcpClientHandler(
       acpSessionId,
       sendToVellum,
+      parentConversationId,
     );
 
     const agentProcess = new AcpAgentProcess(

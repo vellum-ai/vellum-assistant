@@ -17,7 +17,11 @@ describe("VellumAcpClientHandler", () => {
   beforeEach(() => {
     sent = [];
     sendToVellum = (msg) => sent.push(msg);
-    handler = new VellumAcpClientHandler("session-1", sendToVellum);
+    handler = new VellumAcpClientHandler(
+      "session-1",
+      sendToVellum,
+      "conv-parent",
+    );
     pendingInteractions.clear();
   });
 
@@ -254,6 +258,7 @@ describe("VellumAcpClientHandler", () => {
       const racyHandler = new VellumAcpClientHandler(
         "session-racy",
         overwritingSend,
+        "conv-racy",
       );
 
       const resultPromise = racyHandler.requestPermission({
