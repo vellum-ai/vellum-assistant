@@ -70,6 +70,23 @@ export const CallsVoiceConfigSchema = z
       })
       .default("elevenlabs")
       .describe("Text-to-speech provider for phone calls"),
+    hints: z
+      .array(
+        z.string({ error: "calls.voice.hints values must be strings" }),
+      )
+      .default([])
+      .describe(
+        "Static vocabulary hints for speech recognition — proper nouns, domain terms, and other words the STT provider should prioritize",
+      ),
+    interruptSensitivity: z
+      .enum(["low", "medium", "high"], {
+        error:
+          "calls.voice.interruptSensitivity must be one of: low, medium, high",
+      })
+      .default("low")
+      .describe(
+        "How aggressively the STT provider detects the start of caller speech — low reduces false interrupts from background noise",
+      ),
   })
   .describe("Voice and speech settings for phone calls");
 
