@@ -118,15 +118,6 @@ struct MessageListView: View {
     var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
-    // MARK: - Credits Exhausted (inline banner)
-
-    /// Non-nil when the conversation ended due to credits exhaustion.
-    var creditsExhaustedError: ConversationError? = nil
-    /// Opens the billing / add-funds flow.
-    var onAddFunds: (() -> Void)? = nil
-    /// Dismisses the credits-exhausted banner.
-    var onDismissCreditsExhausted: (() -> Void)? = nil
-
     // MARK: - Pagination
 
     /// Number of messages the view currently displays (suffix window size).

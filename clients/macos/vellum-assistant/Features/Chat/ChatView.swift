@@ -250,9 +250,6 @@ struct ChatView: View {
                             onRetryFailedMessage: onRetryFailedMessage,
                             onRetryConversationError: onRetryConversationError,
                             subagentDetailStore: subagentDetailStore,
-                            creditsExhaustedError: creditsExhaustedError,
-                            onAddFunds: onAddFunds,
-                            onDismissCreditsExhausted: onDismissCreditsExhausted,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,
@@ -266,8 +263,7 @@ struct ChatView: View {
 
                         if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
                             CreditsExhaustedBanner(
-                                onAddFunds: { onAddFunds?() },
-                                onDismiss: { onDismissCreditsExhausted?() }
+                                onAddFunds: { onAddFunds?() }
                             )
                             .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                             .frame(maxWidth: .infinity)

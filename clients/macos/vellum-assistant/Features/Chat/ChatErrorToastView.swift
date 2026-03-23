@@ -204,7 +204,6 @@ struct ChatConversationErrorToast: View {
 /// Uses a warm, encouraging tone with a visual gauge and clear CTA.
 struct CreditsExhaustedBanner: View {
     let onAddFunds: () -> Void
-    let onDismiss: () -> Void
 
     var body: some View {
         HStack(spacing: VSpacing.xl) {
