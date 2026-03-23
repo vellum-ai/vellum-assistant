@@ -275,13 +275,14 @@ public final class AuthService {
         }
     }
 
-    /// Create a new managed assistant via the platform hatch endpoint.
+    /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
+    /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
     public func hatchAssistant(
         organizationId: String,
         name: String? = nil,
         description: String? = nil,
         anthropicApiKey: String? = nil
-    ) async throws -> PlatformAssistant {
+    ) async throws -> HatchAssistantResult {
         let urlString = "\(baseURL)/v1/assistants/hatch/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -329,10 +330,17 @@ public final class AuthService {
             throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
         }
 
+        let assistant: PlatformAssistant
         do {
-            return try JSONDecoder().decode(PlatformAssistant.self, from: data)
+            assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+
+        if statusCode == 200 {
+            return .reusedExisting(assistant)
+        } else {
+            return .createdNew(assistant)
         }
     }
 

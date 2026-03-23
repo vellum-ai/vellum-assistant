@@ -158,6 +158,12 @@ public enum PlatformAssistantResult: Sendable {
     case accessDenied
 }
 
+/// Result type for the idempotent hatch endpoint (200 = existing, 201 = created).
+public enum HatchAssistantResult: Sendable {
+    case reusedExisting(PlatformAssistant)
+    case createdNew(PlatformAssistant)
+}
+
 /// Errors specific to platform API calls (non-allauth endpoints).
 public enum PlatformAPIError: LocalizedError, Sendable {
     case invalidURL

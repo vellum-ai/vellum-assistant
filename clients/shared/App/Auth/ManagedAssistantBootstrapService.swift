@@ -92,9 +92,9 @@ public final class ManagedAssistantBootstrapService {
         // No selected assistant (or stale one was cleared) — hatch is idempotent
         // and will return the existing assistant if one exists.
         log.info("No stored assistant ID — calling idempotent hatch")
-        let newAssistant: PlatformAssistant
+        let hatchResult: HatchAssistantResult
         do {
-            newAssistant = try await authService.hatchAssistant(
+            hatchResult = try await authService.hatchAssistant(
                 organizationId: organizationId,
                 name: name,
                 description: description,
@@ -103,8 +103,15 @@ public final class ManagedAssistantBootstrapService {
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }
-        log.info("Hatch returned assistant: \(newAssistant.id, privacy: .public)")
-        return .createdNew(newAssistant)
+
+        switch hatchResult {
+        case .reusedExisting(let assistant):
+            log.info("Hatch returned existing assistant: \(assistant.id, privacy: .public)")
+            return .reusedExisting(assistant)
+        case .createdNew(let assistant):
+            log.info("Hatch created new assistant: \(assistant.id, privacy: .public)")
+            return .createdNew(assistant)
+        }
     }
 
     /// Resolve the organization ID, preferring the persisted value.
