@@ -197,7 +197,19 @@ async function rollbackPlatformViaEndpoint(
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token);
+  let orgId: string;
+  try {
+    orgId = await fetchOrganizationId(token);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("401") || msg.includes("403")) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+    } else {
+      console.error(`Error: ${msg}`);
+    }
+    emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
+    process.exit(1);
+  }
 
   // Step 4 — Broadcast starting event
   console.log("📢 Notifying connected clients...");

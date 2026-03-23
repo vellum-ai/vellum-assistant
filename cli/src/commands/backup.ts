@@ -233,7 +233,19 @@ async function backupPlatform(name: string, outputArg?: string): Promise<void> {
   let downloadUrl: string | undefined;
 
   while (Date.now() < deadline) {
-    const status = await platformPollExportStatus(jobId, token, orgId);
+    let status: { status: string; downloadUrl?: string; error?: string };
+    try {
+      status = await platformPollExportStatus(jobId, token, orgId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Let non-transient errors (e.g. 404 "job not found") propagate immediately
+      if (msg.includes("not found")) {
+        throw err;
+      }
+      console.warn(`Polling failed, retrying... (${msg})`);
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      continue;
+    }
 
     if (status.status === "complete") {
       downloadUrl = status.downloadUrl;

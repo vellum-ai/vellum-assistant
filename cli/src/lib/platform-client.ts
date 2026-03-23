@@ -283,7 +283,10 @@ export async function platformImportPreflight(
     },
   );
 
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
   return { statusCode: response.status, body };
 }
 
@@ -304,6 +307,9 @@ export async function platformImportBundle(
     signal: AbortSignal.timeout(120_000),
   });
 
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
   return { statusCode: response.status, body };
 }
