@@ -44,10 +44,31 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Stub the local embedding backend so the real ONNX model never loads
+mock.module("../memory/embedding-local.js", () => ({
+  LocalEmbeddingBackend: class {
+    readonly provider = "local" as const;
+    readonly model: string;
+    constructor(model: string) {
+      this.model = model;
+    }
+    async embed(texts: string[]): Promise<number[][]> {
+      return texts.map(() => new Array(384).fill(0));
+    }
+  },
+}));
+
+// Dynamic Qdrant mock: tests can push results to be returned by searchWithFilter/hybridSearch
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -60,7 +81,6 @@ const TEST_CONFIG = {
     ...DEFAULT_CONFIG.memory,
     embeddings: {
       ...DEFAULT_CONFIG.memory.embeddings,
-      provider: "openai" as const,
       required: false,
     },
     extraction: {
@@ -115,6 +135,7 @@ describe("Memory lifecycle E2E regression", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
   });
@@ -339,15 +360,47 @@ describe("Memory lifecycle E2E regression", () => {
       })
       .run();
 
-    db.run(`
-      INSERT INTO memory_segments (
-        id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at
-      ) VALUES (
-        'seg-injection-seed', 'msg-injection-seed', '${conversationId}', 'user', 0,
-        'My preferred timezone is America/Los_Angeles.', 10, 'default',
-        ${now + 10}, ${now + 10}
-      )
-    `);
+    // Seed a memory item so the semantic search path can find it
+    db.insert(memoryItems)
+      .values({
+        id: "item-timezone-pref",
+        kind: "preference",
+        subject: "timezone preference",
+        statement: "My preferred timezone is America/Los_Angeles.",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: "fp-item-timezone-pref",
+        firstSeenAt: now + 10,
+        lastSeenAt: now + 10,
+      })
+      .run();
+
+    db.insert(memoryItemSources)
+      .values({
+        memoryItemId: "item-timezone-pref",
+        messageId: "msg-injection-seed",
+        evidence: "timezone preference evidence",
+        createdAt: now + 10,
+      })
+      .run();
+
+    // Mock Qdrant to return the timezone preference item
+    mockQdrantResults = [
+      {
+        id: "emb-timezone-pref",
+        score: 0.92,
+        payload: {
+          target_type: "item",
+          target_id: "item-timezone-pref",
+          text: "My preferred timezone is America/Los_Angeles.",
+          kind: "preference",
+          status: "active",
+          created_at: now + 10,
+          last_seen_at: now + 10,
+        },
+      },
+    ];
 
     const recall = await buildMemoryRecall(
       "timezone",
