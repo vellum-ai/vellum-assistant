@@ -114,29 +114,43 @@ async function retryableFetch<T>(
     }
 
     if (!isRetryable(response.status) && !response.ok) {
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as TelegramApiResponse<T>;
+      const body = await response.text().catch(() => "");
+      let description: string | undefined;
+      try {
+        const data = JSON.parse(body) as TelegramApiResponse<T>;
+        description = data.description;
+      } catch {
+        // Response body is not JSON — include raw text if available
+      }
       throw new Error(
-        data.description
-          ? `Telegram ${method} failed: ${data.description}`
-          : `Telegram ${method} failed with status ${response.status}`,
+        description
+          ? `Telegram ${method} failed: ${description}`
+          : body
+            ? `Telegram ${method} failed with status ${response.status}: ${body}`
+            : `Telegram ${method} failed with status ${response.status}`,
       );
     }
 
     if (isRetryable(response.status)) {
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as TelegramApiResponse<T>;
+      const body = await response.text().catch(() => "");
+      let description: string | undefined;
+      let retryAfterParam: number | undefined;
+      try {
+        const data = JSON.parse(body) as TelegramApiResponse<T>;
+        description = data.description;
+        retryAfterParam = data.parameters?.retry_after;
+      } catch {
+        // Response body is not JSON
+      }
       lastRetryAfter =
         response.headers.get("retry-after") ??
-        (data.parameters?.retry_after != null
-          ? String(data.parameters.retry_after)
-          : null);
+        (retryAfterParam != null ? String(retryAfterParam) : null);
       lastError = new Error(
-        data.description
-          ? `Telegram ${method} failed: ${data.description}`
-          : `Telegram ${method} failed with status ${response.status}`,
+        description
+          ? `Telegram ${method} failed: ${description}`
+          : body
+            ? `Telegram ${method} failed with status ${response.status}: ${body}`
+            : `Telegram ${method} failed with status ${response.status}`,
       );
       log.warn(
         {
@@ -150,9 +164,17 @@ async function retryableFetch<T>(
       continue;
     }
 
-    const data = (await response
-      .json()
-      .catch(() => ({}))) as TelegramApiResponse<T>;
+    const body = await response.text().catch(() => "");
+    let data: TelegramApiResponse<T>;
+    try {
+      data = JSON.parse(body) as TelegramApiResponse<T>;
+    } catch {
+      throw new Error(
+        body
+          ? `Telegram ${method} failed: unparseable response body: ${body}`
+          : `Telegram ${method} failed with status ${response.status}: empty response`,
+      );
+    }
     if (!data.ok || data.result === undefined) {
       throw new Error(
         data.description

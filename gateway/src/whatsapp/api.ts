@@ -97,12 +97,19 @@ async function retryableWhatsAppFetch<T>(
     }
 
     if (!isRetryable(response.status) && !response.ok) {
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as WhatsAppApiErrorResponse;
-      const message = data.error?.message
-        ? `WhatsApp ${operation} failed: ${data.error.message}`
-        : `WhatsApp ${operation} failed with status ${response.status}`;
+      const body = await response.text().catch(() => "");
+      let errorMessage: string | undefined;
+      try {
+        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
+        errorMessage = data.error?.message;
+      } catch {
+        // Response body is not JSON — include raw text if available
+      }
+      const message = errorMessage
+        ? `WhatsApp ${operation} failed: ${errorMessage}`
+        : body
+          ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
+          : `WhatsApp ${operation} failed with status ${response.status}`;
 
       // Auth/permission errors (401/403) are transient — propagate as regular
       // errors so the webhook returns 500 and Meta retries within its window.
@@ -115,13 +122,20 @@ async function retryableWhatsAppFetch<T>(
 
     if (isRetryable(response.status)) {
       lastRetryAfter = response.headers.get("retry-after");
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as WhatsAppApiErrorResponse;
+      const body = await response.text().catch(() => "");
+      let errorMessage: string | undefined;
+      try {
+        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
+        errorMessage = data.error?.message;
+      } catch {
+        // Response body is not JSON
+      }
       lastError = new Error(
-        data.error?.message
-          ? `WhatsApp ${operation} failed: ${data.error.message}`
-          : `WhatsApp ${operation} failed with status ${response.status}`,
+        errorMessage
+          ? `WhatsApp ${operation} failed: ${errorMessage}`
+          : body
+            ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
+            : `WhatsApp ${operation} failed with status ${response.status}`,
       );
       log.warn(
         {
