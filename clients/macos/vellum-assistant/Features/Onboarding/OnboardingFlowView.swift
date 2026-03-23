@@ -352,10 +352,25 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// Polls the gateway health endpoint for the managed assistant until it
-    /// responds successfully or the timeout elapses.
+    /// Waits for a managed assistant to become fully provisioned and reachable.
+    ///
+    /// Phase 1: Polls `GET /v1/assistants/{id}/` until the platform reports the
+    /// assistant's status as `"active"` (or the field is absent for backward compat).
+    ///
+    /// Phase 2: Polls the gateway health endpoint at the assistant-scoped path
+    /// (`assistants/{assistantId}/health`) until the runtime responds successfully.
     private func awaitManagedAssistantReady(assistantId: String) async {
-        let timeout: TimeInterval = 15
+        // Phase 1: Wait for the platform to finish provisioning.
+        do {
+            try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(assistantId: assistantId)
+        } catch {
+            log.error("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            state.hatchFailed = true
+            return
+        }
+
+        // Phase 2: Poll the assistant-scoped gateway health endpoint.
+        let timeout: TimeInterval = 120
         let start = CFAbsoluteTimeGetCurrent()
         var lastError: Error?
         var lastStatusCode: Int?
@@ -363,7 +378,7 @@ struct OnboardingFlowView: View {
         while CFAbsoluteTimeGetCurrent() - start < timeout {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "health",
+                    path: "assistants/{assistantId}/health",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {
