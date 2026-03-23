@@ -29,7 +29,6 @@ async function checkAdapterVersion(
   if (adapterVersionChecked || command !== "claude-agent-acp") {
     return null;
   }
-  adapterVersionChecked = true;
 
   try {
     const { stdout: installedRaw } = await execFileAsync("npm", [
@@ -49,6 +48,8 @@ async function checkAdapterVersion(
         "@zed-industries/claude-agent-acp"
       ]?.version;
     const latest = latestRaw.trim();
+
+    adapterVersionChecked = true;
 
     if (!installed || !latest || installed === latest) {
       return null;
@@ -103,7 +104,7 @@ export async function executeAcpSpawn(
     return {
       content:
         `claude-agent-acp is outdated (installed: ${versionInfo.installed}, latest: ${versionInfo.latest}). ` +
-        `Ask the user if they'd like to update. If yes, call the acp_update_adapter tool, then retry acp_spawn.`,
+        `Ask the user if they'd like to update. If yes, run: npm install -g @zed-industries/claude-agent-acp@${versionInfo.latest} — then retry acp_spawn.`,
       isError: true,
     };
   }
@@ -142,41 +143,5 @@ export async function executeAcpSpawn(
           ? JSON.stringify(err)
           : String(err);
     return { content: `Failed to spawn ACP agent: ${msg}`, isError: true };
-  }
-}
-
-/**
- * Updates the globally-installed claude-agent-acp adapter to the latest version.
- * Called by the LLM after the user confirms the update.
- */
-export async function executeAcpUpdateAdapter(): Promise<ToolExecutionResult> {
-  try {
-    const { stdout: latestRaw } = await execFileAsync("npm", [
-      "view",
-      "@zed-industries/claude-agent-acp",
-      "version",
-    ]);
-    const latest = latestRaw.trim();
-
-    await execFileAsync("npm", [
-      "install",
-      "-g",
-      `@zed-industries/claude-agent-acp@${latest}`,
-    ]);
-
-    log.info({ latest }, "claude-agent-acp updated");
-    // Reset the check so the next spawn sees it as current
-    adapterVersionChecked = false;
-
-    return {
-      content: `claude-agent-acp updated to ${latest}. You can now retry acp_spawn.`,
-      isError: false,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      content: `Failed to update claude-agent-acp: ${msg}`,
-      isError: true,
-    };
   }
 }

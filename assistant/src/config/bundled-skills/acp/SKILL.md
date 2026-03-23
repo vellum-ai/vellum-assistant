@@ -50,6 +50,16 @@ When the user first tries to use ACP and it's not configured, set it up automati
 - NEVER use `claude`, `claude -p`, `claude --acp`, or any other command. Only `claude-agent-acp` speaks the ACP JSON-RPC protocol.
 - NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp`, leave it alone.
 
+## Updating the adapter
+
+If `acp_spawn` reports that `claude-agent-acp` is outdated, ask the user before updating. To update:
+
+```bash
+npm install -g @zed-industries/claude-agent-acp@latest
+```
+
+Then retry the `acp_spawn` call.
+
 ## Tips
 
 - The spawned agent runs autonomously with its own tools, file editing, and terminal access.
