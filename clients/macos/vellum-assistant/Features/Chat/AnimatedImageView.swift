@@ -48,10 +48,9 @@ struct AnimatedImageView: View {
     // MARK: - Cached workspace directory
 
     /// Cached workspace directory to avoid synchronous lockfile reads per image.
-    /// Invalidated when the connected assistant ID changes.
+    /// Re-resolves when the connected assistant ID changes or after a transient miss.
     @MainActor private static var cachedWorkspaceDir: String?
     @MainActor private static var cachedAssistantId: String?
-    @MainActor private static var workspaceDirResolved = false
 
     /// Maximum display dimension in points (matches text bubble maxWidth).
     private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
@@ -118,7 +117,7 @@ struct AnimatedImageView: View {
         // Relative workspace paths — resolve to absolute to avoid cross-assistant collisions.
         if !urlString.contains("://") {
             let currentAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            if !Self.workspaceDirResolved || currentAssistantId != Self.cachedAssistantId {
+            if Self.cachedWorkspaceDir == nil || currentAssistantId != Self.cachedAssistantId {
                 Self.cachedAssistantId = currentAssistantId
                 Self.cachedWorkspaceDir = nil
                 if let assistantId = currentAssistantId,
@@ -126,7 +125,6 @@ struct AnimatedImageView: View {
                    let resolved = assistant.workspaceDir {
                     Self.cachedWorkspaceDir = resolved
                 }
-                Self.workspaceDirResolved = true
             }
             let workspaceDir = Self.cachedWorkspaceDir ?? (NSHomeDirectory() + "/.vellum/workspace")
             let absolutePath = workspaceDir + "/" + urlString
