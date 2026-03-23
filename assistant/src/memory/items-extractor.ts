@@ -11,6 +11,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
+import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { maybeEnqueueConversationStartersJob } from "./conversation-starters-cadence.js";
@@ -206,8 +207,7 @@ IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribu
   // generic "User ..." labels. Budget is dynamically computed: whatever
   // remains after the fixed instructions fits within the system prompt
   // ceiling, preventing oversized prompts from exceeding the provider input
-  // window (which would cause sendMessage to error and fall back to
-  // lower-quality pattern-based extraction).
+  // window (which would cause sendMessage to error).
   const rawIdentityContext = buildCoreIdentityContext(
     userPersona ? { userPersona } : undefined,
   );
@@ -324,175 +324,159 @@ async function extractItemsWithLLM(
 ): Promise<ExtractedItem[]> {
   const provider = await getConfiguredProvider();
   if (!provider) {
-    log.debug(
-      "Configured provider unavailable for LLM extraction, falling back to pattern-based",
+    throw new BackendUnavailableError(
+      "Provider unavailable for memory extraction",
     );
-    return extractItemsPatternBased(text, scopeId);
   }
 
-  try {
-    // Query existing items to give the LLM supersession context
-    const existingItems = queryExistingItemsForContext(scopeId, text);
-    const systemPrompt = buildExtractionSystemPrompt(
-      existingItems,
-      messageRole,
-      userPersona,
-    );
+  // Query existing items to give the LLM supersession context
+  const existingItems = queryExistingItemsForContext(scopeId, text);
+  const systemPrompt = buildExtractionSystemPrompt(
+    existingItems,
+    messageRole,
+    userPersona,
+  );
 
-    const assistantName = getAssistantName() ?? "the assistant";
-    const messagePrefix =
-      messageRole === "assistant"
-        ? `[This message is from ${assistantName}]\n\n`
-        : `[This message is from the user]\n\n`;
-    const response = await provider.sendMessage(
-      [userMessage(`${messagePrefix}${text}`)],
-      [
-        {
-          name: "store_memory_items",
-          description: "Store extracted memory items from the message",
-          input_schema: {
-            type: "object" as const,
-            properties: {
+  const assistantName = getAssistantName() ?? "the assistant";
+  const messagePrefix =
+    messageRole === "assistant"
+      ? `[This message is from ${assistantName}]\n\n`
+      : `[This message is from the user]\n\n`;
+  const response = await provider.sendMessage(
+    [userMessage(`${messagePrefix}${text}`)],
+    [
+      {
+        name: "store_memory_items",
+        description: "Store extracted memory items from the message",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            items: {
+              type: "array",
               items: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    kind: {
-                      type: "string",
-                      enum: [...VALID_KINDS],
-                      description: "Category of memory item",
-                    },
-                    subject: {
-                      type: "string",
-                      description:
-                        "Short label (2-8 words) for what this is about",
-                    },
-                    statement: {
-                      type: "string",
-                      description:
-                        "Relationship-rich factual statement to remember (1-2 sentences). Include relational context.",
-                    },
-                    confidence: {
-                      type: "number",
-                      description: "Confidence that this is accurate (0.0-1.0)",
-                    },
-                    importance: {
-                      type: "number",
-                      description: "How valuable this is to remember (0.0-1.0)",
-                    },
-                    supersedes: {
-                      type: ["string", "null"],
-                      description:
-                        "ID of the existing memory item this replaces, or null if not replacing anything",
-                    },
-                    overrideConfidence: {
-                      type: "string",
-                      enum: ["explicit", "tentative", "inferred"],
-                      description:
-                        "How confident you are that this overrides an existing item: explicit (clear override), tentative (ambiguous), inferred (weak signal)",
-                    },
+                type: "object",
+                properties: {
+                  kind: {
+                    type: "string",
+                    enum: [...VALID_KINDS],
+                    description: "Category of memory item",
                   },
-                  required: [
-                    "kind",
-                    "subject",
-                    "statement",
-                    "confidence",
-                    "importance",
-                    "supersedes",
-                    "overrideConfidence",
-                  ],
+                  subject: {
+                    type: "string",
+                    description:
+                      "Short label (2-8 words) for what this is about",
+                  },
+                  statement: {
+                    type: "string",
+                    description:
+                      "Relationship-rich factual statement to remember (1-2 sentences). Include relational context.",
+                  },
+                  confidence: {
+                    type: "number",
+                    description: "Confidence that this is accurate (0.0-1.0)",
+                  },
+                  importance: {
+                    type: "number",
+                    description: "How valuable this is to remember (0.0-1.0)",
+                  },
+                  supersedes: {
+                    type: ["string", "null"],
+                    description:
+                      "ID of the existing memory item this replaces, or null if not replacing anything",
+                  },
+                  overrideConfidence: {
+                    type: "string",
+                    enum: ["explicit", "tentative", "inferred"],
+                    description:
+                      "How confident you are that this overrides an existing item: explicit (clear override), tentative (ambiguous), inferred (weak signal)",
+                  },
                 },
+                required: [
+                  "kind",
+                  "subject",
+                  "statement",
+                  "confidence",
+                  "importance",
+                  "supersedes",
+                  "overrideConfidence",
+                ],
               },
             },
-            required: ["items"],
           },
-        },
-      ],
-      systemPrompt,
-      {
-        config: {
-          modelIntent: extractionConfig.modelIntent,
-          tool_choice: { type: "tool" as const, name: "store_memory_items" },
+          required: ["items"],
         },
       },
-    );
+    ],
+    systemPrompt,
+    {
+      config: {
+        modelIntent: extractionConfig.modelIntent,
+        tool_choice: { type: "tool" as const, name: "store_memory_items" },
+      },
+    },
+  );
 
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock) {
-      log.warn(
-        "No tool_use block in LLM extraction response, falling back to pattern-based",
-      );
-      return extractItemsPatternBased(text, scopeId);
-    }
-
-    const input = toolBlock.input as { items?: LLMExtractedItem[] };
-    if (!Array.isArray(input.items)) {
-      log.warn(
-        "Invalid items in LLM extraction response, falling back to pattern-based",
-      );
-      return extractItemsPatternBased(text, scopeId);
-    }
-
-    // Build set of known existing item IDs for supersession validation
-    const existingItemIds = new Set(existingItems.map((e) => e.id));
-
-    const items: ExtractedItem[] = [];
-    for (const raw of input.items) {
-      // Apply kind migration map for old kind names, then validate
-      const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
-      if (!VALID_KINDS.has(resolvedKind)) continue;
-      if (!raw.subject || !raw.statement) continue;
-      const subject = String(raw.subject).trim();
-      const statement = String(raw.statement).trim();
-      const confidence = clampUnitInterval(parseScore(raw.confidence, 0.5));
-      const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
-      const fingerprint = computeMemoryFingerprint(
-        scopeId,
-        resolvedKind,
-        subject,
-        statement,
-      );
-
-      // Validate supersedes: must reference a known existing item ID.
-      // Reject hallucinated IDs that don't match any item we showed the LLM.
-      const rawSupersedes =
-        typeof raw.supersedes === "string" && raw.supersedes.length > 0
-          ? raw.supersedes
-          : null;
-      const supersedes =
-        rawSupersedes && existingItemIds.has(rawSupersedes)
-          ? rawSupersedes
-          : null;
-      const supersedesRejected = !!rawSupersedes && !supersedes;
-      const overrideConfidence = VALID_OVERRIDE_CONFIDENCES.has(
-        raw.overrideConfidence,
-      )
-        ? (raw.overrideConfidence as OverrideConfidence)
-        : "inferred";
-
-      items.push({
-        kind: resolvedKind as MemoryItemKind,
-        subject,
-        statement,
-        confidence,
-        importance,
-        fingerprint,
-        supersedes,
-        overrideConfidence,
-        supersedesRejected,
-      });
-    }
-
-    return deduplicateItems(items);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err: message },
-      "LLM extraction failed, falling back to pattern-based",
-    );
-    return extractItemsPatternBased(text, scopeId);
+  const toolBlock = extractToolUse(response);
+  if (!toolBlock) {
+    throw new Error("No tool_use block in LLM extraction response");
   }
+
+  const input = toolBlock.input as { items?: LLMExtractedItem[] };
+  if (!Array.isArray(input.items)) {
+    throw new Error("Invalid items structure in LLM extraction response");
+  }
+
+  // Build set of known existing item IDs for supersession validation
+  const existingItemIds = new Set(existingItems.map((e) => e.id));
+
+  const items: ExtractedItem[] = [];
+  for (const raw of input.items) {
+    // Apply kind migration map for old kind names, then validate
+    const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
+    if (!VALID_KINDS.has(resolvedKind)) continue;
+    if (!raw.subject || !raw.statement) continue;
+    const subject = String(raw.subject).trim();
+    const statement = String(raw.statement).trim();
+    const confidence = clampUnitInterval(parseScore(raw.confidence, 0.5));
+    const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
+    const fingerprint = computeMemoryFingerprint(
+      scopeId,
+      resolvedKind,
+      subject,
+      statement,
+    );
+
+    // Validate supersedes: must reference a known existing item ID.
+    // Reject hallucinated IDs that don't match any item we showed the LLM.
+    const rawSupersedes =
+      typeof raw.supersedes === "string" && raw.supersedes.length > 0
+        ? raw.supersedes
+        : null;
+    const supersedes =
+      rawSupersedes && existingItemIds.has(rawSupersedes)
+        ? rawSupersedes
+        : null;
+    const supersedesRejected = !!rawSupersedes && !supersedes;
+    const overrideConfidence = VALID_OVERRIDE_CONFIDENCES.has(
+      raw.overrideConfidence,
+    )
+      ? (raw.overrideConfidence as OverrideConfidence)
+      : "inferred";
+
+    items.push({
+      kind: resolvedKind as MemoryItemKind,
+      subject,
+      statement,
+      confidence,
+      importance,
+      fingerprint,
+      supersedes,
+      overrideConfidence,
+      supersedesRejected,
+    });
+  }
+
+  return deduplicateItems(items);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -535,15 +519,17 @@ export async function extractAndUpsertMemoryItemsForMessage(
   // better extraction context than none.
   const userPersona = resolveGuardianPersona();
 
-  const extracted = extractionConfig.useLLM
-    ? await extractItemsWithLLM(
-        text,
-        extractionConfig,
-        effectiveScopeId,
-        message.role,
-        userPersona,
-      )
-    : extractItemsPatternBased(text, effectiveScopeId);
+  if (!extractionConfig.useLLM) {
+    return 0;
+  }
+
+  const extracted = await extractItemsWithLLM(
+    text,
+    extractionConfig,
+    effectiveScopeId,
+    message.role,
+    userPersona,
+  );
 
   if (extracted.length === 0) return 0;
 
@@ -709,11 +695,9 @@ export async function extractAndUpsertMemoryItemsForMessage(
     }
 
     // Fallback subject-match supersession: only when the LLM did not
-    // explicitly handle supersession for this item. This preserves the
-    // original behavior for pattern-based extraction and items without
-    // LLM-directed supersession. Skip items whose supersedes ID was
-    // rejected (hallucinated) — they should coexist, not trigger
-    // subject-based replacement.
+    // explicitly handle supersession for this item. Skip items whose
+    // supersedes ID was rejected (hallucinated) — they should coexist,
+    // not trigger subject-based replacement.
     if (
       !item.supersedes &&
       !item.supersedesRejected &&
@@ -765,119 +749,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
   }
 
   return upserted;
-}
-
-// ── Pattern-based extraction (fallback) ────────────────────────────────
-
-function extractItemsPatternBased(
-  text: string,
-  scopeId: string = "default",
-): ExtractedItem[] {
-  const sentences = text
-    .split(/[\n\r]+|(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 20 && s.length <= 500);
-
-  const items: ExtractedItem[] = [];
-  for (const sentence of sentences) {
-    const lower = sentence.toLowerCase();
-    const classification = classifySentence(lower);
-    if (!classification) continue;
-    const subject = inferSubject(sentence, classification.kind);
-    const statement = sentence.replace(/\s+/g, " ").trim();
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      classification.kind,
-      subject,
-      statement,
-    );
-    items.push({
-      kind: classification.kind,
-      subject,
-      statement,
-      confidence: classification.confidence,
-      importance: classification.importance,
-      fingerprint,
-      supersedes: null,
-      overrideConfidence: "inferred" as OverrideConfidence,
-    });
-  }
-
-  return deduplicateItems(items);
-}
-
-function classifySentence(
-  lower: string,
-): { kind: MemoryItemKind; confidence: number; importance: number } | null {
-  if (
-    includesAny(lower, [
-      "i prefer",
-      "prefer to",
-      "favorite",
-      "i like",
-      "i dislike",
-    ])
-  ) {
-    return { kind: "preference", confidence: 0.78, importance: 0.7 };
-  }
-  if (
-    includesAny(lower, [
-      "my name is",
-      "i am ",
-      "i work as",
-      "i live in",
-      "timezone",
-    ])
-  ) {
-    return { kind: "identity", confidence: 0.72, importance: 0.8 };
-  }
-  if (includesAny(lower, ["project", "repository", "repo", "codebase"])) {
-    return { kind: "project", confidence: 0.68, importance: 0.6 };
-  }
-  if (
-    includesAny(lower, ["we decided", "decision", "chosen approach", "we will"])
-  ) {
-    return { kind: "decision", confidence: 0.75, importance: 0.7 };
-  }
-  if (
-    includesAny(lower, ["todo", "to do", "next step", "follow up", "need to"])
-  ) {
-    return { kind: "project", confidence: 0.74, importance: 0.6 };
-  }
-  if (
-    includesAny(lower, [
-      "must",
-      "cannot",
-      "should not",
-      "constraint",
-      "requirement",
-    ])
-  ) {
-    return { kind: "constraint", confidence: 0.7, importance: 0.7 };
-  }
-  if (includesAny(lower, ["remember", "important", "fact", "noted"])) {
-    return { kind: "identity", confidence: 0.62, importance: 0.5 };
-  }
-  return null;
-}
-
-function inferSubject(sentence: string, kind: MemoryItemKind): string {
-  const trimmed = sentence.trim();
-  if (kind === "project") {
-    const match = trimmed.match(
-      /(?:project|repo(?:sitory)?)\s+([A-Za-z0-9._/-]{2,80})/i,
-    );
-    if (match) return match[1];
-  }
-  const words = trimmed.split(/\s+/).slice(0, 6).join(" ");
-  return truncate(words, 80, "");
-}
-
-function includesAny(text: string, needles: string[]): boolean {
-  for (const needle of needles) {
-    if (text.includes(needle)) return true;
-  }
-  return false;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
