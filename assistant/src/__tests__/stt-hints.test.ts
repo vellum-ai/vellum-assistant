@@ -236,6 +236,41 @@ describe("buildSttHints", () => {
     expect(parts).toContain("Recent");
   });
 
+  test("surnames after abbreviation periods are preserved", () => {
+    const input = emptyInput();
+    input.taskDescription = "Call Dr. Smith at Acme";
+    const result = buildSttHints(input);
+    expect(result).toContain("Smith");
+    expect(result).toContain("Acme");
+    // "Dr" should also appear as a capitalized word
+    expect(result).toContain("Dr");
+  });
+
+  test("multiple abbreviation titles preserve following names", () => {
+    const input = emptyInput();
+    input.taskDescription = "Meet Mr. Johnson and Mrs. Williams at the office";
+    const result = buildSttHints(input);
+    expect(result).toContain("Johnson");
+    expect(result).toContain("Williams");
+  });
+
+  test("non-ASCII letters preserved in names", () => {
+    const input = emptyInput();
+    input.taskDescription = "Call José García and Łukasz Nowak";
+    const result = buildSttHints(input);
+    expect(result).toContain("José");
+    expect(result).toContain("García");
+    expect(result).toContain("Łukasz");
+    expect(result).toContain("Nowak");
+  });
+
+  test("accented uppercase letters detected as proper nouns", () => {
+    const input = emptyInput();
+    input.taskDescription = "Talk to Zoë about the project";
+    const result = buildSttHints(input);
+    expect(result).toContain("Zoë");
+  });
+
   test("null and empty string names are excluded", () => {
     const input = emptyInput();
     input.assistantName = "";

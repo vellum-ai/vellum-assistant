@@ -60,13 +60,19 @@ export function buildSttHints(input: SttHintsInput): string {
   // Split on sentence boundaries, then for each sentence take words
   // after the first that start with an uppercase letter.
   if (input.taskDescription != null && input.taskDescription.trim().length > 0) {
-    const sentences = input.taskDescription.split(/[.!?]\s+/);
+    // Split on sentence-ending punctuation followed by whitespace, but avoid
+    // splitting on periods after common abbreviations (Dr., Mr., etc.) so that
+    // names like "Dr. Smith" aren't fragmented and dropped by the first-word skip.
+    const sentences = input.taskDescription.split(
+      /(?<!\b(?:Mr|Mrs|Ms|Dr|Jr|Sr|St|Rev|Prof|Gen|Sgt|Lt|Col))[.]\s+|[!?]\s+/,
+    );
     for (const sentence of sentences) {
       const words = sentence.trim().split(/\s+/);
       // Skip the first word (always capitalized at sentence start)
       for (let i = 1; i < words.length; i++) {
-        const word = words[i].replace(/[^a-zA-Z'-]/g, "");
-        if (word.length > 0 && /^[A-Z]/.test(word)) {
+        // Use Unicode-aware \p{L} to preserve accented/non-Latin letters (José, Łukasz, etc.)
+        const word = words[i].replace(/[^\p{L}'-]/gu, "");
+        if (word.length > 0 && /^\p{Lu}/u.test(word)) {
           hints.push(word);
         }
       }
