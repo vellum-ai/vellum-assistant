@@ -1,5 +1,5 @@
 import { loadConfig } from "../config/loader.js";
-import { getFailoverProvider } from "../providers/registry.js";
+import { getProvider } from "../providers/registry.js";
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
@@ -29,10 +29,7 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
     const config = loadConfig();
     let provider;
     try {
-      provider = getFailoverProvider(
-        config.services.inference.provider,
-        config.providerOrder,
-      );
+      provider = getProvider(config.services.inference.provider);
     } catch {
       return null;
     }
@@ -134,10 +131,7 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    const provider = getFailoverProvider(
-      config.services.inference.provider,
-      config.providerOrder,
-    );
+    const provider = getProvider(config.services.inference.provider);
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,
