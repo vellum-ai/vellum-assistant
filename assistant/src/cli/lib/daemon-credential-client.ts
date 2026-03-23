@@ -9,10 +9,8 @@
 
 import providerEnvVarsRegistry from "../../../../meta/provider-env-vars.json" with { type: "json" };
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
-import {
-  healthCheckHost,
-  isHttpHealthy,
-} from "../../daemon/daemon-control.js";
+import { API_KEY_PROVIDERS } from "../../config/loader.js";
+import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -30,6 +28,7 @@ import {
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-credential-client");
+const CREDENTIAL_KEY_PREFIX = "credential/";
 
 const PROVIDER_ENV_VARS: Record<string, string> =
   providerEnvVarsRegistry.providers;
@@ -117,6 +116,31 @@ function deriveCredentialStorageKey(name: string): string {
   return credentialKey(service, field);
 }
 
+function deriveReadSecretRequest(account: string): {
+  type: "api_key" | "credential";
+  name: string;
+} {
+  if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+    const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
+    const slashIdx = rest.indexOf("/");
+    if (slashIdx > 0 && slashIdx < rest.length - 1) {
+      return {
+        type: "credential",
+        name: `${rest.slice(0, slashIdx)}:${rest.slice(slashIdx + 1)}`,
+      };
+    }
+  }
+
+  if (
+    account.includes(":") &&
+    !API_KEY_PROVIDERS.includes(account as (typeof API_KEY_PROVIDERS)[number])
+  ) {
+    return { type: "credential", name: account };
+  }
+
+  return { type: "api_key", name: account };
+}
+
 // ---------------------------------------------------------------------------
 // Exported wrapper functions
 // ---------------------------------------------------------------------------
@@ -129,9 +153,10 @@ function deriveCredentialStorageKey(name: string): string {
 export async function getSecureKeyViaDaemon(
   account: string,
 ): Promise<string | undefined> {
+  const request = deriveReadSecretRequest(account);
   const res = await daemonFetch("/v1/secrets/read", {
     method: "POST",
-    body: JSON.stringify({ type: "api_key", name: account, reveal: true }),
+    body: JSON.stringify({ ...request, reveal: true }),
   });
 
   if (res?.ok) {
@@ -152,9 +177,10 @@ export async function getSecureKeyViaDaemon(
 export async function getSecureKeyResultViaDaemon(
   account: string,
 ): Promise<SecureKeyResult> {
+  const request = deriveReadSecretRequest(account);
   const res = await daemonFetch("/v1/secrets/read", {
     method: "POST",
-    body: JSON.stringify({ type: "api_key", name: account, reveal: true }),
+    body: JSON.stringify({ ...request, reveal: true }),
   });
 
   if (res?.ok) {
@@ -203,7 +229,8 @@ export async function setSecureKeyViaDaemon(
   // Daemon unreachable — fall back to direct write.
   // For credentials, derive the canonical storage key (credential/service/field)
   // to match the daemon path which uses credentialKey().
-  const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
+  const storageKey =
+    type === "credential" ? deriveCredentialStorageKey(name) : name;
   return setSecureKeyAsync(storageKey, value);
 }
 
@@ -235,7 +262,8 @@ export async function deleteSecureKeyViaDaemon(
   // Daemon unreachable — fall back to direct delete.
   // For credentials, derive the canonical storage key (credential/service/field)
   // to match the daemon path which uses credentialKey().
-  const storageKey = type === "credential" ? deriveCredentialStorageKey(name) : name;
+  const storageKey =
+    type === "credential" ? deriveCredentialStorageKey(name) : name;
   return deleteSecureKeyAsync(storageKey);
 }
 
