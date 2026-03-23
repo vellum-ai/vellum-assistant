@@ -789,8 +789,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // layout pass can trigger an auto-scroll-to-bottom.
                 // Guard: only untether if content is actually scrollable (prevents false
                 // untethers on short conversations that can't scroll).
-                let (scrollView, lookupPath) = coordinator.findEnclosingScrollViewWithPath()
-                if let scrollView {
+                let wasCached = coordinator.cachedScrollView != nil
+                let (resolvedScrollView, lookupPath) = wasCached
+                    ? (coordinator.cachedScrollView, "cached")
+                    : coordinator.findEnclosingScrollViewWithPath()
+                if !wasCached { coordinator.cachedScrollView = resolvedScrollView }
+                if let scrollView = resolvedScrollView {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0
                     let isScrollable = docHeight > clipHeight
@@ -831,8 +835,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
                 // reading it synchronously in the event monitor sees the pre-scroll state.
                 DispatchQueue.main.async {
-                    let (scrollView, lookupPath) = coordinator.findEnclosingScrollViewWithPath()
-                    if let scrollView {
+                    let wasCached = coordinator.cachedScrollView != nil
+                    let (resolvedScrollView, lookupPath) = wasCached
+                        ? (coordinator.cachedScrollView, "cached")
+                        : coordinator.findEnclosingScrollViewWithPath()
+                    if !wasCached { coordinator.cachedScrollView = resolvedScrollView }
+                    if let scrollView = resolvedScrollView {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
                         let distanceFromBottom = docHeight - clipBounds.maxY
@@ -930,6 +938,9 @@ struct ScrollWheelDetector: NSViewRepresentable {
         /// Reference to the registry for unregistration on dismantle.
         /// Weak-optional because the registry is @MainActor and may outlive the coordinator.
         var registry: ScrollWheelDetectorRegistry?
+        /// Cached scroll view to avoid repeated superview-chain walks on every scroll event.
+        /// Weak so it auto-nils when the scroll view is deallocated; the next event re-resolves.
+        weak var cachedScrollView: NSScrollView?
 
         /// Throttle interval for scroll-wheel diagnostics recording.
         /// Prevents synchronous JSON-encode + FileHandle.write on every tick.
