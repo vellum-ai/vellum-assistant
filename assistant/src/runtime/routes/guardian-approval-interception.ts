@@ -634,11 +634,22 @@ function editStaleSlackApprovalMessage(params: {
   conversationId: string;
 }): void {
   const statusText = "This approval request has been resolved.";
+  const blocks = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: statusText },
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: statusText }],
+    },
+  ];
   deliverChannelReply(
     params.replyCallbackUrl,
     {
       chatId: params.chatId,
       text: statusText,
+      blocks,
       messageTs: params.messageTs,
       assistantId: params.assistantId,
     },

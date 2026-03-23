@@ -3,7 +3,6 @@ import {
   BlockKitBuilder,
   button,
   approvalPrompt,
-  approvalResolved,
   permissionRequest,
   progressIndicator,
   errorMessage,
@@ -278,53 +277,5 @@ describe("errorMessage", () => {
   it("omits context when detail is not provided", () => {
     const blocks = errorMessage({ message: "Oops" });
     expect(blocks).toHaveLength(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Helper: approvalResolved
-// ---------------------------------------------------------------------------
-
-describe("approvalResolved", () => {
-  it("produces section + context blocks with approved status", () => {
-    const blocks = approvalResolved({
-      message: "Allow file access?",
-      decision: "approved",
-    });
-
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].type).toBe("section");
-    expect((blocks[0] as SectionBlock).text.text).toBe("Allow file access?");
-
-    const ctx = blocks[1] as ContextBlock;
-    expect(ctx.type).toBe("context");
-    expect(ctx.elements[0]).toEqual({
-      type: "mrkdwn",
-      text: "\u2713 Approved",
-    });
-  });
-
-  it("produces section + context blocks with denied status", () => {
-    const blocks = approvalResolved({
-      message: "Run shell command?",
-      decision: "denied",
-    });
-
-    expect(blocks).toHaveLength(2);
-    const ctx = blocks[1] as ContextBlock;
-    expect(ctx.elements[0]).toEqual({
-      type: "mrkdwn",
-      text: "\u2717 Denied",
-    });
-  });
-
-  it("does not include an actions block", () => {
-    const blocks = approvalResolved({
-      message: "test",
-      decision: "approved",
-    });
-
-    const hasActions = blocks.some((b) => b.type === "actions");
-    expect(hasActions).toBe(false);
   });
 });

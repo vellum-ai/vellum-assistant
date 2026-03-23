@@ -7,6 +7,7 @@ import { applyGuardianDecision } from "../../../approvals/guardian-decision-prim
 import type { ChannelId } from "../../../channels/types.js";
 import {
   getAllPendingApprovalsByGuardianChat,
+  getApprovalRequestById,
   getPendingApprovalByRequestAndGuardianChat,
   type GuardianApprovalRequest,
 } from "../../../memory/guardian-approvals.js";
@@ -386,11 +387,18 @@ async function handleCallbackDecision(params: {
   // stale buttons so the guardian isn't left with actionable UI that does
   // nothing. Also send an ephemeral error message for visibility.
   if (sourceChannel === "slack" && approvalMessageTs) {
+    // Re-read the approval from DB to get the actual resolved status.
+    // The in-memory `guardianApproval` was loaded via a pending-status
+    // filter and is still "pending" even though it was resolved by
+    // another process.
+    const refreshed = getApprovalRequestById(guardianApproval.id);
+    const resolvedStatus =
+      refreshed?.status === "approved" ? "approved" : "denied";
     editSlackApprovalMessage({
       replyCallbackUrl,
       chatId: guardianApproval.guardianChatId,
       messageTs: approvalMessageTs,
-      decision: guardianApproval.status === "approved" ? "approved" : "denied",
+      decision: resolvedStatus,
       assistantId,
       bearerToken,
       conversationId: guardianApproval.conversationId,
@@ -678,11 +686,27 @@ function editSlackApprovalMessage(params: {
   const statusLabel = decision === "approved" ? "Approved" : "Denied";
   const statusText = `${statusEmoji} ${statusLabel}`;
 
+  // Build Block Kit blocks matching the resolved approval layout:
+  // a section with the status text and a context line with the decision.
+  // This replaces the original approval prompt's action buttons with a
+  // read-only status display.
+  const blocks = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: statusText },
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `${statusEmoji} ${statusLabel}` }],
+    },
+  ];
+
   deliverChannelReply(
     replyCallbackUrl,
     {
       chatId,
       text: statusText,
+      blocks,
       messageTs,
       assistantId,
     },

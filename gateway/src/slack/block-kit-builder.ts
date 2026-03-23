@@ -227,24 +227,3 @@ export function errorMessage(opts: {
   }
   return builder.toBlocks();
 }
-
-/**
- * Build a resolved approval message — replaces the original approval prompt
- * after a guardian decision is applied. Shows the original message text with
- * a status line indicating the decision outcome. No action buttons.
- *
- * Used by `chat.update` to edit the original Slack approval message so
- * stale buttons are removed and users see the decision result inline.
- */
-export function approvalResolved(opts: {
-  message: string;
-  decision: "approved" | "denied";
-}): Block[] {
-  const statusEmoji = opts.decision === "approved" ? "\u2713" : "\u2717";
-  const statusLabel = opts.decision === "approved" ? "Approved" : "Denied";
-
-  return new BlockKitBuilder()
-    .section(opts.message)
-    .contextMrkdwn(`${statusEmoji} ${statusLabel}`)
-    .toBlocks();
-}
