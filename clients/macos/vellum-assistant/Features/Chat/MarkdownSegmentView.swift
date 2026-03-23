@@ -314,7 +314,9 @@ struct MarkdownSegmentView: View, Equatable {
                         let font = NSFont.systemFont(ofSize: 14)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
-                        prefixWidthCache[prefixText] = prefixWidth
+                        if prefixWidthCache.count < 200 {
+                            prefixWidthCache[prefixText] = prefixWidth
+                        }
                     }
                     let paragraphStyle = NSMutableParagraphStyle()
                     paragraphStyle.headIndent = prefixWidth
