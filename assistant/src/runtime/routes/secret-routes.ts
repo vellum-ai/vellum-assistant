@@ -21,6 +21,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
+  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -483,6 +484,16 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
   }
 }
 
+export async function handleListSecrets(): Promise<Response> {
+  try {
+    const accounts = await listSecureKeysAsync();
+    return Response.json({ accounts });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return httpError("INTERNAL_ERROR", message, 500);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -505,6 +516,11 @@ export function secretRouteDefinitions(
       endpoint: "secrets",
       method: "DELETE",
       handler: async ({ req }) => handleDeleteSecret(req),
+    },
+    {
+      endpoint: "secrets",
+      method: "GET",
+      handler: async () => handleListSecrets(),
     },
     {
       endpoint: "secrets/read",
