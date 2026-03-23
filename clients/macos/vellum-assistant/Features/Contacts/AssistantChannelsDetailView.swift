@@ -344,7 +344,8 @@ struct AssistantChannelsDetailView: View {
                 name: "Email",
                 value: value,
                 isConnected: isConnected,
-                isExpanded: $emailRowExpanded
+                isExpanded: $emailRowExpanded,
+                isExpandable: false
             )
             .padding(.vertical, VSpacing.sm)
         }
@@ -401,10 +402,10 @@ struct AssistantChannelsDetailView: View {
 
         var body: some View {
             HStack(spacing: VSpacing.sm) {
-                // Left: chevron (when connected) + channel icon + name
-                if isConnected {
+                // Left: chevron (when connected and expandable) + channel icon + name
+                if isConnected && isExpandable {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
-                        .foregroundColor(isExpandable ? VColor.contentTertiary : VColor.contentDisabled)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 VIconView(icon, size: 16)
                     .foregroundColor(VColor.contentSecondary)
