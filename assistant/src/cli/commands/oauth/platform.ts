@@ -380,6 +380,7 @@ Examples:
 
           writeOutput(cmd, {
             ok: true,
+            deferred: true,
             provider,
             connectUrl: result.connect_url,
           });
