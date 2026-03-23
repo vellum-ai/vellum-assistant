@@ -450,8 +450,8 @@ async function extractItemsWithLLM(
         const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
         if (!VALID_KINDS.has(resolvedKind)) continue;
         if (!raw.subject || !raw.statement) continue;
-        const subject = truncate(String(raw.subject), 80, "");
-        const statement = truncate(String(raw.statement), 500, "");
+        const subject = String(raw.subject).trim();
+        const statement = String(raw.statement).trim();
         const confidence = clampUnitInterval(parseScore(raw.confidence, 0.5));
         const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
         const fingerprint = computeMemoryFingerprint(
@@ -744,7 +744,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
       .values({
         memoryItemId,
         messageId,
-        evidence: truncate(item.statement, 500, ""),
+        evidence: item.statement,
         createdAt: now,
       })
       .onConflictDoNothing()
