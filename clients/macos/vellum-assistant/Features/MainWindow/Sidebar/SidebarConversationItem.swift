@@ -3,35 +3,38 @@ import VellumAssistantShared
 
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
-struct SidebarConversationItem: View {
+///
+/// This is a pure value view — all state is pre-resolved into value-type props
+/// and action closures, so SwiftUI can skip re-evaluation via `Equatable`.
+struct SidebarConversationItem: View, Equatable {
     let conversation: ConversationModel
-    @ObservedObject var conversationManager: ConversationManager
-    @ObservedObject var windowState: MainWindowState
-    var sidebar: SidebarInteractionState
-    /// Called when the user taps the conversation row (handles selection logic).
-    var selectConversation: () -> Void
-    /// Optional additional callback after selection (e.g. dismiss a popover).
-    var onSelect: (() -> Void)? = nil
+    let isSelected: Bool
+    let interactionState: ConversationInteractionState
+    let isHovered: Bool
+    let isPendingDeletion: Bool
 
-    private var isSelected: Bool {
-        switch windowState.selection {
-        case .panel:
-            return false
-        case .conversation(let id):
-            return id == conversation.id
-        case .appEditing(_, let conversationId):
-            return conversationId == conversation.id
-        case .app, .none:
-            // No explicit conversation in selection; fall back to the persistent conversation.
-            return conversation.id == windowState.persistentConversationId
-        }
+    // Action closures — not compared in Equatable
+    var selectConversation: () -> Void
+    var onSelect: (() -> Void)? = nil
+    var onTogglePin: () -> Void
+    var onArchive: () -> Void
+    var onBeginArchive: () -> Void
+    var onConfirmArchive: () -> Void
+    var onStartRename: () -> Void
+    var onMarkUnread: () -> Void
+    var onHoverChange: (Bool) -> Void
+    var onDragStart: () -> Void
+    var onShowFeedback: (() -> Void)?
+
+    static func == (lhs: SidebarConversationItem, rhs: SidebarConversationItem) -> Bool {
+        lhs.conversation == rhs.conversation &&
+        lhs.isSelected == rhs.isSelected &&
+        lhs.interactionState == rhs.interactionState &&
+        lhs.isHovered == rhs.isHovered &&
+        lhs.isPendingDeletion == rhs.isPendingDeletion
     }
 
-    private var isHovered: Bool { sidebar.isHoveredConversation == conversation.id }
-    private var interactionState: ConversationInteractionState { conversationManager.interactionState(for: conversation.id) }
-    // Reserve trailing space when hovered for archive button overlay.
-    private var hasTrailingIcon: Bool { isHovered || sidebar.conversationPendingDeletion == conversation.id }
-    private var isPendingDeletion: Bool { sidebar.conversationPendingDeletion == conversation.id }
+    private var hasTrailingIcon: Bool { isHovered || isPendingDeletion }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
             conversation.conversationId != nil &&
@@ -48,13 +51,7 @@ struct SidebarConversationItem: View {
                 // Hovered -> interactive pin button; not hovered -> status indicator.
                 if isHovered {
                     Button {
-                        withAnimation(VAnimation.standard) {
-                            if conversation.isPinned {
-                                conversationManager.unpinConversation(id: conversation.id)
-                            } else {
-                                conversationManager.pinConversation(id: conversation.id)
-                            }
-                        }
+                        onTogglePin()
                     } label: {
                         VIconView(.pin, size: 13)
                             .foregroundColor(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
@@ -151,17 +148,16 @@ struct SidebarConversationItem: View {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if sidebar.conversationPendingDeletion == conversation.id {
+            if isPendingDeletion {
                 VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    conversationManager.archiveConversation(id: conversation.id)
-                    sidebar.conversationPendingDeletion = nil
+                    onConfirmArchive()
                 }
                 .fixedSize()
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(conversation.title)")
             } else if isHovered {
                 Button {
-                    sidebar.conversationPendingDeletion = conversation.id
+                    onBeginArchive()
                 } label: {
                     VIconView(.archive, size: 13)
                         .foregroundColor(VColor.contentSecondary)
@@ -177,29 +173,22 @@ struct SidebarConversationItem: View {
         .padding(.horizontal, 0)
         .contextMenu {
             Button {
-                withAnimation(VAnimation.standard) {
-                    if conversation.isPinned {
-                        conversationManager.unpinConversation(id: conversation.id)
-                    } else {
-                        conversationManager.pinConversation(id: conversation.id)
-                    }
-                }
+                onTogglePin()
             } label: {
                 Label { Text(conversation.isPinned ? "Unpin" : "Pin") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
             }
             Button {
-                sidebar.renamingConversationId = conversation.id
-                sidebar.renameText = conversation.title
+                onStartRename()
             } label: {
                 Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
-                conversationManager.archiveConversation(id: conversation.id)
+                onArchive()
             } label: {
                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
             }
             Button {
-                conversationManager.markConversationUnread(conversationId: conversation.id)
+                onMarkUnread()
             } label: {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
@@ -208,22 +197,17 @@ struct SidebarConversationItem: View {
             Divider()
 
             Button {
-                guard let conversationId = conversation.conversationId else { return }
-                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
+                onShowFeedback?()
             } label: {
                 Label { Text("Share Feedback") } icon: { VIconView(.messageCircle, size: 14) }
             }
-            .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
+            .disabled(onShowFeedback == nil)
         }
         .pointerCursor { hovering in
-            withAnimation(VAnimation.fast) {
-                sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
-            }
+            onHoverChange(hovering)
         }
         .onDrag {
-            sidebar.draggingConversationId = conversation.id
-            // Clear hover so icon-swap and archive-button animations stop during drag.
-            sidebar.isHoveredConversation = nil
+            onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
             HStack(spacing: VSpacing.xs) {
