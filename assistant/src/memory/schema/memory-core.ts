@@ -56,6 +56,8 @@ export const memoryItems = sqliteTable(
     supersedes: text("supersedes"),
     supersededBy: text("superseded_by"),
     overrideConfidence: text("override_confidence").default("inferred"),
+    sourceType: text("source_type").notNull().default("extraction"),
+    sourceMessageRole: text("source_message_role"),
   },
   (table) => [
     index("idx_memory_items_scope_id").on(table.scopeId),

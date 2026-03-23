@@ -168,9 +168,7 @@ async function searchItemsSemantic(
 
     const filter = {
       must: mustConditions,
-      must_not: [
-        { key: "_meta", match: { value: true } },
-      ],
+      must_not: [{ key: "_meta", match: { value: true } }],
     };
 
     const qdrant = getQdrantClient();
@@ -260,9 +258,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
       // Re-apply the same DB-side filters used in the SQL path as defense-
       // in-depth against stale Qdrant payloads leaking deleted/mismatched rows.
-      const hydrationConditions = [
-        inArray(memoryItems.id, pageIds),
-      ];
+      const hydrationConditions = [inArray(memoryItems.id, pageIds)];
       if (statusParam && statusParam !== "all") {
         hydrationConditions.push(eq(memoryItems.status, statusParam));
       }
@@ -493,6 +489,7 @@ export async function handleCreateMemoryItem(
       importance: importance ?? 0.8,
       fingerprint,
       verificationState: "user_confirmed",
+      sourceType: "tool",
       scopeId,
       firstSeenAt: now,
       lastSeenAt: now,

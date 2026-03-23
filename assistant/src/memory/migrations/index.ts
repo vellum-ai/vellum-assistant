@@ -131,6 +131,7 @@ export { migrateDropSimplifiedMemory } from "./189-drop-simplified-memory.js";
 export { migrateCallSessionSkipDisclosure } from "./190-call-session-skip-disclosure.js";
 export { migrateBackfillAudioAttachmentMimeTypes } from "./191-backfill-audio-attachment-mime-types.js";
 export { migrateContactsUserFileColumn } from "./192-contacts-user-file-column.js";
+export { migrateAddSourceTypeColumns } from "./193-add-source-type-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

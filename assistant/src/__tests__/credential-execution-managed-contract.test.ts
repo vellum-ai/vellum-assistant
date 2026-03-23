@@ -446,9 +446,9 @@ describe("managed OAuth materialization through CES sidecar", () => {
 // ---------------------------------------------------------------------------
 
 describe("feature-flag rollback safety", () => {
-  test("managed sidecar flag defaults to false (safe dark-launch)", () => {
+  test("managed sidecar flag defaults to true (enabled by default)", () => {
     const config = makeConfig();
-    expect(isCesManagedSidecarEnabled(config)).toBe(false);
+    expect(isCesManagedSidecarEnabled(config)).toBe(true);
   });
 
   test("managed sidecar flag can be explicitly enabled", () => {

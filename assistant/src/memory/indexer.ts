@@ -7,7 +7,7 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
-import { enqueueMemoryJob } from "./jobs-store.js";
+import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
 import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
@@ -16,6 +16,11 @@ import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
+
+/** Delay before a conversation summary job becomes eligible to run.
+ *  Each new message in the same conversation resets the timer, so the
+ *  summary is only built once the conversation has been idle for this long. */
+const SUMMARY_DEBOUNCE_MS = 3 * 60 * 1000; // 3 minutes
 
 export interface IndexMessageInput {
   messageId: string;
@@ -54,9 +59,11 @@ export async function indexMessageNow(
 
   const text = extractTextFromStoredMessageContent(input.content);
   if (text.length === 0) {
-    enqueueMemoryJob("build_conversation_summary", {
-      conversationId: input.conversationId,
-    });
+    upsertDebouncedJob(
+      "build_conversation_summary",
+      { conversationId: input.conversationId },
+      Date.now() + SUMMARY_DEBOUNCE_MS,
+    );
     return { indexedSegments: 0, enqueuedJobs: 1 };
   }
 
@@ -152,13 +159,15 @@ export async function indexMessageNow(
         tx,
       );
     }
-    enqueueMemoryJob(
-      "build_conversation_summary",
-      { conversationId: input.conversationId },
-      Date.now(),
-      tx,
-    );
   });
+
+  // Debounced outside the transaction — each new message pushes the summary
+  // job's runAfter forward so it only fires once the conversation is idle.
+  upsertDebouncedJob(
+    "build_conversation_summary",
+    { conversationId: input.conversationId },
+    Date.now() + SUMMARY_DEBOUNCE_MS,
+  );
 
   if (skippedEmbedJobs > 0) {
     log.debug(

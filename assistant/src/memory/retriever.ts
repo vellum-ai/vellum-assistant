@@ -434,9 +434,12 @@ export async function buildMemoryRecall(
   // Compute RRF-style final scores for the merged candidates
   const allCandidates = [...candidateMap.values()];
   for (const c of allCandidates) {
-    // Simple weighted combination — hybrid search already applies RRF fusion
-    // at the Qdrant level; here we combine the fused semantic score with recency.
-    c.finalScore = c.semantic * 0.7 + c.recency * 0.2 + c.confidence * 0.1;
+    // Multiplicative scoring: importance, confidence, and recency amplify semantic
+    // relevance but can't substitute for it. An irrelevant item (semantic ≈ 0)
+    // stays low regardless of metadata. Multiplier range: 0.4 (all zero) to 1.0.
+    const metadataMultiplier =
+      0.4 + c.importance * 0.25 + c.confidence * 0.15 + c.recency * 0.2;
+    c.finalScore = c.semantic * metadataMultiplier;
   }
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);
 

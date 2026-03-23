@@ -37,6 +37,7 @@ import { migrateDropCapabilityCardStateDown } from "./176-drop-capability-card-s
 import { migrateBackfillInlineAttachmentsToDiskDown } from "./180-backfill-inline-attachments-to-disk.js";
 import { migrateRenameThreadStartersCheckpointsDown } from "./181-rename-thread-starters-checkpoints.js";
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "./191-backfill-audio-attachment-mime-types.js";
+import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -324,6 +325,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Backfill correct MIME types for audio attachments stored as application/octet-stream due to missing extension map entries",
     down: migrateBackfillAudioAttachmentMimeTypesDown,
+  },
+  {
+    key: "migration_add_source_type_columns_v1",
+    version: 37,
+    description:
+      "Add source_type and source_message_role columns to memory_items with backfill from verification_state and source messages",
+    down: migrateAddSourceTypeColumnsDown,
   },
 ];
 
