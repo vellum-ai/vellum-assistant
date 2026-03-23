@@ -250,8 +250,7 @@ struct MissingApiKeyBanner: View {
             HStack {
                 Spacer()
                 Button { onDismiss?() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(.x, size: 12)
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .buttonStyle(.plain)
