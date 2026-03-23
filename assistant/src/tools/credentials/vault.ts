@@ -400,8 +400,9 @@ class CredentialStoreTool implements Tool {
         const credIdSuffix = metadata
           ? ` (credential_id: ${metadata.credentialId})`
           : "";
+        const retrieveHint = ` Retrieve with: \`assistant credentials reveal --service ${service} --field ${field}\``;
         return {
-          content: `Stored credential for ${service}/${field}.${credIdSuffix}${
+          content: `Stored credential for ${service}/${field}.${credIdSuffix}${retrieveHint}${
             slackChannelResult
               ? formatSlackChannelStatus(slackChannelResult)
               : ""
@@ -810,8 +811,9 @@ class CredentialStoreTool implements Tool {
         const promptCredIdSuffix = promptMeta
           ? ` (credential_id: ${promptMeta.credentialId})`
           : "";
+        const promptRetrieveHint = ` Retrieve with: \`assistant credentials reveal --service ${service} --field ${field}\``;
         return {
-          content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}${
+          content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}${promptRetrieveHint}${
             slackChannelResult
               ? formatSlackChannelStatus(slackChannelResult)
               : ""

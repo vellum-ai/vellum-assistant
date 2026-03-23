@@ -31,6 +31,24 @@ import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
+// Format-aware error output
+// ---------------------------------------------------------------------------
+
+/**
+ * Write an error message respecting the output format. In JSON mode, emit a
+ * structured `{ ok: false, error }` object to stdout. In human mode, write
+ * plain text to stderr so the assistant (LLM) doesn't receive JSON that it
+ * might misinterpret as data.
+ */
+function writeError(cmd: Command, message: string): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: false, error: message });
+  } else {
+    process.stderr.write(`Error: ${message}\n`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CES shell lockdown guard
 // ---------------------------------------------------------------------------
 
@@ -336,13 +354,13 @@ Examples:
           managedOutputs = descriptors.map(buildManagedCredentialOutput);
         }
 
-        writeOutput(cmd, {
-          ok: true,
-          credentials,
-          managedCredentials: managedOutputs,
-        });
-
-        if (!shouldOutputJson(cmd)) {
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, {
+            ok: true,
+            credentials,
+            managedCredentials: managedOutputs,
+          });
+        } else {
           const totalCount = credentials.length + managedOutputs.length;
           if (totalCount === 0) {
             log.info("No credentials found");
@@ -367,7 +385,7 @@ Examples:
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
+        writeError(cmd, message);
         process.exitCode = 1;
       }
     });
@@ -427,10 +445,7 @@ Examples:
             value,
           );
           if (!stored) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Failed to store secret for ${service}:${field}`,
-            });
+            writeError(cmd, `Failed to store secret for ${service}:${field}`);
             process.exitCode = 1;
             return;
           }
@@ -446,21 +461,21 @@ Examples:
           });
           await syncManualTokenConnection(service);
 
-          writeOutput(cmd, {
-            ok: true,
-            credentialId: metadata.credentialId,
-            service,
-            field,
-          });
-
-          if (!shouldOutputJson(cmd)) {
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              credentialId: metadata.credentialId,
+              service,
+              field,
+            });
+          } else {
             log.info(
               `Stored credential ${service}:${field} (${metadata.credentialId})`,
             );
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -496,10 +511,10 @@ Examples:
           `${service}:${field}`,
         );
         if (secretResult === "error") {
-          writeOutput(cmd, {
-            ok: false,
-            error: "Failed to delete credential from secure storage",
-          });
+          writeError(
+            cmd,
+            "Failed to delete credential from secure storage",
+          );
           process.exitCode = 1;
           return;
         }
@@ -516,10 +531,10 @@ Examples:
         }
 
         if (oauthResult === "error") {
-          writeOutput(cmd, {
-            ok: false,
-            error: "Failed to disconnect OAuth provider — please try again",
-          });
+          writeError(
+            cmd,
+            "Failed to disconnect OAuth provider — please try again",
+          );
           process.exitCode = 1;
           return;
         }
@@ -529,19 +544,19 @@ Examples:
           !metadataDeleted &&
           oauthResult !== "disconnected"
         ) {
-          writeOutput(cmd, { ok: false, error: "Credential not found" });
+          writeError(cmd, "Credential not found");
           process.exitCode = 1;
           return;
         }
 
-        writeOutput(cmd, { ok: true, service, field });
-
-        if (!shouldOutputJson(cmd)) {
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, service, field });
+        } else {
           log.info(`Deleted credential ${service}:${field}`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
+        writeError(cmd, message);
         process.exitCode = 1;
       }
     });
@@ -600,16 +615,15 @@ Examples:
               field = metadata.field;
             } else {
               // No metadata found by UUID, and we can't determine the storage key
-              writeOutput(cmd, { ok: false, error: "Credential not found" });
+              writeError(cmd, "Credential not found");
               process.exitCode = 1;
               return;
             }
           } else {
-            writeOutput(cmd, {
-              ok: false,
-              error:
-                "Either --service and --field flags or a credential UUID is required",
-            });
+            writeError(
+              cmd,
+              "Either --service and --field flags or a credential UUID is required",
+            );
             process.exitCode = 1;
             return;
           }
@@ -619,13 +633,12 @@ Examples:
 
           if (!metadata && (secret == null || secret.length === 0)) {
             if (unreachable) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
-              });
+              writeError(
+                cmd,
+                "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
+              );
             } else {
-              writeOutput(cmd, { ok: false, error: "Credential not found" });
+              writeError(cmd, "Credential not found");
             }
             process.exitCode = 1;
             return;
@@ -635,23 +648,23 @@ Examples:
           // This can happen if someone stored a key directly without going through the
           // credential set command. Build a minimal output in that case.
           if (!metadata) {
-            writeOutput(cmd, {
-              ok: true,
-              service: service,
-              field: field,
-              credentialId: null,
-              scrubbedValue: scrubSecret(secret),
-              hasSecret: secret != null && secret.length > 0,
-              alias: null,
-              usageDescription: null,
-              allowedTools: [],
-              allowedDomains: [],
-              createdAt: null,
-              updatedAt: null,
-              injectionTemplateCount: 0,
-            });
-
-            if (!shouldOutputJson(cmd)) {
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                ok: true,
+                service: service,
+                field: field,
+                credentialId: null,
+                scrubbedValue: scrubSecret(secret),
+                hasSecret: secret != null && secret.length > 0,
+                alias: null,
+                usageDescription: null,
+                allowedTools: [],
+                allowedDomains: [],
+                createdAt: null,
+                updatedAt: null,
+                injectionTemplateCount: 0,
+              });
+            } else {
               log.info(`  ${service}:${field}`);
               log.info(`    Value:       ${scrubSecret(secret)}`);
               log.info("    (no metadata record)");
@@ -667,9 +680,9 @@ Examples:
             output.brokerUnreachable = true;
           }
 
-          writeOutput(cmd, output);
-
-          if (!shouldOutputJson(cmd)) {
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, output);
+          } else {
             printCredentialHuman(output);
             if (unreachable && (secret == null || secret.length === 0)) {
               log.info(
@@ -679,7 +692,7 @@ Examples:
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -723,7 +736,7 @@ Examples:
         try {
           // CES shell lockdown: deny raw secret reveal in untrusted shells.
           if (isUntrustedShell()) {
-            writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
+            writeError(cmd, UNTRUSTED_SHELL_ERROR);
             process.exitCode = 1;
             return;
           }
@@ -737,16 +750,15 @@ Examples:
             if (metadata) {
               storageKey = credentialKey(metadata.service, metadata.field);
             } else {
-              writeOutput(cmd, { ok: false, error: "Credential not found" });
+              writeError(cmd, "Credential not found");
               process.exitCode = 1;
               return;
             }
           } else {
-            writeOutput(cmd, {
-              ok: false,
-              error:
-                "Either --service and --field flags or a credential UUID is required",
-            });
+            writeError(
+              cmd,
+              "Either --service and --field flags or a credential UUID is required",
+            );
             process.exitCode = 1;
             return;
           }
@@ -756,13 +768,12 @@ Examples:
 
           if (secret == null || secret.length === 0) {
             if (unreachable) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
-              });
+              writeError(
+                cmd,
+                "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
+              );
             } else {
-              writeOutput(cmd, { ok: false, error: "Credential not found" });
+              writeError(cmd, "Credential not found");
             }
             process.exitCode = 1;
             return;
@@ -775,7 +786,7 @@ Examples:
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
