@@ -1,5 +1,5 @@
 import { getProviderKeyAsync } from "../security/secure-keys.js";
-import { ConfigError } from "../util/errors.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
@@ -24,9 +24,7 @@ export function registerProvider(name: string, provider: Provider): void {
 export function getProvider(name: string): Provider {
   const provider = providers.get(name);
   if (!provider) {
-    throw new ConfigError(
-      `Provider "${name}" not found. Available: ${listProviders().join(", ")}`,
-    );
+    throw new ProviderNotConfiguredError(name, listProviders());
   }
   return provider;
 }
