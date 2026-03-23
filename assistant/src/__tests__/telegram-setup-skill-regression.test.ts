@@ -22,6 +22,20 @@ describe("telegram-setup skill regression", () => {
     expect(skillContent).toContain("always use the secure credential prompt");
   });
 
+  test("stops setup cleanly when the secure prompt is cancelled", () => {
+    expect(skillContent).toContain("prompt was cancelled");
+    expect(skillContent).toContain("no bot token was saved");
+  });
+
+  test("surfaces managed callback registration failures before success", () => {
+    expect(skillContent).toContain(
+      "assistant platform callback-routes register --path webhooks/telegram --type telegram --json",
+    );
+    expect(skillContent).toContain(
+      "inbound webhook delivery is not configured yet",
+    );
+  });
+
   test("does not instruct the agent to reimplement Telegram setup in shell", () => {
     expect(skillContent).not.toContain(
       "assistant credentials reveal --service telegram",
@@ -37,9 +51,6 @@ describe("telegram-setup skill regression", () => {
     );
     expect(skillContent).not.toContain(
       "assistant config set telegram.botUsername",
-    );
-    expect(skillContent).not.toContain(
-      "assistant platform callback-routes register",
     );
   });
 });

@@ -35,6 +35,7 @@ Collect the token through the secure credential prompt:
 The `telegram` secure prompt already routes through the same Telegram setup handler used by Settings. Treat that tool result as authoritative:
 
 - If it succeeds, continue.
+- If it says the prompt was cancelled, stop and tell the user Telegram setup was cancelled and no bot token was saved.
 - If it returns an error, ask the user to re-enter the token.
 - If it returns a warning, continue but mention the warning briefly.
 
@@ -47,11 +48,23 @@ After the secure prompt succeeds, the same Telegram setup handler used by Settin
 - generated a webhook secret if one was missing
 - stored the bot ID and bot username
 - registered the default bot commands (`/new`, `/help`)
-- registered the platform callback route automatically when platform callbacks are enabled
+- attempted platform callback registration automatically when platform callbacks are enabled
 
 Use the most recent `credential_store` result as the source of truth instead of re-validating with shell commands.
 
 ## Step 3: Set Up Public Ingress if Needed
+
+### Verify Managed Platform Callback Registration
+
+In managed/platform deployments, explicitly register the Telegram callback route so callback-registration failures are surfaced before you declare setup complete:
+
+```bash
+assistant platform callback-routes register --path webhooks/telegram --type telegram --json
+```
+
+- If this succeeds, continue.
+- If it returns a "not available" style response, you're likely in a local deployment - continue with the public-ingress check below.
+- If it fails for any other reason, tell the user Telegram credentials were stored but inbound webhook delivery is not configured yet, surface the error briefly, and stop before declaring setup complete.
 
 ### Verify Public Ingress is Set Up
 
@@ -73,6 +86,7 @@ If the user declines, skip and continue.
 Summarize:
 
 - Bot verified and credentials stored
+- Inbound delivery path configured
 - Default bot commands registered: /new, /help
 - Guardian identity: {verified | skipped}
 
