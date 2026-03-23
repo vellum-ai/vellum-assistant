@@ -125,7 +125,6 @@ export async function executePlaybookUpdate(
         statement,
         fingerprint,
         lastSeenAt: now,
-        verificationState: "user_confirmed",
         sourceType: "tool",
       })
       .where(eq(memoryItems.id, existing.id))

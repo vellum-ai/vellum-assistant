@@ -24,14 +24,14 @@ export function isConversationFailed(conversationId: string): boolean {
 }
 
 /**
- * Invalidate `assistant_inferred` memory items sourced *exclusively* from
+ * Invalidate assistant-extracted memory items sourced *exclusively* from
  * messages in the given conversation. Called when a background task or
  * schedule fails — the assistant's optimistic claims (e.g., "I booked an
  * appointment") are not trustworthy if the task didn't complete.
  *
  * The failed state is derived from durable storage (task_runs / cron_runs),
  * so any pending or future extraction jobs for this conversation are blocked
- * from creating new `assistant_inferred` items — even after daemon restarts.
+ * from creating new assistant-extracted items — even after daemon restarts.
  *
  * Items that also have sources from other conversations are left alone
  * only when those conversations come from non-failed task/schedule runs
@@ -55,7 +55,8 @@ export function invalidateAssistantInferredItemsForConversation(
     `UPDATE memory_items
         SET status = 'invalidated',
             invalid_at = ?
-      WHERE verification_state = 'assistant_inferred'
+      WHERE source_type = 'extraction'
+        AND source_message_role = 'assistant'
         AND status = 'active'
         AND id IN (
           SELECT mis.memory_item_id
