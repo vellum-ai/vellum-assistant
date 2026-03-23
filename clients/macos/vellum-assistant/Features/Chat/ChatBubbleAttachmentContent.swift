@@ -133,6 +133,27 @@ private enum ImageActions {
         NSWorkspace.shared.open(fileURL)
     }
 
+    /// Cache of sharing services by file extension. Services depend on file type,
+    /// not content, so one discovery per extension per app session is sufficient.
+    private static var sharingServicesCache: [String: [NSSharingService]] = [:]
+
+    /// Returns cached sharing services for the given filename's extension.
+    /// On first call per extension, creates a lightweight probe file and calls
+    /// `NSSharingService.sharingServices(forItems:)` once, caching the result.
+    @available(macOS, deprecated: 13.0)
+    private static func cachedSharingServices(for filename: String) -> [NSSharingService] {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let key = ext.isEmpty ? "png" : ext
+        if let cached = sharingServicesCache[key] { return cached }
+        let probeURL = FileManager.default.temporaryDirectory.appendingPathComponent("vellum-share-probe.\(key)")
+        if !FileManager.default.fileExists(atPath: probeURL.path) {
+            FileManager.default.createFile(atPath: probeURL.path, contents: Data())
+        }
+        let services = NSSharingService.sharingServices(forItems: [probeURL])
+        sharingServicesCache[key] = services
+        return services
+    }
+
     /// Builds a SwiftUI context menu with Copy, Save As, and Open in Preview actions.
     @available(macOS, deprecated: 13.0)
     @ViewBuilder
@@ -159,38 +180,33 @@ private enum ImageActions {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
 
-        // Write a temp file for sharing — NSSharingService.sharingServices
-        // returns far more services (AirDrop, Messages, Mail, etc.) when given
-        // a file URL vs a raw NSImage. The temp file write is lightweight
-        // (thumbnail image) to keep the view builder fast. Full-res file is
-        // written at action time when the user picks a service.
+        // Sharing services are cached per file extension to avoid synchronous
+        // XPC roundtrips on every render. Temp file writes are deferred to
+        // click time so the view builder stays fast.
         // NSSharingService.sharingServices is deprecated in macOS 13 but has
         // no functional replacement for custom share UI (see AppSharePanelView).
         // Silenced via @available on this method; see AppSharePanelView for the same pattern.
-        if let tempURL = writeTempFile(image, filename: filename) {
-            let services = NSSharingService.sharingServices(forItems: [tempURL])
-            if !services.isEmpty {
-                Divider()
-                Menu {
-                    ForEach(Array(services.enumerated()), id: \.offset) { _, service in
-                        Button {
-                            // Write full-res file at action time, then share
-                            if let fullResURL = writeTempFile(image, filename: filename, base64Data: base64Data) {
-                                service.perform(withItems: [fullResURL])
-                            } else {
-                                service.perform(withItems: [tempURL])
-                            }
-                        } label: {
-                            Label {
-                                Text(service.title)
-                            } icon: {
-                                Image(nsImage: service.image)
-                            }
+        let services = cachedSharingServices(for: filename)
+        if !services.isEmpty {
+            Divider()
+            Menu {
+                ForEach(Array(services.enumerated()), id: \.offset) { _, service in
+                    Button {
+                        // Write temp file at action time (not during render)
+                        if let shareURL = writeTempFile(image, filename: filename, base64Data: base64Data)
+                            ?? writeTempFile(image, filename: filename) {
+                            service.perform(withItems: [shareURL])
+                        }
+                    } label: {
+                        Label {
+                            Text(service.title)
+                        } icon: {
+                            Image(nsImage: service.image)
                         }
                     }
-                } label: {
-                    Label { Text("Share") } icon: { VIconView(.share, size: 12) }
                 }
+            } label: {
+                Label { Text("Share") } icon: { VIconView(.share, size: 12) }
             }
         }
 
