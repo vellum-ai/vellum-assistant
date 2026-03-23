@@ -153,6 +153,8 @@ public final class ManagedAssistantBootstrapService {
                 }
             } catch let error as ManagedBootstrapError {
                 throw error
+            } catch let error as PlatformAPIError {
+                throw mapPlatformError(error)
             } catch {
                 log.warning("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
