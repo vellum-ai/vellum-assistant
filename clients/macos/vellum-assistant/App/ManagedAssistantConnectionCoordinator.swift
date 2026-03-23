@@ -8,8 +8,6 @@ protocol ManagedAssistantBootstrapProviding {
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome
-
-    func discoverManagedAssistant() async throws -> PlatformAssistant?
 }
 
 extension ManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {}
@@ -93,14 +91,6 @@ final class ManagedAssistantConnectionCoordinator {
     func activateManagedAssistantAfterReauth() async throws -> ManagedAssistantConnectionResult {
         userDefaults.removeObject(forKey: "connectedOrganizationId")
         return try await activateManagedAssistant()
-    }
-
-    func activateAssociatedManagedAssistantIfPresent() async throws -> ManagedAssistantConnectionResult? {
-        guard let assistant = try await bootstrapService.discoverManagedAssistant() else {
-            return nil
-        }
-
-        return try persistManagedAssistant(assistant, reusedExisting: true)
     }
 
     private func persistManagedAssistant(

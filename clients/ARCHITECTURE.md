@@ -457,7 +457,7 @@ The avatar uses a simple image-based approach: a custom user-uploaded profile pi
 
 ## Managed Sign-In (macOS)
 
-Managed sign-in allows macOS users to connect to a platform-hosted assistant during first-run onboarding instead of running a local daemon. When a user clicks "Sign in" on the onboarding screen, the app authenticates via WorkOS through the platform, discovers or creates a managed assistant, and connects to it through platform proxy endpoints.
+Managed sign-in allows macOS users to connect to a platform-hosted assistant during first-run onboarding instead of running a local daemon. When a user clicks "Sign in" on the onboarding screen, the app authenticates via WorkOS through the platform, ensures a managed assistant exists (via the idempotent hatch endpoint), and connects to it through platform proxy endpoints.
 
 ### Sign-In Flow
 
@@ -465,8 +465,8 @@ Managed sign-in allows macOS users to connect to a platform-hosted assistant dur
 User clicks "Sign in"
   --> WorkOS authentication (via AuthManager)
   --> ManagedAssistantBootstrapService.ensureManagedAssistant()
-      --> GET /v1/assistants/current/  (discover existing)
-      --> If 404: POST /v1/assistants/hatch/  (create new)
+      --> If connectedAssistantId stored: GET /v1/assistants/{id}/  (retrieve by ID)
+      --> Otherwise: POST /v1/assistants/hatch/  (idempotent — returns existing or creates new)
   --> Upsert lockfile entry (cloud: "vellum")
   --> Set connectedAssistantId in UserDefaults
   --> Configure managed HTTP transport
@@ -511,7 +511,7 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 | File | Purpose |
 |------|---------|
 | `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
-| `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getCurrentAssistant`, `hatchAssistant`) |
+| `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getAssistant`, `hatchAssistant`) |
 | `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
 | `clients/shared/Network/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
 | `clients/shared/Network/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |

@@ -45,9 +45,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. Fall back to GET /assistants/current/ to discover the user's assistant.
-/// 3. If none exists (404), create one via hatch and return `.createdNew`.
-/// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
+/// 2. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
+/// 3. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
 public final class ManagedAssistantBootstrapService {
     public static let shared = ManagedAssistantBootstrapService()
@@ -80,9 +79,8 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID and fall through to current/ + hatch
-                // so the user doesn't have to manually retry.
-                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to discovery")
+                // Clear the stale ID and fall through to idempotent hatch.
+                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to hatch")
                 UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
@@ -91,64 +89,22 @@ public final class ManagedAssistantBootstrapService {
             }
         }
 
-        // No selected assistant (or stale one was cleared) — discover via current/ or hatch a new one.
-        log.info("Falling back to current/ discovery")
-        let currentResult: PlatformAssistantResult
+        // No selected assistant (or stale one was cleared) — hatch is idempotent
+        // and will return the existing assistant if one exists.
+        log.info("No stored assistant ID — calling idempotent hatch")
+        let newAssistant: PlatformAssistant
         do {
-            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
+            newAssistant = try await authService.hatchAssistant(
+                organizationId: organizationId,
+                name: name,
+                description: description,
+                anthropicApiKey: anthropicApiKey
+            )
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }
-
-        switch currentResult {
-        case .found(let assistant):
-            log.info("Found existing managed assistant: \(assistant.id, privacy: .public)")
-            return .reusedExisting(assistant)
-
-        case .accessDenied:
-            throw ManagedBootstrapError.authenticationRequired
-
-        case .notFound:
-            log.info("No managed assistant found, hatching a new one")
-            let newAssistant: PlatformAssistant
-            do {
-                newAssistant = try await authService.hatchAssistant(
-                    organizationId: organizationId,
-                    name: name,
-                    description: description,
-                    anthropicApiKey: anthropicApiKey
-                )
-            } catch let error as PlatformAPIError {
-                throw mapPlatformError(error)
-            }
-            log.info("Created new managed assistant: \(newAssistant.id, privacy: .public)")
-            return .createdNew(newAssistant)
-        }
-    }
-
-    /// Discovers an already-associated managed assistant for the signed-in
-    /// account without creating a new one when none exists.
-    public func discoverManagedAssistant() async throws -> PlatformAssistant? {
-        let organizationId = try await resolveOrganizationId()
-
-        log.info("Checking for an existing managed assistant via current/ discovery")
-        let currentResult: PlatformAssistantResult
-        do {
-            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
-        } catch let error as PlatformAPIError {
-            throw mapPlatformError(error)
-        }
-
-        switch currentResult {
-        case .found(let assistant):
-            log.info("Discovered existing managed assistant: \(assistant.id, privacy: .public)")
-            return assistant
-        case .notFound:
-            log.info("No existing managed assistant found for the signed-in account")
-            return nil
-        case .accessDenied:
-            throw ManagedBootstrapError.authenticationRequired
-        }
+        log.info("Hatch returned assistant: \(newAssistant.id, privacy: .public)")
+        return .createdNew(newAssistant)
     }
 
     /// Resolve the organization ID, preferring the persisted value.

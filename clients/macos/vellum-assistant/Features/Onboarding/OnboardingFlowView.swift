@@ -266,16 +266,11 @@ struct OnboardingFlowView: View {
         defer { isResolvingAssociatedManagedAssistant = false }
 
         do {
-            if let activation = try await ManagedAssistantConnectionCoordinator().activateAssociatedManagedAssistantIfPresent() {
-                log.info("Authenticated with associated managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
-                onComplete()
-                return
-            }
-
-            log.info("Authenticated account has no associated managed assistant — advancing to hosting selector")
-            state.advance()
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            log.info("Authenticated with managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
+            onComplete()
         } catch {
-            log.error("Failed to discover associated managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
+            log.error("Failed to activate managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
             state.advance()
         }
     }
