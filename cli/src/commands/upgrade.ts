@@ -1,5 +1,4 @@
 import { randomBytes } from "crypto";
-import { join } from "node:path";
 
 import cliPkg from "../../package.json";
 
@@ -39,13 +38,13 @@ import {
   buildStartingEvent,
   buildUpgradeCommitMessage,
   captureContainerEnv,
+  commitWorkspaceViaGateway,
   CONTAINER_ENV_EXCLUDE_KEYS,
   rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { parseVersion } from "../lib/version-compat.js";
-import { commitWorkspaceState } from "../lib/workspace-git.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -188,9 +187,6 @@ async function upgradeDocker(
 ): Promise<void> {
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : null;
 
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
@@ -278,24 +274,23 @@ async function upgradeDocker(
   }
 
   // Record version transition start in workspace git history
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "upgrade",
-          phase: "starting",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: versionTag,
-          topology: "docker",
-          assistantId: entry.assistantId,
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  try {
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "upgrade",
+        phase: "starting",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: versionTag,
+        topology: "docker",
+        assistantId: entry.assistantId,
+      }),
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   console.log("💾 Capturing existing container environment...");
@@ -483,25 +478,24 @@ async function upgradeDocker(
     );
 
     // Record successful upgrade in workspace git history
-    if (workspaceDir) {
-      try {
-        await commitWorkspaceState(
-          workspaceDir,
-          buildUpgradeCommitMessage({
-            action: "upgrade",
-            phase: "complete",
-            from: entry.serviceGroupVersion ?? "unknown",
-            to: versionTag,
-            topology: "docker",
-            assistantId: entry.assistantId,
-            result: "success",
-          }),
-        );
-      } catch (err) {
-        console.warn(
-          `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    try {
+      await commitWorkspaceViaGateway(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildUpgradeCommitMessage({
+          action: "upgrade",
+          phase: "complete",
+          from: entry.serviceGroupVersion ?? "unknown",
+          to: versionTag,
+          topology: "docker",
+          assistantId: entry.assistantId,
+          result: "success",
+        }),
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     console.log(
@@ -709,10 +703,6 @@ async function upgradePlatform(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : null;
-
   // Reject downgrades — `vellum upgrade` only handles forward version changes.
   // Users should use `vellum rollback --version <version>` for downgrades.
   // Only enforce this guard when the user explicitly passed `--version`.
@@ -739,24 +729,23 @@ async function upgradePlatform(
   }
 
   // Record version transition start in workspace git history
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "upgrade",
-          phase: "starting",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: version ?? "latest",
-          topology: "managed",
-          assistantId: entry.assistantId,
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  try {
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "upgrade",
+        phase: "starting",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: version ?? "latest",
+        topology: "managed",
+        assistantId: entry.assistantId,
+      }),
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   console.log(
@@ -829,25 +818,24 @@ async function upgradePlatform(
   // version actually appears after the platform restarts the service group.
 
   // Record successful upgrade in workspace git history
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        buildUpgradeCommitMessage({
-          action: "upgrade",
-          phase: "complete",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: version ?? "latest",
-          topology: "managed",
-          assistantId: entry.assistantId,
-          result: "success",
-        }),
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  try {
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildUpgradeCommitMessage({
+        action: "upgrade",
+        phase: "complete",
+        from: entry.serviceGroupVersion ?? "unknown",
+        to: version ?? "latest",
+        topology: "managed",
+        assistantId: entry.assistantId,
+        result: "success",
+      }),
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   console.log(`✅ ${result.detail}`);
@@ -868,9 +856,6 @@ async function upgradePrepare(
 ): Promise<void> {
   const targetVersion = version ?? entry.serviceGroupVersion ?? "unknown";
   const currentVersion = entry.serviceGroupVersion ?? "unknown";
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : null;
 
   // 1. Broadcast "starting" so the UI shows the progress spinner
   await broadcastUpgradeEvent(
@@ -880,17 +865,16 @@ async function upgradePrepare(
   );
 
   // 2. Workspace commit: record pre-update state
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  try {
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️  Failed to create pre-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // 3. Progress: saving backup
@@ -948,9 +932,6 @@ async function upgradeFinalize(
   const currentVersion = cliPkg.version
     ? `v${cliPkg.version}`
     : (entry.serviceGroupVersion ?? "unknown");
-  const workspaceDir = entry.resources
-    ? join(entry.resources.instanceDir, ".vellum", "workspace")
-    : null;
 
   // 1. Broadcast "complete" so the UI clears the progress spinner
   await broadcastUpgradeEvent(
@@ -960,17 +941,16 @@ async function upgradeFinalize(
   );
 
   // 2. Workspace commit: record successful update
-  if (workspaceDir) {
-    try {
-      await commitWorkspaceState(
-        workspaceDir,
-        `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
-      );
-    } catch (err) {
-      console.warn(
-        `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  try {
+    await commitWorkspaceViaGateway(
+      entry.runtimeUrl,
+      entry.assistantId,
+      `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️  Failed to create post-upgrade workspace commit: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
