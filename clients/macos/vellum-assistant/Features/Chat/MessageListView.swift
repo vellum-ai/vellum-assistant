@@ -94,7 +94,7 @@ private struct PrecomputedCacheKey: Equatable {
     let isThinking: Bool
     let isCompacting: Bool
     let assistantStatusText: String?
-    let activeSubagentCount: Int
+    let activeSubagentFingerprint: Int
     let displayedMessageCount: Int
 }
 
@@ -274,6 +274,9 @@ struct MessageListView: View {
                 hasher.combine(last.count)
             }
             hasher.combine(msg.toolCalls.count)
+            for toolCall in msg.toolCalls {
+                hasher.combine(toolCall.isComplete)
+            }
             hasher.combine(msg.isStreaming)
             if let conf = msg.confirmation {
                 // ToolConfirmationState is Equatable but not Hashable/RawRepresentable;
@@ -287,6 +290,21 @@ struct MessageListView: View {
             } else {
                 hasher.combine(-1)
             }
+        }
+        return hasher.finalize()
+    }
+
+    /// Computes a fingerprint over active subagents that captures identity,
+    /// parent assignment, status, label, and error — not just count.
+    private static func computeSubagentFingerprint(_ subagents: [SubagentInfo]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(subagents.count)
+        for s in subagents {
+            hasher.combine(s.id)
+            hasher.combine(s.parentMessageId)
+            hasher.combine(s.label)
+            hasher.combine(s.status)
+            hasher.combine(s.error)
         }
         return hasher.finalize()
     }
@@ -314,7 +332,7 @@ struct MessageListView: View {
             isThinking: isThinking,
             isCompacting: isCompacting,
             assistantStatusText: assistantStatusText,
-            activeSubagentCount: activeSubagents.count,
+            activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
         )
 
