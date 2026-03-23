@@ -92,9 +92,13 @@ async function daemonFetch(
 /**
  * Derive the canonical credential storage key from a "service:field" name.
  * Mirrors the parsing in secret-routes.ts handleAddSecret / handleDeleteSecret.
+ *
+ * Uses lastIndexOf to split on the *last* colon so compound service names
+ * (e.g. "integration:google") are preserved intact while the single-segment
+ * field name is extracted correctly.
  */
 function deriveCredentialStorageKey(name: string): string {
-  const colonIdx = name.indexOf(":");
+  const colonIdx = name.lastIndexOf(":");
   if (colonIdx < 1 || colonIdx === name.length - 1) {
     // Malformed — return raw name so the caller stores *something*.
     // The daemon would reject this with a 400, so this only fires in

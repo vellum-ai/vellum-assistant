@@ -191,7 +191,7 @@ export async function handleAddSecret(
     }
 
     if (type === "credential") {
-      const colonIdx = name.indexOf(":");
+      const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
         return httpError(
           "BAD_REQUEST",
@@ -331,7 +331,7 @@ export async function handleReadSecret(req: Request): Promise<Response> {
     if (type === "api_key") {
       accountKey = name;
     } else if (type === "credential") {
-      const colonIdx = name.indexOf(":");
+      const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
         return httpError(
           "BAD_REQUEST",
@@ -424,7 +424,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
     }
 
     if (type === "credential") {
-      const colonIdx = name.indexOf(":");
+      const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
         return httpError(
           "BAD_REQUEST",
