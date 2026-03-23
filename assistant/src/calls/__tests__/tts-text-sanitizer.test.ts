@@ -118,12 +118,12 @@ describe("sanitizeForTts", () => {
 
   describe("emojis", () => {
     test("strips simple emojis", () => {
-      expect(sanitizeForTts("Hello world 👋")).toBe("Hello world");
+      expect(sanitizeForTts("Hello world 👋")).toBe("Hello world ");
     });
 
     test("strips compound emojis (ZWJ sequences)", () => {
       // Family emoji: man + ZWJ + woman + ZWJ + girl
-      expect(sanitizeForTts("Family: 👨‍👩‍👧")).toBe("Family:");
+      expect(sanitizeForTts("Family: 👨‍👩‍👧")).toBe("Family: ");
     });
 
     test("strips emojis with skin tone modifiers", () => {
@@ -163,7 +163,7 @@ describe("sanitizeForTts", () => {
 
   describe("combined transformations", () => {
     test("acceptance: Hello **world** with emoji", () => {
-      expect(sanitizeForTts("Hello **world** 👋")).toBe("Hello world");
+      expect(sanitizeForTts("Hello **world** 👋")).toBe("Hello world ");
     });
 
     test("acceptance: markdown link", () => {
@@ -186,7 +186,7 @@ describe("sanitizeForTts", () => {
       const input =
         "# Welcome 🎉\n\nHello **world**! Check [docs](http://x.com).\n\n- Item *one*\n- Item `two`";
       const expected =
-        "Welcome\n\nHello world! Check docs.\n\nItem one\nItem two";
+        "Welcome \n\nHello world! Check docs.\n\nItem one\nItem two";
       expect(sanitizeForTts(input)).toBe(expected);
     });
   });
@@ -214,6 +214,13 @@ describe("sanitizeForTts", () => {
       const once = sanitizeForTts(input);
       const twice = sanitizeForTts(once);
       expect(twice).toBe(once);
+    });
+
+    test("preserves trailing whitespace for streaming chunks", () => {
+      // Streaming chunks must keep trailing spaces so word boundaries survive
+      // concatenation: "Hello " + "world" = "Hello world", not "Helloworld"
+      expect(sanitizeForTts("Hello ")).toBe("Hello ");
+      expect(sanitizeForTts("the quick ")).toBe("the quick ");
     });
   });
 });

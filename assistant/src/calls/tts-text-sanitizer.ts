@@ -46,13 +46,11 @@ export function sanitizeForTts(text: string): string {
   result = result.replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "");
 
   // 10. Collapse whitespace: multiple spaces → single space,
-  //     multiple blank lines → single newline
+  //     multiple blank lines → single newline.
+  //     Does NOT trim trailing whitespace — callers handle trimming so that
+  //     streaming chunks preserve inter-word spaces (e.g. "Hello " + "world").
   result = result.replace(/ {2,}/g, " ");
   result = result.replace(/\n{3,}/g, "\n\n");
-  // Trim trailing whitespace from each line
-  result = result.replace(/[ \t]+$/gm, "");
-  // Collapse resulting consecutive blank lines
-  result = result.replace(/\n{3,}/g, "\n\n");
 
-  return result.trim();
+  return result;
 }
