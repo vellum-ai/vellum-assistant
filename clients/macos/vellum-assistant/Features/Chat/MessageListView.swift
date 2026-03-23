@@ -613,7 +613,7 @@ struct MessageListView: View {
                 log.debug("Scroll restore: stage 2 (200ms) — retrying via coordinator")
             } else {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId), privacy: .public) scrollEvent=\(hasReceivedScrollEvent) outcome=\(String(describing: restoreOutcome), privacy: .public) anchorMinY=\(anchorTracker.lastMinY) viewportH=\(scrollViewportHeight) msgCount=\(messages.count))")
+                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId)) scrollEvent=\(hasReceivedScrollEvent))")
             }
 
             if !Task.isCancelled { scrollRestoreTask = nil }
@@ -1461,7 +1461,6 @@ struct MessageListView: View {
                     // History just loaded but the coordinator's initial-restore session
                     // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
                     // so messages are visible without requiring user scroll interaction.
-                    log.debug("Scroll restore fallback: messages.count=\(messages.count) isNearBottom=\(isNearBottom) isSuppressing=\(isSuppressingBottomScroll)")
                     requestBottomPin(reason: .initialRestore, proxy: proxy)
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
