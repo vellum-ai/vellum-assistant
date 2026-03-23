@@ -11,12 +11,12 @@ struct MemoryItemRow: View {
     }
 
     var body: some View {
-        Button(action: onSelect) {
+        VCard(padding: VSpacing.lg, action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
-                            .font(VFont.display)
+                            .font(VFont.headline)
                             .foregroundColor(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -28,7 +28,7 @@ struct MemoryItemRow: View {
                     }
 
                     Text(item.statement)
-                        .font(VFont.body)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
@@ -43,16 +43,7 @@ struct MemoryItemRow: View {
                 VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
                     .accessibilityLabel("Delete memory")
             }
-            .padding(VSpacing.lg)
-            .background(Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.borderDisabled, lineWidth: 2)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
         }
-        .buttonStyle(.plain)
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
         }

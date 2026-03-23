@@ -167,22 +167,21 @@ struct MemoriesPanel: View {
     // MARK: - Kind Sidebar
 
     private var kindSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            kindFilterRow(label: "All", kind: nil)
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            kindFilterRow(icon: VIcon.layoutGrid.rawValue, label: "All", kind: nil)
             ForEach(Self.filterableKinds) { kind in
-                kindFilterRow(label: kind.label, kind: kind)
+                kindFilterRow(icon: kind.icon, label: kind.label, kind: kind)
             }
         }
     }
 
-    private func kindFilterRow(label: String, kind: MemoryKind?) -> some View {
+    private func kindFilterRow(icon: String, label: String, kind: MemoryKind?) -> some View {
         VSidebarRow(
+            icon: icon,
             label: label,
             isActive: selectedKind == kind,
             action: {
                 withAnimation(VAnimation.fast) { selectedKind = kind }
-                store.kindFilter = kind?.rawValue
-                Task { await store.loadItems() }
             }
         ) {
             Text("\(kindCount(for: kind))")
@@ -198,7 +197,7 @@ struct MemoriesPanel: View {
         return store.items.filter { $0.kind == kind.rawValue }.count
     }
 
-    /// Items filtered by selected kind.
+    /// Items filtered by selected kind (client-side only — store always holds all items).
     private var filteredItems: [MemoryItemPayload] {
         guard let kind = selectedKind else { return store.items }
         return store.items.filter { $0.kind == kind.rawValue }
