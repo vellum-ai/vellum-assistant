@@ -21,9 +21,9 @@ import {
 } from "../../../oauth/provider-behaviors.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
-  deleteSecureKeyAsync,
-  getSecureKeyAsync,
-} from "../../../security/secure-keys.js";
+  deleteSecureKeyViaDaemon,
+  getSecureKeyViaDaemon,
+} from "../../lib/daemon-credential-client.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import {
   assertMetadataWritable,
@@ -539,7 +539,7 @@ Examples:
           ];
           for (const field of legacyFields) {
             const key = credentialKey(providerKey, field);
-            const result = await deleteSecureKeyAsync(key);
+            const result = await deleteSecureKeyViaDaemon("credential", key);
             if (result === "deleted") cleanedUp = true;
 
             const metaDeleted = deleteCredentialMetadata(providerKey, field);
@@ -633,7 +633,7 @@ Examples:
 
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
-            const storedSecret = await getSecureKeyAsync(
+            const storedSecret = await getSecureKeyViaDaemon(
               dbApp.clientSecretCredentialPath,
             );
             if (storedSecret) clientSecret = storedSecret;
