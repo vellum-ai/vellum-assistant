@@ -1,6 +1,68 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { buildSttHints, type SttHintsInput } from "../calls/stt-hints.js";
+import type { ContactWithChannels } from "../contacts/types.js";
+
+// ---------------------------------------------------------------------------
+// Mock state for resolveCallHints tests
+// ---------------------------------------------------------------------------
+
+let mockAssistantName: string | null = "Velissa";
+let mockGuardianName: string = "Sidd";
+let mockTargetContact: ContactWithChannels | null = null;
+let mockRecentContacts: ContactWithChannels[] = [];
+let mockFindContactByAddressThrows = false;
+let mockListContactsThrows = false;
+
+const logWarnFn = mock(() => {});
+
+// ---------------------------------------------------------------------------
+// Mock modules — must be before importing module under test
+// ---------------------------------------------------------------------------
+
+mock.module("../daemon/identity-helpers.js", () => ({
+  getAssistantName: () => mockAssistantName,
+}));
+
+mock.module("../prompts/user-reference.js", () => ({
+  DEFAULT_USER_REFERENCE: "my human",
+  resolveGuardianName: () => mockGuardianName,
+}));
+
+mock.module("../contacts/contact-store.js", () => ({
+  findContactByAddress: (_type: string, _address: string) => {
+    if (mockFindContactByAddressThrows) {
+      throw new Error("DB error: findContactByAddress");
+    }
+    return mockTargetContact;
+  },
+  listContacts: (_limit?: number) => {
+    if (mockListContactsThrows) {
+      throw new Error("DB error: listContacts");
+    }
+    return mockRecentContacts;
+  },
+}));
+
+// Bun's mock.module for "../util/logger.js" doesn't intercept the transitive
+// import in stt-hints.ts due to a Bun limitation. Mocking pino at the package
+// level works because getLogger uses a Proxy that lazily creates a pino child
+// logger — intercepting pino itself captures all log calls.
+const mockChildLogger = {
+  debug: () => {},
+  info: () => {},
+  warn: logWarnFn,
+  error: () => {},
+  child: () => mockChildLogger,
+};
+const mockPinoLogger = Object.assign(() => mockChildLogger, {
+  destination: () => ({}),
+  multistream: () => ({}),
+});
+mock.module("pino", () => ({ default: mockPinoLogger }));
+mock.module("pino-pretty", () => ({ default: () => ({}) }));
+
+// Import after mocking
+import { buildSttHints, resolveCallHints, type SttHintsInput } from "../calls/stt-hints.js";
 
 function emptyInput(): SttHintsInput {
   return {
@@ -173,5 +235,124 @@ describe("buildSttHints", () => {
     input.inviteFriendName = null;
     input.inviteGuardianName = null;
     expect(buildSttHints(input)).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCallHints — wiring and error resilience
+// ---------------------------------------------------------------------------
+
+function makeContact(displayName: string): ContactWithChannels {
+  return {
+    id: `contact-${displayName.toLowerCase()}`,
+    displayName,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    role: "friend",
+    contactType: "person",
+    channels: [],
+  };
+}
+
+describe("resolveCallHints", () => {
+  beforeEach(() => {
+    mockAssistantName = "Velissa";
+    mockGuardianName = "Sidd";
+    mockTargetContact = null;
+    mockRecentContacts = [];
+    mockFindContactByAddressThrows = false;
+    mockListContactsThrows = false;
+    logWarnFn.mockClear();
+  });
+
+  test("happy path wires all sources correctly", () => {
+    mockTargetContact = makeContact("Alice");
+    mockRecentContacts = [makeContact("Bob"), makeContact("Charlie")];
+
+    const session = {
+      task: "Call Alice at Acme",
+      toNumber: "+15551234567",
+      fromNumber: "+15559876543",
+      inviteFriendName: "Dave",
+      inviteGuardianName: "Eve",
+    };
+
+    const result = resolveCallHints(session, ["StaticHint"]);
+    const parts = result.split(",");
+
+    expect(parts).toContain("StaticHint");
+    expect(parts).toContain("Velissa");
+    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Alice");
+    expect(parts).toContain("Dave");
+    expect(parts).toContain("Eve");
+    expect(parts).toContain("Bob");
+    expect(parts).toContain("Charlie");
+    // Proper nouns from task description
+    expect(parts).toContain("Acme");
+    expect(logWarnFn).not.toHaveBeenCalled();
+  });
+
+  test("findContactByAddress failure is caught and logged without throwing", () => {
+    mockFindContactByAddressThrows = true;
+    mockRecentContacts = [makeContact("Bob")];
+
+    const session = {
+      task: null,
+      toNumber: "+15551234567",
+      fromNumber: "+15559876543",
+      inviteFriendName: null,
+      inviteGuardianName: null,
+    };
+
+    // Should not throw
+    const result = resolveCallHints(session, []);
+    const parts = result.split(",");
+
+    // Target contact should be absent (lookup failed)
+    // But other sources should still work
+    expect(parts).toContain("Velissa");
+    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Bob");
+    expect(logWarnFn).toHaveBeenCalled();
+  });
+
+  test("listContacts failure is caught and logged without throwing", () => {
+    mockListContactsThrows = true;
+    mockTargetContact = makeContact("Alice");
+
+    const session = {
+      task: null,
+      toNumber: "+15551234567",
+      fromNumber: "+15559876543",
+      inviteFriendName: null,
+      inviteGuardianName: null,
+    };
+
+    // Should not throw
+    const result = resolveCallHints(session, []);
+    const parts = result.split(",");
+
+    // Recent contacts should be absent (listing failed)
+    // But other sources should still work
+    expect(parts).toContain("Velissa");
+    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Alice");
+    expect(logWarnFn).toHaveBeenCalled();
+  });
+
+  test("null session produces hints from assistant name, guardian name, and recent contacts", () => {
+    mockRecentContacts = [makeContact("RecentOne"), makeContact("RecentTwo")];
+
+    const result = resolveCallHints(null, ["Static"]);
+    const parts = result.split(",");
+
+    expect(parts).toContain("Static");
+    expect(parts).toContain("Velissa");
+    expect(parts).toContain("Sidd");
+    expect(parts).toContain("RecentOne");
+    expect(parts).toContain("RecentTwo");
+    // No target contact lookup should have been attempted (no session)
+    expect(logWarnFn).not.toHaveBeenCalled();
   });
 });
