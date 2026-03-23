@@ -428,7 +428,7 @@ export async function performDockerRollback(
     entry.runtimeUrl,
     entry.assistantId,
     {
-      prefix: `${entry.assistantId}-pre-rollback`,
+      prefix: `${entry.assistantId}-pre-upgrade`,
       description: `Pre-rollback snapshot before ${currentVersion ?? "unknown"} → ${targetVersion}`,
     },
   );
