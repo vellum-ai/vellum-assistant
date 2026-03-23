@@ -546,7 +546,6 @@ async function upgradeDocker(
         await startContainers(
           {
             signingKey,
-            bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
             gatewayPort,

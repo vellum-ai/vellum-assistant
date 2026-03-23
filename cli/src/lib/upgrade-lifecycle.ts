@@ -15,11 +15,7 @@ import {
   startContainers,
   stopContainers,
 } from "./docker.js";
-import {
-  loadBootstrapSecret,
-  loadGuardianToken,
-  saveBootstrapSecret,
-} from "./guardian-token.js";
+import { loadGuardianToken } from "./guardian-token.js";
 import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
@@ -459,12 +455,6 @@ export async function performDockerRollback(
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
 
-  const loadedSecret = loadBootstrapSecret(instanceName);
-  const bootstrapSecret = loadedSecret || randomBytes(32).toString("hex");
-  if (!loadedSecret) {
-    saveBootstrapSecret(instanceName, bootstrapSecret);
-  }
-
   const signingKey =
     capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
@@ -576,7 +566,6 @@ export async function performDockerRollback(
   await startContainers(
     {
       signingKey,
-      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
@@ -707,7 +696,6 @@ export async function performDockerRollback(
         await startContainers(
           {
             signingKey,
-            bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
             gatewayPort,
