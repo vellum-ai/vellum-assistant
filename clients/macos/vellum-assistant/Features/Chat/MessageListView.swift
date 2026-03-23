@@ -941,6 +941,7 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let state = precomputedState
+                    let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessages) { message in
                         let index = state.messageIndexById[message.id] ?? 0
                         MessageCellView(
@@ -982,7 +983,8 @@ struct MessageListView: View {
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog
+                            providerCatalog: providerCatalog,
+                            providerCatalogHash: catalogHash
                         )
                         .equatable()
                     }
@@ -1696,8 +1698,9 @@ private struct MessageCellView: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
             && lhs.configuredProviders == rhs.configuredProviders
-            && lhs.providerCatalog.count == rhs.providerCatalog.count
-            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) })
+            && (lhs.providerCatalogHash != rhs.providerCatalogHash ? false
+                : lhs.providerCatalog.count == rhs.providerCatalog.count
+                  && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
     }
 
@@ -1740,6 +1743,20 @@ private struct MessageCellView: View, Equatable {
     let selectedModel: String
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
+    let providerCatalogHash: Int
+
+    static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
+        var hasher = Hasher()
+        for entry in catalog {
+            hasher.combine(entry.id)
+            hasher.combine(entry.displayName)
+            for model in entry.models {
+                hasher.combine(model.id)
+                hasher.combine(model.displayName)
+            }
+        }
+        return hasher.finalize()
+    }
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
