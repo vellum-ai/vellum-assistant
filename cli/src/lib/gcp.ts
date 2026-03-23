@@ -457,7 +457,7 @@ export async function hatchGcp(
     instanceName: string,
     cloud: "gcp",
     configValues?: Record<string, string>,
-  ) => Promise<string>,
+  ) => Promise<{ script: string; laptopBootstrapSecret: string }>,
   watchHatching: (
     pollFn: () => Promise<PollResult>,
     instanceName: string,
@@ -522,14 +522,15 @@ export async function hatchGcp(
       );
       process.exit(1);
     }
-    const startupScript = await buildStartupScript(
-      species,
-      sshUser,
-      providerApiKeys,
-      instanceName,
-      "gcp",
-      configValues,
-    );
+    const { script: startupScript, laptopBootstrapSecret } =
+      await buildStartupScript(
+        species,
+        sshUser,
+        providerApiKeys,
+        instanceName,
+        "gcp",
+        configValues,
+      );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -662,7 +663,11 @@ export async function hatchGcp(
       }
 
       try {
-        await leaseGuardianToken(runtimeUrl, instanceName);
+        await leaseGuardianToken(
+          runtimeUrl,
+          instanceName,
+          laptopBootstrapSecret,
+        );
       } catch (err) {
         console.warn(
           `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,

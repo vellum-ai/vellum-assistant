@@ -15,7 +15,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
 import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
 import type { Species } from "./constants";
-import { leaseGuardianToken, saveBootstrapSecret } from "./guardian-token";
+import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { resolveImageRefs } from "./platform-releases.js";
@@ -789,7 +789,6 @@ export async function stopContainers(
   await removeContainer(res.assistantContainer);
 }
 
-
 /** Stop containers without removing them (preserves state for `docker start`). */
 export async function sleepContainers(
   res: ReturnType<typeof dockerResourceNames>,
@@ -1128,8 +1127,18 @@ export async function hatchDocker(
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
-    const bootstrapSecret = randomBytes(32).toString("hex");
-    saveBootstrapSecret(instanceName, bootstrapSecret);
+
+    // When launched by a remote hatch startup script, the env var
+    // GUARDIAN_BOOTSTRAP_SECRET is already set with the laptop's secret.
+    // Generate a new secret for the local docker hatch caller and append
+    // it so the gateway receives a comma-separated list of all expected
+    // bootstrap secrets.
+    const ownSecret = randomBytes(32).toString("hex");
+    const preExisting = process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const bootstrapSecret = preExisting
+      ? `${preExisting},${ownSecret}`
+      : ownSecret;
+
     await startContainers(
       {
         signingKey,
@@ -1169,6 +1178,7 @@ export async function hatchDocker(
     setActiveAssistant(instanceName);
 
     const { ready } = await waitForGatewayAndLease({
+      bootstrapSecret: ownSecret,
       containerName: res.assistantContainer,
       detached: watch ? false : detached,
       instanceName,
@@ -1226,13 +1236,21 @@ export async function hatchDocker(
  * lease a guardian token.
  */
 async function waitForGatewayAndLease(opts: {
+  bootstrapSecret: string;
   containerName: string;
   detached: boolean;
   instanceName: string;
   logFd: number | "ignore";
   runtimeUrl: string;
 }): Promise<{ ready: boolean }> {
-  const { containerName, detached, instanceName, logFd, runtimeUrl } = opts;
+  const {
+    bootstrapSecret,
+    containerName,
+    detached,
+    instanceName,
+    logFd,
+    runtimeUrl,
+  } = opts;
 
   const log = (msg: string): void => {
     console.log(msg);
@@ -1306,7 +1324,11 @@ async function waitForGatewayAndLease(opts: {
 
   while (Date.now() < leaseDeadline) {
     try {
-      const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+      const tokenData = await leaseGuardianToken(
+        runtimeUrl,
+        instanceName,
+        bootstrapSecret,
+      );
       const leaseElapsed = ((Date.now() - leaseStart) / 1000).toFixed(1);
       log(
         `Guardian token lease: success after ${leaseElapsed}s (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
