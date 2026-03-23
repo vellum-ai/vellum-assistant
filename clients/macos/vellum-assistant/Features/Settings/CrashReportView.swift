@@ -10,6 +10,7 @@ struct CrashReportView: View {
     let crashURL: URL
     let crashLog: String
     let companionFiles: [URL]
+    let autoSent: Bool
     let onDismiss: () -> Void
 
     @State private var isSending = false
@@ -38,7 +39,9 @@ struct CrashReportView: View {
                 Text("The app crashed last session")
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)
-                Text("Would you like to send the crash log to help us fix the issue? No personal data or message content is included.")
+                Text(autoSent
+                    ? "A crash report has been sent automatically to help us fix the issue. No personal data or message content is included."
+                    : "Would you like to send the crash log to help us fix the issue? No personal data or message content is included.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -81,11 +84,13 @@ struct CrashReportView: View {
             .buttonStyle(.bordered)
             .disabled(isSending)
 
-            Button(isSending ? "Sending…" : "Send Report") {
-                sendReport()
+            if !autoSent {
+                Button(isSending ? "Sending…" : "Send Report") {
+                    sendReport()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSending || didSend)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isSending || didSend)
         }
     }
 
@@ -157,10 +162,18 @@ extension AppDelegate {
         // Record now so a second launch doesn't surface the same crash again
         // even if the user force-quits before dismissing the sheet.
         CrashReporter.recordLaunch()
-        showCrashReportWindow(url: url, content: content, companionFiles: companionFiles)
+
+        // Auto-send the crash log to Sentry when diagnostics are enabled so
+        // we get crash reports even if the user dismisses the dialog.
+        let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
+        if sendDiagnostics {
+            autoSendCrashToSentry(url: url, content: content, companionFiles: companionFiles)
+        }
+
+        showCrashReportWindow(url: url, content: content, companionFiles: companionFiles, autoSent: sendDiagnostics)
     }
 
-    func showCrashReportWindow(url: URL, content: String, companionFiles: [URL] = []) {
+    func showCrashReportWindow(url: URL, content: String, companionFiles: [URL] = [], autoSent: Bool = false) {
         let dismiss: () -> Void = { [weak self] in
             self?.dismissCrashReportWindow()
         }
@@ -169,6 +182,7 @@ extension AppDelegate {
             crashURL: url,
             crashLog: content,
             companionFiles: companionFiles,
+            autoSent: autoSent,
             onDismiss: dismiss
         )
 
@@ -220,6 +234,33 @@ extension AppDelegate {
         // The window may still report isVisible briefly after close(),
         // so exclude it from the visible-window check.
         revertActivationPolicyIfNoWindows(excluding: closingWindow)
+    }
+
+    /// Sends the crash log to Sentry in the background without user interaction.
+    private func autoSendCrashToSentry(url: URL, content: String, companionFiles: [URL]) {
+        let crashFileName = url.lastPathComponent
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+
+        Task.detached {
+            let event = Event(level: .fatal)
+            event.message = SentryMessage(formatted: "Crash report (auto): \(crashFileName)")
+            event.tags = ["source": "crash_log_auto", "app_version": appVersion]
+            let truncated = content.count > 8_192
+                ? String(content.prefix(8_192)) + "\n[truncated]"
+                : content
+            event.extra = ["crash_log": truncated, "crash_file": crashFileName]
+
+            var attachments: [Sentry.Attachment] = [
+                Sentry.Attachment(path: url.path, filename: url.lastPathComponent),
+            ]
+            for companion in companionFiles {
+                attachments.append(
+                    Sentry.Attachment(path: companion.path, filename: companion.lastPathComponent)
+                )
+            }
+
+            MetricKitManager.sendManualReport(event, attachments: attachments)
+        }
     }
 
     private func handleCrashReportWindowWillClose() {
