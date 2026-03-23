@@ -3,6 +3,10 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    static let identityFileDidChange = Notification.Name("identityFileDidChange")
+}
+
 struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var appListManager: AppListManager
@@ -59,9 +63,10 @@ struct MainWindowView: View {
     @State var showConversationSwitcher = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
 
-    /// Cached assistant display name, loaded once on appear and when the
-    /// intelligence panel is shown (to pick up identity changes).
-    @State var cachedAssistantName: String = AssistantDisplayName.resolve(fallback: "Your Assistant")
+    /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
+    @State var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+    /// File watcher for IDENTITY.md — fires when the assistant's name changes.
+    @State private var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -696,6 +701,9 @@ struct MainWindowView: View {
         content
             .onAppear { handleCoreLayoutAppear() }
             .onDisappear { handleCoreLayoutDisappear() }
+            .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
+                cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+            }
             .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
                 refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
             }
@@ -790,6 +798,7 @@ struct MainWindowView: View {
         // no UI to disable it, leaving panels stuck in split mode.
         isAppChatOpen = false
         cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+        startIdentityFileWatcher()
         refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {
@@ -822,7 +831,36 @@ struct MainWindowView: View {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
+        identityFileWatcher?.cancel()
+        identityFileWatcher = nil
         eventStreamClient.stopSSE()
+    }
+
+    /// Watch ~/.vellum/workspace/IDENTITY.md for writes and refresh the
+    /// cached assistant display name when the file changes on disk.
+    private func startIdentityFileWatcher() {
+        identityFileWatcher?.cancel()
+        identityFileWatcher = nil
+
+        let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
+        let fd = open(identityPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+        // Post a notification so the SwiftUI view can pick up the change
+        // without capturing `self` (which is a struct).
+        source.setEventHandler {
+            NotificationCenter.default.post(name: .identityFileDidChange, object: nil)
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        identityFileWatcher = source
     }
 
     private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {

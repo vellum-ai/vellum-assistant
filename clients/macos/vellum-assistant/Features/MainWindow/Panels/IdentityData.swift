@@ -105,7 +105,7 @@ enum AssistantDisplayName {
             guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !trimmed.isEmpty else { continue }
             if trimmed.hasPrefix(hiddenBootstrapPrefix) {
-                return placeholder
+                continue
             }
             return trimmed
         }
