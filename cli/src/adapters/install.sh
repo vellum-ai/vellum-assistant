@@ -270,31 +270,39 @@ main() {
     ensure_git
     ensure_bun
     configure_shell_profile
-    install_vellum
-    symlink_vellum
-
-    # Verify the assistant CLI is available
-    if ! command -v assistant >/dev/null 2>&1; then
-        info "Note: 'assistant' command may require opening a new terminal session"
-    fi
 
     # Append PATH config to the env file so the quickstart one-liner can
     # pick up PATH changes in the caller's shell:
     #   curl ... | bash && . ~/.config/vellum/env
     write_env_file
 
-    # Source the shell profile so vellum hatch runs with the correct PATH
-    # in this session (the profile changes only take effect in new shells
-    # otherwise).
     export BUN_INSTALL="$HOME/.bun"
     export PATH="$BUN_INSTALL/bin:$PATH"
 
-    info "Running vellum hatch..."
-    printf "\n"
-    if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.config/vellum/env\" ] && . \"\$HOME/.config/vellum/env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
+    if [ -n "${VELLUM_USE_BARE_METAL:-}" ]; then
+        info "Bare-metal mode enabled — installing vellum CLI globally..."
+        install_vellum
+        symlink_vellum
+
+        if ! command -v assistant >/dev/null 2>&1; then
+            info "Note: 'assistant' command may require opening a new terminal session"
+        fi
+
+        info "Running vellum hatch..."
+        printf "\n"
+        if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
+            su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.config/vellum/env\" ] && . \"\$HOME/.config/vellum/env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
+        else
+            vellum hatch
+        fi
     else
-        vellum hatch
+        info "Running vellum hatch (docker)..."
+        printf "\n"
+        if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
+            su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.config/vellum/env\" ] && . \"\$HOME/.config/vellum/env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; bunx vellum@latest hatch --remote docker"
+        else
+            bunx vellum@latest hatch --remote docker
+        fi
     fi
 }
 
