@@ -8,6 +8,10 @@ const BASE_LIFETIME_MS: Record<string, number> = {
   project: 14 * 86_400_000, // 2 weeks
   decision: 14 * 86_400_000, // 2 weeks
   event: 3 * 86_400_000, // 3 days
+  // Journals are experiential reflections and forward-looking notes — more
+  // durable than ephemeral events or decisions, but not as permanent as
+  // identity. 90 days mirrors "preference" lifetime.
+  journal: 90 * 86_400_000, // 3 months
   capability: Infinity,
 };
 
