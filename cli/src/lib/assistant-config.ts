@@ -108,7 +108,7 @@ interface LockfileData {
   [key: string]: unknown;
 }
 
-function getBaseDir(): string {
+export function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
