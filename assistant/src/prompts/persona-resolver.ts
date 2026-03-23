@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 
 import {
   findContactByChannelExternalId,
+  findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import type {
@@ -66,8 +67,11 @@ export function resolveUserPersona(
   let filename: string | null = null;
 
   if (trustContext === undefined) {
-    // Desktop / native — resolve via guardian contact
-    const guardian = listGuardianChannels();
+    // Desktop / native — prefer the guardian with a "vellum" channel so we
+    // load the correct per-user persona when multiple guardians exist (e.g.
+    // one for the desktop app, another for phone).
+    const vellumGuardian = findGuardianForChannel("vellum");
+    const guardian = vellumGuardian ?? listGuardianChannels();
     if (guardian) {
       filename = guardian.contact.userFile ?? null;
     }
