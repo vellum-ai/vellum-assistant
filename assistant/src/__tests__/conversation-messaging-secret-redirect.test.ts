@@ -28,7 +28,7 @@ mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: async (key?: string, value?: string) =>
     setSecureKeyMock(key, value),
   deleteSecureKeyAsync: async () => "deleted" as const,
-  listSecureKeysAsync: async () => [],
+  listSecureKeysAsync: async () => ({ accounts: [], unreachable: false }),
   _resetBackend: () => {},
 }));
 

@@ -185,15 +185,15 @@ describe("CesRpcCredentialBackend", () => {
       const result = await backend.list();
 
       expect(callFn).toHaveBeenCalledWith(CesRpcMethod.ListCredentials, {});
-      expect(result).toEqual(["account-a", "account-b"]);
+      expect(result).toEqual({ accounts: ["account-a", "account-b"], unreachable: false });
     });
 
-    test("returns empty array when RPC call throws", async () => {
+    test("returns unreachable when RPC call throws", async () => {
       callFn.mockRejectedValue(new Error("transport error"));
 
       const result = await backend.list();
 
-      expect(result).toEqual([]);
+      expect(result).toEqual({ accounts: [], unreachable: true });
     });
   });
 });

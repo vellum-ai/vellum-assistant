@@ -25,10 +25,14 @@ import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
-import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
+import type {
+  CredentialBackend,
+  CredentialListResult,
+  DeleteResult,
+} from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
 
-export type { DeleteResult } from "./credential-backend.js";
+export type { CredentialListResult, DeleteResult } from "./credential-backend.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -115,7 +119,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
  *
  * Queries exactly one backend — no cross-store merge.
  */
-export async function listSecureKeysAsync(): Promise<string[]> {
+export async function listSecureKeysAsync(): Promise<CredentialListResult> {
   const backend = await resolveBackendAsync();
   return backend.list();
 }

@@ -66,7 +66,7 @@ mock.module("../security/secure-keys.js", () => {
     setSecureKeyAsync: async (key: string, value: string) =>
       syncSet(key, value),
     deleteSecureKeyAsync: async (key: string) => syncDelete(key),
-    listSecureKeysAsync: async () => [...storedKeys.keys()],
+    listSecureKeysAsync: async () => ({ accounts: [...storedKeys.keys()], unreachable: false }),
   };
 });
 

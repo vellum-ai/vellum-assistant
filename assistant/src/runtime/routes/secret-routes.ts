@@ -486,7 +486,13 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
 
 export async function handleListSecrets(): Promise<Response> {
   try {
-    const accounts = await listSecureKeysAsync();
+    const { accounts, unreachable } = await listSecureKeysAsync();
+    if (unreachable) {
+      return Response.json(
+        { error: "Credential store is unreachable" },
+        { status: 503 },
+      );
+    }
     return Response.json({ accounts });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

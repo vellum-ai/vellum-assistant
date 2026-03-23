@@ -214,10 +214,11 @@ describe("secure-keys", () => {
       encryptedStore.setKey("enc-key-1", "val1");
       encryptedStore.setKey("enc-key-2", "val2");
 
-      const keys = await listSecureKeysAsync();
-      expect(keys).toContain("enc-key-1");
-      expect(keys).toContain("enc-key-2");
-      expect(keys.length).toBe(2);
+      const result = await listSecureKeysAsync();
+      expect(result.unreachable).toBe(false);
+      expect(result.accounts).toContain("enc-key-1");
+      expect(result.accounts).toContain("enc-key-2");
+      expect(result.accounts.length).toBe(2);
     });
 
     test("returns encrypted store keys with VELLUM_DEV=1", async () => {
@@ -227,10 +228,11 @@ describe("secure-keys", () => {
       encryptedStore.setKey("dev-key-1", "val2");
       encryptedStore.setKey("dev-key-2", "val3");
 
-      const keys = await listSecureKeysAsync();
-      expect(keys).toContain("dev-key-1");
-      expect(keys).toContain("dev-key-2");
-      expect(keys.length).toBe(2);
+      const result = await listSecureKeysAsync();
+      expect(result.unreachable).toBe(false);
+      expect(result.accounts).toContain("dev-key-1");
+      expect(result.accounts).toContain("dev-key-2");
+      expect(result.accounts.length).toBe(2);
     });
 
     test("returns encrypted store keys with VELLUM_DESKTOP_APP=1", async () => {
@@ -240,15 +242,16 @@ describe("secure-keys", () => {
       encryptedStore.setKey("desktop-key-1", "val1");
       encryptedStore.setKey("desktop-key-2", "val2");
 
-      const keys = await listSecureKeysAsync();
-      expect(keys).toContain("desktop-key-1");
-      expect(keys).toContain("desktop-key-2");
-      expect(keys.length).toBe(2);
+      const result = await listSecureKeysAsync();
+      expect(result.unreachable).toBe(false);
+      expect(result.accounts).toContain("desktop-key-1");
+      expect(result.accounts).toContain("desktop-key-2");
+      expect(result.accounts.length).toBe(2);
     });
 
-    test("returns empty array when store is empty", async () => {
-      const keys = await listSecureKeysAsync();
-      expect(keys).toEqual([]);
+    test("returns empty accounts when store is empty", async () => {
+      const result = await listSecureKeysAsync();
+      expect(result).toEqual({ accounts: [], unreachable: false });
     });
   });
 

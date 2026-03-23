@@ -428,7 +428,7 @@ class CredentialStoreTool implements Tool {
         // (e.g. keychain) and the encrypted store (legacy keys).
         let secureKeySet: Set<string> | undefined;
         try {
-          secureKeySet = new Set(await listSecureKeysAsync());
+          secureKeySet = new Set((await listSecureKeysAsync()).accounts);
         } catch (err) {
           log.error(
             { err },

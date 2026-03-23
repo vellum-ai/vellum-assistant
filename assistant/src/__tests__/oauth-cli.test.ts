@@ -167,7 +167,7 @@ mock.module("../security/secure-keys.js", () => ({
     }
     return "not-found" as const;
   },
-  listSecureKeysAsync: async () => [...secureKeyStore.keys()],
+  listSecureKeysAsync: async () => ({ accounts: [...secureKeyStore.keys()], unreachable: false }),
   _resetBackend: () => {},
 }));
 

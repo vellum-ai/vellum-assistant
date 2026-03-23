@@ -14,6 +14,7 @@ import { getLogger } from "../util/logger.js";
 import type {
   CredentialBackend,
   CredentialGetResult,
+  CredentialListResult,
   DeleteResult,
 } from "./credential-backend.js";
 
@@ -70,16 +71,16 @@ export class CesRpcCredentialBackend implements CredentialBackend {
     }
   }
 
-  async list(): Promise<string[]> {
+  async list(): Promise<CredentialListResult> {
     try {
       const result = await this.client.call(
         CesRpcMethod.ListCredentials,
         {},
       );
-      return result.accounts;
+      return { accounts: result.accounts, unreachable: false };
     } catch (err) {
       log.warn({ err }, "CES RPC credential list failed");
-      return [];
+      return { accounts: [], unreachable: true };
     }
   }
 }

@@ -19,6 +19,12 @@ export interface CredentialGetResult {
   unreachable: boolean;
 }
 
+/** Result of a list operation — distinguishes unreachable from empty. */
+export interface CredentialListResult {
+  accounts: string[];
+  unreachable: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Interface
 // ---------------------------------------------------------------------------
@@ -40,7 +46,7 @@ export interface CredentialBackend {
   delete(account: string): Promise<DeleteResult>;
 
   /** List all account names. */
-  list(): Promise<string[]>;
+  list(): Promise<CredentialListResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,11 +84,11 @@ export class EncryptedStoreBackend implements CredentialBackend {
     }
   }
 
-  async list(): Promise<string[]> {
+  async list(): Promise<CredentialListResult> {
     try {
-      return encryptedStore.listKeys();
+      return { accounts: encryptedStore.listKeys(), unreachable: false };
     } catch {
-      return [];
+      return { accounts: [], unreachable: true };
     }
   }
 }
