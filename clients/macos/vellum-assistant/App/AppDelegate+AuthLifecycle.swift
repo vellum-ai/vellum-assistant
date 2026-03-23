@@ -534,6 +534,10 @@ extension AppDelegate {
         }
 
         if let name = assistantName {
+            // Disconnect before retiring so the health check loop and auto-wake
+            // don't restart the assistant while the CLI is tearing it down.
+            connectionManager.disconnect()
+
             do {
                 try await vellumCli.retire(name: name)
             } catch {
@@ -555,11 +559,6 @@ extension AppDelegate {
                 self.removeLockfileEntry(assistantId: name)
             }
 
-            // Disconnect the client from the (now-stopped) assistant.
-            // The retire CLI already stopped the assistant process; an
-            // additional vellumCli.stop() here would block the main
-            // thread and always fail because the process is already gone.
-            connectionManager.disconnect()
         } else {
             vellumCli.stop(name: assistantName)
         }
@@ -699,6 +698,10 @@ extension AppDelegate {
             let allAssistants = LockfileAssistant.loadAll()
             let localAssistants = allAssistants.filter { !$0.isRemote }
 
+            // Disconnect before retiring so the health check loop and auto-wake
+            // don't restart assistants while the CLI is tearing them down.
+            connectionManager.disconnect()
+
             // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
                 do {
@@ -710,7 +713,6 @@ extension AppDelegate {
             }
 
             // Stop any remaining assistant processes.
-            connectionManager.disconnect()
             vellumCli.stop()
 
             // Move the app bundle to the Trash.
