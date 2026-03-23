@@ -58,6 +58,10 @@ struct MainWindowView: View {
 
     @State var showConversationSwitcher = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
+
+    /// Cached assistant display name, loaded once on appear and when the
+    /// intelligence panel is shown (to pick up identity changes).
+    @State var cachedAssistantName: String = AssistantDisplayName.resolve(fallback: "Your Assistant")
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -785,6 +789,7 @@ struct MainWindowView: View {
         // Without this, isAppChatOpen could remain persisted as true with
         // no UI to disable it, leaving panels stuck in split mode.
         isAppChatOpen = false
+        cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
         refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {

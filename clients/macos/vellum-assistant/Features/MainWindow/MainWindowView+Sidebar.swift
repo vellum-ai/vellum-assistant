@@ -184,7 +184,7 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant"), isActive: windowState.selection == .panel(.intelligence)) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps)) {
@@ -466,7 +466,7 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant"), isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
