@@ -67,8 +67,11 @@ extension ChatBubble {
     static func interleavedCacheKey(for message: ChatMessage) -> InterleavedCacheKey {
         var orderHasher = Hasher()
         for ref in message.contentOrder { orderHasher.combine(ref) }
-        // Also hash textSegments count since trailingText depends on it
-        orderHasher.combine(message.textSegments.count)
+        // Hash per-segment emptiness since trailingText computation checks
+        // each segment's trimmed content, not just the count.
+        for segment in message.textSegments {
+            orderHasher.combine(segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
         orderHasher.combine(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         return InterleavedCacheKey(
             messageId: message.id,
