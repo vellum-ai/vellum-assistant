@@ -35,6 +35,8 @@ mock.module("../contacts/contact-store.js", () => ({
     }
     return mockTargetContact;
   },
+  findGuardianForChannel: () => null,
+  listGuardianChannels: () => null,
   listContacts: (_limit?: number) => {
     if (mockListContactsThrows) {
       throw new Error("DB error: listContacts");
@@ -392,6 +394,30 @@ describe("resolveCallHints", () => {
     expect(parts).toContain("Sidd");
     expect(parts).toContain("Alice");
     expect(logWarnFn).toHaveBeenCalled();
+  });
+
+  test("inbound call resolves caller contact from fromNumber", () => {
+    mockTargetContact = makeContact("Alice");
+    mockRecentContacts = [makeContact("Bob")];
+
+    const session = {
+      task: null,
+      toNumber: "+15559876543",
+      fromNumber: "+15551234567",
+      direction: "inbound" as const,
+      inviteFriendName: null,
+      inviteGuardianName: null,
+    };
+
+    const result = resolveCallHints(session, []);
+    const parts = result.split(",");
+
+    // For inbound, the contact found via fromNumber should appear as caller, not target
+    expect(parts).toContain("Alice");
+    expect(parts).toContain("Velissa");
+    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Bob");
+    expect(logWarnFn).not.toHaveBeenCalled();
   });
 
   test("null session produces hints from assistant name, guardian name, and recent contacts", () => {
