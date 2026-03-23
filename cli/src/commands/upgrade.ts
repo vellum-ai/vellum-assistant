@@ -923,7 +923,9 @@ async function upgradePrepare(
   });
 
   // 5. Prune old backups (keep 3)
-  pruneOldBackups(entry.assistantId, 3);
+  if (backupPath) {
+    pruneOldBackups(entry.assistantId, 3);
+  }
 
   // 6. Progress: installing update
   await broadcastUpgradeEvent(
@@ -959,7 +961,9 @@ async function upgradeFinalize(
   }
 
   const fromVersion = version;
-  const currentVersion = entry.serviceGroupVersion ?? "unknown";
+  const currentVersion = cliPkg.version
+    ? `v${cliPkg.version}`
+    : (entry.serviceGroupVersion ?? "unknown");
   const workspaceDir = entry.resources
     ? join(entry.resources.instanceDir, ".vellum", "workspace")
     : null;
