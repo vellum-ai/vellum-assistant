@@ -150,7 +150,13 @@ private enum ImageActions {
         let probeURL = FileManager.default.temporaryDirectory.appendingPathComponent("vellum-share-probe.\(key)")
         if !FileManager.default.fileExists(atPath: probeURL.path) {
             // Write a minimal 1x1 PNG so services that validate content see a real image.
-            let tiny = NSImage(size: NSSize(width: 1, height: 1))
+            // NSImage(size:) without drawing produces no representations, so use
+            // init(size:flipped:drawingHandler:) to create actual pixel data.
+            let tiny = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in
+                NSColor.clear.set()
+                NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+                return true
+            }
             if let tiff = tiny.tiffRepresentation,
                let rep = NSBitmapImageRep(data: tiff),
                let data = rep.representation(using: .png, properties: [:]) {
