@@ -112,7 +112,7 @@ export async function synthesizeWithFishAudio(
       }
     }
   } catch (err) {
-    await reader.cancel();
+    try { await reader.cancel(); } catch { /* Ignore cancellation errors */ }
     throw err;
   }
 
