@@ -210,32 +210,44 @@ struct ChatBubble: View {
             .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private static let detailedFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .full
+        f.timeStyle = .long
+        return f
+    }()
+
     private var formattedTimestamp: String {
         let tz = ChatTimestampTimeZone.resolve()
         var calendar = Calendar.current
         calendar.timeZone = tz
-        let formatter = DateFormatter()
-        formatter.timeZone = tz
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        let timeString = formatter.string(from: message.timestamp)
+        Self.timeFormatter.timeZone = tz
+        let timeString = Self.timeFormatter.string(from: message.timestamp)
         if calendar.isDateInToday(message.timestamp) {
             return "Today, \(timeString)"
         } else {
-            let dayFormatter = DateFormatter()
-            dayFormatter.timeZone = tz
-            dayFormatter.dateFormat = "MMM d"
-            return "\(dayFormatter.string(from: message.timestamp)), \(timeString)"
+            Self.dayFormatter.timeZone = tz
+            return "\(Self.dayFormatter.string(from: message.timestamp)), \(timeString)"
         }
     }
 
     private var detailedTimestamp: String {
         let tz = ChatTimestampTimeZone.resolve()
-        let formatter = DateFormatter()
-        formatter.timeZone = tz
-        formatter.dateStyle = .full
-        formatter.timeStyle = .long
-        return formatter.string(from: message.timestamp)
+        Self.detailedFormatter.timeZone = tz
+        return Self.detailedFormatter.string(from: message.timestamp)
     }
 
     /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
