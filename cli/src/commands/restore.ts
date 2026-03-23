@@ -299,6 +299,18 @@ export async function restore(): Promise<void> {
   } else {
     // Version rollback (when --version is specified)
     if (version) {
+      const cloud =
+        entry.cloud ||
+        (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
+      if (cloud !== "docker") {
+        console.error(
+          "Restore with --version is only supported for Docker assistants. " +
+            "For managed assistants, use `vellum rollback --version <version>` to change the version, " +
+            "then `vellum restore --from <path>` to import data.",
+        );
+        process.exit(1);
+      }
+
       console.log(`Rolling back to version ${version}...`);
       await performDockerRollback(entry, { targetVersion: version });
       console.log("");
