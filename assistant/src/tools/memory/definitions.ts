@@ -46,9 +46,10 @@ const memoryManageProperties = {
       "decision",
       "constraint",
       "event",
+      "journal",
     ],
     description:
-      'Category of the memory item (required for save). Use "constraint" for mistakes, gotchas, discoveries, and working solutions - write as advice to your future self.',
+      'Category of the memory item (required for save). Use "constraint" for mistakes, gotchas, discoveries, and working solutions - write as advice to your future self. Use "journal" for journal-style memories — experiential snapshots, upcoming events, things to carry forward.',
   },
   subject: {
     type: "string" as const,

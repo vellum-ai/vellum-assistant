@@ -38,6 +38,7 @@ export async function handleMemorySave(
     "decision",
     "constraint",
     "event",
+    "journal",
   ]);
   if (typeof rawKind !== "string") {
     return {
