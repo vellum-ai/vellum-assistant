@@ -132,11 +132,6 @@ export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
 // Rollback
 // ---------------------------------------------------------------------------
 
-interface RollbackResponse {
-  detail: string;
-  version: string | null;
-}
-
 export async function rollbackPlatformAssistant(
   token: string,
   orgId: string,
@@ -153,8 +148,9 @@ export async function rollbackPlatformAssistant(
     body: JSON.stringify(version ? { version } : {}),
   });
 
-  const body = (await response.json()) as RollbackResponse & {
+  const body = (await response.json().catch(() => ({}))) as {
     detail?: string;
+    version?: string | null;
   };
 
   if (response.status === 200) {

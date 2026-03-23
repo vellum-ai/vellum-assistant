@@ -377,6 +377,11 @@ async function restorePlatform(
     process.exit(1);
   }
 
+  if (importResult.statusCode < 200 || importResult.statusCode >= 300) {
+    console.error(`Error: Import failed (${importResult.statusCode})`);
+    process.exit(1);
+  }
+
   const result = importResult.body as unknown as ImportResponse;
 
   if (!result.success) {
@@ -397,7 +402,7 @@ async function restorePlatform(
     files_skipped: 0,
     backups_created: 0,
   };
-  console.log("Restore complete.");
+  console.log("✅ Restore complete.");
   console.log(`  Files created:     ${summary.files_created}`);
   console.log(`  Files overwritten: ${summary.files_overwritten}`);
   console.log(`  Files skipped:     ${summary.files_skipped}`);
@@ -470,6 +475,13 @@ export async function restore(): Promise<void> {
   if (cloud === "vellum") {
     await restorePlatform(entry, name, bundleData, { version, dryRun });
     return;
+  }
+
+  if (version && cloud !== "docker") {
+    console.error(
+      "Restore with --version is only supported for Docker and managed assistants.",
+    );
+    process.exit(1);
   }
 
   // Obtain auth token (acquired before dry-run or before data import;
