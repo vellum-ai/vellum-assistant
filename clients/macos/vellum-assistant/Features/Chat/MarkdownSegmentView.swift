@@ -384,25 +384,25 @@ private struct CodeBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header bar: language label (left) + copy button (right)
-            HStack {
-                if let language, !language.isEmpty {
+            if let language, !language.isEmpty {
+                // Header bar with language label + copy button
+                HStack {
                     Text(language)
                         .font(.system(size: scaledCodeLabelSize, weight: .medium))
-                        .foregroundColor(mutedTextColor)
+                        .foregroundStyle(mutedTextColor)
+                    Spacer()
+                    VCopyButton(text: code, size: .compact)
+                        .opacity(isHovered ? 1 : 0)
+                        .animation(VAnimation.fast, value: isHovered)
                 }
-                Spacer()
-                VCopyButton(text: code, size: .compact)
-                    .opacity(isHovered ? 1 : 0)
-                    .animation(VAnimation.fast, value: isHovered)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.top, VSpacing.xs)
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.top, VSpacing.xs)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
-                    .foregroundColor(textColor)
+                    .foregroundStyle(textColor)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
@@ -411,6 +411,14 @@ private struct CodeBlockView: View {
         .optionalMaxWidth(maxContentWidth)
         .background(codeBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(alignment: .topTrailing) {
+            if language == nil || language?.isEmpty == true {
+                VCopyButton(text: code, size: .compact)
+                    .opacity(isHovered ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHovered)
+                    .padding(VSpacing.xs)
+            }
+        }
         .onHover { isHovered = $0 }
     }
 }
