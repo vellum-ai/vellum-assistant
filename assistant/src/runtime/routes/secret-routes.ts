@@ -330,6 +330,17 @@ export async function handleReadSecret(req: Request): Promise<Response> {
     let accountKey: string;
 
     if (type === "api_key") {
+      if (
+        !API_KEY_PROVIDERS.includes(name as (typeof API_KEY_PROVIDERS)[number])
+      ) {
+        return httpError(
+          "BAD_REQUEST",
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
+            ", ",
+          )}`,
+          400,
+        );
+      }
       accountKey = name;
     } else if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
