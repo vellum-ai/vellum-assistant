@@ -56,7 +56,7 @@ function getRequestBody(index = 0): Record<string, unknown> {
 beforeEach(() => {
   fallbackValues = new Map();
   fetchCalls.length = 0;
-  globalThis.fetch = mock(
+  const mockFetch = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url =
         typeof input === "string"
@@ -73,7 +73,9 @@ beforeEach(() => {
         },
       );
     },
-  ) as typeof globalThis.fetch;
+  );
+  mockFetch.preconnect = originalFetch.preconnect;
+  globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
