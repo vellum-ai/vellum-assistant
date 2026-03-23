@@ -126,6 +126,7 @@ export async function executePlaybookUpdate(
         fingerprint,
         lastSeenAt: now,
         verificationState: "user_confirmed",
+        sourceType: "tool",
       })
       .where(eq(memoryItems.id, existing.id))
       .run();

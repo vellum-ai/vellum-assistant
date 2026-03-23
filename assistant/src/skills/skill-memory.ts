@@ -123,6 +123,7 @@ export function upsertSkillCapabilityMemory(
         confidence,
         importance,
         fingerprint,
+        sourceType: "extraction",
         scopeId,
         firstSeenAt: now,
         lastSeenAt: now,

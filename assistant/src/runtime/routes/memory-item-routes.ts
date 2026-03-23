@@ -493,6 +493,7 @@ export async function handleCreateMemoryItem(
       importance: importance ?? 0.8,
       fingerprint,
       verificationState: "user_confirmed",
+      sourceType: "tool",
       scopeId,
       firstSeenAt: now,
       lastSeenAt: now,

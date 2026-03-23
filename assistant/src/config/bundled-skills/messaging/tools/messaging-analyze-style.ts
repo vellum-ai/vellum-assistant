@@ -51,6 +51,7 @@ function upsertMemoryItem(opts: {
         ),
         lastSeenAt: now,
         verificationState: "assistant_inferred",
+        sourceType: "extraction",
       })
       .where(eq(memoryItems.id, existing.id))
       .run();
@@ -68,6 +69,7 @@ function upsertMemoryItem(opts: {
         importance: clampUnitInterval(opts.importance),
         fingerprint,
         verificationState: "assistant_inferred",
+        sourceType: "extraction",
         scopeId: opts.scopeId,
         firstSeenAt: now,
         lastSeenAt: now,

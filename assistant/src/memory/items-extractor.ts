@@ -609,6 +609,8 @@ export async function extractAndUpsertMemoryItemsForMessage(
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           verificationState: promotedState,
+          sourceType: "extraction",
+          sourceMessageRole: message.role,
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -625,6 +627,8 @@ export async function extractAndUpsertMemoryItemsForMessage(
           importance: item.importance,
           fingerprint: item.fingerprint,
           verificationState,
+          sourceType: "extraction",
+          sourceMessageRole: message.role,
           scopeId: effectiveScopeId,
           firstSeenAt: message.createdAt,
           lastSeenAt: seenAt,

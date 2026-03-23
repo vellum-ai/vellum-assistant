@@ -54,6 +54,7 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
+  migrateAddSourceTypeColumns,
   migrateConversationForkLineage,
   migrateConversationsThreadTypeIndex,
   migrateCreateThreadStartersTable,
@@ -503,6 +504,9 @@ export function initializeDb(): void {
 
   // 89. Add user_file column to contacts for per-user persona file mapping
   migrateContactsUserFileColumn(database);
+
+  // 90. Add source_type and source_message_role columns to memory_items
+  migrateAddSourceTypeColumns(database);
 
   validateMigrationState(database);
 
