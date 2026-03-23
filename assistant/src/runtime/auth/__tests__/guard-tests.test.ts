@@ -16,12 +16,12 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { CURRENT_POLICY_EPOCH } from "../policy.js";
-import { resolveScopeProfile } from "../scopes.js";
-import type { Scope, ScopeProfile } from "../types.js";
 // Cross-package import: gateway duplicates the epoch constant and both must
 // stay in sync. Importing directly is more reliable than regex-extracting.
 import { CURRENT_POLICY_EPOCH as GATEWAY_POLICY_EPOCH } from "../../../../../gateway/src/auth/policy.js";
+import { CURRENT_POLICY_EPOCH } from "../policy.js";
+import { resolveScopeProfile } from "../scopes.js";
+import type { Scope, ScopeProfile } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
