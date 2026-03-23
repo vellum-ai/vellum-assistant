@@ -27,6 +27,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import type { CallStatus } from "./types.js";
+import { resolveCallHints } from "./stt-hints.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
@@ -57,6 +58,7 @@ export function generateTwiML(
   },
   relayToken?: string,
   customParameters?: Record<string, string>,
+  hints?: string,
 ): string {
   const greetingAttr =
     welcomeGreeting && welcomeGreeting.trim().length > 0
@@ -99,7 +101,7 @@ ${greetingAttr}
       interruptible="true"
       dtmfDetection="true"
       profanityFilter="${profile.profanityFilter}"
-      interruptSensitivity="${escapeXml(profile.interruptSensitivity)}"
+      interruptSensitivity="${escapeXml(profile.interruptSensitivity)}"${hints ? `\n      hints="${escapeXml(hints)}"` : ""}
     ${relayClose}
   </Connect>
 </Response>`;
@@ -184,7 +186,13 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
     return buildVoiceWebhookTwiml(
       session.id,
-      session.task,
+      {
+        task: session.task,
+        toNumber: callerTo,
+        fromNumber: callerFrom,
+        inviteFriendName: null,
+        inviteGuardianName: null,
+      },
       session.verificationSessionId,
     );
   }
@@ -212,7 +220,13 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
   return buildVoiceWebhookTwiml(
     callSessionId,
-    session.task,
+    {
+      task: session.task,
+      toNumber: session.toNumber,
+      fromNumber: session.fromNumber,
+      inviteFriendName: session.inviteFriendName,
+      inviteGuardianName: session.inviteGuardianName,
+    },
     session.verificationSessionId,
   );
 }
@@ -229,10 +243,18 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
  */
 function buildVoiceWebhookTwiml(
   callSessionId: string,
-  task: string | null,
+  sessionContext: {
+    task: string | null;
+    toNumber: string;
+    fromNumber: string;
+    inviteFriendName: string | null;
+    inviteGuardianName: string | null;
+  } | null,
   verificationSessionId?: string | null,
 ): Response {
   const profile = resolveVoiceQualityProfile(loadConfig());
+
+  const hints = resolveCallHints(sessionContext, profile.hints);
 
   log.info(
     { callSessionId, ttsProvider: profile.ttsProvider, voice: profile.voice },
@@ -240,7 +262,7 @@ function buildVoiceWebhookTwiml(
   );
 
   const relayUrl = getTwilioRelayUrl(loadConfig());
-  const welcomeGreeting = buildWelcomeGreeting(task);
+  const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
 
   const relayToken = mintEdgeRelayToken();
 
@@ -257,6 +279,7 @@ function buildVoiceWebhookTwiml(
     profile,
     relayToken,
     customParameters,
+    hints || undefined,
   );
 
   log.info({ callSessionId }, "Returning ConversationRelay TwiML");

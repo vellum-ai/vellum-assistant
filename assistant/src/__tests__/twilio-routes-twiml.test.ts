@@ -216,4 +216,91 @@ describe("generateTwiML with voice quality profile", () => {
 
     expect(twimlHigh).toContain('interruptSensitivity="high"');
   });
+
+  test("hints attribute present when hints string is non-empty", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "ElevenLabs",
+        voice: "voice123",
+        profanityFilter: false,
+        interruptSensitivity: "low",
+      },
+      undefined,
+      undefined,
+      "Alice,Bob,Vellum",
+    );
+
+    expect(twiml).toContain('hints="Alice,Bob,Vellum"');
+  });
+
+  test("hints attribute omitted when hints string is empty", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "ElevenLabs",
+        voice: "voice123",
+        profanityFilter: false,
+        interruptSensitivity: "low",
+      },
+      undefined,
+      undefined,
+      "",
+    );
+
+    expect(twiml).not.toContain("hints=");
+  });
+
+  test("hints attribute omitted when hints parameter is undefined", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "ElevenLabs",
+        voice: "voice123",
+        profanityFilter: false,
+        interruptSensitivity: "low",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(twiml).not.toContain("hints=");
+  });
+
+  test("XML special characters in hints are escaped properly", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      welcomeGreeting,
+      {
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
+        ttsProvider: "ElevenLabs",
+        voice: "voice123",
+        profanityFilter: false,
+        interruptSensitivity: "low",
+      },
+      undefined,
+      undefined,
+      'O\'Brien,Smith & Jones,"Dr. Lee"',
+    );
+
+    expect(twiml).toContain(
+      'hints="O&apos;Brien,Smith &amp; Jones,&quot;Dr. Lee&quot;"',
+    );
+    expect(twiml).not.toContain("hints=\"O'Brien");
+  });
 });

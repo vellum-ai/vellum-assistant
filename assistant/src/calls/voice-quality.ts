@@ -8,6 +8,7 @@ export interface VoiceQualityProfile {
   voice: string;
   profanityFilter: boolean;
   interruptSensitivity: string;
+  hints: string[];
 }
 
 /**
@@ -79,6 +80,7 @@ export function resolveVoiceQualityProfile(
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
     profanityFilter: false,
     interruptSensitivity: voice.interruptSensitivity ?? "low",
+    hints: voice.hints ?? [],
   };
 }
 
