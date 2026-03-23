@@ -18,33 +18,33 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 const log = getLogger("channel-verification-session-proxy");
 
 /**
- * Parse the set of valid bootstrap secrets from GUARDIAN_BOOTSTRAP_SECRET.
+ * Parse the ordered list of valid bootstrap secrets from GUARDIAN_BOOTSTRAP_SECRET.
  *
  * The env var may contain a single secret or a comma-separated list when
  * multiple clients need to independently bootstrap (e.g. a remote VM and
  * the local laptop that initiated the hatch). Each secret is one-time-use;
  * the gateway locks the endpoint once every expected secret has been consumed.
  *
- * Returns an empty set when the env var is unset (bare-metal mode).
+ * Returns an empty array when the env var is unset (bare-metal mode).
+ * The array preserves insertion order so that indices can be used as opaque
+ * identifiers in the consumed-secrets file (avoiding plain-text secret storage).
  */
-function parseBootstrapSecrets(): Set<string> {
+function parseBootstrapSecrets(): string[] {
   const raw = process.env.GUARDIAN_BOOTSTRAP_SECRET;
   if (!raw) {
-    return new Set();
+    return [];
   }
-  return new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0),
-  );
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
   let guardianInitInFlight = false;
-  const secretsInFlight = new Set<string>();
+  const secretsInFlight = new Set<number>();
 
   async function proxyToRuntime(
     req: Request,
@@ -180,10 +180,15 @@ export function createChannelVerificationSessionProxyHandler(
 
       const expectedSecrets = parseBootstrapSecrets();
       const provided = req.headers.get("x-bootstrap-secret");
+      // Resolve the index of the provided secret within the ordered list.
+      // We use indices (not raw secrets) in the consumed file and in-flight
+      // set so that plain-text secrets are never persisted to disk.
+      const providedIndex =
+        provided !== null ? expectedSecrets.indexOf(provided) : -1;
 
-      if (expectedSecrets.size > 0) {
+      if (expectedSecrets.length > 0) {
         // Docker mode: require a valid, unconsumed bootstrap secret.
-        if (!provided || !expectedSecrets.has(provided)) {
+        if (!provided || providedIndex === -1) {
           log.warn(
             "Guardian init rejected — invalid or missing bootstrap secret",
           );
@@ -195,7 +200,7 @@ export function createChannelVerificationSessionProxyHandler(
 
         // In-memory guard: reject if this secret is already being processed
         // by a concurrent request (prevents double-mint across the await).
-        if (secretsInFlight.has(provided)) {
+        if (secretsInFlight.has(providedIndex)) {
           log.warn("Guardian init rejected — bootstrap secret already used");
           return Response.json(
             { error: "Bootstrap secret already used" },
@@ -203,19 +208,19 @@ export function createChannelVerificationSessionProxyHandler(
           );
         }
 
-        // Load the set of already-consumed secrets from disk.
-        let consumed: string[] = [];
+        // Load the set of already-consumed secret indices from disk.
+        let consumed: number[] = [];
         try {
           if (existsSync(consumedPath)) {
             consumed = JSON.parse(
               readFileSync(consumedPath, "utf-8"),
-            ) as string[];
+            ) as number[];
           }
         } catch {
           // Treat corrupt file as empty — allow the init to proceed.
         }
 
-        if (consumed.includes(provided)) {
+        if (consumed.includes(providedIndex)) {
           log.warn("Guardian init rejected — bootstrap secret already used");
           return Response.json(
             { error: "Bootstrap secret already used" },
@@ -244,8 +249,8 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       guardianInitInFlight = true;
-      if (provided) {
-        secretsInFlight.add(provided);
+      if (providedIndex >= 0) {
+        secretsInFlight.add(providedIndex);
       }
       try {
         const response = await proxyToRuntime(
@@ -256,19 +261,19 @@ export function createChannelVerificationSessionProxyHandler(
         );
 
         if (response.status >= 200 && response.status < 300) {
-          if (expectedSecrets.size > 0 && provided) {
-            // Record this secret as consumed.
-            let consumed: string[] = [];
+          if (expectedSecrets.length > 0 && providedIndex >= 0) {
+            // Record this secret's index as consumed (never the secret itself).
+            let consumed: number[] = [];
             try {
               if (existsSync(consumedPath)) {
                 consumed = JSON.parse(
                   readFileSync(consumedPath, "utf-8"),
-                ) as string[];
+                ) as number[];
               }
             } catch {
               // Treat corrupt file as empty.
             }
-            consumed.push(provided);
+            consumed.push(providedIndex);
             try {
               writeFileSync(consumedPath, JSON.stringify(consumed) + "\n", {
                 mode: 0o600,
@@ -278,8 +283,8 @@ export function createChannelVerificationSessionProxyHandler(
             }
 
             // Write the lock file once every expected secret has been used.
-            const allConsumed = [...expectedSecrets].every((s) =>
-              consumed.includes(s),
+            const allConsumed = expectedSecrets.every((_s, i) =>
+              consumed.includes(i),
             );
             if (allConsumed) {
               try {
@@ -309,8 +314,8 @@ export function createChannelVerificationSessionProxyHandler(
         guardianInitInFlight = false;
         throw err;
       } finally {
-        if (provided) {
-          secretsInFlight.delete(provided);
+        if (providedIndex >= 0) {
+          secretsInFlight.delete(providedIndex);
         }
       }
     },
