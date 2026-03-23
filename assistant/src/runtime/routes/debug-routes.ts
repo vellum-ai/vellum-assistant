@@ -8,7 +8,10 @@ import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../memory/conversation-queries.js";
 import { rawAll } from "../../memory/db.js";
 import { getMemoryJobCounts } from "../../memory/jobs-store.js";
-import { getProviderDebugStatus } from "../../providers/registry.js";
+import {
+  getProviderRoutingSource,
+  listProviders,
+} from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
 import { getDbPath } from "../../util/platform.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -48,13 +51,11 @@ function handleDebug(): Response {
   const scheduleCounts = countSchedules();
 
   const config = getConfig();
-  const providerOrder = Array.isArray(config.providerOrder)
-    ? config.providerOrder
-    : [];
-  const providerStatus = getProviderDebugStatus(
-    config.services.inference.provider,
-    providerOrder,
-  );
+  const registeredProviders = listProviders();
+  const routingSources: Record<string, string | undefined> = {};
+  for (const name of registeredProviders) {
+    routingSources[name] = getProviderRoutingSource(name);
+  }
 
   return Response.json({
     session: {
@@ -62,7 +63,9 @@ function handleDebug(): Response {
       startedAt: new Date(startedAt).toISOString(),
     },
     provider: {
-      ...providerStatus,
+      configuredProvider: config.services.inference.provider,
+      registeredProviders,
+      routingSources,
       inferenceMode: config.services.inference.mode,
     },
     memory: {

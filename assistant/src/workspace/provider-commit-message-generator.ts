@@ -52,15 +52,7 @@ const KEYLESS_PROVIDERS = new Set(["ollama"]);
 const deterministicProvider = new DefaultCommitMessageProvider();
 
 function getProviderCandidates(config: ReturnType<typeof getConfig>): string[] {
-  const order = Array.isArray(config.providerOrder) ? config.providerOrder : [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const name of [config.services.inference.provider, ...order]) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    out.push(name);
-  }
-  return out;
+  return [config.services.inference.provider];
 }
 
 function buildDeterministicResult(

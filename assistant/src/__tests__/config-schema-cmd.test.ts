@@ -204,7 +204,6 @@ describe("z.toJSONSchema integration", () => {
     expect(properties).toBeDefined();
     // Check that top-level keys are present
     expect(properties.services).toBeDefined();
-    expect(properties.providerOrder).toBeDefined();
     expect(properties.maxTokens).toBeDefined();
     expect(properties.calls).toBeDefined();
     expect(properties.memory).toBeDefined();

@@ -219,10 +219,7 @@ import {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
-import {
-  ServicesSchema,
-  VALID_INFERENCE_PROVIDERS,
-} from "./schemas/services.js";
+import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import {
   RateLimitConfigSchema,
@@ -233,18 +230,6 @@ import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
-    providerOrder: z
-      .array(
-        z.enum(VALID_INFERENCE_PROVIDERS, {
-          error: `Each providerOrder entry must be one of: ${VALID_INFERENCE_PROVIDERS.join(
-            ", ",
-          )}`,
-        }),
-      )
-      .default([])
-      .describe(
-        "Fallback order of LLM providers — the assistant tries each in sequence if the previous one fails",
-      ),
     maxTokens: z
       .number({ error: "maxTokens must be a number" })
       .int("maxTokens must be an integer")

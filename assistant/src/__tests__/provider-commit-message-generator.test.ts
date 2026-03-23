@@ -407,7 +407,6 @@ describe("ProviderCommitMessageGenerator", () => {
   // 15. Fail-open fallback provider uses fallback provider's fast-model mapping
   test("configured provider unavailable -> selected fallback provider model mapping is used", async () => {
     currentConfig.services.inference.provider = "anthropic";
-    currentConfig.providerOrder = ["openai"];
     mockSecureKeys = { openai: "sk-openai" };
     resolvedProvider = {
       provider: mockProvider,

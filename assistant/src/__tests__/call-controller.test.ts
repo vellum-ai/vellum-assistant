@@ -42,7 +42,6 @@ mock.module("../config/loader.js", () => {
     ui: {},
 
     provider: "anthropic",
-    providerOrder: ["anthropic"],
     calls: {
       enabled: true,
       provider: "twilio",
