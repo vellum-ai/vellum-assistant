@@ -204,6 +204,11 @@ struct OnboardingFlowView: View {
                 state.isManagedHatch = false
                 state.hatchCompleted = false
                 state.hatchFailed = false
+                state.hatchProgressTarget = 0.0
+                state.hatchProgressDisplay = 0.0
+                state.hatchStepLabel = nil
+                state.hatchTotalSteps = 1
+                state.hatchCurrentStep = 0
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
