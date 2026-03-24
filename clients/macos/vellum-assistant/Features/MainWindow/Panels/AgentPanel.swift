@@ -242,46 +242,47 @@ struct SkillItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(alignment: .center, spacing: VSpacing.sm) {
-                        if let emoji = skill.emoji, !emoji.isEmpty {
-                            Text(emoji)
-                                .font(.system(size: 16))
-                        }
-
-                        Text(skill.name)
-                            .font(VFont.headline)
-                            .foregroundStyle(VColor.contentEmphasized)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        VTag(
-                            category.displayName,
-                            color: category.color
-                        )
-
-                        VSkillTypePill(source: skill.source)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    if let emoji = skill.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 16))
                     }
 
-                    Text(skill.description)
-                        .font(VFont.bodySmall)
-                        .foregroundStyle(VColor.contentSecondary)
+                    Text(skill.name)
+                        .font(VFont.headline)
+                        .foregroundStyle(VColor.contentEmphasized)
                         .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                }
+                        .truncationMode(.tail)
 
-                Spacer()
-
-                if isRemovable {
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerOutline,
-                        action: onDelete
+                    VTag(
+                        category.displayName,
+                        color: category.color
                     )
-                    .accessibilityLabel("Uninstall skill")
+
+                    VSkillTypePill(source: skill.source)
+
+                    Spacer()
                 }
+                .overlay(alignment: .trailing) {
+                    if isRemovable {
+                        VButton(
+                            label: "Delete",
+                            iconOnly: VIcon.trash.rawValue,
+                            style: .dangerGhost,
+                            size: .compact,
+                            action: onDelete
+                        )
+                        .accessibilityLabel("Uninstall skill")
+                    }
+                }
+
+                Text(skill.description)
+                    .font(VFont.bodySmall)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+                    .padding(.top, VSpacing.xs)
             }
         }
         .contextMenu {
