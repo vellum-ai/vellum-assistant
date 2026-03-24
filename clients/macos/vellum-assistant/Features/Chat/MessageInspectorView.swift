@@ -7,7 +7,6 @@ struct MessageInspectorView: View {
 
     private let llmContextClient: any LLMContextClientProtocol
     private let callRailWidth: CGFloat = 260
-    private let payloadViewportHeight: CGFloat = 560
 
     @State private var viewState = MessageInspectorViewState()
     @State private var payloadModels: [String: MessageInspectorPayloadModel] = [:]
@@ -357,15 +356,6 @@ struct MessageInspectorView: View {
             get: { viewState.selectedRawPane },
             set: { viewState.selectRawPane($0) }
         )
-    }
-
-    private func payloadSection(title: String, key: String) -> some View {
-        MessageInspectorPayloadView(
-            title: title,
-            model: payloadBinding(for: key),
-            viewportHeight: payloadViewportHeight
-        )
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func payloadBinding(for key: String) -> Binding<MessageInspectorPayloadModel> {
