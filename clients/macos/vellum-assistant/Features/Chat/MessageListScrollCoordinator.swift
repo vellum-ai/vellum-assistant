@@ -379,6 +379,12 @@ final class MessageListScrollCoordinator: ObservableObject {
             loopGuardRecoveryTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(ChatScrollLoopGuard.autoRecoveryDelay * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
+                // Only re-pin if the user hasn't scrolled away during the delay.
+                guard self.bottomPinCoordinator.isFollowingBottom else {
+                    log.debug("Loop guard auto-recovery: skipping re-pin — user scrolled away for \(convId)")
+                    self.loopGuardRecoveryTask = nil
+                    return
+                }
                 log.debug("Loop guard auto-recovery: attempting re-pin for \(convId)")
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                             "target=bottomAnchor reason=loopGuardAutoRecovery")
@@ -646,6 +652,8 @@ final class MessageListScrollCoordinator: ObservableObject {
     func handleScrollUp() {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
+        loopGuardRecoveryTask?.cancel()
+        loopGuardRecoveryTask = nil
         clearAllSuppression()
         bottomPinCoordinator.handleUserAction(.scrollUp)
         hasReceivedScrollEvent = true
@@ -677,18 +685,10 @@ final class MessageListScrollCoordinator: ObservableObject {
         } else {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
-            // Add expansion suppression with auto-timeout. Override the default
-            // timeout task to also check resize/pagination guards.
-            suppression.insert(.expansion)
-            let key = ScrollSuppression.expansion.rawValue
-            suppressionTimeoutTasks[key]?.cancel()
-            suppressionTimeoutTasks[key] = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: ScrollSuppression.timeout(for: .expansion))
-                guard !Task.isCancelled, let self else { return }
-                if !isResizeActive && !self.isPaginationInFlight {
-                    self.removeSuppression(.expansion)
-                }
-            }
+            // Add expansion suppression with auto-timeout. Each OptionSet bit
+            // is independent, so removal is unconditional — no resize/pagination
+            // guards needed (those have their own suppression bits and timeouts).
+            addSuppression(.expansion)
         }
     }
 
