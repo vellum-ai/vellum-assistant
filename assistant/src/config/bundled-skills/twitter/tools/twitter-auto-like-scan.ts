@@ -114,8 +114,8 @@ export async function run(
   }
   const resultSummary = parts.join(". ") + ".";
 
-  // 5. Add Slack reaction if we have an inbound event
-  if (context.inboundEventId) {
+  // 5. Add Slack reaction if we have an inbound event and at least one tweet was liked
+  if (context.inboundEventId && liked.length > 0) {
     try {
       const event = getDb()
         .select({
