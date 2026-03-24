@@ -170,7 +170,7 @@ jobs:
 
   notify-assistant:
     name: Slack Notification (Assistant)
-    needs: [lint, typecheck, test, openapi-check]
+    needs: [lint, typecheck, test]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -183,11 +183,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" || "${{ needs.openapi-check.result }}" == "failure" ]]; then
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" || "${{ needs.openapi-check.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" || "${{ needs.openapi-check.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
