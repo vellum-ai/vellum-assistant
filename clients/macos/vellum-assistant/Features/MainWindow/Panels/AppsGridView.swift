@@ -53,7 +53,7 @@ struct AppsGridView: View {
                     HStack(alignment: .center) {
                         Text("Library")
                             .font(VFont.titleLarge)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Spacer()
                     }
                     .padding(.bottom, VSpacing.md)
@@ -195,7 +195,7 @@ struct AppsGridView: View {
                             VColor.surfaceBase
 
                             VIconView(appIcon, size: 32)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
@@ -283,12 +283,12 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)
                         .font(VFont.bodyMediumEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(Self.formatDate(app.lastOpenedAt))
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -365,20 +365,20 @@ struct AppsGridView: View {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
                             .font(VFont.bodyMediumEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
 
                         if let signer = app.signerDisplayName {
                             Text("by \(signer)")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
 
                     Text(Self.formatISO(app.installedAt))
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -512,7 +512,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in
@@ -527,7 +527,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in

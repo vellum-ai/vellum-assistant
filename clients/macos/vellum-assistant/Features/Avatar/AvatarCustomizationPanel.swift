@@ -15,7 +15,7 @@ struct AvatarCustomizationPanel: View {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Button(action: onClose) {
                         VIconView(.chevronLeft, size: 14)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -23,7 +23,7 @@ struct AvatarCustomizationPanel: View {
                     .accessibilityLabel("Back to identity")
                     Text("Customize Avatar")
                         .font(VFont.titleLarge)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Spacer()
                 }
                 .padding(.top, VSpacing.xxl)
@@ -60,7 +60,7 @@ struct AvatarCustomizationPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Profile Picture")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
@@ -70,12 +70,12 @@ struct AvatarCustomizationPanel: View {
                         Button("Change") { pickImage() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
 
                         Button("Remove") { appearance.clearCustomAvatar() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
             } else {
@@ -87,7 +87,7 @@ struct AvatarCustomizationPanel: View {
                         Text("Upload Custom Image")
                             .font(VFont.bodyMediumDefault)
                     }
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.sm)
                     .background(

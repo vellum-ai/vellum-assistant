@@ -69,7 +69,7 @@ struct BundleConfirmationView: View {
             // App name
             Text(viewModel.manifest.name)
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
@@ -77,7 +77,7 @@ struct BundleConfirmationView: View {
             if let description = viewModel.manifest.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .padding(.horizontal, VSpacing.xxl)
@@ -98,13 +98,13 @@ struct BundleConfirmationView: View {
             if let signerName = viewModel.signatureResult.signerDisplayName, !signerName.isEmpty {
                 Text("Signed by \(signerName)")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             // Bundle size
             Text(viewModel.formattedSize)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             // Security warnings — expandable disclosure
             if !viewModel.scanResult.warnings.isEmpty {
@@ -133,16 +133,16 @@ struct BundleConfirmationView: View {
         switch viewModel.trustTier {
         case .verified:
             VIconView(.badgeCheck, size: 14)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
         case .signed:
             VIconView(.badgeCheck, size: 14)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
         case .unsigned:
             VIconView(.lockOpen, size: 12)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         case .tampered:
             VIconView(.badgeX, size: 14)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
         }
     }
 
@@ -152,19 +152,19 @@ struct BundleConfirmationView: View {
         case .verified:
             Text("Verified")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
         case .signed:
             Text("Signed")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
         case .unsigned:
             Text("Not Signed")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         case .tampered:
             Text("Tampered")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
         }
     }
 
@@ -188,12 +188,12 @@ struct BundleConfirmationView: View {
             }) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 10)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                     Text("\(viewModel.scanResult.warnings.count) warning\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     VIconView(viewModel.warningsExpanded ? .chevronUp : .chevronDown, size: 8)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .buttonStyle(.plain)
@@ -203,7 +203,7 @@ struct BundleConfirmationView: View {
                     ForEach(viewModel.scanResult.warnings, id: \.self) { warning in
                         Text("\u{2022} \(warning)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                 }
                 .padding(.leading, VSpacing.lg)
@@ -242,7 +242,7 @@ struct BundleConfirmationView: View {
             VStack(alignment: .trailing, spacing: VSpacing.xxs) {
                 Text("This app may have been modified.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                 VButton(label: "Install Anyway", style: .danger) {
                     viewModel.confirm()
                 }
@@ -268,7 +268,7 @@ struct BundleConfirmationView: View {
 
             Text("Installing…")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer()
         }
@@ -283,15 +283,15 @@ struct BundleConfirmationView: View {
             Spacer()
 
             VIconView(.circleX, size: 56)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
 
             Text("Installation Failed")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text(message)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xxl)
 
@@ -312,11 +312,11 @@ struct BundleConfirmationView: View {
             Spacer()
 
             VIconView(.circleCheck, size: 56)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
 
             Text("Installed")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer()
         }

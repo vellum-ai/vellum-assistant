@@ -310,17 +310,17 @@ struct OnboardingFlowView: View {
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 Text("Setup failed")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 280)
                 }

@@ -529,7 +529,7 @@ struct AssistantProgressView: View {
                 // Chevron (only if tools exist)
                 if hasChevron {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .contentShape(Rectangle())
@@ -554,14 +554,14 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             VIconView(derived.hasDeniedToolCalls ? .triangleAlert : .circleCheck, size: 12)
-                .foregroundColor(derived.hasDeniedToolCalls ? VColor.systemNegativeHover : VColor.primaryBase)
+                .foregroundStyle(derived.hasDeniedToolCalls ? VColor.systemNegativeHover : VColor.primaryBase)
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 VIconView(.clock, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             } else {
                 VIconView(.circleAlert, size: 12)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
         default:
             Circle()
@@ -580,7 +580,7 @@ struct AssistantProgressView: View {
             } else {
                 Text(headlineText)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
@@ -610,7 +610,7 @@ struct AssistantProgressView: View {
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
@@ -631,7 +631,7 @@ struct AssistantProgressView: View {
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -646,7 +646,7 @@ struct AssistantProgressView: View {
                 ? String(format: "%.1fs", seconds)
                 : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -706,7 +706,7 @@ struct AssistantProgressView: View {
                 }) {
                     Text("+\(overflow)")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, VSpacing.xxs)
                         .background(
@@ -807,11 +807,11 @@ private struct StepDetailRow: View {
                     // Status icon
                     if toolCall.isComplete {
                         VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 12)
-                            .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
+                            .foregroundStyle(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
                             .frame(width: 16)
                     } else if phase == .denied {
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 16)
                     } else {
                         Circle()
@@ -825,7 +825,7 @@ private struct StepDetailRow: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(stepTitle)
                             .font(VFont.labelDefault)
-                            .foregroundColor(stepTitleColor)
+                            .foregroundStyle(stepTitleColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -845,12 +845,12 @@ private struct StepDetailRow: View {
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
                             Text(formatDuration(end.timeIntervalSince(start)))
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
 
                         if hasDetails {
                             VIconView(.chevronRight, size: 9)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
                         }
                     }
@@ -912,22 +912,22 @@ private struct StepDetailRow: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Technical details")
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textCase(.uppercase)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let reason = toolCall.reasonDescription, !reason.isEmpty {
                         Text(toolCall.actionDescription)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     Text(toolCall.friendlyName)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
                         Text(resolvedInputFull)
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -941,7 +941,7 @@ private struct StepDetailRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(toolCall.isComplete ? "Output" : "Live output")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
                     outputBlock(
@@ -962,7 +962,7 @@ private struct StepDetailRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Output")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
                     outputBlock(
@@ -1007,7 +1007,7 @@ private struct StepDetailRow: View {
                 } else if let plainText = text {
                     Text(plainText)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1045,7 +1045,7 @@ private struct StepDetailRow: View {
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -1112,13 +1112,13 @@ private struct CompactPermissionChip: View {
                 switch state {
                 case .approved:
                     VIconView(.circleCheck, size: 10)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 case .denied:
                     VIconView(.circleAlert, size: 10)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 case .timedOut:
                     VIconView(.clock, size: 10)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 default:
                     EmptyView()
                 }
@@ -1126,7 +1126,7 @@ private struct CompactPermissionChip: View {
 
             Text(state == .approved || state == .denied ? label : "Timed Out")
                 .font(VFont.labelSmall)
-                .foregroundColor(chipColor)
+                .foregroundStyle(chipColor)
         }
         .padding(.horizontal, VSpacing.xs)
         .padding(.vertical, VSpacing.xxs)

@@ -142,7 +142,7 @@ struct SettingsPanel: View {
 
                 Text("Settings")
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
 
                 Spacer()
             }
@@ -288,7 +288,7 @@ struct SettingsPanel: View {
             VStack(spacing: VSpacing.md) {
                 Text("Enter passcode")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 VTextField(
                     placeholder: "",
                     text: $devUnlockText,
@@ -500,7 +500,7 @@ struct SettingsPanel: View {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("System Permissions")
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 permissionRow(
                     label: "Accessibility",
@@ -570,10 +570,10 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trust Rules")
                             .font(VFont.titleSmall)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Text("Control which tool actions are automatically allowed or denied")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     VButton(label: "Manage", style: .outlined) {
                         connectionManager?.isTrustRulesSheetOpen = true
@@ -713,7 +713,7 @@ private struct SettingsNavRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 Spacer()
             }
             .padding(.leading, VSpacing.sm)
@@ -749,7 +749,7 @@ struct SettingsPanelEnvVarsSheet: View {
             HStack {
                 Text("Environment Variables")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 VButton(label: "Done", style: .outlined) { dismiss() }
             }
@@ -773,21 +773,21 @@ struct SettingsPanelEnvVarsSheet: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(title)
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             if vars.isEmpty {
                 Text("Loading...")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             } else {
                 ForEach(vars, id: \.0) { key, value in
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text(key)
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .frame(width: 200, alignment: .trailing)
                         Text(value)
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .textSelection(.enabled)
                         Spacer()
                     }

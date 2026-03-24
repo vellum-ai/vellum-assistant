@@ -352,10 +352,10 @@ struct ChatView: View {
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
                             VIconView(.arrowDownToLine, size: 28)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                             Text("Drop files here")
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -459,11 +459,11 @@ struct ChatView: View {
                 HStack {
                     Text("/btw")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss btw response")
@@ -472,22 +472,22 @@ struct ChatView: View {
                 if btwLoading && btwText.isEmpty {
                     Text("Thinking...")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 } else if !btwLoading && btwText.isEmpty {
                     Text("No response received.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 } else {
                     Text(btwText)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .textSelection(.enabled)
                 }
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.md)
@@ -705,15 +705,15 @@ private struct ChatBootstrapTimeoutView: View {
             Spacer()
 
             VIconView(.triangleAlert, size: 28)
-                .foregroundColor(VColor.systemNegativeHover)
+                .foregroundStyle(VColor.systemNegativeHover)
 
             VStack(spacing: VSpacing.sm) {
                 Text("Something went wrong")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Your assistant didn\u{2019}t connect in time. Please quit and reopen the app.")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
                     .textSelection(.enabled)

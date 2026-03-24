@@ -29,7 +29,7 @@ struct WatchProgressView: View {
             // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
                 VIconView(.eye, size: 14)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
                         Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
@@ -38,14 +38,14 @@ struct WatchProgressView: View {
 
                 Text("Watching your workflow...")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Spacer()
 
                 Button(action: onStop) {
                     VIconView(.square, size: 12)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop watching")
@@ -59,12 +59,12 @@ struct WatchProgressView: View {
                 HStack {
                     Text("\(elapsedFormatted) / \(totalFormatted)")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .textSelection(.enabled)
                     Spacer()
                     Text("\(session.captureCount)/\(session.totalExpected) captures")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
             }
@@ -74,7 +74,7 @@ struct WatchProgressView: View {
                 HStack {
                     Text(session.currentApp)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)

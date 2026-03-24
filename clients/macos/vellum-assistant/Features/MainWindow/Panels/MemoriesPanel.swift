@@ -211,12 +211,12 @@ struct MemoriesPanel: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 Text(statusFilter.rawValue)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.sm)
@@ -237,15 +237,15 @@ struct MemoriesPanel: View {
                     } label: {
                         HStack(spacing: VSpacing.sm) {
                             VIconView(status.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(status.rawValue)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Spacer()
                             if statusFilter == status {
                                 VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
+                                    .foregroundStyle(VColor.primaryBase)
                             }
                         }
                         .padding(.horizontal, VSpacing.md)
@@ -270,12 +270,12 @@ struct MemoriesPanel: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 Text(sortOption.rawValue)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.sm)
@@ -297,15 +297,15 @@ struct MemoriesPanel: View {
                     } label: {
                         HStack(spacing: VSpacing.sm) {
                             VIconView(option.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(option.rawValue)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Spacer()
                             if sortOption == option {
                                 VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
+                                    .foregroundStyle(VColor.primaryBase)
                             }
                         }
                         .padding(.horizontal, VSpacing.md)

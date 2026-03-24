@@ -33,7 +33,7 @@ struct AppVersionHistoryPanel: View {
 
                 Text("Version History")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
 
@@ -44,7 +44,7 @@ struct AppVersionHistoryPanel: View {
             .padding(.vertical, VSpacing.md)
 
             Divider()
-                .foregroundColor(VColor.borderBase)
+                .foregroundStyle(VColor.borderBase)
 
             if isLoading {
                 Spacer()
@@ -54,7 +54,7 @@ struct AppVersionHistoryPanel: View {
                         .controlSize(.small)
                     Text("Loading history...")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                 }
                 Spacer()
@@ -64,13 +64,13 @@ struct AppVersionHistoryPanel: View {
                     Spacer()
                     VStack(spacing: VSpacing.sm) {
                         VIconView(.clock, size: 32)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("No version history")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         Text("Changes will appear here after you edit the app.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     Spacer()
                 }
@@ -143,17 +143,17 @@ struct AppVersionHistoryPanel: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(version.message)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(2)
 
                     HStack(spacing: VSpacing.sm) {
                         Text(String(version.commitHash.prefix(7)))
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         Text(relativeTime(from: version.timestamp))
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
 
@@ -164,7 +164,7 @@ struct AppVersionHistoryPanel: View {
                         restoreConfirmVersion = version
                     }) {
                         VIconView(.rotateCcw, size: 12)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                     .help("Restore to this version")
@@ -187,10 +187,10 @@ struct AppVersionHistoryPanel: View {
             HStack {
                 Text("Changes in ")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 + Text(String(version.commitHash.prefix(7)))
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
 
@@ -220,7 +220,7 @@ struct AppVersionHistoryPanel: View {
                     ScrollView(.horizontal) {
                         Text(diff)
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .textSelection(.enabled)
                             .padding(VSpacing.md)
                     }
@@ -231,7 +231,7 @@ struct AppVersionHistoryPanel: View {
                     Spacer()
                     Text("No changes in this version")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                 }
                 Spacer()
@@ -240,10 +240,10 @@ struct AppVersionHistoryPanel: View {
             if let error = restoreError {
                 HStack {
                     VIconView(.triangleAlert, size: 14)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.sm)

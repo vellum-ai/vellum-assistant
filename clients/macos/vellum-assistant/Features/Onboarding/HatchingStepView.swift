@@ -145,36 +145,36 @@ struct HatchingStepView: View {
                 if state.hasExistingManagedAssistant {
                     Text("You already have an assistant")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("You have an assistant on the hosted platform")
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 } else {
                     Text("Something went wrong")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     if let reason = failureReason {
                         Text(reason)
                             .font(.system(size: 14))
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             } else if isCustomHardware {
                 Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             } else {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
             }
         }

@@ -20,12 +20,12 @@ struct VoiceTranscriptionView: View {
 
             Text(voiceModeManager.stateLabel.isEmpty ? "Listening" : voiceModeManager.stateLabel)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if !voiceModeManager.liveTranscription.isEmpty {
                 Text(voiceModeManager.liveTranscription)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 260)

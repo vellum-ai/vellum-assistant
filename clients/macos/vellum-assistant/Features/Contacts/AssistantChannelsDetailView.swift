@@ -147,10 +147,10 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Channels")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("Manage where \(assistantName) can be reached.")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -172,10 +172,10 @@ struct AssistantChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Manage where \(assistantName) can be reached.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -305,7 +305,7 @@ struct AssistantChannelsDetailView: View {
                     HStack(spacing: VSpacing.sm) {
                         Text("Phone Number")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         VDropdown(
                             placeholder: "Not Set",
                             selection: Binding(
@@ -405,20 +405,20 @@ struct AssistantChannelsDetailView: View {
                 // Left: chevron (when connected and expandable) + channel icon + name
                 if isConnected && isExpandable {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 VIconView(icon, size: 16)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 Text(name)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .frame(width: 100, alignment: .leading)
 
                 // Middle: identity / value
                 if let value {
                     Text(value)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                 }
 
@@ -502,10 +502,10 @@ struct AssistantChannelsDetailView: View {
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundStyle(VColor.systemPositiveStrong)
                     Text(email)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .textSelection(.enabled)
                     Spacer()
                     Button {
@@ -518,7 +518,7 @@ struct AssistantChannelsDetailView: View {
                         }
                     } label: {
                         VIconView(emailCopied ? .check : .copy, size: 12)
-                            .foregroundColor(emailCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                            .foregroundStyle(emailCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -552,7 +552,7 @@ struct AssistantChannelsDetailView: View {
                         } else {
                             Text("@\(username)")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .lineLimit(1)
                         }
                     }
@@ -560,10 +560,10 @@ struct AssistantChannelsDetailView: View {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(botId)
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
@@ -607,7 +607,7 @@ struct AssistantChannelsDetailView: View {
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             if store.telegramSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -615,7 +615,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
@@ -647,21 +647,21 @@ struct AssistantChannelsDetailView: View {
                     if let username = store.slackChannelBotUsername, !username.isEmpty {
                         Text("@\(username)")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
                     }
                     if let botUserId = store.slackChannelBotUserId, !botUserId.isEmpty {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             if let teamId = store.slackChannelTeamId,
                                let url = URL(string: "slack://user?team=\(teamId)&id=\(botUserId)") {
                                 VLink(botUserId, destination: url)
                             } else {
                                 Text(botUserId)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
                         }
@@ -715,7 +715,7 @@ struct AssistantChannelsDetailView: View {
 
             Text("Create a Slack app with Socket Mode enabled to get these tokens")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             if store.slackChannelSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -723,7 +723,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
@@ -764,7 +764,7 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     VDropdown(
                         placeholder: "Not Set",
                         selection: Binding(
@@ -831,7 +831,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {

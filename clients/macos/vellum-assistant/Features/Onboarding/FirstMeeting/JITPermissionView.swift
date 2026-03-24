@@ -75,7 +75,7 @@ struct JITPermissionView: View {
                     .frame(width: 80, height: 80)
                     .scaleEffect(iconScale)
                 VIconView(SFSymbolMapping.icon(forSFSymbol: request.icon, fallback: .puzzle), size: 32)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
                     .scaleEffect(iconScale)
             }
             .opacity(showContent ? 1 : 0)
@@ -85,13 +85,13 @@ struct JITPermissionView: View {
             VStack(spacing: VSpacing.sm) {
                 Text(request.title)
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
 
                 Text(request.message)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
                     .textSelection(.enabled)
@@ -108,11 +108,11 @@ struct JITPermissionView: View {
                 }) {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text("Technical details")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                     }
                 }
                 .buttonStyle(.plain)
@@ -121,13 +121,13 @@ struct JITPermissionView: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text(request.explanation)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
 
                         Text(request.technicalDetails)
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
@@ -188,7 +188,7 @@ struct JITPermissionView: View {
         Button(action: action) {
             Text(title)
                 .font(VFont.labelDefault)
-                .foregroundColor(isPrimary ? VColor.auxWhite : VColor.contentDefault.opacity(0.85))
+                .foregroundStyle(isPrimary ? VColor.auxWhite : VColor.contentDefault.opacity(0.85))
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.sm + VSpacing.xxs)

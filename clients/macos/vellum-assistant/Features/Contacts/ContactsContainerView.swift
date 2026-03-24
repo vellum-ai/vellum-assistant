@@ -140,13 +140,13 @@ struct ContactsContainerView: View {
                     // True empty state — contacts loaded but none selected
                     VStack(spacing: VSpacing.md) {
                         VIconView(.users, size: 36)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("Select a contact")
                             .font(VFont.bodySmallEmphasised)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         Text("Choose a contact from the list to view their details.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 240)
                     }
@@ -183,12 +183,12 @@ struct ContactsContainerView: View {
                         HStack(spacing: VSpacing.sm) {
                             Text("\(contact.displayName) (You)")
                                 .font(VFont.titleSmall)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             ContactTypeBadge(role: "guardian")
                         }
                         Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     // Editable fields
@@ -196,7 +196,7 @@ struct ContactsContainerView: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Name")
                                 .font(VFont.bodySmallDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             VTextField(placeholder: "Your name", text: $guardianEditedName)
                                 .disabled(true)
                                 .opacity(0.6)
@@ -205,7 +205,7 @@ struct ContactsContainerView: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Notes")
                                 .font(VFont.bodySmallDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             VTextEditor(
                                 placeholder: "Notes about yourself which AI will take into account",
                                 text: $guardianEditedNotes,
@@ -312,7 +312,7 @@ struct ContactsContainerView: View {
                 HStack(spacing: VSpacing.sm) {
                     Text("\(cachedAssistantName) (Your Assistant)")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     ContactTypeBadge(role: "assistant")
                 }
                 .padding(.horizontal, VSpacing.lg)

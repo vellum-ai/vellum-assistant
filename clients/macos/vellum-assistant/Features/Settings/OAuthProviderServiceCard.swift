@@ -154,7 +154,7 @@ struct OAuthProviderServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Log in to Vellum to connect \(displayName).")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
                 style: .primary,
@@ -174,7 +174,7 @@ struct OAuthProviderServiceCard: View {
             VButton(label: "Connect \(displayName) Account", style: .primary, isDisabled: true) {}
             Text("Waiting for authorization...")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -280,15 +280,15 @@ struct OAuthProviderServiceCard: View {
     private var yourOwnEmptyState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.keyRound, size: 32)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.xs) {
                 Text("No OAuth apps configured")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Add your \(displayName) OAuth credentials to connect accounts.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
             }
 
@@ -321,17 +321,17 @@ struct OAuthProviderServiceCard: View {
             // Header: key icon + masked client_id + date + trash
             HStack(spacing: VSpacing.sm) {
                 VIconView(.keyRound, size: 14)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 Text(maskedClientId(app.client_id))
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
 
                 Text(formattedDate(app.created_at))
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 if hoveredAppId == app.id {
                     Button {
@@ -339,7 +339,7 @@ struct OAuthProviderServiceCard: View {
                         showDeleteAppAlert = true
                     } label: {
                         VIconView(.trash, size: 14)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Delete OAuth App")
@@ -348,17 +348,17 @@ struct OAuthProviderServiceCard: View {
             }
 
             Divider()
-                .foregroundColor(VColor.borderBase)
+                .foregroundStyle(VColor.borderBase)
 
             // Connections
             let connections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
             if connections.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleUser, size: 14)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Text("No connected accounts")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .padding(.vertical, VSpacing.xxs)
             } else {
@@ -378,7 +378,7 @@ struct OAuthProviderServiceCard: View {
                     VBusyIndicator(size: 8, color: VColor.contentTertiary)
                     Text("Waiting for authorization...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 } else {
                     VButton(
                         label: "Connect Account",
@@ -408,11 +408,11 @@ struct OAuthProviderServiceCard: View {
     private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleUser, size: 14)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(conn.account_info ?? "\(displayName) Account")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer()
 

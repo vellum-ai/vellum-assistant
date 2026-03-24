@@ -350,7 +350,7 @@ extension MainWindowView {
                         HStack {
                             Text("Scheduled")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Spacer()
                         }
                         .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
@@ -396,7 +396,7 @@ extension MainWindowView {
                                     HStack(spacing: VSpacing.xs) {
                                         HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
-                                                .foregroundColor(VColor.contentTertiary)
+                                                .foregroundStyle(VColor.contentTertiary)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
                                             if hasUnread {
@@ -409,12 +409,12 @@ extension MainWindowView {
                                         .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
-                                            .foregroundColor(VColor.contentDefault)
+                                            .foregroundStyle(VColor.contentDefault)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                         Text("\(group.conversations.count)")
                                             .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
                                             .background(
@@ -545,7 +545,7 @@ extension MainWindowView {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)

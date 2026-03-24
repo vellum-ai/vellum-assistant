@@ -336,7 +336,7 @@ private func renderInlineMarkdown(_ text: String) -> Text {
         case .code(let content):
             result = result + Text(content)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
         case .link(let linkText, let linkUrl):
             if let url = URL(string: linkUrl) {
                 var attributed = AttributedString(linkText)
@@ -345,7 +345,7 @@ private func renderInlineMarkdown(_ text: String) -> Text {
                 result = result + Text(attributed)
             } else {
                 result = result + Text(linkText)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
                     .underline()
             }
         }
@@ -402,17 +402,17 @@ struct MarkdownPreviewView: View {
                 }
                 Text(fm.displayName ?? fm.name ?? "")
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
             }
             if let description = fm.description {
                 Text(description)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
             if let compatibility = fm.compatibility {
                 Text(compatibility)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -425,7 +425,7 @@ struct MarkdownPreviewView: View {
         case .paragraph(let text):
             renderInlineMarkdown(text)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
         case .codeBlock(_, let code):
             codeBlockView(code: code)
         case .unorderedList(let items):
@@ -449,23 +449,23 @@ struct MarkdownPreviewView: View {
         case 1:
             renderInlineMarkdown(text)
                 .font(VFont.titleLarge)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
                 .padding(.bottom, VSpacing.xs)
         case 2:
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 renderInlineMarkdown(text)
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
                 Divider()
             }
         case 3:
             renderInlineMarkdown(text)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
         default:
             renderInlineMarkdown(text)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
         }
     }
 
@@ -473,7 +473,7 @@ struct MarkdownPreviewView: View {
         ScrollView(.horizontal) {
             Text(code)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: true, vertical: false)
         }
@@ -490,11 +490,11 @@ struct MarkdownPreviewView: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     Text("\u{2022}")
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     renderInlineMarkdown(item)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
             }
         }
@@ -506,10 +506,10 @@ struct MarkdownPreviewView: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     Text("\(item.number).")
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     renderInlineMarkdown(item.text)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
             }
         }
@@ -524,7 +524,7 @@ struct MarkdownPreviewView: View {
                 .accessibilityHidden(true)
             renderInlineMarkdown(text)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .padding(.leading, VSpacing.lg)
     }

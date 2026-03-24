@@ -14,16 +14,16 @@ struct DocumentReopenWidget: View {
         HStack(spacing: VSpacing.md) {
             // Document icon
             VIconView(.fileText, size: 16)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("Document")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 Text(documentTitle)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }
 
@@ -33,7 +33,7 @@ struct DocumentReopenWidget: View {
             Button(action: onReopen) {
                 Text("Open")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
                     .background(
@@ -46,7 +46,7 @@ struct DocumentReopenWidget: View {
             // Dismiss button
             Button(action: onDismiss) {
                 VIconView(.x, size: 11)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)

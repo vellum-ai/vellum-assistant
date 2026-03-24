@@ -64,7 +64,7 @@ struct APIKeyEntryStepView: View {
     var body: some View {
         Text("Connect a Model Provider")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -72,7 +72,7 @@ struct APIKeyEntryStepView: View {
         Text("Enter an API key to connect your model provider.")
             .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
@@ -145,7 +145,7 @@ struct APIKeyEntryStepView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $state.selectedProvider,
@@ -164,10 +164,10 @@ struct APIKeyEntryStepView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("\(providerDisplayName) API Key")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text(maskedKey)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)

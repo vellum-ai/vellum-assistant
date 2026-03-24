@@ -30,7 +30,7 @@ struct SubagentDetailPanel: View {
                                 Text("Abort")
                                     .font(VFont.labelDefault)
                             }
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xxs)
                             .background(
@@ -48,10 +48,10 @@ struct SubagentDetailPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("OBJECTIVE")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text(objective)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .lineLimit(4)
                     }
                 }
@@ -65,10 +65,10 @@ struct SubagentDetailPanel: View {
                 if let error = subagentInfo?.error, !error.isEmpty {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Text(error)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                     .padding(VSpacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,7 +120,7 @@ struct SubagentDetailPanel: View {
                     .frame(width: 8, height: 8)
                 Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                     .font(VFont.labelDefault)
-                    .foregroundColor(statusColor(info.status))
+                    .foregroundStyle(statusColor(info.status))
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xxs)
@@ -158,14 +158,14 @@ struct SubagentDetailPanel: View {
     private func metricItem(icon: String, label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xxs) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Text(value)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
         }
     }
@@ -204,7 +204,7 @@ struct SubagentDetailPanel: View {
             Text(text)
                 .font(VFont.labelSmall)
         }
-        .foregroundColor(color)
+        .foregroundStyle(color)
     }
 
     @ViewBuilder
@@ -224,11 +224,11 @@ struct SubagentDetailPanel: View {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemPositiveWeak)
+                    .foregroundStyle(VColor.systemPositiveWeak)
                 if !event.content.isEmpty {
                     Text(event.content)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -247,7 +247,7 @@ struct SubagentDetailPanel: View {
         case .toolResult:
             Text(event.content)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .lineLimit(6)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)
@@ -260,7 +260,7 @@ struct SubagentDetailPanel: View {
         case .error:
             Text(event.content)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)

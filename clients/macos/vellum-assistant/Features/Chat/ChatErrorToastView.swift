@@ -93,7 +93,7 @@ struct ChatConversationErrorToast: View {
                 Button(action: onAction) {
                     Text(actionLabel)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.auxWhite) // color-literal-ok
+                        .foregroundStyle(VColor.auxWhite) // color-literal-ok
                         .padding(.horizontal, VSpacing.sm)
                         .frame(height: 24)
                         .overlay(
@@ -124,7 +124,7 @@ struct ChatConversationErrorToast: View {
                 .accessibilityLabel("Dismiss error")
             }
         }
-        .foregroundColor(VColor.auxWhite) // Intentional: always white on solid accent background
+        .foregroundStyle(VColor.auxWhite) // Intentional: always white on solid accent background
         .frame(minHeight: 32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)

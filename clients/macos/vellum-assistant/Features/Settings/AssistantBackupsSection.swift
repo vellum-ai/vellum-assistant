@@ -33,7 +33,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Backups")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if let backupPath = preUpdateBackupPath,
                FileManager.default.fileExists(atPath: backupPath) {
@@ -64,13 +64,13 @@ struct AssistantBackupsSection: View {
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemPositiveStrong)
+                    .foregroundStyle(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
@@ -91,7 +91,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Export or restore assistant data as a .vbundle archive.")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
@@ -112,7 +112,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isExporting ? "Creating backup..." : "Restoring backup...")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -124,7 +124,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Create and restore cloud backups for this assistant.")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
@@ -145,7 +145,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isCreatingBackup ? "Creating backup..." : "Loading backups...")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
 
@@ -159,18 +159,18 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Available Backups")
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             ForEach(managedBackups, id: \.snapshotName) { backup in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(backup.snapshotName)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
                         Text(backup.createdAt)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     Spacer()
                     if backup.readyToUse {
@@ -181,7 +181,7 @@ struct AssistantBackupsSection: View {
                     } else {
                         Text("Not ready")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
                 .padding(.vertical, VSpacing.xs)

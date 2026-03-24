@@ -216,11 +216,11 @@ private struct CategoryNodeView: View {
     var body: some View {
         VStack(spacing: 4) {
             VIconView(category.icon, size: 24)
-                .foregroundColor(category.color)
+                .foregroundStyle(category.color)
 
             Text(category.displayName)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: size * 0.85)
@@ -264,7 +264,7 @@ private struct SubCategoryNodeView: View {
 
             Text(label)
                 .font(VFont.labelSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: size * 0.85)
@@ -313,12 +313,12 @@ private struct SkillNodeView: View {
                     .font(.system(size: 22))
             } else {
                 VIconView(item.icon, size: 18)
-                    .foregroundColor(item.color)
+                    .foregroundStyle(item.color)
             }
 
             Text(item.label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(2)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
@@ -387,26 +387,26 @@ private struct SkillPopoverView: View {
                         .font(.system(size: 20))
                 } else {
                     VIconView(item.icon, size: 14)
-                        .foregroundColor(item.color)
+                        .foregroundStyle(item.color)
                 }
 
                 Text(item.label)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(4)
             }
 
             if let category = item.category {
                 Text(category.displayName)
                     .font(VFont.labelSmall)
-                    .foregroundColor(category.color)
+                    .foregroundStyle(category.color)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
                     .background(

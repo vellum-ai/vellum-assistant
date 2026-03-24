@@ -27,7 +27,7 @@ struct SkillDetailView: View {
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -117,7 +117,7 @@ struct SkillDetailView: View {
                 HStack {
                     Text("Files")
                         .font(VFont.bodySmallEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Spacer()
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -136,7 +136,7 @@ struct SkillDetailView: View {
                     } else if let error = skillsManager.skillFilesError {
                         Text(error)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                             .padding(VSpacing.md)
                     } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
                         ScrollView(.vertical) {
@@ -178,19 +178,19 @@ struct SkillDetailTitleRow: View {
                     .frame(width: 20, height: 20)
             } else {
                 VIconView(.zap, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 20, height: 20)
             }
 
             Text(skill.name)
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
 
             if skill.updateAvailable {
                 Text("UPDATE")
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
             }
 
             Spacer()
@@ -240,7 +240,7 @@ struct SkillDetailMetaInfo: View {
                         Text("View on \(provenance.provider ?? "source")")
                             .font(VFont.labelSmall)
                     }
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -253,6 +253,6 @@ struct SkillDetailMetaInfo: View {
             Text(value)
         }
         .font(VFont.labelSmall)
-        .foregroundColor(color)
+        .foregroundStyle(color)
     }
 }

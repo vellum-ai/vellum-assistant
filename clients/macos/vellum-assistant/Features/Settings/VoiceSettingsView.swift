@@ -73,7 +73,7 @@ struct VoiceSettingsView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation Key:")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     HStack(spacing: VSpacing.sm) {
                         // Preset options
@@ -104,10 +104,10 @@ struct VoiceSettingsView: View {
                     if currentActivator.kind == .key {
                         HStack(alignment: .top, spacing: VSpacing.xs) {
                             VIconView(.info, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text("This key will still type in other apps while held. For seamless use, a dedicated key (F-key, mouse button) is recommended.")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .lineSpacing(1)
                         }
                     }
@@ -132,7 +132,7 @@ struct VoiceSettingsView: View {
 
                 Text(label)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
@@ -299,10 +299,10 @@ struct VoiceSettingsView: View {
 
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("Your API key is stored securely in the macOS Keychain.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     HStack(spacing: VSpacing.sm) {

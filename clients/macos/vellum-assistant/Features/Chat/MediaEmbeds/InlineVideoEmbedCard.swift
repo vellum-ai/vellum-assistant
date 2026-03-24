@@ -104,7 +104,7 @@ struct InlineVideoEmbedCard: View {
                 .frame(width: 56, height: 56)
                 .overlay(
                     VIconView(.play, size: 22)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .offset(x: 2)
                 )
         }

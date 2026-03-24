@@ -46,7 +46,7 @@ struct MarkdownSegmentView: View, Equatable {
                     Text(attributed)
                         .font(.system(size: scaledBodySize))
                         .lineSpacing(4)
-                        .foregroundColor(textColor)
+                        .foregroundStyle(textColor)
                         .tint(tintColor)
                         .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
@@ -64,7 +64,7 @@ struct MarkdownSegmentView: View, Equatable {
                     }
                     Text(headingText)
                         .font(headingFont)
-                        .foregroundColor(textColor)
+                        .foregroundStyle(textColor)
                         .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) avoids the double-measurement from fixedSize.

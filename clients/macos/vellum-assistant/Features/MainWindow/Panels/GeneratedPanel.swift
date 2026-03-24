@@ -70,7 +70,7 @@ struct GeneratedPanel: View {
             HStack {
                 Button(action: { withAnimation(VAnimation.fast) { isExpanded.toggle() } }) {
                     VIconView(isExpanded ? .minimize : .maximize, size: 11)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .frame(width: 28, height: 28, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -79,13 +79,13 @@ struct GeneratedPanel: View {
 
                 Text("Dynamic")
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
 
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -102,17 +102,17 @@ struct GeneratedPanel: View {
             if !displayItems.isEmpty || !searchText.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.search, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
 
                     TextField("Filter pages...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
 
                     if !searchText.isEmpty {
                         Button(action: { searchText = "" }) {
                             VIconView(.circleX, size: 12)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -156,11 +156,11 @@ struct GeneratedPanel: View {
                                     HStack {
                                         Text("Documents")
                                             .font(VFont.titleSmall)
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                         Spacer()
                                         Text("\(documentItems.count)")
                                             .font(VFont.labelDefault)
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                     }
                                     .padding(.horizontal, VSpacing.xs)
 
@@ -180,11 +180,11 @@ struct GeneratedPanel: View {
                                         HStack {
                                             Text("Pages")
                                                 .font(VFont.titleSmall)
-                                                .foregroundColor(VColor.contentTertiary)
+                                                .foregroundStyle(VColor.contentTertiary)
                                             Spacer()
                                             Text("\(otherItems.count)")
                                                 .font(VFont.labelDefault)
-                                                .foregroundColor(VColor.contentTertiary)
+                                                .foregroundStyle(VColor.contentTertiary)
                                         }
                                         .padding(.horizontal, VSpacing.xs)
                                     }
@@ -265,13 +265,13 @@ struct GeneratedPanel: View {
                 HStack(spacing: VSpacing.xs) {
                     Text(item.name)
                         .font(VFont.bodyMediumEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 
                     if let version = item.version {
                         Text("v\(version)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     if item.isShared {
@@ -285,7 +285,7 @@ struct GeneratedPanel: View {
                     if item.appType == "site" {
                         Text("Site")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                            .foregroundStyle(VColor.systemPositiveStrong)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, 1)
                             .background(VColor.systemPositiveStrong.opacity(0.5))
@@ -300,13 +300,13 @@ struct GeneratedPanel: View {
                 if let description = item.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(item.dateLabel)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             Spacer()
@@ -367,7 +367,7 @@ struct GeneratedPanel: View {
             Text("Shared")
                 .font(VFont.labelSmall)
         }
-        .foregroundColor(VColor.systemPositiveWeak)
+        .foregroundStyle(VColor.systemPositiveWeak)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
         .background(VColor.borderActive.opacity(0.5))
@@ -380,7 +380,7 @@ struct GeneratedPanel: View {
             Text("Update available")
                 .font(VFont.labelSmall)
         }
-        .foregroundColor(VColor.primaryBase)
+        .foregroundStyle(VColor.primaryBase)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
         .background(VColor.primaryBase.opacity(0.15))
@@ -404,7 +404,7 @@ struct GeneratedPanel: View {
         }()
 
         return VIconView(icon, size: 10)
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 
     // MARK: - Buttons

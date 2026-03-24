@@ -91,10 +91,10 @@ struct ContactsListView: View {
                             VStack(spacing: VSpacing.sm) {
                                 Text("No matching contacts")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                 Text("Try a different search term")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, VSpacing.xl)
@@ -129,7 +129,7 @@ struct ContactsListView: View {
                 Text("Add Contact")
                     .font(VFont.bodyMediumDefault)
             }
-            .foregroundColor(VColor.primaryBase)
+            .foregroundStyle(VColor.primaryBase)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.md)
@@ -157,7 +157,7 @@ struct ContactsListView: View {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer()

@@ -19,7 +19,7 @@ struct MemoryItemCreateSheet: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Kind")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     VDropdown(
                         placeholder: "Kind",
                         selection: $kind,
@@ -31,7 +31,7 @@ struct MemoryItemCreateSheet: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Subject")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     VTextField(placeholder: "Brief topic or label", text: $subject)
                 }
 
@@ -39,10 +39,10 @@ struct MemoryItemCreateSheet: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Statement")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     TextEditor(text: $statement)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
                         .padding(VSpacing.sm)
                         .background(VColor.surfaceActive)
@@ -56,7 +56,7 @@ struct MemoryItemCreateSheet: View {
                             if statement.isEmpty {
                                 Text("What should the assistant remember?")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .padding(VSpacing.sm)
                                     .padding(.top, 1)
                                     .allowsHitTesting(false)
@@ -69,11 +69,11 @@ struct MemoryItemCreateSheet: View {
                     HStack {
                         Text("Importance")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Spacer()
                         Text("\(Int(importance * 100))%")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     VSlider(value: $importance, range: 0...1, step: 0.1)
                 }
@@ -81,10 +81,10 @@ struct MemoryItemCreateSheet: View {
                 if let errorMessage {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleAlert, size: 11)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Text(errorMessage)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                 }
             }

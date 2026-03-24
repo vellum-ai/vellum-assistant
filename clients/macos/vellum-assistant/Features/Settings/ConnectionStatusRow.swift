@@ -10,7 +10,7 @@ struct SpinningRefreshIcon: View {
 
     var body: some View {
         VIconView(.refreshCw, size: 11)
-            .foregroundColor(isSpinning ? VColor.primaryBase : VColor.contentTertiary)
+            .foregroundStyle(isSpinning ? VColor.primaryBase : VColor.contentTertiary)
             .rotationEffect(.degrees(angle))
             .frame(width: 24, height: 24)
             .contentShape(Rectangle())

@@ -101,7 +101,7 @@ struct FileContentView: View {
                 if showReadOnlyBadge {
                     Text("Read-only")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
@@ -231,10 +231,10 @@ struct FileContentHeaderBar<Trailing: View>: View {
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 12)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
             Text(fileName)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()

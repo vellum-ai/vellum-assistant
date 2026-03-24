@@ -132,15 +132,15 @@ private struct FirstUsePromptView: View {
         VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {
                 VIconView(.mic, size: 20)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 Text("Enable Speech Recognition")
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Text("So your words come out the way you meant them.")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -203,15 +203,15 @@ private struct DeniedPromptView: View {
         VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {
                 VIconView(icon, size: 20)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
 
                 Text(title)
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Text(subtitle)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
