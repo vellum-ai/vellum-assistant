@@ -135,6 +135,7 @@ struct ChatView: View {
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
     @State private var containerWidth: CGFloat = 0
+    @State private var composerHeight: CGFloat = 0
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
@@ -264,7 +265,8 @@ struct ChatView: View {
                             anchorMessageId: $anchorMessageId,
                             highlightedMessageId: $highlightedMessageId,
                             isNearBottom: $isNearBottom,
-                            containerWidth: containerWidth
+                            containerWidth: containerWidth,
+                            composerHeight: composerHeight
                         )
 
                         if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
@@ -322,6 +324,12 @@ struct ChatView: View {
                             conversationId: conversationId,
                             isInteractionEnabled: isInteractionEnabled
                         )
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(key: ComposerHeightKey.self, value: geo.size.height)
+                            }
+                        )
+                        .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
                     }
                 }
             }
@@ -811,6 +819,15 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 /// Propagates the chat container's measured width up to ChatView so it can
 /// forward it to MessageListView for resize-aware scroll stabilization.
 private struct ChatContainerWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Propagates the composer section's measured height up to ChatView so it can
+/// forward it to MessageListView for viewport-pinned avatar offset calculation.
+private struct ComposerHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())

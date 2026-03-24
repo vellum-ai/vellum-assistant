@@ -323,121 +323,7 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         }
     }
 
-    // MARK: - New Hot-Path Event Kinds
-
-    func testAvatarFollowerBurstTripsGuard() {
-        var timestamp: TimeInterval = 1000.0
-        var tripped = false
-
-        // Fire 51 avatarFollowerUpdate events in under 2 seconds (exceeds threshold of 50).
-        for _ in 0..<55 {
-            let result = guard_.record(
-                .avatarFollowerUpdate,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            if let snapshot = result {
-                XCTAssertFalse(tripped, "Guard should trip exactly once per cooldown window")
-                tripped = true
-                XCTAssertEqual(snapshot.trippedBy, .avatarFollowerUpdate)
-                XCTAssertGreaterThan(snapshot.counts[.avatarFollowerUpdate] ?? 0, ChatScrollLoopGuard.avatarFollowerThreshold)
-            }
-            timestamp += 0.035
-        }
-
-        XCTAssertTrue(tripped, "Guard should have tripped for avatar follower burst")
-    }
-
-    func testAvatarFollowerNormalRateDoesNotTrip() {
-        var timestamp: TimeInterval = 1000.0
-
-        // 20 events in 2 seconds — well under threshold of 50.
-        for _ in 0..<20 {
-            let result = guard_.record(
-                .avatarFollowerUpdate,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            XCTAssertNil(result, "Normal-rate avatar follower updates should not trip the guard")
-            timestamp += 0.1
-        }
-    }
-
-    func testAvatarDisplayYAppliedBurstTripsGuard() {
-        var timestamp: TimeInterval = 1000.0
-        var tripped = false
-
-        // Fire 31 avatarDisplayYApplied events in under 2 seconds (exceeds threshold of 30).
-        for _ in 0..<35 {
-            let result = guard_.record(
-                .avatarDisplayYApplied,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            if let snapshot = result {
-                XCTAssertFalse(tripped)
-                tripped = true
-                XCTAssertEqual(snapshot.trippedBy, .avatarDisplayYApplied)
-                XCTAssertGreaterThan(snapshot.counts[.avatarDisplayYApplied] ?? 0, ChatScrollLoopGuard.avatarApplyThreshold)
-            }
-            timestamp += 0.055
-        }
-
-        XCTAssertTrue(tripped, "Guard should have tripped for avatar display Y burst")
-    }
-
-    func testAvatarDisplayYAppliedNormalRateDoesNotTrip() {
-        var timestamp: TimeInterval = 1000.0
-
-        // 15 events in 2 seconds — under threshold of 30.
-        for _ in 0..<15 {
-            let result = guard_.record(
-                .avatarDisplayYApplied,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            XCTAssertNil(result)
-            timestamp += 0.13
-        }
-    }
-
-    func testTailAnchorPreferenceBurstTripsGuard() {
-        var timestamp: TimeInterval = 1000.0
-        var tripped = false
-
-        // Fire 61 tailAnchorPreferenceChange events in under 2 seconds (exceeds threshold of 60).
-        for _ in 0..<65 {
-            let result = guard_.record(
-                .tailAnchorPreferenceChange,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            if let snapshot = result {
-                XCTAssertFalse(tripped)
-                tripped = true
-                XCTAssertEqual(snapshot.trippedBy, .tailAnchorPreferenceChange)
-                XCTAssertGreaterThan(snapshot.counts[.tailAnchorPreferenceChange] ?? 0, ChatScrollLoopGuard.tailAnchorThreshold)
-            }
-            timestamp += 0.03
-        }
-
-        XCTAssertTrue(tripped, "Guard should have tripped for tail anchor preference burst")
-    }
-
-    func testTailAnchorPreferenceNormalRateDoesNotTrip() {
-        var timestamp: TimeInterval = 1000.0
-
-        // 30 events in 2 seconds — under threshold of 60.
-        for _ in 0..<30 {
-            let result = guard_.record(
-                .tailAnchorPreferenceChange,
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            XCTAssertNil(result)
-            timestamp += 0.066
-        }
-    }
+    // MARK: - Body Evaluation Event Kind
 
     func testBodyEvaluationBurstTripsGuard() {
         var timestamp: TimeInterval = 1000.0
@@ -477,13 +363,13 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         }
     }
 
-    func testNewEventKindsCooldownRearms() {
+    func testBodyEvaluationCooldownRearms() {
         var timestamp: TimeInterval = 1000.0
         var tripCount = 0
 
-        // Trip via avatarFollowerUpdate.
-        for _ in 0..<55 {
-            if guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp) != nil {
+        // Trip via bodyEvaluation.
+        for _ in 0..<50 {
+            if guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp) != nil {
                 tripCount += 1
             }
             timestamp += 0.035
@@ -494,8 +380,8 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         timestamp += ChatScrollLoopGuard.cooldownDuration + 0.1
 
         // Second burst: should re-arm and trip again.
-        for _ in 0..<55 {
-            if guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp) != nil {
+        for _ in 0..<50 {
+            if guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp) != nil {
                 tripCount += 1
             }
             timestamp += 0.035
@@ -510,18 +396,18 @@ final class ChatScrollLoopGuardTests: XCTestCase {
 
         // Record a mix of events.
         for _ in 0..<10 {
-            guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp)
+            guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp)
             timestamp += 0.01
         }
         for _ in 0..<5 {
-            guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp)
+            guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
             timestamp += 0.01
         }
 
         let counts = guard_.currentCounts(conversationId: conversationId, timestamp: timestamp)
-        XCTAssertEqual(counts[.avatarFollowerUpdate], 10)
-        XCTAssertEqual(counts[.bodyEvaluation], 5)
-        XCTAssertNil(counts[.anchorPreferenceChange], "Unrecorded kinds should not appear")
+        XCTAssertEqual(counts[.bodyEvaluation], 10)
+        XCTAssertEqual(counts[.anchorPreferenceChange], 5)
+        XCTAssertNil(counts[.scrollToRequested], "Unrecorded kinds should not appear")
     }
 
     func testCurrentCountsPrunesStaleEntries() {
@@ -529,7 +415,7 @@ final class ChatScrollLoopGuardTests: XCTestCase {
 
         // Record events that will become stale.
         for _ in 0..<10 {
-            guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp)
+            guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp)
             timestamp += 0.01
         }
 
@@ -538,12 +424,12 @@ final class ChatScrollLoopGuardTests: XCTestCase {
 
         // Record a few fresh events.
         for _ in 0..<3 {
-            guard_.record(.avatarFollowerUpdate, conversationId: conversationId, timestamp: timestamp)
+            guard_.record(.bodyEvaluation, conversationId: conversationId, timestamp: timestamp)
             timestamp += 0.01
         }
 
         let counts = guard_.currentCounts(conversationId: conversationId, timestamp: timestamp)
-        XCTAssertEqual(counts[.avatarFollowerUpdate], 3, "Stale entries outside the window should be excluded")
+        XCTAssertEqual(counts[.bodyEvaluation], 3, "Stale entries outside the window should be excluded")
     }
 
     func testCurrentCountsReturnsEmptyForUnknownConversation() {

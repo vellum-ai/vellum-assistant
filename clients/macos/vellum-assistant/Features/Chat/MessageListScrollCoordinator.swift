@@ -372,24 +372,10 @@ final class MessageListScrollCoordinator: ObservableObject {
         proxy: ScrollViewProxy,
         conversationId: UUID?,
         anchorMessageId: Binding<UUID?>,
-        scrollViewportHeight: CGFloat,
-        avatarSmoothingTask: inout Task<Void, Never>?,
-        isAvatarVisible: inout Bool,
-        avatarDisplayY: inout CGFloat
+        scrollViewportHeight: CGFloat
     ) {
         scrollRestoreTask?.cancel()
         hasFreshAnchorMeasurement = false
-
-        // Reset avatar follower state so the avatar starts hidden and only
-        // appears once the conversation tail anchor reports a fresh position.
-        avatarSmoothingTask?.cancel()
-        avatarSmoothingTask = nil
-        scrollTracking.avatarTargetY = .infinity
-        isAvatarVisible = false
-        avatarDisplayY = .infinity
-        scrollTracking.pendingAvatarY = nil
-        scrollTracking.avatarLastAppliedAt = nil
-        scrollTracking.lastTailAnchorY = .infinity
 
         // Route the initial restore through the coordinator for bounded retries.
         if anchorMessageId.wrappedValue == nil {
@@ -564,7 +550,6 @@ final class MessageListScrollCoordinator: ObservableObject {
 
         var sanitizer = NumericSanitizer()
         let safeAnchorMinY = sanitizer.sanitize(anchorLastMinY, field: "anchorMinY")
-        let safeTailAnchorY = sanitizer.sanitize(scrollTracking.lastTailAnchorY, field: "tailAnchorY")
         let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "scrollViewportHeight")
         let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
         logNonFiniteGeometryOnce(sanitizer: sanitizer)
@@ -591,7 +576,6 @@ final class MessageListScrollCoordinator: ObservableObject {
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
             anchorMinY: safeAnchorMinY,
-            tailAnchorY: safeTailAnchorY,
             scrollViewportHeight: safeViewportHeight,
             containerWidth: safeContainerWidth,
             scrollLoopGuardCounts: guardCountsStringKeyed,
