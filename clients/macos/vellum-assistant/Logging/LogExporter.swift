@@ -45,7 +45,7 @@ enum LogExporter {
     ///
     /// Throws if the archive build fails. The platform upload runs in a
     /// detached background task so the caller can dismiss UI immediately
-    /// after the archive is built. Upload failures are logged but not surfaced.
+    /// after the archive is built. Upload failures show an error toast.
     static func sendFeedback(formData: LogReportFormData) async throws {
         let fileManager = FileManager.default
         let archiveURL = fileManager.temporaryDirectory
