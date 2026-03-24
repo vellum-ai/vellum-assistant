@@ -98,7 +98,20 @@ export function withCrashRecovery(
     )
     .run(checkpointKey, Date.now());
 
-  migrationFn();
+  try {
+    migrationFn();
+  } catch (error) {
+    log.error(
+      { checkpointKey, error },
+      `Memory migration failed: ${checkpointKey} — marking as failed and continuing`,
+    );
+    raw
+      .query(
+        `UPDATE memory_checkpoints SET value = 'failed', updated_at = ? WHERE key = ?`,
+      )
+      .run(Date.now(), checkpointKey);
+    return;
+  }
 
   raw
     .query(

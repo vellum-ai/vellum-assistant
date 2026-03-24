@@ -6,6 +6,6 @@ Each migration file must be **fully self-contained**. All helper functions, cons
 
 - **No external exports.** Migration files must not export anything other than the single `WorkspaceMigration` object. Other code must never import from a migration file.
 - **Duplicate rather than share.** If two migrations need the same helper, duplicate it in both files. Migrations are write-once code — they run once per assistant and are never modified after release. Duplication is preferable to coupling.
-- **Allowed imports:** `./types.js` (for the `WorkspaceMigration` interface), `../../util/logger.js` (for structured logging), and `../../security/encrypted-store.js` (for credential store access). All other dependencies should be inlined.
-- **Graceful on all platforms.** Migrations run on macOS, Linux, and in Docker. Platform-specific operations (e.g. macOS Keychain access) must no-op gracefully on unsupported platforms — never throw.
+- **Allowed imports:** `./types.js` (for the `WorkspaceMigration` interface) and `../../util/logger.js` (for structured logging). All other dependencies should be inlined.
+- **Graceful on all platforms.** Migrations run on macOS, Linux, and in Docker. Platform-specific operations must no-op gracefully on unsupported platforms — never throw.
 - **Idempotent.** Migrations must be safe to re-run if interrupted. The runner checkpoints state as `"started"` before execution and `"completed"` after, so a crash mid-migration triggers a re-run on next startup.

@@ -13,3 +13,10 @@ export interface WorkspaceMigration {
    *  Both synchronous and asynchronous rollbacks are supported. */
   down(workspaceDir: string): void | Promise<void>;
 }
+
+/** Checkpoint status values for workspace migration tracking. */
+export type WorkspaceMigrationStatus =
+  | "started"
+  | "completed"
+  | "rolling_back"
+  | "failed";
