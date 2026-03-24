@@ -24,6 +24,7 @@ struct SidebarConversationItem: View, Equatable {
     var onMarkUnread: () -> Void
     var onHoverChange: (Bool) -> Void
     var onDragStart: () -> Void
+    var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
 
     static func == (lhs: SidebarConversationItem, rhs: SidebarConversationItem) -> Bool {
@@ -193,6 +194,14 @@ struct SidebarConversationItem: View, Equatable {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
             .disabled(!canMarkUnread)
+
+            if let onOpenInNewWindow {
+                Button {
+                    onOpenInNewWindow()
+                } label: {
+                    Label { Text("Open in New Window") } icon: { VIconView(.externalLink, size: 14) }
+                }
+            }
 
             Divider()
 
