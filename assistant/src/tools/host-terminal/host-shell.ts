@@ -204,20 +204,21 @@ class HostShellTool implements Tool {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
       });
 
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGKILL");
+        process.kill(-child.pid!, "SIGKILL");
       }, timeoutMs);
 
       // Cooperative cancellation via AbortSignal
       const onAbort = () => {
-        child.kill("SIGKILL");
+        process.kill(-child.pid!, "SIGKILL");
       };
       if (context.signal) {
         if (context.signal.aborted) {
-          child.kill("SIGKILL");
+          process.kill(-child.pid!, "SIGKILL");
         } else {
           context.signal.addEventListener("abort", onAbort, { once: true });
         }

@@ -138,11 +138,12 @@ export function handleBashSignal(filename: string): void {
   const child = spawn("bash", ["-c", command], {
     cwd: getWorkspaceDir(),
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
 
   const timer = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGKILL");
+    process.kill(-child.pid!, "SIGKILL");
   }, effectiveTimeout);
 
   child.stdout.on("data", (data: Buffer) => {
