@@ -333,21 +333,21 @@ struct VoiceSettingsView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("1. Create a Fish Audio account at fish.audio")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("2. Generate an API key from your Fish Audio dashboard")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("3. Choose or create a voice and copy its reference ID")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("4. Run the setup commands in your terminal:")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set fishAudio.referenceId YOUR_VOICE_ID")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .padding(VSpacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
