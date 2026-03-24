@@ -109,6 +109,7 @@ import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
+import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import {
   cancelGeneration,
   clearAllConversations,
@@ -294,6 +295,17 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Manual-token connection backfill failed — continuing startup",
+      );
+    }
+
+    // Backfill injection templates on Slack bot token credentials so the
+    // credential proxy can inject Authorization headers. Safe on every startup.
+    try {
+      backfillSlackInjectionTemplates();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Slack injection template backfill failed — continuing startup",
       );
     }
 
