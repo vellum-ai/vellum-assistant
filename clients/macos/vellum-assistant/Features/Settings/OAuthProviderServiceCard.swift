@@ -186,7 +186,7 @@ struct OAuthProviderServiceCard: View {
             }
 
             Divider()
-                .foregroundColor(VColor.borderBase)
+                .foregroundStyle(VColor.borderBase)
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Connect Another Account", leftIcon: "lucide-plus", style: .outlined, isDisabled: store.managedIsConnecting(for: providerKey)) {
@@ -196,7 +196,7 @@ struct OAuthProviderServiceCard: View {
                     VBusyIndicator(size: 8, color: VColor.contentTertiary)
                     Text("Waiting for authorization...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
         }
@@ -206,7 +206,7 @@ struct OAuthProviderServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 VTextField(
-                    "Email",
+                    "Account",
                     placeholder: "",
                     text: .constant(entry.account_label ?? "\(displayName) Account")
                 )
