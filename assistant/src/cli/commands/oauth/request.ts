@@ -305,14 +305,21 @@ Examples:
           // -----------------------------------------------------------------
           let baseUrl: string | undefined;
           let requestPath: string;
-          const queryFromUrl: Record<string, string> = {};
+          const queryFromUrl: Record<string, string | string[]> = {};
 
           if (url.startsWith("http://") || url.startsWith("https://")) {
             const parsed = new URL(url);
             baseUrl = `${parsed.protocol}//${parsed.host}`;
             requestPath = parsed.pathname;
             for (const [key, value] of parsed.searchParams.entries()) {
-              queryFromUrl[key] = value;
+              const existing = queryFromUrl[key];
+              if (existing !== undefined) {
+                queryFromUrl[key] = Array.isArray(existing)
+                  ? [...existing, value]
+                  : [existing, value];
+              } else {
+                queryFromUrl[key] = value;
+              }
             }
           } else {
             requestPath = url;
@@ -358,7 +365,14 @@ Examples:
                 // Parse as URL-encoded query params
                 const bodyParams = new URLSearchParams(rawBody);
                 for (const [key, value] of bodyParams.entries()) {
-                  query[key] = value;
+                  const existing = query[key];
+                  if (existing !== undefined) {
+                    query[key] = Array.isArray(existing)
+                      ? [...existing, value]
+                      : [existing, value];
+                  } else {
+                    query[key] = value;
+                  }
                 }
               } else if (
                 rawBody !== null &&
@@ -368,7 +382,15 @@ Examples:
                 for (const [key, value] of Object.entries(
                   rawBody as Record<string, unknown>,
                 )) {
-                  query[key] = String(value);
+                  const existing = query[key];
+                  const strValue = String(value);
+                  if (existing !== undefined) {
+                    query[key] = Array.isArray(existing)
+                      ? [...existing, strValue]
+                      : [existing, strValue];
+                  } else {
+                    query[key] = strValue;
+                  }
                 }
               }
             } else {
