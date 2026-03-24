@@ -191,8 +191,7 @@ final class MessageListPreferenceGeometryTests: XCTestCase {
     // MARK: - Zero dead-zone (disabled suppression)
 
     /// When dead-zone is 0, every finite change is accepted regardless of
-    /// magnitude. This is used for preference keys like ScrollViewportHeightKey
-    /// where every change matters.
+    /// magnitude. This is used for handlers where every change matters.
     func testZeroDeadZoneAcceptsSmallChange() {
         let result = PreferenceGeometryFilter.evaluate(
             newValue: 100.5,

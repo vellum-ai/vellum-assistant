@@ -79,7 +79,7 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - 1. AnchorVisibilityTracker Rapid-Update Stress Test
 
-    /// Benchmarks calling update(minY:viewportHeight:) and
+    /// Benchmarks calling update(distanceFromBottom:viewportHeight:) and
     /// updateViewport(height:storedViewportHeight:) 10,000 times each in a
     /// tight loop. While individually trivial (O(1)), they are called on EVERY
     /// scroll frame. This test detects if any future refactoring adds overhead.
@@ -91,10 +91,10 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             var storedViewportHeight: CGFloat = 800.0
             for i in 0..<10_000 {
-                // Simulate scrolling: minY varies from well above to well below
-                // the viewport, crossing the visibility boundary frequently.
-                let minY = CGFloat(i % 1600) - 400.0
-                tracker.update(minY: minY, viewportHeight: viewportHeight)
+                // Simulate scrolling: distanceFromBottom varies, crossing
+                // the visibility boundary (20pt threshold) frequently.
+                let distanceFromBottom = CGFloat(i % 100) - 10.0
+                tracker.update(distanceFromBottom: distanceFromBottom, viewportHeight: viewportHeight)
             }
             for i in 0..<10_000 {
                 // Simulate viewport resizes mixed with position changes.

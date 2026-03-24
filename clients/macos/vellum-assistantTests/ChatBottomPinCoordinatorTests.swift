@@ -673,16 +673,17 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     /// Verifies that the anchor policy correctly distinguishes between
     /// genuinely off-screen anchors and unavailable geometry.
+    /// `anchorMinY` now represents distance-from-bottom (0 = at bottom).
     func testVerificationOutcomeDistinguishesGeometryStates() {
-        // Finite, in-bounds anchor
+        // Finite, at bottom (distance = 0)
         let anchored = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500, viewportHeight: 600
+            anchorMinY: 0, viewportHeight: 600
         )
         XCTAssertEqual(anchored, .anchored)
 
-        // Finite, genuinely off-screen
+        // Finite, scrolled far from bottom
         let offScreen = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 700, viewportHeight: 600
+            anchorMinY: 100, viewportHeight: 600
         )
         XCTAssertEqual(offScreen, .needsRepin)
 
@@ -694,7 +695,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
         // Non-finite viewport (geometry not yet measured)
         let infiniteViewport = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500, viewportHeight: .infinity
+            anchorMinY: 0, viewportHeight: .infinity
         )
         XCTAssertEqual(infiniteViewport, .geometryUnavailable)
 
@@ -845,20 +846,21 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     /// Verifies that the legacy `needsRepin` helper still collapses
     /// `geometryUnavailable` into `true` for backwards compatibility.
+    /// `anchorMinY` is now distance-from-bottom (0 = at bottom).
     func testLegacyNeedsRepinCollapsesGeometryUnavailable() {
         // geometryUnavailable -> true (backwards-compatible behavior)
         XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
             anchorMinY: .infinity, viewportHeight: 600
         ))
 
-        // anchored -> false
+        // anchored (distance 0 = at bottom) -> false
         XCTAssertFalse(MessageListBottomAnchorPolicy.needsRepin(
-            anchorMinY: 500, viewportHeight: 600
+            anchorMinY: 0, viewportHeight: 600
         ))
 
-        // needsRepin -> true
+        // needsRepin (scrolled far from bottom) -> true
         XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
-            anchorMinY: 700, viewportHeight: 600
+            anchorMinY: 100, viewportHeight: 600
         ))
     }
 }

@@ -84,7 +84,8 @@ final class ConversationAvatarFollowerTests: XCTestCase {
     @MainActor
     func testViewportChangeRecomputesVisibility() {
         let tracker = AnchorVisibilityTracker()
-        tracker.lastMinY = 520
+        // Distance-from-bottom of 15 is within the 20pt visibility threshold.
+        tracker.lastMinY = 15
         tracker.isVisible = false
         var storedViewportHeight: CGFloat = 500
 
@@ -101,7 +102,8 @@ final class ConversationAvatarFollowerTests: XCTestCase {
     @MainActor
     func testViewportChangeNoOpsWhenHeightIsUnchanged() {
         let tracker = AnchorVisibilityTracker()
-        tracker.lastMinY = 520
+        // Distance-from-bottom of 50 is outside the 20pt threshold — not visible.
+        tracker.lastMinY = 50
         tracker.isVisible = false
         var storedViewportHeight: CGFloat = 540
 
