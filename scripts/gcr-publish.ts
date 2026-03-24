@@ -16,8 +16,7 @@
  *   GCP_PROJECT_ID                 — e.g. my-gcp-project
  *   ASSISTANT_IMAGE_NAME           — e.g. assistant (required when publishing assistant)
  *   GATEWAY_IMAGE_NAME             — e.g. gateway (required when publishing gateway)
- *   CREDENTIAL_EXECUTOR_IMAGE_NAME — e.g. credential-executor (required when publishing credential-executor or trust-broker)
- *   TRUST_BROKER_IMAGE_NAME        — e.g. trust-broker (required when publishing trust-broker)
+ *   (CREDENTIAL_EXECUTOR_IMAGE_NAME and TRUST_BROKER_IMAGE_NAME are hardcoded below)
  *
  * Usage:
  *   bun scripts/gcr-publish.ts --version <semver>
@@ -75,7 +74,8 @@ const ALL_SERVICES: Service[] = [
 ];
 
 interface ServiceConfig {
-  imageEnvVar: string;
+  imageEnvVar?: string;
+  imageName?: string;
   context: string;
   dockerfile: string;
   featureFlagSync?: { src: string; dest: string };
@@ -103,12 +103,12 @@ const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
     },
   },
   "credential-executor": {
-    imageEnvVar: "CREDENTIAL_EXECUTOR_IMAGE_NAME",
+    imageName: "credential-executor",
     context: ".",
     dockerfile: "credential-executor/Dockerfile",
   },
   "trust-broker": {
-    imageEnvVar: "TRUST_BROKER_IMAGE_NAME",
+    imageName: "trust-broker",
     context: ".",
     dockerfile: "credential-executor/Dockerfile",
     retagFrom: "credential-executor",
@@ -148,10 +148,14 @@ if (!GCP_PROJECT_ID) missing.push("GCP_PROJECT_ID");
 
 for (const svc of selectedServices) {
   const config = SERVICE_CONFIG[svc];
-  if (!process.env[config.imageEnvVar]) missing.push(config.imageEnvVar);
+  if (!config.imageName && config.imageEnvVar && !process.env[config.imageEnvVar]) {
+    missing.push(config.imageEnvVar);
+  }
   if (config.retagFrom) {
-    const sourceEnvVar = SERVICE_CONFIG[config.retagFrom].imageEnvVar;
-    if (!process.env[sourceEnvVar]) missing.push(sourceEnvVar);
+    const sourceConfig = SERVICE_CONFIG[config.retagFrom];
+    if (!sourceConfig.imageName && sourceConfig.imageEnvVar && !process.env[sourceConfig.imageEnvVar]) {
+      missing.push(sourceConfig.imageEnvVar);
+    }
   }
 }
 
@@ -187,8 +191,9 @@ function git(cmd: string): string {
 }
 
 function imageRef(svc: Service): string {
-  const envVar = SERVICE_CONFIG[svc].imageEnvVar;
-  return `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${process.env[envVar]}`;
+  const config = SERVICE_CONFIG[svc];
+  const name = config.imageName ?? process.env[config.imageEnvVar!];
+  return `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${name}`;
 }
 
 // ---------------------------------------------------------------------------
