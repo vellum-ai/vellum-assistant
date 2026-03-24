@@ -428,12 +428,8 @@ describe("Context + Memory E2E regression", () => {
 
     expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
 
-    // With Qdrant mocked empty the only retrieval path is recency search,
-    // but recency-only candidates score below the tier-2 threshold (0.6)
-    // since finalScore = semantic*0.7 + recency*0.2 + confidence*0.1 and
-    // semantic=0 for recency hits.  This means no candidates pass tier
-    // classification and injectedText is empty — which is correct behavior:
-    // the pipeline requires at least tier-2 quality to inject memory context.
+    // With Qdrant mocked empty, no candidates are found and injectedText is
+    // empty — the pipeline requires at least tier-2 quality to inject.
     // Verify current-turn secrets never leak regardless.
     expect(recall.injectedText).not.toContain("123XYZ");
   });

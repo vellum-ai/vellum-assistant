@@ -512,7 +512,7 @@ describe("Memory Recall Quality", () => {
   // -------------------------------------------------------------------------
 
   describe("supersession suppression", () => {
-    test("superseded memory items do not appear in recall via recency", async () => {
+    test("superseded memory items do not appear in recall", async () => {
       const db = getDb();
       const now = 1_700_000_200_000;
       insertConversation(db, "conv-contra", now, 1);
@@ -563,8 +563,7 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      // Recency search finds the segment but tier classification filters it
-      // Superseded items should not leak into injected text
+      // Qdrant is mocked empty; superseded items should not leak into injected text
       expect(recall.injectedText).not.toContain("vim for editing code");
     });
 
@@ -618,8 +617,7 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      // Recency search finds segments but tier classification filters them.
-      // Key assertion: superseded MySQL item should not leak.
+      // Qdrant is mocked empty; superseded MySQL item should not leak.
       expect(recall.injectedText).not.toContain("MySQL");
     });
 
@@ -782,7 +780,7 @@ describe("Memory Recall Quality", () => {
       expect(recall.injectedText).toContain("Bun");
     });
 
-    test("frequently accessed items surface via recency search when seeded with segments", async () => {
+    test("frequently accessed items surface via semantic search", async () => {
       const db = getDb();
       const now = 1_700_000_400_000;
       insertConversation(db, "conv-access", now, 2);
@@ -892,12 +890,12 @@ describe("Memory Recall Quality", () => {
   // -------------------------------------------------------------------------
 
   describe("multi-source recall", () => {
-    test("recency search surfaces segments when hybrid search is unavailable", async () => {
+    test("segments are surfaced via semantic search alongside items", async () => {
       const db = getDb();
       const now = 1_700_000_500_000;
       insertConversation(db, "conv-multi", now, 1);
 
-      // Segment (recency source)
+      // Segment (also indexed in Qdrant via item source)
       insertMessage(
         db,
         "msg-seg",

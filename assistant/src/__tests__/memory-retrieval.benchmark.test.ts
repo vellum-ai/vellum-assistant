@@ -5,12 +5,9 @@
  * Validates latency stays within acceptable bounds and token budget
  * enforcement works correctly.
  *
- * The new pipeline uses hybrid search (Qdrant) + recency search.
- * With Qdrant mocked and semanticSearch returning empty, only recency
- * search provides candidates. These recency-only candidates have
- * low finalScore (< 0.6) and are filtered out by tier classification,
- * so injectedText is empty. The tests verify pipeline completion,
- * latency bounds, and correct handling of recency hits.
+ * The pipeline uses hybrid search (Qdrant) only. With Qdrant mocked empty,
+ * no candidates are found and injectedText is empty. The tests verify
+ * pipeline completion, latency bounds, and token budget enforcement.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -196,7 +193,6 @@ describe("Memory retrieval benchmark", () => {
 
     expect(recall.enabled).toBe(true);
     expect(recall.degraded).toBe(false);
-    // Recency search finds conversation-scoped segments
     // Relaxed threshold — guards against severe regressions, not precise benchmarking
     expect(recall.latencyMs).toBeLessThan(500);
   });
@@ -249,8 +245,8 @@ describe("Memory retrieval benchmark", () => {
     );
 
     expect(recall.enabled).toBe(true);
-    // With Qdrant mocked empty and recency-only candidates below tier threshold,
-    // injectedTokens is 0. Verify the budget cap is still respected.
+    // With Qdrant mocked empty, no candidates are found.
+    // Verify the budget cap is still respected.
     expect(recall.injectedTokens).toBeLessThanOrEqual(smallBudget);
 
     // Compare against a larger budget

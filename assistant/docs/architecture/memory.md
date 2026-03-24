@@ -154,7 +154,6 @@ graph TB
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
         EMBED_Q["Generate dense + sparse<br/>query embeddings"]
         HYBRID["Hybrid Search<br/>dense + sparse RRF on Qdrant"]
-        RECENCY["Recency Search<br/>conversation-scoped, DB only"]
         MERGE["Merge + Deduplicate<br/>weighted score combination"]
         SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private conversations: own scope + 'default'"]
         TIER["Tier Classification<br/>score > 0.8 → tier 1<br/>score > 0.6 → tier 2<br/>below → dropped"]
@@ -218,9 +217,7 @@ graph TB
     EMBED_Q --> SPARSE_GEN
     EMBED_Q --> HYBRID
     HYBRID --> RRF
-    QUERY --> RECENCY
     HYBRID --> SCOPE
-    RECENCY --> SCOPE
     SCOPE --> MERGE
     MERGE --> TIER
     TIER --> STALE
@@ -337,24 +334,22 @@ The recall pipeline runs on every turn that passes the `needsMemory` gate (skips
 
 3. **Hybrid search on Qdrant**: When both dense and sparse vectors are available, the pipeline uses Qdrant's query API with two prefetch stages (dense and sparse, each fetching up to 40 candidates) fused via Reciprocal Rank Fusion (RRF). Falls back to dense-only search when sparse vectors are unavailable.
 
-4. **Recency supplement**: A DB-only recency search fetches the 5 most recent segments from the current conversation, providing conversation-local context even when vector search misses.
+4. **Merge and deduplicate**: Hybrid candidates are deduplicated by key. A weighted final score is computed: `0.4 + importance * 0.25 + confidence * 0.15 + recency * 0.2`, where `recency` is a logarithmic time-decay score (ACT-R inspired) based on when the item was last seen.
 
-5. **Merge and deduplicate**: Hybrid and recency candidates are merged by key. Duplicate entries keep the highest scores from each source. A weighted final score is computed: `semantic * 0.7 + recency * 0.2 + confidence * 0.1`.
-
-6. **Tier classification** (`tier-classifier.ts`): Score-based, deterministic classification:
+5. **Tier classification** (`tier-classifier.ts`): Score-based, deterministic classification:
    - `finalScore > 0.8` → **tier 1** (high relevance)
    - `finalScore > 0.6` → **tier 2** (possibly relevant)
    - Below 0.6 → dropped
 
-7. **Staleness computation** (`staleness.ts`): Each item candidate is annotated with a staleness level based on its age relative to a kind-specific base lifetime (see table above). The effective lifetime is extended by a reinforcement factor: `baseLifetime * (1 + 0.3 * (sourceConversationCount - 1))`, so items mentioned across multiple conversations age more slowly. Staleness levels:
+6. **Staleness computation** (`staleness.ts`): Each item candidate is annotated with a staleness level based on its age relative to a kind-specific base lifetime (see table above). The effective lifetime is extended by a reinforcement factor: `baseLifetime * (1 + 0.3 * (sourceConversationCount - 1))`, so items mentioned across multiple conversations age more slowly. Staleness levels:
    - `ratio < 0.5` → `fresh`
    - `ratio <= 1.0` → `aging`
    - `ratio <= 2.0` → `stale`
    - `ratio > 2.0` → `very_stale`
 
-8. **Stale demotion**: `very_stale` tier 1 candidates are demoted to tier 2, preventing old information from occupying prime injection space.
+7. **Stale demotion**: `very_stale` tier 1 candidates are demoted to tier 2, preventing old information from occupying prime injection space.
 
-9. **Two-layer XML injection** (`formatting.ts`): Budget-aware rendering into four XML sections:
+8. **Two-layer XML injection** (`formatting.ts`): Budget-aware rendering into four XML sections:
 
    ```xml
    <memory_context __injected>
@@ -380,7 +375,7 @@ The recall pipeline runs on every turn that passes the `needsMemory` gate (skips
 
    Empty sections are omitted. Each section has a per-item token budget (150 tokens for tier 1, 100 for tier 2). Tier 1 sections consume budget first; tier 2 uses the remainder.
 
-10. **Injection strategy**: The rendered `<memory_context __injected>` block is prepended as a text content block to the last user message (`injectMemoryRecallAsUserBlock`), following the same pattern as workspace, temporal, and other runtime injections. Stripping is handled by the generic `stripUserTextBlocksByPrefix` mechanism matching the `<memory_context __injected>` prefix (with a backward-compat entry for the legacy `<memory_context>` prefix from older history). This avoids synthetic message pairs and preserves prompt prefix caching between turns.
+9. **Injection strategy**: The rendered `<memory_context __injected>` block is prepended as a text content block to the last user message (`injectMemoryRecallAsUserBlock`), following the same pattern as workspace, temporal, and other runtime injections. Stripping is handled by the generic `stripUserTextBlocksByPrefix` mechanism matching the `<memory_context __injected>` prefix (with a backward-compat entry for the legacy `<memory_context>` prefix from older history). This avoids synthetic message pairs and preserves prompt prefix caching between turns.
 
 ### Internal-Only Trust Gating
 
@@ -412,7 +407,7 @@ When the embedding backend or Qdrant is unavailable:
 
 - A **circuit breaker** on Qdrant (`qdrant-circuit-breaker.ts`) tracks consecutive failures and short-circuits search calls when the breaker is open.
 - If embedding generation fails and `memory.embeddings.required` is `true`, recall returns an empty result with a degradation status (`embedding_generation_failed` or `embedding_provider_down`).
-- If embeddings are optional (default), the pipeline falls back to recency-only search.
+- If embeddings are optional (default), the pipeline returns empty results (no fallback search path exists without Qdrant).
 - Degradation status is reported to clients via `memory_status` events.
 
 ---

@@ -2435,7 +2435,6 @@ public struct MemoryRecalled: Codable, Sendable {
     public let model: String
     public let degradation: MemoryRecalledDegradation?
     public let semanticHits: Double
-    public let recencyHits: Double
     public let tier1Count: Int?
     public let tier2Count: Int?
     public let hybridSearchLatencyMs: Double?
@@ -2446,13 +2445,12 @@ public struct MemoryRecalled: Codable, Sendable {
     public let latencyMs: Double
     public let topCandidates: [MemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
         self.degradation = degradation
         self.semanticHits = semanticHits
-        self.recencyHits = recencyHits
         self.tier1Count = tier1Count
         self.tier2Count = tier2Count
         self.hybridSearchLatencyMs = hybridSearchLatencyMs

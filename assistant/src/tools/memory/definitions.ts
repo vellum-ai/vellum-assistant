@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Hybrid search across memory (semantic and recency) for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need - e.g. the user references a past session, or you need deeper recall. Be specific in your query for best results. Returns formatted memory context with item IDs for use with memory_manage.",
+    "Semantic search across memory for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need - e.g. the user references a past session, or you need deeper recall. Be specific in your query for best results. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {

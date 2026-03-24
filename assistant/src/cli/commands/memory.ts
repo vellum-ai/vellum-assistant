@@ -156,8 +156,7 @@ Examples:
 Arguments:
   text   The recall query string used to search memory (e.g. "What is the
          project deadline?"). Matched against indexed segments using the full
-         recall pipeline: semantic (dense + sparse vector similarity) and recency
-         (time-weighted).
+         recall pipeline: semantic (dense + sparse vector similarity).
 
 Runs the complete memory recall pipeline and displays hit counts for each
 retrieval strategy, the total injected token count, query latency, and the
@@ -183,7 +182,7 @@ Examples:
         log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
       }
       log.info(`Semantic hits: ${result.semanticHits}`);
-      log.info("Recency hits: 0");
+      log.info(`Merged count: ${result.mergedCount}`);
       log.info(`Injected tokens: ${result.injectedTokens}`);
       log.info(`Latency: ${result.latencyMs}ms`);
       if (result.injectedText.length > 0) {
