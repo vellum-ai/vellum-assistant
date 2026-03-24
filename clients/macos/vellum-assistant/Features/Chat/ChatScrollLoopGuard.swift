@@ -77,6 +77,11 @@ final class ChatScrollLoopGuard {
     /// The guard re-arms only after a full quiet window elapses with no events.
     static let cooldownDuration: TimeInterval = 2.0
 
+    /// After the guard trips and cooldown expires with no events for this duration,
+    /// the auto-recovery mechanism schedules a single deferred re-pin attempt.
+    /// This prevents the UI from getting stuck in a "never scrolls again" state.
+    static let autoRecoveryDelay: TimeInterval = 1.0
+
     // MARK: - Internal State
 
     private struct ConversationState {
@@ -91,11 +96,19 @@ final class ChatScrollLoopGuard {
 
         /// Whether the guard is currently in cooldown (suppressing warnings).
         var inCooldown: Bool = false
+
+        /// Whether the guard has tripped and needs a recovery re-pin once
+        /// cooldown expires. Set to `true` when tripping, cleared when recovery fires.
+        var needsRecoveryRepin: Bool = false
     }
 
     private var states: [String: ConversationState] = [:]
 
     // MARK: - Public API
+
+    /// Callback invoked when the guard recovers from a trip and a re-pin
+    /// should be attempted. Set by the coordinator during configuration.
+    var onRecoveryNeeded: ((_ conversationId: String) -> Void)?
 
     /// Records an event and returns an aggregate snapshot if the guard trips.
     ///
@@ -126,6 +139,16 @@ final class ChatScrollLoopGuard {
         if state.inCooldown, let lastEvent = state.lastEventTime {
             if timestamp - lastEvent >= Self.cooldownDuration {
                 state.inCooldown = false
+                // Auto-recovery: when cooldown expires, schedule a single re-pin
+                // attempt so the UI doesn't get stuck in a "never scrolls" state.
+                if state.needsRecoveryRepin {
+                    state.needsRecoveryRepin = false
+                    // Save state before firing the callback (callback may re-enter).
+                    states[conversationId] = state
+                    onRecoveryNeeded?(conversationId)
+                    // Re-read in case the callback mutated state.
+                    state = states[conversationId] ?? state
+                }
             }
         }
 
@@ -158,7 +181,8 @@ final class ChatScrollLoopGuard {
         var snapshot: AggregateSnapshot?
 
         if let trippedKind = trippedBy, !state.inCooldown {
-            // Build the aggregate counts for all event kinds.
+            // Build the aggregate counts for all event kinds — full histogram
+            // for post-mortem analysis, not just the triggering event kind.
             var counts: [EventKind: Int] = [:]
             for eventKind in EventKind.allCases {
                 let count = state.events[eventKind]?.count ?? 0
@@ -177,6 +201,7 @@ final class ChatScrollLoopGuard {
 
             state.lastTripTime = timestamp
             state.inCooldown = true
+            state.needsRecoveryRepin = true
         }
 
         states[conversationId] = state

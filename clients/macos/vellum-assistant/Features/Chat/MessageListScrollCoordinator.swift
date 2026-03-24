@@ -130,6 +130,10 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// and app restarts.
     var scrollRestoreTask: Task<Void, Never>?
 
+    /// In-flight auto-recovery task scheduled after the loop guard trips.
+    /// Fires a single deferred re-pin attempt after the cooldown drains.
+    var loopGuardRecoveryTask: Task<Void, Never>?
+
     // MARK: - Anchor Visibility (mirrors AnchorVisibilityTracker)
 
     /// Updates the tracked anchor minY and recalculates visibility.
@@ -164,18 +168,27 @@ final class MessageListScrollCoordinator: ObservableObject {
     static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
 
     /// Routes an automatic bottom-follow request through the coordinator.
+    /// Returns `false` when the scroll loop guard is tripped, suppressing the request.
+    @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
         proxy: ScrollViewProxy,
         conversationId: UUID?,
         animated: Bool = false
-    ) {
+    ) -> Bool {
+        let convIdString = (conversationId ?? Self.bootstrapConversationId).uuidString
+        if scrollLoopGuard.isTripped(conversationId: convIdString) {
+            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                        "target=bottomAnchor reason=circuitBreakerSuppressed-requestBottomPin")
+            return false
+        }
         let convId = conversationId ?? Self.bootstrapConversationId
         bottomPinCoordinator.requestPin(
             reason: reason,
             conversationId: convId,
             animated: animated
         )
+        return true
     }
 
     /// Configures the coordinator's callbacks to wire pin requests back to
@@ -215,6 +228,23 @@ final class MessageListScrollCoordinator: ObservableObject {
         }
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom.wrappedValue = isFollowing
+        }
+
+        // Wire auto-recovery: when the loop guard's cooldown expires, schedule
+        // a single deferred re-pin attempt so the UI doesn't get stuck.
+        scrollLoopGuard.onRecoveryNeeded = { [weak self] convId in
+            guard let self else { return }
+            loopGuardRecoveryTask?.cancel()
+            loopGuardRecoveryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(ChatScrollLoopGuard.autoRecoveryDelay * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                log.debug("Loop guard auto-recovery: attempting re-pin for \(convId)")
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                            "target=bottomAnchor reason=loopGuardAutoRecovery")
+                self.bottomPinCoordinator.reattach()
+                self.requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId, animated: true)
+                self.loopGuardRecoveryTask = nil
+            }
         }
 
         // If detach() was called before this callback was wired up, sync
@@ -351,9 +381,13 @@ final class MessageListScrollCoordinator: ObservableObject {
         let timestamp = ProcessInfo.processInfo.systemUptime
 
         if let snapshot = scrollLoopGuard.record(kind, conversationId: convId, timestamp: timestamp) {
-            let countsDescription = snapshot.counts.map { "\($0.key.rawValue)=\($0.value)" }.joined(separator: " ")
+            // Log the full event histogram (all event kinds, including zeros)
+            // for post-mortem analysis — not just the kinds with non-zero counts.
+            let fullHistogram = ChatScrollLoopGuard.EventKind.allCases
+                .map { "\($0.rawValue)=\(snapshot.counts[$0] ?? 0)" }
+                .joined(separator: " ")
             log.warning(
-                "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(countsDescription) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(self.hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) anchorLastMinY=\(self.anchorLastMinY) viewportHeight=\(scrollViewportHeight)"
+                "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(fullHistogram) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(self.hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) anchorLastMinY=\(self.anchorLastMinY) viewportHeight=\(scrollViewportHeight)"
             )
             var sanitizer = NumericSanitizer()
             let safeScrollOffsetY = sanitizer.sanitize(anchorLastMinY, field: "scrollOffsetY")
@@ -362,7 +396,7 @@ final class MessageListScrollCoordinator: ObservableObject {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .scrollLoopDetected,
                 conversationId: convId,
-                reason: "trippedBy=\(snapshot.trippedBy.rawValue) \(countsDescription)",
+                reason: "trippedBy=\(snapshot.trippedBy.rawValue) \(fullHistogram)",
                 isPinnedToBottom: isNearBottom,
                 isUserScrolling: hasReceivedScrollEvent,
                 scrollOffsetY: safeScrollOffsetY,
@@ -465,11 +499,14 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
+        loopGuardRecoveryTask?.cancel()
+        loopGuardRecoveryTask = nil
         isPaginationInFlight = false
         scrollTracking.snapshotDebounceTask?.cancel()
         scrollTracking.snapshotDebounceTask = nil
         bottomPinCoordinator.cancelActiveSession(reason: .conversationSwitch)
         bottomPinCoordinator.onPinRequested = nil
+        scrollLoopGuard.onRecoveryNeeded = nil
     }
 
     /// Handles physical scroll-wheel/trackpad upward movement.
@@ -631,9 +668,12 @@ final class MessageListScrollCoordinator: ObservableObject {
         recordScrollLoopEvent(.anchorPreferenceChange, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
         updateAnchor(minY: accepted, viewportHeight: scrollViewportHeight)
         var didDirectScroll = false
+        let convIdString = conversationId?.uuidString ?? "unknown"
         if !hasFreshAnchorMeasurement {
             hasFreshAnchorMeasurement = true
-            if !hasReceivedScrollEvent && anchorMessageId == nil {
+            if !hasReceivedScrollEvent && anchorMessageId == nil
+                && !scrollLoopGuard.isTripped(conversationId: convIdString)
+            {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 didDirectScroll = true
             }
@@ -663,6 +703,8 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollTracking.snapshotDebounceTask = nil
         paginationTask?.cancel()
         paginationTask = nil
+        loopGuardRecoveryTask?.cancel()
+        loopGuardRecoveryTask = nil
         isPaginationInFlight = false
         wasPaginationTriggerInRange = false
         isSuppressingBottomScroll = false
