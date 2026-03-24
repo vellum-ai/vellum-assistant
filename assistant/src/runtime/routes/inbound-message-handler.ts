@@ -20,6 +20,7 @@ import {
 } from "../../memory/conversation-attention-store.js";
 import * as deliveryChannels from "../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../memory/delivery-crud.js";
+import * as deliveryStatus from "../../memory/delivery-status.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
@@ -641,7 +642,7 @@ export async function handleChannelInbound(
   // For new (non-duplicate) messages, run the secret ingress check
   // synchronously, then fire off the agent loop in the background.
   if (!result.duplicate && processMessage) {
-    runSecretIngressCheck({
+    const ingressResult = runSecretIngressCheck({
       eventId: result.eventId,
       sourceChannel,
       conversationExternalId,
@@ -659,30 +660,42 @@ export async function handleChannelInbound(
       canonicalAssistantId,
     });
 
-    // Fire-and-forget: process the message and deliver the reply in the background.
-    // The HTTP response returns immediately so the gateway webhook is not blocked.
-    // The onEvent callback in processMessage registers pending interactions, and
-    // approval interception (above) handles decisions via the pending-interactions tracker.
-    processChannelMessageInBackground({
-      processMessage,
-      conversationId: result.conversationId,
-      eventId: result.eventId,
-      content: trimmedContent,
-      attachmentIds: hasAttachments ? attachmentIds : undefined,
-      sourceChannel,
-      sourceInterface,
-      externalChatId: conversationExternalId,
-      trustCtx,
-      metadataHints,
-      metadataUxBrief,
-      commandIntent,
-      sourceLanguageCode,
-      replyCallbackUrl,
-      mintBearerToken,
-      assistantId: canonicalAssistantId,
-      approvalCopyGenerator,
-      chatType: sourceChatType,
-    });
+    if (ingressResult.blocked) {
+      // Intentional block — mark the event as processed (not failed/dead-lettered).
+      deliveryStatus.markProcessed(result.eventId);
+      log.info(
+        {
+          eventId: result.eventId,
+          detectedTypes: ingressResult.detectedTypes,
+        },
+        "Channel message blocked at ingress: contains secrets",
+      );
+    } else {
+      // Fire-and-forget: process the message and deliver the reply in the background.
+      // The HTTP response returns immediately so the gateway webhook is not blocked.
+      // The onEvent callback in processMessage registers pending interactions, and
+      // approval interception (above) handles decisions via the pending-interactions tracker.
+      processChannelMessageInBackground({
+        processMessage,
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+        content: trimmedContent,
+        attachmentIds: hasAttachments ? attachmentIds : undefined,
+        sourceChannel,
+        sourceInterface,
+        externalChatId: conversationExternalId,
+        trustCtx,
+        metadataHints,
+        metadataUxBrief,
+        commandIntent,
+        sourceLanguageCode,
+        replyCallbackUrl,
+        mintBearerToken,
+        assistantId: canonicalAssistantId,
+        approvalCopyGenerator,
+        chatType: sourceChatType,
+      });
+    }
   }
 
   return Response.json({
