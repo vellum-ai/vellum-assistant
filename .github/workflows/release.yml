@@ -1783,8 +1783,8 @@ jobs:
           # Use a temp branch name that won't re-trigger this workflow
           TEMP_BRANCH="merge-back/v$VERSION"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "vellum-automation[bot]"
+          git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
 
           # Rebase the release branch onto main so that commits already
           # cherry-picked to main are automatically skipped, preventing
