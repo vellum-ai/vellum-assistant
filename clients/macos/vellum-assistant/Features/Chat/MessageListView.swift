@@ -351,7 +351,7 @@ struct MessageListView: View {
         }
 
         let displayMessages = visibleMessages
-        let displayMessageById = Dictionary(displayMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let displayMessageById = Dictionary(displayMessages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let displayMessageIds: [UUID] = {
             var seen = Set<UUID>()
             return displayMessages.map(\.id).filter { seen.insert($0).inserted }
