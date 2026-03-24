@@ -529,13 +529,15 @@ struct MessageListView: View {
     private func requestBottomPin(
         reason: BottomPinRequestReason,
         proxy: ScrollViewProxy,
-        animated: Bool = false
+        animated: Bool = false,
+        userInitiated: Bool = false
     ) {
         scrollCoordinator.requestBottomPin(
             reason: reason,
             proxy: proxy,
             conversationId: conversationId,
-            animated: animated
+            animated: animated,
+            userInitiated: userInitiated
         )
     }
 
@@ -861,7 +863,7 @@ struct MessageListView: View {
                         scrollCoordinator.hasReceivedScrollEvent = true
                         // Signal the coordinator to reattach and scroll to bottom.
                         scrollCoordinator.bottomPinCoordinator.handleUserAction(.jumpToLatest)
-                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
+                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true, userInitiated: true)
                     }) {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.arrowDown, size: 10)
