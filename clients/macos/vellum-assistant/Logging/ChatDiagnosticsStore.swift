@@ -44,40 +44,6 @@ struct NumericSanitizer: Sendable {
     }
 }
 
-// MARK: - Safe Payload Builders
-
-extension ChatDiagnosticEvent {
-    /// Builds a scroll-wheel diagnostic event from raw geometry values,
-    /// sanitizing non-finite `contentHeight` and `viewportHeight` through
-    /// `NumericSanitizer` so the resulting event is always JSON-encodable.
-    ///
-    /// Callers pass raw `CGFloat` geometry straight from AppKit
-    /// (`NSScrollView.documentView.frame.height`, `contentView.bounds.height`)
-    /// without worrying about NaN or infinity — the sanitizer replaces
-    /// non-finite values with `nil` and records which fields were dropped
-    /// in `nonFiniteFields`.
-    static func scrollWheelEvent(
-        kind: ChatDiagnosticEventKind,
-        conversationId: String?,
-        reason: String?,
-        contentHeight: CGFloat?,
-        viewportHeight: CGFloat?
-    ) -> ChatDiagnosticEvent {
-        var sanitizer = NumericSanitizer()
-        let safeContentHeight = sanitizer.sanitize(contentHeight, field: "contentHeight")
-        let safeViewportHeight = sanitizer.sanitize(viewportHeight, field: "viewportHeight")
-
-        return ChatDiagnosticEvent(
-            kind: kind,
-            conversationId: conversationId,
-            reason: reason,
-            contentHeight: safeContentHeight,
-            viewportHeight: safeViewportHeight,
-            nonFiniteFields: sanitizer.nonFiniteFields
-        )
-    }
-}
-
 // MARK: - Event Payloads
 
 /// Kind of diagnostic event. Later PRs add new cases; the raw value is the
@@ -89,11 +55,6 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case transcriptSnapshotCaptured
     case stallDetected
     case appLifecycle
-    case scrollWheelUntether
-    case scrollWheelRetether
-    case detectorInstall
-    case detectorUpdate
-    case detectorRemove
 }
 
 /// Content-safe diagnostic event.
