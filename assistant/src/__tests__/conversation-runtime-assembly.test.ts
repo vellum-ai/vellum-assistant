@@ -18,8 +18,8 @@ import {
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
   stripChannelTurnContext,
-  stripInjectedContext,
   stripInboundActorContext,
+  stripInjectedContext,
   stripNowScratchpad,
   stripTemporalContext,
 } from "../daemon/conversation-runtime-assembly.js";
