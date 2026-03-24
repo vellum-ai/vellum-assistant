@@ -429,8 +429,6 @@ extension AppDelegate {
         connectionManager.disconnect()
         // Reset dock icon to default before loading the new assistant's avatar
         AvatarAppearanceManager.shared.resetForDisconnect()
-        // Close pop-out thread windows before tearing down the main window
-        threadWindowManager?.closeAll()
         // Close and recreate the main window to reset conversation state
         mainWindow?.close()
         mainWindow = nil
@@ -607,7 +605,6 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        threadWindowManager?.closeAll()
         mainWindow?.close()
         mainWindow = nil
         conversationBadgeCancellable?.cancel()
