@@ -120,6 +120,7 @@ export interface BuildSystemPromptOptions {
   excludeBootstrap?: boolean;
   userPersona?: string | null;
   channelPersona?: string | null;
+  userSlug?: string | null;
 }
 
 /**
@@ -222,6 +223,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 
   const journalContext = buildJournalContext(
     getConfig().journal?.contextWindowSize ?? 10,
+    options?.userSlug,
   );
   if (journalContext) dynamicParts.push(journalContext);
 
