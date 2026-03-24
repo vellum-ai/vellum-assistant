@@ -12,7 +12,7 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Text(item.subject)
                         .font(VFont.headline)
@@ -35,10 +35,12 @@ struct MemoryItemRow: View {
                 Text(item.relativeLastSeen)
                     .font(VFont.caption)
                     .foregroundStyle(VColor.contentTertiary)
+                    .padding(.top, VSpacing.xxs)
 
                 Text(item.statement)
                     .font(VFont.bodySmall)
                     .foregroundStyle(VColor.contentSecondary)
+                    .padding(.top, VSpacing.sm)
                     .lineLimit(1)
                     .multilineTextAlignment(.leading)
             }
