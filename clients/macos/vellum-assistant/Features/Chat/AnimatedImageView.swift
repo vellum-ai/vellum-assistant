@@ -45,6 +45,13 @@ struct AnimatedImageView: View {
         return cache
     }()
 
+    // MARK: - Cached workspace directory
+
+    /// Cached workspace directory to avoid synchronous lockfile reads per image.
+    /// Re-resolves when the connected assistant ID changes or after a transient miss.
+    @MainActor private static var cachedWorkspaceDir: String?
+    @MainActor private static var cachedAssistantId: String?
+
     /// Maximum display dimension in points (matches text bubble maxWidth).
     private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
 
@@ -109,14 +116,17 @@ struct AnimatedImageView: View {
 
         // Relative workspace paths — resolve to absolute to avoid cross-assistant collisions.
         if !urlString.contains("://") {
-            let workspaceDir: String
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-               let assistant = LockfileAssistant.loadByName(assistantId),
-               let resolved = assistant.workspaceDir {
-                workspaceDir = resolved
-            } else {
-                workspaceDir = NSHomeDirectory() + "/.vellum/workspace"
+            let currentAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            if Self.cachedWorkspaceDir == nil || currentAssistantId != Self.cachedAssistantId {
+                Self.cachedAssistantId = currentAssistantId
+                Self.cachedWorkspaceDir = nil
+                if let assistantId = currentAssistantId,
+                   let assistant = LockfileAssistant.loadByName(assistantId),
+                   let resolved = assistant.workspaceDir {
+                    Self.cachedWorkspaceDir = resolved
+                }
             }
+            let workspaceDir = Self.cachedWorkspaceDir ?? (NSHomeDirectory() + "/.vellum/workspace")
             let absolutePath = workspaceDir + "/" + urlString
             let fileURL = URL(fileURLWithPath: absolutePath)
             return (absolutePath as NSString, fileURL)
@@ -126,28 +136,51 @@ struct AnimatedImageView: View {
         return (urlString as NSString, nil)
     }
 
-    /// Returns a cache key that incorporates the file's modification date so
-    /// overwritten local images (e.g. regenerated avatars) are not served stale.
-    private func localCacheKey(path: String) -> NSString {
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-           let mtime = attrs[.modificationDate] as? Date {
-            return "\(path)?\(mtime.timeIntervalSince1970)" as NSString
-        }
-        return path as NSString
-    }
-
     private func loadImage() async {
         isLoading = true
         defer { isLoading = false }
 
         let (cacheKey, localFileURL) = resolveCacheKey()
 
-        // For local files, incorporate mtime so overwritten files bust the cache.
-        let effectiveKey: NSString = localFileURL != nil
-            ? localCacheKey(path: cacheKey as String)
-            : cacheKey
+        // Local file paths (absolute or workspace-relative, already resolved).
+        // Move file I/O (mtime check + data read) off main thread via detached task.
+        if let fileURL = localFileURL {
+            // Phase 1: resolve mtime-aware cache key off main thread.
+            let cacheKeyString = cacheKey as String
+            let effectiveKey = await Task.detached(priority: .userInitiated) { () -> String in
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheKeyString),
+                   let mtime = attrs[.modificationDate] as? Date {
+                    return "\(cacheKeyString)?\(mtime.timeIntervalSince1970)"
+                }
+                return cacheKeyString
+            }.value as NSString
+            guard !Task.isCancelled else { return }
 
-        // Check in-memory cache first to avoid redundant disk reads / decoding.
+            // Check in-memory cache before reading file bytes.
+            if let entry = Self.cache.object(forKey: effectiveKey) {
+                self.loadedImage = entry.image
+                self.imageData = entry.gifData
+                self.isGIF = entry.gifData != nil
+                return
+            }
+
+            // Phase 2: cache miss — read file data off main thread.
+            let fileData = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: fileURL)
+            }.value
+            guard !Task.isCancelled else { return }
+
+            imageData = fileData
+            loadedImage = fileData.flatMap { NSImage(data: $0) }
+            if let data = fileData { isGIF = isAnimatedGIF(data) }
+            cacheLoadedImage(forKey: effectiveKey)
+            return
+        }
+
+        // Remote URLs — use URL string as cache key (no mtime).
+        let effectiveKey = cacheKey
+
+        // Check in-memory cache first to avoid redundant downloads.
         if let entry = Self.cache.object(forKey: effectiveKey) {
             self.loadedImage = entry.image
             self.imageData = entry.gifData
@@ -155,16 +188,6 @@ struct AnimatedImageView: View {
             return
         }
 
-        // Local file paths (absolute or workspace-relative, already resolved).
-        if let fileURL = localFileURL {
-            imageData = try? Data(contentsOf: fileURL)
-            loadedImage = imageData.flatMap { NSImage(data: $0) }
-            if let data = imageData { isGIF = isAnimatedGIF(data) }
-            cacheLoadedImage(forKey: effectiveKey)
-            return
-        }
-
-        // Remote URL.
         guard let url = URL(string: urlString) else { return }
 
         do {

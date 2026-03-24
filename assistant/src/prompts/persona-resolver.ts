@@ -20,6 +20,7 @@ const log = getLogger("persona-resolver");
 
 export interface PersonaContext {
   userPersona: string | null;
+  userSlug: string | null;
   channelPersona: string | null;
 }
 
@@ -44,6 +45,72 @@ function readPersonaFile(filePath: string): string | null {
   }
 }
 
+// ── User filename resolution ──────────────────────────────────────
+
+/**
+ * Resolve the raw userFile filename for the current actor's contact.
+ * Returns the validated filename (e.g. "sidd.md") or null.
+ */
+function resolveUserFilename(
+  trustContext: TrustContext | undefined,
+): string | null {
+  let filename: string | null = null;
+
+  if (trustContext === undefined) {
+    // Desktop / native (no gateway) — resolve via guardian contact,
+    // preferring the vellum-channel guardian when multiple exist.
+    const vellumGuardian = findGuardianForChannel("vellum");
+    const guardian = vellumGuardian ?? listGuardianChannels();
+    if (guardian) {
+      filename = guardian.contact.userFile ?? "guardian.md";
+    }
+  } else if (trustContext.requesterExternalUserId) {
+    // Channel-routed request — look up contact by channel identity
+    const contactWithChannels = findContactByChannelExternalId(
+      trustContext.sourceChannel,
+      trustContext.requesterExternalUserId,
+    );
+    if (contactWithChannels) {
+      filename = contactWithChannels.userFile ?? null;
+    } else if (trustContext.trustClass === "guardian") {
+      // Managed desktop: the JWT principal ID used as requesterExternalUserId
+      // may differ from the contact channel's external_user_id (they are
+      // separate identity concepts). Fall back to the channel-type guardian.
+      const guardian = findGuardianForChannel(trustContext.sourceChannel);
+      if (guardian) {
+        filename = guardian.contact.userFile ?? "guardian.md";
+      }
+    }
+  }
+
+  // Validate basename to prevent path traversal
+  if (filename) {
+    if (basename(filename) !== filename || filename === ".." || filename === ".") {
+      log.warn(
+        { userFile: filename },
+        "Contact userFile contains path traversal; ignoring",
+      );
+      return null;
+    }
+    return filename;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a short slug identifying the current user, derived from
+ * their contact's userFile. Used to scope per-user workspace directories
+ * (e.g. journal/{slug}/). Returns null when no user is identified.
+ */
+export function resolveUserSlug(
+  trustContext: TrustContext | undefined,
+): string | null {
+  const filename = resolveUserFilename(trustContext);
+  if (!filename) return null;
+  return filename.endsWith(".md") ? filename.slice(0, -3) : filename;
+}
+
 // ── User persona ───────────────────────────────────────────────────
 
 /**
@@ -64,49 +131,12 @@ export function resolveUserPersona(
   const usersDir = join(getWorkspaceDir(), "users");
   const defaultPath = join(usersDir, "default.md");
 
-  let filename: string | null = null;
-
-  if (trustContext === undefined) {
-    // Desktop / native (no gateway) — resolve via guardian contact,
-    // preferring the vellum-channel guardian when multiple exist.
-    const vellumGuardian = findGuardianForChannel("vellum");
-    const guardian = vellumGuardian ?? listGuardianChannels();
-    if (guardian) {
-      filename = guardian.contact.userFile ?? null;
-    }
-  } else if (trustContext.requesterExternalUserId) {
-    // Channel-routed request — look up contact by channel identity
-    const contactWithChannels = findContactByChannelExternalId(
-      trustContext.sourceChannel,
-      trustContext.requesterExternalUserId,
-    );
-    if (contactWithChannels) {
-      filename = contactWithChannels.userFile ?? null;
-    } else if (trustContext.trustClass === "guardian") {
-      // Managed desktop: the JWT principal ID used as requesterExternalUserId
-      // may differ from the contact channel's external_user_id (they are
-      // separate identity concepts). Fall back to the channel-type guardian.
-      const guardian = findGuardianForChannel(trustContext.sourceChannel);
-      if (guardian) {
-        filename = guardian.contact.userFile ?? null;
-      }
-    }
-  }
-
-  // Resolve file path — validate basename to prevent path traversal
+  const filename = resolveUserFilename(trustContext);
   if (filename) {
-    if (basename(filename) !== filename || filename === ".." || filename === ".") {
-      log.warn(
-        { userFile: filename },
-        "Contact userFile contains path traversal; ignoring",
-      );
-      return readPersonaFile(defaultPath);
-    }
     const filePath = join(usersDir, filename);
     if (existsSync(filePath)) {
       return readPersonaFile(filePath);
     }
-    // userFile is set but the file doesn't exist on disk
     log.debug(
       { userFile: filename },
       "Contact has userFile set but file is missing on disk; falling back to default.md",
@@ -145,6 +175,7 @@ export function resolvePersonaContext(
 ): PersonaContext {
   return {
     userPersona: resolveUserPersona(trustContext),
+    userSlug: resolveUserSlug(trustContext),
     channelPersona: resolveChannelPersona(channelCapabilities),
   };
 }

@@ -63,8 +63,6 @@ public final class MainWindowState: ObservableObject {
     @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
-    @Published var hasAPIKey: Bool
-    @Published var needsInferenceApiKey: Bool = false
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
@@ -133,12 +131,10 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
-        self.hasAPIKey = hasAPIKey
+    init() {
         self.layoutConfig = LayoutConfigStore.load()
         self.navigationHistoryCancellable = navigationHistory.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
-        refreshInferenceApiKeyStatus()
     }
 
     // MARK: - Selection Helpers
@@ -231,53 +227,6 @@ public final class MainWindowState: ObservableObject {
     func showMemory(id: String) {
         pendingMemoryId = id
         showPanel(.intelligence)
-    }
-
-    func refreshAPIKeyStatus(isConnected: Bool, isAuthenticated: Bool) {
-        hasAPIKey = APIKeyManager.hasAnyKey() || isConnected || isAuthenticated
-    }
-
-    /// Re-evaluates whether the "API key not set" toast should appear based on
-    /// authentication state, the workspace config's inference service mode, and
-    /// the selected provider's API key presence in the daemon's credential store.
-    ///
-    /// `needsInferenceApiKey` is `true` only when:
-    /// - The user is **not** authenticated, AND
-    /// - `services.inference.mode` is `"your-own"`, AND
-    /// - the configured provider (defaulting to `"anthropic"`) has no API key
-    ///   in the daemon's credential store.
-    ///
-    /// Authenticated users always have access to managed inference through the
-    /// platform, so the banner is never shown for them.
-    func refreshInferenceApiKeyStatus(isAuthenticated: Bool = false) {
-        if isAuthenticated {
-            needsInferenceApiKey = false
-            return
-        }
-        Task {
-            let client = SettingsClient()
-            let config = await client.fetchConfig() ?? [:]
-            let result = await resolveInferenceApiKeyNeeded(config: config, client: client)
-            await MainActor.run { needsInferenceApiKey = result }
-        }
-    }
-
-    /// Determines whether the inference API key banner should be shown by
-    /// checking the daemon's credential store rather than the macOS app's
-    /// local keychain.
-    private func resolveInferenceApiKeyNeeded(
-        config: [String: Any],
-        client: SettingsClientProtocol
-    ) async -> Bool {
-        guard let services = config["services"] as? [String: Any],
-              let inference = services["inference"] as? [String: Any],
-              let mode = inference["mode"] as? String,
-              mode == "your-own" else {
-            return false
-        }
-        let provider = (inference["provider"] as? String) ?? "anthropic"
-        let exists = await client.checkApiKeyExists(provider: provider)
-        return !exists
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {

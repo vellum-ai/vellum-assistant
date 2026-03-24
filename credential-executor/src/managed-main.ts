@@ -130,10 +130,10 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, secureK
   }
 
   // -- Workspace root for command execution cwd ------------------------------
-  // Prefer WORKSPACE_DIR when set (new Docker layout mounts workspace at
-  // /workspace). Fall back to the legacy path derived from the assistant
-  // data mount for backwards compatibility.
-  const defaultWorkspaceDir = process.env["WORKSPACE_DIR"] ?? (() => {
+  // Use VELLUM_WORKSPACE_DIR when set, otherwise fall back to the legacy
+  // path derived from the assistant data mount.
+  // WORKSPACE_DIR fallback: remove after vellum-assistant-platform switches to VELLUM_WORKSPACE_DIR
+  const defaultWorkspaceDir = process.env["VELLUM_WORKSPACE_DIR"] ?? process.env["WORKSPACE_DIR"] ?? (() => {
     const assistantDataMount =
       process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
     return join(join(assistantDataMount, ".vellum"), "workspace");

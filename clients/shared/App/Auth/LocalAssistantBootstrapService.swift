@@ -70,7 +70,8 @@ public final class LocalAssistantBootstrapService {
     ///   - clientPlatform: e.g., "macos"
     public func bootstrap(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos"
+        clientPlatform: String = "macos",
+        assistantVersion: String? = nil
     ) async throws -> LocalBootstrapOutcome {
         let installId = DeviceIdStore.getOrCreate()
 
@@ -108,7 +109,8 @@ public final class LocalAssistantBootstrapService {
                 organizationId: organizationId,
                 clientInstallationId: installId,
                 runtimeAssistantId: runtimeAssistantId,
-                clientPlatform: clientPlatform
+                clientPlatform: clientPlatform,
+                assistantVersion: assistantVersion
             )
             platformAssistantId = registration.assistant.id
             log.info("Registered local assistant: \(registration.assistant.id, privacy: .public)")
@@ -204,7 +206,8 @@ public final class LocalAssistantBootstrapService {
                 organizationId: organizationId,
                 clientInstallationId: installId,
                 runtimeAssistantId: runtimeAssistantId,
-                clientPlatform: clientPlatform
+                clientPlatform: clientPlatform,
+                assistantVersion: assistantVersion
             )
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error, context: .provisioning)
@@ -266,14 +269,16 @@ public final class LocalAssistantBootstrapService {
     /// Call this when a 401 indicates the cached key has been revoked.
     public func reprovision(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos"
+        clientPlatform: String = "macos",
+        assistantVersion: String? = nil
     ) async throws -> LocalBootstrapOutcome {
         let account = Self.credentialAccount(for: runtimeAssistantId)
         _ = credentialStorage?.delete(account: account)
 
         return try await bootstrap(
             runtimeAssistantId: runtimeAssistantId,
-            clientPlatform: clientPlatform
+            clientPlatform: clientPlatform,
+            assistantVersion: assistantVersion
         )
     }
 

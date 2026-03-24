@@ -266,16 +266,22 @@ struct OnboardingFlowView: View {
         defer { isResolvingAssociatedManagedAssistant = false }
 
         do {
-            if let activation = try await ManagedAssistantConnectionCoordinator().activateAssociatedManagedAssistantIfPresent() {
-                log.info("Authenticated with associated managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
-                onComplete()
-                return
-            }
+            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
 
-            log.info("Authenticated account has no associated managed assistant — advancing to hosting selector")
-            state.advance()
+            if activation.reusedExisting {
+                // Assistant is already provisioned and running — safe to proceed.
+                log.info("Authenticated with existing managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
+                onComplete()
+            } else {
+                // Newly created — enter hatching UI and wait for readiness.
+                log.info("Authenticated and created new managed assistant \(activation.assistant.id, privacy: .public); entering hatching flow")
+                state.hasExistingManagedAssistant = false
+                state.isManagedHatch = true
+                state.isHatching = true
+                await awaitManagedAssistantReady(assistantId: activation.assistant.id)
+            }
         } catch {
-            log.error("Failed to discover associated managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
+            log.error("Failed to activate managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
             state.advance()
         }
     }
@@ -346,10 +352,25 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// Polls the gateway health endpoint for the managed assistant until it
-    /// responds successfully or the timeout elapses.
+    /// Waits for a managed assistant to become fully provisioned and reachable.
+    ///
+    /// Phase 1: Polls `GET /v1/assistants/{id}/` until the platform reports the
+    /// assistant's status as `"active"` (or the field is absent for backward compat).
+    ///
+    /// Phase 2: Polls the gateway health endpoint at the assistant-scoped path
+    /// (`assistants/{assistantId}/health`) until the runtime responds successfully.
     private func awaitManagedAssistantReady(assistantId: String) async {
-        let timeout: TimeInterval = 15
+        // Phase 1: Wait for the platform to finish provisioning.
+        do {
+            try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(assistantId: assistantId)
+        } catch {
+            log.error("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            state.hatchFailed = true
+            return
+        }
+
+        // Phase 2: Poll the assistant-scoped gateway health endpoint.
+        let timeout: TimeInterval = 120
         let start = CFAbsoluteTimeGetCurrent()
         var lastError: Error?
         var lastStatusCode: Int?
@@ -357,7 +378,7 @@ struct OnboardingFlowView: View {
         while CFAbsoluteTimeGetCurrent() - start < timeout {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "health",
+                    path: "assistants/{assistantId}/health",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {

@@ -388,7 +388,8 @@ extension AppDelegate {
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistantId,
-                    clientPlatform: "macos"
+                    clientPlatform: "macos",
+                    assistantVersion: self.connectionManager.assistantVersion
                 )
                 switch outcome {
                 case .registeredWithExistingKey(let id):

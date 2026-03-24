@@ -159,6 +159,8 @@ struct ChatConversationErrorToast: View {
             return .refreshCw
         case .authenticationRequired:
             return .lock
+        case .providerNotConfigured:
+            return .keyRound
         case .unknown:
             return .circleAlert
         }
@@ -220,6 +222,54 @@ struct CreditsExhaustedBanner: View {
             VButton(label: "Add Funds", style: .primary) {
                 onAddFunds()
             }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceActive)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
+
+// MARK: - Missing API Key Banner
+
+/// Inline banner shown when the user attempts to chat without a configured API key.
+/// Presents a dismiss button, title, subtitle, and a full-width CTA to open settings.
+struct MissingApiKeyBanner: View {
+    let onOpenSettings: () -> Void
+    let onDismiss: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            HStack {
+                Spacer()
+                Button { onDismiss?() } label: {
+                    VIconView(.x, size: 12)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+
+            VStack(spacing: VSpacing.xs) {
+                Text("API key required")
+                    .font(VFont.headline)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text("Add an API key in Settings to start chatting.")
+                    .font(VFont.bodyMedium)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+
+            VButton(label: "Open Settings", style: .primary) {
+                onOpenSettings()
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(VSpacing.lg)
         .background(VColor.surfaceActive)

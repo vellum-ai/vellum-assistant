@@ -13,6 +13,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case processingFailed
     case regenerateFailed
     case authenticationRequired
+    case providerNotConfigured
     case unknown
 
     public init(from code: ConversationErrorCode) {
@@ -39,6 +40,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .regenerateFailed
         case .authenticationRequired:
             self = .authenticationRequired
+        case .providerNotConfigured:
+            self = .providerNotConfigured
         case .unknown:
             self = .unknown
         }
@@ -69,6 +72,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Click Retry to regenerate, or send a new message instead."
         case .authenticationRequired:
             return "Sign in or check your credentials in Settings to continue."
+        case .providerNotConfigured:
+            return "Add your API key in Settings to continue."
         case .unknown:
             return "Click Retry or send a new message. Copy debug info if the problem repeats."
         }
@@ -110,5 +115,10 @@ public struct ConversationError: Equatable {
     /// Matches both plain "credits_exhausted" and prefixed variants like "regenerate:credits_exhausted".
     public var isCreditsExhausted: Bool {
         errorCategory?.hasSuffix("credits_exhausted") == true
+    }
+
+    /// Whether this error indicates that no provider is configured for inference.
+    public var isProviderNotConfigured: Bool {
+        category == .providerNotConfigured
     }
 }

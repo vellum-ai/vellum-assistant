@@ -374,6 +374,7 @@ export class Conversation {
                 hasNoClient: this.hasNoClient,
                 userPersona: persona.userPersona,
                 channelPersona: persona.channelPersona,
+                userSlug: persona.userSlug,
               });
             })(),
         maxTokens: configuredMaxTokens,

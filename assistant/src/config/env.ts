@@ -15,6 +15,7 @@
 
 import { getLogger } from "../util/logger.js";
 import { checkUnrecognizedEnvVars } from "./env-registry.js";
+import { getConfig } from "./loader.js";
 
 const log = getLogger("env");
 
@@ -144,7 +145,19 @@ export function setPlatformBaseUrl(value: string | undefined): void {
 }
 
 export function getPlatformBaseUrl(): string {
-  return str("VELLUM_PLATFORM_URL") ?? _platformBaseUrlOverride ?? "";
+  let configUrl: string | undefined;
+  try {
+    const val = getConfig().platform.baseUrl;
+    if (val) configUrl = val;
+  } catch {
+    // Config not yet available (early bootstrap) — fall through
+  }
+  return (
+    configUrl ||
+    str("VELLUM_PLATFORM_URL") ||
+    _platformBaseUrlOverride ||
+    "https://platform.vellum.ai"
+  );
 }
 
 let _platformAssistantIdOverride: string | undefined;

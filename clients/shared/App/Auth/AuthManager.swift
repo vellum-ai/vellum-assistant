@@ -136,7 +136,7 @@ public final class AuthManager {
             )
 
             log.info(
-                "Provider-token auth completed with status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
+                "Provider-token auth completed with platformURL=\(self.authService.baseURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
             )
 
             if response.status == 200, response.meta?.is_authenticated != false {

@@ -332,6 +332,21 @@ public struct DynamicPageSurfaceData: Sendable, Equatable {
         self.reloadGeneration = reloadGeneration
         self.status = status
     }
+
+    /// Convert to a dictionary suitable for `AnyCodable` when reconstructing
+    /// a `UiSurfaceShowMessage` from client-side data (e.g. re-opening an
+    /// ephemeral `ui_show` surface from the conversation message list).
+    public var asDictionary: [String: Any] {
+        var dict: [String: Any] = ["html": html]
+        if let width { dict["width"] = width }
+        if let height { dict["height"] = height }
+        if let appId { dict["appId"] = appId }
+        if let dirName { dict["dirName"] = dirName }
+        if let appType { dict["appType"] = appType }
+        if let reloadGeneration { dict["reloadGeneration"] = reloadGeneration }
+        if let status { dict["status"] = status }
+        return dict
+    }
 }
 
 public struct FileUploadSurfaceData: Sendable, Equatable {

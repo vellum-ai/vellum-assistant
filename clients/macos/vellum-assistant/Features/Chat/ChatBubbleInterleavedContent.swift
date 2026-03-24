@@ -37,6 +37,65 @@ extension ChatBubble {
         }
     }
 
+    // MARK: - Static Interleaved Content Cache
+
+    /// Cache key for memoized interleaved content computation results.
+    /// Keyed by (messageId, contentOrderHash) to invalidate when content changes.
+    struct InterleavedCacheKey: Hashable {
+        let messageId: UUID
+        let contentOrderHash: Int
+    }
+
+    /// Cached result of interleaved content computation.
+    struct InterleavedCacheValue {
+        let hasInterleaved: Bool
+        let groups: [ContentGroup]
+        let trailingTextIds: Set<String>
+    }
+
+    /// Static cache of interleaved content computation results. For completed
+    /// messages in old conversations, `contentOrder` is stable so these results
+    /// can be reused across ChatBubble.init() calls during scroll.
+    @MainActor static var interleavedContentCache: [InterleavedCacheKey: InterleavedCacheValue] = [:]
+
+    /// Maximum number of entries in the interleaved content cache before
+    /// clearing. This is a performance cache, not a correctness cache, so
+    /// full clear on overflow is safe and simple.
+    static let interleavedCacheMaxEntries = 500
+
+    /// Builds a cache key from message identity + content structure.
+    static func interleavedCacheKey(for message: ChatMessage) -> InterleavedCacheKey {
+        var orderHasher = Hasher()
+        for ref in message.contentOrder { orderHasher.combine(ref) }
+        // Hash per-segment emptiness since trailingText computation checks
+        // each segment's trimmed content, not just the count.
+        for segment in message.textSegments {
+            orderHasher.combine(segment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        orderHasher.combine(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        return InterleavedCacheKey(
+            messageId: message.id,
+            contentOrderHash: orderHasher.finalize()
+        )
+    }
+
+    /// Looks up a cached interleaved content result for the given message.
+    @MainActor
+    static func cachedInterleavedResult(for message: ChatMessage) -> InterleavedCacheValue? {
+        let key = interleavedCacheKey(for: message)
+        return interleavedContentCache[key]
+    }
+
+    /// Stores an interleaved content computation result in the static cache.
+    @MainActor
+    static func storeInterleavedResult(_ value: InterleavedCacheValue, for message: ChatMessage) {
+        if interleavedContentCache.count > interleavedCacheMaxEntries {
+            interleavedContentCache.removeAll(keepingCapacity: true)
+        }
+        let key = interleavedCacheKey(for: message)
+        interleavedContentCache[key] = value
+    }
+
     // MARK: - Cache Recomputation
 
     /// Recomputes all cached interleaved content state. Called from `.onAppear`
@@ -48,6 +107,11 @@ extension ChatBubble {
         guard interleaved else {
             cachedContentGroups = []
             cachedToolGroupsWithTrailingText = []
+            // Update static cache with non-interleaved result
+            Self.storeInterleavedResult(
+                InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
+                for: message
+            )
             return
         }
 
@@ -73,6 +137,12 @@ extension ChatBubble {
             }
         }
         cachedToolGroupsWithTrailingText = trailingTextIds
+
+        // Update static cache so the next init() for this message uses fresh values
+        Self.storeInterleavedResult(
+            InterleavedCacheValue(hasInterleaved: interleaved, groups: groups, trailingTextIds: trailingTextIds),
+            for: message
+        )
     }
 
     /// Whether this message has meaningful interleaved content (multiple block types).

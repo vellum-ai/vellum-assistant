@@ -9,8 +9,6 @@ import {
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-const DEFAULT_PLATFORM_URL = "";
-
 function getXdgConfigHome(): string {
   return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
 }
@@ -20,21 +18,25 @@ function getPlatformTokenPath(): string {
 }
 
 export function getPlatformUrl(): string {
-  return process.env.VELLUM_PLATFORM_URL ?? DEFAULT_PLATFORM_URL;
-}
-
-/**
- * Returns the platform URL, throwing a clear error if it is not configured.
- * Use this in functions that need a valid URL to make HTTP requests.
- */
-function requirePlatformUrl(): string {
-  const url = getPlatformUrl();
-  if (!url) {
-    throw new Error(
-      "VELLUM_PLATFORM_URL is not configured. Set it in your environment or .env file.",
-    );
+  let configUrl: string | undefined;
+  try {
+    const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+    const configPath = join(base, ".vellum", "workspace", "config.json");
+    if (existsSync(configPath)) {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      const val = (raw.platform as Record<string, unknown> | undefined)
+        ?.baseUrl;
+      if (typeof val === "string" && val.trim()) configUrl = val.trim();
+    }
+  } catch {
+    // Config not available — fall through
   }
-  return url;
+  return (
+    configUrl || process.env.VELLUM_PLATFORM_URL || "https://platform.vellum.ai"
+  );
 }
 
 export function readPlatformToken(): string | null {
@@ -74,7 +76,7 @@ interface OrganizationListResponse {
 }
 
 export async function fetchOrganizationId(token: string): Promise<string> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const url = `${platformUrl}/v1/organizations/`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
@@ -106,7 +108,7 @@ interface AllauthSessionResponse {
 }
 
 export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
-  const url = `${requirePlatformUrl()}/_allauth/app/v1/auth/session`;
+  const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
@@ -132,17 +134,12 @@ export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
 // Rollback
 // ---------------------------------------------------------------------------
 
-interface RollbackResponse {
-  detail: string;
-  version: string | null;
-}
-
 export async function rollbackPlatformAssistant(
   token: string,
   orgId: string,
   version?: string,
 ): Promise<{ detail: string; version: string | null }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/assistants/rollback/`, {
     method: "POST",
     headers: {
@@ -153,12 +150,13 @@ export async function rollbackPlatformAssistant(
     body: JSON.stringify(version ? { version } : {}),
   });
 
-  const body = (await response.json()) as RollbackResponse & {
+  const body = (await response.json().catch(() => ({}))) as {
     detail?: string;
+    version?: string | null;
   };
 
   if (response.status === 200) {
-    return { detail: body.detail, version: body.version };
+    return { detail: body.detail ?? "", version: body.version ?? null };
   }
 
   if (response.status === 400) {
@@ -185,7 +183,7 @@ export async function platformInitiateExport(
   orgId: string,
   description?: string,
 ): Promise<{ jobId: string; status: string }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/migrations/export/`, {
     method: "POST",
     headers: {
@@ -218,7 +216,7 @@ export async function platformPollExportStatus(
   token: string,
   orgId: string,
 ): Promise<{ status: string; downloadUrl?: string; error?: string }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(
     `${platformUrl}/v1/migrations/export/${jobId}/status/`,
     {
@@ -272,7 +270,7 @@ export async function platformImportPreflight(
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(
     `${platformUrl}/v1/migrations/import-preflight/`,
     {
@@ -287,7 +285,10 @@ export async function platformImportPreflight(
     },
   );
 
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
   return { statusCode: response.status, body };
 }
 
@@ -296,7 +297,7 @@ export async function platformImportBundle(
   token: string,
   orgId: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = requirePlatformUrl();
+  const platformUrl = getPlatformUrl();
   const response = await fetch(`${platformUrl}/v1/migrations/import/`, {
     method: "POST",
     headers: {
@@ -308,6 +309,9 @@ export async function platformImportBundle(
     signal: AbortSignal.timeout(120_000),
   });
 
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
   return { statusCode: response.status, body };
 }

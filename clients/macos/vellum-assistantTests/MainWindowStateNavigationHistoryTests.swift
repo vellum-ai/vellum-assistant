@@ -5,7 +5,7 @@ import XCTest
 final class MainWindowStateNavigationHistoryTests: XCTestCase {
 
     func testBackForwardAcrossConversationPanelApp() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         let id1 = UUID()
         state.selection = .conversation(id1)
         state.selection = .panel(.settings)
@@ -25,7 +25,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testRepeatedShowAppsPanelNoDuplicates() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.showPanel(.apps)
         state.showPanel(.apps)
 
@@ -34,13 +34,13 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testBackOnEmptyStackIsNoOp() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.navigateBack()
         XCTAssertNil(state.selection)
     }
 
     func testBackToChatDefaultRestoresConversation() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         let someId = UUID()
         state.persistentConversationId = someId
         // selection is nil (chat default), persistentConversationId is someId
@@ -51,7 +51,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testNavigateBackDoesNotReRecord() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         let idA = UUID()
         let idB = UUID()
         state.selection = .conversation(idA)
@@ -63,7 +63,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testRestoreLastActivePanelDoesNotSeedHistory() {
-        let freshState = MainWindowState(hasAPIKey: false)
+        let freshState = MainWindowState()
         // restoreLastActivePanel reads from @AppStorage which we can't easily mock
         // So just verify the method doesn't crash and check suppression behavior
         freshState.restoreLastActivePanel()
@@ -71,7 +71,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testBackToChatDefaultNilResolvesToNilSelection() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         // selection is nil, persistentConversationId is nil
         state.selection = .panel(.settings)
         state.navigateBack()
@@ -79,7 +79,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     }
 
     func testCloseDynamicPanelClearsState() {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.selection = .app("myapp")
 
         state.closeDynamicPanel()

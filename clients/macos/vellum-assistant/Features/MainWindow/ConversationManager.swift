@@ -1082,8 +1082,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Called on conversation close, archive, and switch to prevent unbounded
     /// growth of cached `AttributedString` / segment data across conversations.
     private static func clearRenderCaches() {
-        ChatBubble.segmentCache.removeAll()
-        ChatBubble.estimatedCacheBytes = 0
+        ChatBubble.segmentCache.removeAllObjects()
         ChatBubble.lastStreamingSegments = nil
         MarkdownSegmentView.clearAttributedStringCache()
     }
@@ -1411,9 +1410,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return self.isLatestToolUseRecipient(viewModel)
         }
         viewModel.shouldCreateInlineErrorMessage = { error in
-            // Credits-exhausted errors use the dedicated CreditsExhaustedBanner
-            // instead of the generic InlineChatErrorAlert
-            !error.isCreditsExhausted
+            // Credits-exhausted and provider-not-configured errors use dedicated
+            // inline banners instead of the generic InlineChatErrorAlert
+            !error.isCreditsExhausted && !error.isProviderNotConfigured
         }
         viewModel.onInlineConfirmationResponse = { [weak self] requestId, decision in
             // The decision was already sent to the daemon by ChatViewModel.

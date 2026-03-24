@@ -14,6 +14,7 @@ import {
   deliverApprovalPrompt,
   deliverChannelReply,
 } from "../gateway-client.js";
+import { buildActionLegend } from "../guardian-decision-types.js";
 import type { ApprovalCopyGenerator } from "../http-types.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
@@ -115,8 +116,14 @@ export async function deliverGeneratedApprovalPrompt(
         uiMetadata.permissionDetails.toolInput,
       );
       if (preview) {
-        enrichedText = `${richText}\n\n${preview}`;
+        enrichedText = `${enrichedText}\n\n${preview}`;
       }
+    }
+
+    // Append a legend explaining what each button does
+    const legend = buildActionLegend(uiMetadata.actions);
+    if (legend) {
+      enrichedText = `${enrichedText}\n\n${legend}`;
     }
 
     try {

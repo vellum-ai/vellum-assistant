@@ -641,7 +641,6 @@ struct ActiveChatViewWrapper: View {
                 get: { viewModel.inputText },
                 set: { viewModel.inputText = $0 }
             ),
-            hasAPIKey: windowState.hasAPIKey,
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
@@ -755,6 +754,12 @@ struct ActiveChatViewWrapper: View {
                 windowState.selection = .panel(.settings)
             },
             onDismissCreditsExhausted: { viewModel.dismissConversationError() },
+            providerNotConfiguredError: viewModel.errorManager.conversationError?.isProviderNotConfigured == true ? viewModel.errorManager.conversationError : nil,
+            onOpenModelsAndServices: {
+                settingsStore.pendingSettingsTab = .modelsAndServices
+                windowState.selection = .panel(.settings)
+            },
+            onDismissProviderNotConfigured: { viewModel.dismissConversationError() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,

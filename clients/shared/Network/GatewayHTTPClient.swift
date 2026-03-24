@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayHTTPClient")
 
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
@@ -210,7 +213,12 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        return try await URLSession.shared.bytes(for: request)
+        logOutgoing(request)
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
+        return (bytes, response)
     }
 
     /// Performs an authenticated streaming POST request against the gateway.
@@ -229,7 +237,12 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        return try await URLSession.shared.bytes(for: request)
+        logOutgoing(request)
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
+        return (bytes, response)
     }
 
     /// Performs an authenticated streaming POST request with automatic 401 retry
@@ -252,12 +265,16 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
+        logOutgoing(request)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-        guard let http = response as? HTTPURLResponse,
-              http.statusCode == 401,
-              !connection.isManaged else {
+        guard let http = response as? HTTPURLResponse else {
+            return (bytes, response)
+        }
+        logResponse(request, http: http)
+
+        guard http.statusCode == 401, !connection.isManaged else {
             return (bytes, response)
         }
 
@@ -275,7 +292,12 @@ public enum GatewayHTTPClient {
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
-        return try await URLSession.shared.bytes(for: retryRequest)
+        logOutgoing(retryRequest)
+        let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
+        if let retryHttp = retryResponse as? HTTPURLResponse {
+            logResponse(retryRequest, http: retryHttp)
+        }
+        return (retryBytes, retryResponse)
     }
 
     // MARK: - Internals
@@ -467,9 +489,35 @@ public enum GatewayHTTPClient {
         return request
     }
 
+    // MARK: - Logging Helpers
+
+    /// Extracts the URL path without query parameters for logging.
+    private static func logPath(from url: URL?) -> String {
+        guard let url = url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "<nil>"
+        }
+        components.query = nil
+        return components.string ?? url.absoluteString
+    }
+
+    private static func logOutgoing(_ request: URLRequest) {
+        let path = logPath(from: request.url)
+        let bodyLength = request.httpBody?.count ?? 0
+        log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) body=\(bodyLength)B")
+    }
+
+    private static func logResponse(_ request: URLRequest, http: HTTPURLResponse) {
+        let path = logPath(from: request.url)
+        log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) → \(http.statusCode) content-length=\(http.expectedContentLength)")
+    }
+
     /// Executes a `URLRequest` and wraps the result in a `Response`.
     private static func execute(_ request: URLRequest) async throws -> Response {
+        logOutgoing(request)
         let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return Response(data: data, statusCode: statusCode)
     }

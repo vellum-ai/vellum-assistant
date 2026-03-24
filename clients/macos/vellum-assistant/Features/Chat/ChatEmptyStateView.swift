@@ -8,7 +8,6 @@ import VellumAssistantShared
 /// a `ComposerView` so the user can immediately start typing.
 struct ChatEmptyStateView: View {
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isSending: Bool
     let isRecording: Bool
     let suggestion: String?
@@ -121,7 +120,6 @@ struct ChatEmptyStateView: View {
     private var composerSection: some View {
         ComposerView(
             inputText: $inputText,
-            hasAPIKey: hasAPIKey,
             isSending: isSending,
             hasPendingConfirmation: false,
             isRecording: isRecording,
@@ -324,7 +322,6 @@ struct FlowLayout: Layout {
 /// Variant shown for temporary (non-persistent) chats.
 struct ChatTemporaryChatEmptyStateView: View {
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isSending: Bool
     let isRecording: Bool
     let suggestion: String?
@@ -367,7 +364,6 @@ struct ChatTemporaryChatEmptyStateView: View {
 
             ComposerView(
                 inputText: $inputText,
-                hasAPIKey: hasAPIKey,
                 isSending: isSending,
                 hasPendingConfirmation: false,
                 isRecording: isRecording,

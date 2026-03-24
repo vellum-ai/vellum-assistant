@@ -9,7 +9,7 @@ final class DocumentEditorConversationVisibilityTests: XCTestCase {
 
     /// Creates a `MainWindowState` pre-configured with the given selection.
     private func makeState(_ selection: ViewSelection?) -> MainWindowState {
-        let state = MainWindowState(hasAPIKey: false)
+        let state = MainWindowState()
         state.selection = selection
         return state
     }

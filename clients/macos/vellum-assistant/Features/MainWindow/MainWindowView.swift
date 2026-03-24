@@ -579,8 +579,6 @@ struct MainWindowView: View {
             if let viewModel = conversationManager.activeViewModel {
                 ErrorToastOverlay(
                     errorManager: viewModel.errorManager,
-                    hasAPIKey: windowState.hasAPIKey,
-                    needsInferenceApiKey: windowState.needsInferenceApiKey,
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         windowState.selection = .panel(.settings)
@@ -592,20 +590,6 @@ struct MainWindowView: View {
                     onRetryLastMessage: { viewModel.retryLastMessage() },
                     onDismissError: { viewModel.dismissError() }
                 )
-            } else if windowState.needsInferenceApiKey {
-                ChatConversationErrorToast(
-                    message: "Add an API key to start chatting.",
-                    icon: .keyRound,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Open Settings",
-                    onAction: {
-                        settingsStore.pendingSettingsTab = .modelsAndServices
-                        windowState.selection = .panel(.settings)
-                    }
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -704,12 +688,6 @@ struct MainWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
                 cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
             }
-            .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
-                windowState.refreshInferenceApiKeyStatus(isAuthenticated: authManager.isAuthenticated)
-            }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
             }
@@ -717,9 +695,6 @@ struct MainWindowView: View {
                 guard let outcome else { return }
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()
-            }
-            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-                refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: isAuthenticated)
             }
             .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
                 if !isEmpty && showDaemonLoading {
@@ -799,7 +774,6 @@ struct MainWindowView: View {
         isAppChatOpen = false
         cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
         startIdentityFileWatcher()
-        refreshWindowAPIStatus(isConnected: connectionManager.isConnected, isAuthenticated: authManager.isAuthenticated)
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
@@ -863,14 +837,7 @@ struct MainWindowView: View {
         identityFileWatcher = source
     }
 
-    private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
-        windowState.refreshAPIKeyStatus(isConnected: isConnected, isAuthenticated: isAuthenticated)
-        windowState.refreshInferenceApiKeyStatus(isAuthenticated: isAuthenticated)
-    }
-
     private func handleDaemonConnectionChange(_ connected: Bool) {
-        refreshWindowAPIStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
-
         // Fallback for fresh users with 0 conversations: dismiss skeleton after a
         // short delay once the daemon is connected. Only applies during initial load.
         guard connected, showDaemonLoading else { return }
@@ -965,12 +932,64 @@ struct MainWindowView: View {
                 windowState.selection = .app(msg.surfaceId)
             }
         } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
-            // Lightweight ref from inline surface click — the daemon will
-            // send a fresh ui_surface_show via SSE with the full payload.
-            let reopenId = ref.appId ?? ref.surfaceId
-            windowState.selection = .app(reopenId)
-            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
+            if let appId = ref.appId {
+                // Persistent app — re-open via the apps endpoint.
+                windowState.selection = .app(appId)
+                Task { await AppsClient.openAppAndDispatchSurface(id: appId, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
+            } else {
+                // Ephemeral surface (ui_show) — fetch from daemon or client memory.
+                windowState.selection = .app(ref.surfaceId)
+                Task { await reopenEphemeralSurface(ref) }
+            }
         }
+    }
+
+    /// Fetch surface content for an ephemeral (non-app) dynamic page surface
+    /// and set it as the active workspace surface. Tries the daemon's surface
+    /// content endpoint first, falls back to the conversation message list.
+    private func reopenEphemeralSurface(_ ref: SurfaceRef) async {
+        // Primary: fetch from daemon in-memory surface state.
+        if let conversationId = ref.conversationId {
+            if let content = await SurfaceClient().fetchSurfaceContent(surfaceId: ref.surfaceId, conversationId: conversationId) {
+                let msg = UiSurfaceShowMessage(
+                    conversationId: conversationId,
+                    surfaceId: ref.surfaceId,
+                    surfaceType: content.surfaceType,
+                    title: content.title ?? ref.title,
+                    data: AnyCodable(content.rawData),
+                    actions: nil,
+                    display: "panel",
+                    messageId: nil
+                )
+                windowState.activeDynamicSurface = msg
+                windowState.activeDynamicParsedSurface = Surface.from(msg)
+                return
+            }
+        }
+
+        // Fallback: reconstruct from inline surface data in the conversation.
+        if let inlineData = conversationManager.activeViewModel?.messages
+            .lazy.flatMap({ $0.inlineSurfaces })
+            .first(where: { $0.id == ref.surfaceId }),
+           case .dynamicPage(let dpData) = inlineData.data {
+            let msg = UiSurfaceShowMessage(
+                conversationId: ref.conversationId,
+                surfaceId: ref.surfaceId,
+                surfaceType: ref.surfaceType,
+                title: ref.title ?? inlineData.title,
+                data: AnyCodable(dpData.asDictionary),
+                actions: nil,
+                display: "panel",
+                messageId: nil
+            )
+            windowState.activeDynamicSurface = msg
+            windowState.activeDynamicParsedSurface = Surface.from(msg)
+            return
+        }
+
+        // Both paths failed — clear loading state so user isn't stuck.
+        windowState.closeDynamicPanel()
+        windowState.showToast(message: "Failed to load surface", style: .error)
     }
 
     private func handlePinAppNotification(_ notification: Notification, isPinned: Bool) {
@@ -1261,8 +1280,6 @@ struct MainWindowView: View {
 /// toast is visible.
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
-    let hasAPIKey: Bool
-    let needsInferenceApiKey: Bool
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -1273,18 +1290,7 @@ private struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if needsInferenceApiKey {
-                ChatConversationErrorToast(
-                    message: "Add an API key to start chatting.",
-                    icon: .keyRound,
-                    accentColor: VColor.systemMidStrong,
-                    actionLabel: "Open Settings",
-                    onAction: onOpenModelsAndServices
-                )
-                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-            }
-
-            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !errorManager.isConversationErrorDisplayedInline {
+            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !conversationError.isProviderNotConfigured, !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
                     onRetry: onRetryConversationError,
@@ -1306,7 +1312,6 @@ private struct ErrorToastOverlay: View {
             }
         }
         .padding(.top, VSpacing.sm)
-        .animation(VAnimation.fast, value: needsInferenceApiKey)
         .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }

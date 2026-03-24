@@ -130,12 +130,14 @@ public struct PlatformAssistant: Codable, Sendable {
     public let name: String?
     public let description: String?
     public let created_at: String?
+    public let status: String?
 
-    public init(id: String, name: String? = nil, description: String? = nil, created_at: String? = nil) {
+    public init(id: String, name: String? = nil, description: String? = nil, created_at: String? = nil, status: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.created_at = created_at
+        self.status = status
     }
 }
 
@@ -156,6 +158,12 @@ public enum PlatformAssistantResult: Sendable {
     case found(PlatformAssistant)
     case notFound
     case accessDenied
+}
+
+/// Result type for the idempotent hatch endpoint (200 = existing, 201 = created).
+public enum HatchAssistantResult: Sendable {
+    case reusedExisting(PlatformAssistant)
+    case createdNew(PlatformAssistant)
 }
 
 /// Errors specific to platform API calls (non-allauth endpoints).
@@ -188,11 +196,13 @@ public struct EnsureSelfHostedLocalRegistrationRequest: Codable, Sendable {
     public let clientInstallationId: String
     public let runtimeAssistantId: String
     public let clientPlatform: String
+    public let assistantVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case clientInstallationId = "client_installation_id"
         case runtimeAssistantId = "runtime_assistant_id"
         case clientPlatform = "client_platform"
+        case assistantVersion = "assistant_version"
     }
 }
 
@@ -229,11 +239,13 @@ public struct ReprovisionSelfHostedLocalApiKeyRequest: Codable, Sendable {
     public let clientInstallationId: String
     public let runtimeAssistantId: String
     public let clientPlatform: String
+    public let assistantVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case clientInstallationId = "client_installation_id"
         case runtimeAssistantId = "runtime_assistant_id"
         case clientPlatform = "client_platform"
+        case assistantVersion = "assistant_version"
     }
 }
 

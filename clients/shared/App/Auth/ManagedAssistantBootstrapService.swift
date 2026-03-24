@@ -45,9 +45,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. Fall back to GET /assistants/current/ to discover the user's assistant.
-/// 3. If none exists (404), create one via hatch and return `.createdNew`.
-/// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
+/// 2. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
+/// 3. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
 public final class ManagedAssistantBootstrapService {
     public static let shared = ManagedAssistantBootstrapService()
@@ -80,9 +79,8 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID and fall through to current/ + hatch
-                // so the user doesn't have to manually retry.
-                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to discovery")
+                // Clear the stale ID and fall through to idempotent hatch.
+                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to hatch")
                 UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
@@ -91,64 +89,81 @@ public final class ManagedAssistantBootstrapService {
             }
         }
 
-        // No selected assistant (or stale one was cleared) — discover via current/ or hatch a new one.
-        log.info("Falling back to current/ discovery")
-        let currentResult: PlatformAssistantResult
+        // No selected assistant (or stale one was cleared) — hatch is idempotent
+        // and will return the existing assistant if one exists.
+        log.info("No stored assistant ID — calling idempotent hatch")
+        let hatchResult: HatchAssistantResult
         do {
-            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
+            hatchResult = try await authService.hatchAssistant(
+                organizationId: organizationId,
+                name: name,
+                description: description,
+                anthropicApiKey: anthropicApiKey
+            )
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }
 
-        switch currentResult {
-        case .found(let assistant):
-            log.info("Found existing managed assistant: \(assistant.id, privacy: .public)")
+        switch hatchResult {
+        case .reusedExisting(let assistant):
+            log.info("Hatch returned existing assistant: \(assistant.id, privacy: .public)")
             return .reusedExisting(assistant)
-
-        case .accessDenied:
-            throw ManagedBootstrapError.authenticationRequired
-
-        case .notFound:
-            log.info("No managed assistant found, hatching a new one")
-            let newAssistant: PlatformAssistant
-            do {
-                newAssistant = try await authService.hatchAssistant(
-                    organizationId: organizationId,
-                    name: name,
-                    description: description,
-                    anthropicApiKey: anthropicApiKey
-                )
-            } catch let error as PlatformAPIError {
-                throw mapPlatformError(error)
-            }
-            log.info("Created new managed assistant: \(newAssistant.id, privacy: .public)")
-            return .createdNew(newAssistant)
+        case .createdNew(let assistant):
+            log.info("Hatch created new assistant: \(assistant.id, privacy: .public)")
+            return .createdNew(assistant)
         }
     }
 
-    /// Discovers an already-associated managed assistant for the signed-in
-    /// account without creating a new one when none exists.
-    public func discoverManagedAssistant() async throws -> PlatformAssistant? {
-        let organizationId = try await resolveOrganizationId()
-
-        log.info("Checking for an existing managed assistant via current/ discovery")
-        let currentResult: PlatformAssistantResult
-        do {
-            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
-        } catch let error as PlatformAPIError {
-            throw mapPlatformError(error)
+    /// Polls `GET /v1/assistants/{id}/` until the assistant's status indicates it is
+    /// fully provisioned, or until the timeout elapses.
+    ///
+    /// If the platform response omits the `status` field (older API versions), the
+    /// assistant is assumed ready immediately for backward compatibility.
+    public func awaitAssistantProvisioned(assistantId: String, timeout: TimeInterval = 120) async throws {
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            log.warning("No persisted organization ID — skipping provisioning poll")
+            return
         }
 
-        switch currentResult {
-        case .found(let assistant):
-            log.info("Discovered existing managed assistant: \(assistant.id, privacy: .public)")
-            return assistant
-        case .notFound:
-            log.info("No existing managed assistant found for the signed-in account")
-            return nil
-        case .accessDenied:
-            throw ManagedBootstrapError.authenticationRequired
+        let start = CFAbsoluteTimeGetCurrent()
+
+        while CFAbsoluteTimeGetCurrent() - start < timeout {
+            do {
+                let result = try await authService.getAssistant(id: assistantId, organizationId: organizationId)
+                switch result {
+                case .found(let assistant):
+                    guard let status = assistant.status else {
+                        log.info("Assistant \(assistantId, privacy: .public) has no status field — treating as ready")
+                        return
+                    }
+                    if status == "active" {
+                        log.info("Assistant \(assistantId, privacy: .public) status is active")
+                        return
+                    }
+                    let terminalFailureStatuses: Set<String> = ["failed", "error", "terminated"]
+                    if terminalFailureStatuses.contains(status) {
+                        log.error("Assistant \(assistantId, privacy: .public) reached terminal failure status: \(status, privacy: .public)")
+                        throw ManagedBootstrapError.hatchFailed("Assistant provisioning \(status)")
+                    }
+                    log.info("Assistant \(assistantId, privacy: .public) status: \(status, privacy: .public) — continuing to poll")
+                case .notFound:
+                    log.warning("Assistant \(assistantId, privacy: .public) not found during provisioning poll")
+                case .accessDenied:
+                    throw ManagedBootstrapError.accessRevoked(assistantId)
+                }
+            } catch let error as ManagedBootstrapError {
+                throw error
+            } catch let error as PlatformAPIError {
+                throw mapPlatformError(error)
+            } catch {
+                log.warning("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
         }
+
+        log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
     /// Resolve the organization ID, preferring the persisted value.

@@ -8,7 +8,6 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Ch
 struct ChatView: View {
     let messages: [ChatMessage]
     @Binding var inputText: String
-    let hasAPIKey: Bool
     let isThinking: Bool
     let isCompacting: Bool
     let isSending: Bool
@@ -102,6 +101,15 @@ struct ChatView: View {
     /// Dismisses the credits-exhausted banner.
     var onDismissCreditsExhausted: (() -> Void)? = nil
 
+    // MARK: - Provider Not Configured (inline banner)
+
+    /// Non-nil when the conversation ended because no provider is configured.
+    var providerNotConfiguredError: ConversationError? = nil
+    /// Opens the Models & Services settings tab.
+    var onOpenModelsAndServices: (() -> Void)? = nil
+    /// Dismisses the provider-not-configured banner.
+    var onDismissProviderNotConfigured: (() -> Void)? = nil
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -169,7 +177,6 @@ struct ChatView: View {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             isRecording: isRecording,
                             suggestion: suggestion,
@@ -190,7 +197,6 @@ struct ChatView: View {
                     } else {
                         ChatEmptyStateView(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             isRecording: isRecording,
                             suggestion: suggestion,
@@ -270,6 +276,16 @@ struct ChatView: View {
                             .padding(.bottom, -VSpacing.sm)
                         }
 
+                        if let _ = providerNotConfiguredError {
+                            MissingApiKeyBanner(
+                                onOpenSettings: { onOpenModelsAndServices?() },
+                                onDismiss: { onDismissProviderNotConfigured?() }
+                            )
+                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, -VSpacing.sm)
+                        }
+
                         let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
                             from: messages,
                             displayedMessageCount: displayedMessageCount
@@ -277,7 +293,6 @@ struct ChatView: View {
 
                         ComposerSection(
                             inputText: $inputText,
-                            hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
                             onAllowPendingConfirmation: {
@@ -781,6 +796,26 @@ struct ScrollWheelDetector: NSViewRepresentable {
                   event.window == window else { return event }
             let locationInView = view.convert(event.locationInWindow, from: nil)
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
+
+            // Skip this event if a duplicate detector exists and this one isn't the most recent.
+            let convId = coordinator.conversationId?.uuidString ?? "none"
+            let winId = window.windowNumber
+            let winIdStr = String(winId)
+            if let registry = coordinator.registry,
+               registry.hasDuplicates(conversationId: convId, windowId: winIdStr) {
+                let entries = registry.entries(conversationId: convId, windowId: winIdStr)
+                // lastUpdatedAt tracks which detector SwiftUI is actively managing.
+                // Per-frame races are transient; leaked detectors are caught by purgeStale().
+                let mostRecent = entries.max(by: { $0.lastUpdatedAt < $1.lastUpdatedAt })
+                if mostRecent?.detectorId != coordinator.detectorId {
+                    // This detector is stale — the most recent one is active for the same conversation/window.
+                    // Suppress callbacks to prevent competing scroll-state fights.
+                    if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
+                        log.debug("ScrollWheelDetector: suppressing event for stale detector \(coordinator.detectorId) (most recent: \(mostRecent?.detectorId ?? "nil"))")
+                    }
+                    return event
+                }
+            }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
                 // Direct user scroll up (toward older content) — untether immediately.

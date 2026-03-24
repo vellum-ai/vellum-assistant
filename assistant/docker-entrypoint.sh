@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$(id -u)" = "0" ] && [ "${WORKSPACE_DIR:-}" = "/workspace" ] && [ -d /workspace ]; then
+# WORKSPACE_DIR fallback: remove after vellum-assistant-platform switches to VELLUM_WORKSPACE_DIR
+if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-${WORKSPACE_DIR:-}}" = "/workspace" ] && [ -d /workspace ]; then
   git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
 fi

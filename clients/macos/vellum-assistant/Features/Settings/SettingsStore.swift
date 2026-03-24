@@ -2149,7 +2149,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
         scheduleRoutingSourceRefresh()
-        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     func setImageGenMode(_ mode: String) {
@@ -2242,7 +2241,8 @@ public final class SettingsStore: ObservableObject {
         do {
             _ = try await bootstrapService.bootstrap(
                 runtimeAssistantId: assistant.assistantId,
-                clientPlatform: "macos"
+                clientPlatform: "macos",
+                assistantVersion: connectionManager?.assistantVersion
             )
         } catch {
             // Bootstrap can persist the keychain mapping during ensure-registration
@@ -2631,7 +2631,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
         scheduleRoutingSourceRefresh()
-        NotificationCenter.default.post(name: .inferenceConfigDidChange, object: nil)
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the

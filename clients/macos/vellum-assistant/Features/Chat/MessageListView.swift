@@ -520,6 +520,10 @@ struct MessageListView: View {
     }
 
     private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
+        // Circuit breaker: suppress @State mutations when a scroll loop is detected.
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        if scrollLoopGuard.isTripped(conversationId: convIdString) { return }
+
         let y = anchorY + ConversationAvatarFollower.verticalOffset
         // Dead-zone: skip @State update when position hasn't moved meaningfully.
         // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
@@ -549,10 +553,21 @@ struct MessageListView: View {
     private func updateAvatarFollower(anchorY: CGFloat) {
         recordScrollLoopEvent(.avatarFollowerUpdate)
         // Compute visibility once and update @State only on boundary crossings.
+        // During an active send, don't hide the avatar on transient non-finite
+        // anchors — the LazyVStack briefly deallocates the anchor view during
+        // re-layout (thinking indicator, rich UI expansion). Hiding would cause
+        // the avatar to flash off-screen via shouldShowConversationTailAvatar.
         let nowVisible = anchorY.isFinite
             && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
+        let convIdString = conversationId?.uuidString ?? "unknown"
+        let isTripped = scrollLoopGuard.isTripped(conversationId: convIdString)
         if isAvatarVisible != nowVisible {
-            isAvatarVisible = nowVisible
+            // Circuit breaker: when tripped, only allow hiding (removing UI is safe).
+            // Showing (false→true) adds layout that could feed the loop — suppress it.
+            // Send guard: during send, don't hide on transient non-finite anchors.
+            if (!isTripped || !nowVisible) && (nowVisible || !isSending) {
+                isAvatarVisible = nowVisible
+            }
         }
 
         // Update non-reactive tracking position (no body re-evaluation).
@@ -569,7 +584,15 @@ struct MessageListView: View {
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
             scrollTracking.avatarLastAppliedAt = nil
-            if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            // During an active send, the LazyVStack may transiently deallocate
+            // the tail anchor view during re-layout (e.g. thinking indicator
+            // insertion, rich UI expansion), producing a non-finite preference.
+            // Keep the avatar at its last known position so it doesn't flash
+            // off-screen and back. Also suppress when circuit breaker is tripped
+            // to avoid @State mutations that feed the scroll loop.
+            if !isTripped && !isSending && avatarDisplayY != .infinity {
+                avatarDisplayY = .infinity
+            }
             return
         }
 
@@ -596,7 +619,10 @@ struct MessageListView: View {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
             scrollTracking.pendingAvatarY = nil
-            applyAvatarDisplayY(forAnchorY: anchorY)
+            // Only apply @State avatar position when circuit breaker isn't tripped
+            if !isTripped {
+                applyAvatarDisplayY(forAnchorY: anchorY)
+            }
             return
         }
 
@@ -615,7 +641,10 @@ struct MessageListView: View {
                 return
             }
             scrollTracking.pendingAvatarY = nil
-            applyAvatarDisplayY(forAnchorY: pending)
+            // Only apply @State avatar position when circuit breaker isn't tripped
+            if !scrollLoopGuard.isTripped(conversationId: conversationId?.uuidString ?? "unknown") {
+                applyAvatarDisplayY(forAnchorY: pending)
+            }
             avatarSmoothingTask = nil
         }
     }

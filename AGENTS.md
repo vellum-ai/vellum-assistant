@@ -134,7 +134,7 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures PID files, tokens, and config are correctly scoped per instance.
 
-In Docker mode, `WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `getRootDir()`. The workspace volume is shared between the assistant and gateway containers.
+In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `getRootDir()`. The workspace volume is shared between the assistant and gateway containers.
 
 ## Qdrant Port Override
 

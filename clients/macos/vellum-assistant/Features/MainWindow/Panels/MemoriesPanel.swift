@@ -83,7 +83,7 @@ struct MemoriesPanel: View {
 
     /// Kinds to show in the sidebar filter. Excludes system-managed kinds.
     private static let filterableKinds: [MemoryKind] = [
-        .identity, .preference, .project, .decision, .constraint, .event, .journal
+        .constraint, .decision, .event, .identity, .journal, .preference, .project
     ]
 
     var body: some View {

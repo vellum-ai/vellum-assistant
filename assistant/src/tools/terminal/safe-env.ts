@@ -28,6 +28,7 @@ const SAFE_ENV_VARS = [
   "GPG_TTY",
   "GNUPGHOME",
   "VELLUM_DEV",
+  "VELLUM_WORKSPACE_DIR",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
