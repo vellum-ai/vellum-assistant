@@ -144,6 +144,7 @@ import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
+import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
@@ -171,7 +172,6 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
-import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
