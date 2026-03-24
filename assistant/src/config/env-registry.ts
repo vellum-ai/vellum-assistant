@@ -55,16 +55,15 @@ export function getIsContainerized(): boolean {
 }
 
 /**
- * WORKSPACE_DIR — string, default: undefined
- * When set, overrides the default workspace directory. Used in containerized
- * deployments where the workspace is a separate volume.
+ * VELLUM_WORKSPACE_DIR — string, default: undefined
+ * Canonical env var that overrides the default workspace directory.
+ * Used in containerized deployments where the workspace is a separate volume.
  *
- * Also checks VELLUM_WORKSPACE_DIR as a fallback — buildSanitizedEnv() in
- * safe-env.ts strips WORKSPACE_DIR from child processes but re-exports
- * the resolved path under the VELLUM_ prefix.
+ * WORKSPACE_DIR is a deprecated alias kept for backwards compatibility
+ * during migration. It will be removed in a future release.
  */
 export function getWorkspaceDirOverride(): string | undefined {
-  return str("WORKSPACE_DIR") ?? str("VELLUM_WORKSPACE_DIR");
+  return str("VELLUM_WORKSPACE_DIR") ?? str("WORKSPACE_DIR");
 }
 
 // ── Known env var names ──────────────────────────────────────────────────────
