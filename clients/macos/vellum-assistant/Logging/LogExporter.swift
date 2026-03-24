@@ -462,23 +462,11 @@ enum LogExporter {
     /// audit data, assistant logs, workspace files, and config snapshot.
     /// Extracts the archive into `directory/daemon-exports/`.
     /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
+    ///
+    /// Routes through ``GatewayHTTPClient`` so auth and connection resolution
+    /// are handled consistently for both local and managed assistants.
     @discardableResult
     private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
-
-        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-            log.warning("No actor token available — skipping assistant exports")
-            return false
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/export") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         var body: [String: Any] = ["auditLimit": 10000]
         if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
@@ -489,18 +477,15 @@ enum LogExporter {
                 body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
             }
         }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else {
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                log.warning("Export API failed with status \(status)")
+            let response = try await GatewayHTTPClient.post(path: "export", json: body, timeout: 30)
+            guard response.isSuccess else {
+                log.warning("Export API failed with status \(response.statusCode)")
                 return false
             }
 
-            try await extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
+            try await extractTarGzResponse(data: response.data, into: directory, subdirectory: "daemon-exports")
             return true
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")

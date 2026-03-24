@@ -6,7 +6,6 @@ import VellumAssistantShared
 struct WorkspaceFileSheet: View {
     let filePath: String
     let mimeType: String?
-    let client: GatewayConnectionManager?
     let workspaceClient: WorkspaceClient
     @Environment(\.dismiss) private var dismiss
     @State private var fileResponse: WorkspaceFileResponse?
@@ -80,10 +79,10 @@ struct WorkspaceFileSheet: View {
     private var contentView: some View {
         let resolvedMime = fileResponse?.mimeType ?? mimeType ?? ""
 
-        if resolvedMime.hasPrefix("image/"), let contentURL = workspaceClient.workspaceFileContentURL(path: filePath, showHidden: false) {
-            AuthenticatedImageView(url: contentURL, client: client)
-        } else if resolvedMime.hasPrefix("video/"), let contentURL = workspaceClient.workspaceFileContentURL(path: filePath, showHidden: false) {
-            WorkspaceVideoPlayer(url: contentURL, client: client)
+        if resolvedMime.hasPrefix("image/") {
+            AuthenticatedImageView(filePath: filePath, workspaceClient: workspaceClient)
+        } else if resolvedMime.hasPrefix("video/") {
+            WorkspaceVideoPlayer(filePath: filePath, workspaceClient: workspaceClient)
         } else if let response = fileResponse, !response.isBinary, response.content != nil {
             TextEditor(text: $editableContent)
                 .font(VFont.bodyMediumDefault)
@@ -189,8 +188,8 @@ struct WorkspaceFileSheet: View {
 // MARK: - Authenticated Image View
 
 private struct AuthenticatedImageView: View {
-    let url: URL
-    let client: GatewayConnectionManager?
+    let filePath: String
+    let workspaceClient: WorkspaceClient
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -219,61 +218,16 @@ private struct AuthenticatedImageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: url) {
+        .task(id: filePath) {
             failed = false
             image = nil
-            await loadImage()
-        }
-    }
-
-    private func loadImage() async {
-        var request = URLRequest(url: url)
-        if let token = ActorTokenManager.getToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                failed = true
-                return
-            }
-            // 401 retry: re-bootstrap actor token via GuardianClient then retry once
-            if http.statusCode == 401 {
-                guard let client,
-                      let platform = client.recoveryPlatform,
-                      let deviceId = client.recoveryDeviceId else {
-                    failed = true
-                    return
-                }
-                let success = await GuardianClient().bootstrapActorToken(
-                    platform: platform,
-                    deviceId: deviceId
-                )
-                guard success else {
-                    failed = true
-                    return
-                }
-                var retryRequest = URLRequest(url: url)
-                if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
-                    retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
-                }
-                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                    failed = true
-                    return
-                }
-                image = UIImage(data: retryData)
+            do {
+                let data = try await workspaceClient.fetchWorkspaceFileContent(path: filePath, showHidden: false)
+                image = UIImage(data: data)
                 if image == nil { failed = true }
-                return
+            } catch {
+                if !Task.isCancelled { failed = true }
             }
-            guard (200...299).contains(http.statusCode) else {
-                failed = true
-                return
-            }
-            image = UIImage(data: data)
-            if image == nil { failed = true }
-        } catch {
-            failed = true
         }
     }
 }
@@ -281,8 +235,8 @@ private struct AuthenticatedImageView: View {
 // MARK: - Authenticated Video Player
 
 private struct WorkspaceVideoPlayer: View {
-    let url: URL
-    let client: GatewayConnectionManager?
+    let filePath: String
+    let workspaceClient: WorkspaceClient
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false
@@ -307,7 +261,7 @@ private struct WorkspaceVideoPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: url) {
+        .task(id: filePath) {
             failed = false
             player?.pause()
             player = nil
@@ -322,60 +276,15 @@ private struct WorkspaceVideoPlayer: View {
     }
 
     private func loadVideo() async {
-        var request = URLRequest(url: url)
-        if let token = ActorTokenManager.getToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
         do {
-            let (localURL, response) = try await URLSession.shared.download(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                failed = true
-                return
-            }
-            // 401 retry: re-bootstrap actor token via GuardianClient then retry once
-            if http.statusCode == 401 {
-                try? FileManager.default.removeItem(at: localURL)
-                guard let client,
-                      let platform = client.recoveryPlatform,
-                      let deviceId = client.recoveryDeviceId else {
-                    failed = true
-                    return
-                }
-                let success = await GuardianClient().bootstrapActorToken(
-                    platform: platform,
-                    deviceId: deviceId
-                )
-                guard success else {
-                    failed = true
-                    return
-                }
-                var retryRequest = URLRequest(url: url)
-                if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
-                    retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
-                }
-                let (retryLocalURL, retryResponse) = try await URLSession.shared.download(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                    try? FileManager.default.removeItem(at: retryLocalURL)
-                    failed = true
-                    return
-                }
-                let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-                try FileManager.default.moveItem(at: retryLocalURL, to: tmpFile)
-                tempFileURL = tmpFile
-                player = AVPlayer(url: tmpFile)
-                return
-            }
-            guard (200...299).contains(http.statusCode) else {
-                try? FileManager.default.removeItem(at: localURL)
-                failed = true
-                return
-            }
-            let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-            try FileManager.default.moveItem(at: localURL, to: tmpFile)
-            tempFileURL = tmpFile
-            player = AVPlayer(url: tmpFile)
+            let data = try await workspaceClient.fetchWorkspaceFileContent(path: filePath, showHidden: false)
+            guard !Task.isCancelled else { return }
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+            try data.write(to: dest)
+            tempFileURL = dest
+            player = AVPlayer(url: dest)
         } catch {
-            failed = true
+            if !Task.isCancelled { failed = true }
         }
     }
 
