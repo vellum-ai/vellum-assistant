@@ -21,7 +21,6 @@ export interface MemoryRecalled {
   model: string;
   degradation?: MemoryRecalledDegradation;
   semanticHits: number;
-  recencyHits: number;
   tier1Count: number;
   tier2Count: number;
   hybridSearchLatencyMs: number;

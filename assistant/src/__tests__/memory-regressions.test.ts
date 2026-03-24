@@ -1691,8 +1691,7 @@ describe("Memory regressions", () => {
       scopeId: "project-a",
     });
 
-    // With Qdrant mocked, only recency search runs. Recency candidates
-    // don't pass tier classification (score < 0.6), so topCandidates is empty.
+    // Qdrant is mocked empty; no candidates pass tier classification, so topCandidates is empty.
     expect(result.enabled).toBe(true);
   });
 

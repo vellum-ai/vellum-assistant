@@ -268,7 +268,7 @@ describe("Memory lifecycle E2E regression", () => {
     expect(newDecision!.supersedes).toBe("item-old-decision");
   });
 
-  test("recall completes and recency search retrieves relevant items", async () => {
+  test("recall completes with no injected memory when Qdrant returns empty", async () => {
     const db = getDb();
     const now = 1_701_100_000_000;
     const conversationId = "conv-recall-lifecycle";
@@ -303,7 +303,7 @@ describe("Memory lifecycle E2E regression", () => {
       })
       .run();
 
-    // Insert a segment that recency search can find
+    // Insert a segment (Qdrant is mocked empty, so this will not be recalled)
     db.run(`
       INSERT INTO memory_segments (
         id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at
