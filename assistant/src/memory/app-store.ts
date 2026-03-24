@@ -75,10 +75,10 @@ export function inlineDistAssets(appDir: string, html: string): string {
   // Inline main.js
   const jsPath = join(distDir, "main.js");
   if (existsSync(jsPath)) {
-    const js = readFileSync(jsPath, "utf-8");
+    const js = readFileSync(jsPath, "utf-8").replace(/<\/script>/g, "<\\/script>");
     html = html.replace(
       /<script\s+type="module"\s+src="main\.js"\s*><\/script>/,
-      `<script type="module">${js}</script>`,
+      () => `<script type="module">${js}</script>`,
     );
   }
 
@@ -88,7 +88,7 @@ export function inlineDistAssets(appDir: string, html: string): string {
     const css = readFileSync(cssPath, "utf-8");
     html = html.replace(
       /<link\s+rel="stylesheet"\s+href="main\.css"\s*>/,
-      `<style>${css}</style>`,
+      () => `<style>${css}</style>`,
     );
   }
 
