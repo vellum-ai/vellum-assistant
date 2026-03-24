@@ -80,14 +80,14 @@ struct ReauthView: View {
                 }
 
                 if hasNonManagedAssistant {
-                    OnboardingButton(title: "Skip", style: .ghost) {
+                    OnboardingButton(title: "Continue without account", style: .ghost) {
                         if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
                             UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
                         }
                         didComplete = true
                         onComplete()
                     }
-                    .accessibilityLabel("Skip")
+                    .accessibilityLabel("Continue without account")
                 }
             }
             .frame(maxWidth: 280)
