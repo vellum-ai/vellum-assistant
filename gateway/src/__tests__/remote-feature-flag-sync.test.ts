@@ -117,33 +117,71 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached).toEqual({ "feature_flags.browser.enabled": true });
   });
 
-  test("returns empty on non-OK response", async () => {
+  test("preserves cached flags on non-OK response", async () => {
+    // First, seed cached flags with a successful fetch
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "feature_flags.browser.enabled": true },
+      }),
+    );
+
+    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    await sync1.start();
+    sync1.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({
+      "feature_flags.browser.enabled": true,
+    });
+
+    // Now simulate a non-OK response — cached flags should be preserved
     fetchMock = mock(
       async () => new Response("Internal Server Error", { status: 500 }),
     );
 
-    const sync = new RemoteFeatureFlagSync(makeConfig());
-    await sync.start();
-    sync.stop();
+    const sync2 = new RemoteFeatureFlagSync(makeConfig());
+    await sync2.start();
+    sync2.stop();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({});
+    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
   });
 
-  test("returns empty on network error", async () => {
+  test("preserves cached flags on network error", async () => {
+    // First, seed cached flags with a successful fetch
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "feature_flags.browser.enabled": true },
+      }),
+    );
+
+    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    await sync1.start();
+    sync1.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({
+      "feature_flags.browser.enabled": true,
+    });
+
+    // Now simulate a network error — cached flags should be preserved
     fetchMock = mock(async () => {
       throw new Error("Network failure");
     });
 
-    const sync = new RemoteFeatureFlagSync(makeConfig());
+    const sync2 = new RemoteFeatureFlagSync(makeConfig());
     // Should not throw — errors are caught and logged
-    await sync.start();
-    sync.stop();
+    await sync2.start();
+    sync2.stop();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
   });
 
   test("sends correct auth header", async () => {
@@ -204,15 +242,32 @@ describe("RemoteFeatureFlagSync", () => {
     });
   });
 
-  test("returns empty when response is missing flags field", async () => {
+  test("preserves cached flags when response is missing flags field", async () => {
+    // First, seed cached flags with a successful fetch
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "feature_flags.browser.enabled": true },
+      }),
+    );
+
+    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    await sync1.start();
+    sync1.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({
+      "feature_flags.browser.enabled": true,
+    });
+
+    // Now simulate a response with missing flags field — cached flags should be preserved
     fetchMock = mock(async () => Response.json({ data: "unexpected" }));
 
-    const sync = new RemoteFeatureFlagSync(makeConfig());
-    await sync.start();
-    sync.stop();
+    const sync2 = new RemoteFeatureFlagSync(makeConfig());
+    await sync2.start();
+    sync2.stop();
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({});
+    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
   });
 });

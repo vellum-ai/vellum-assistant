@@ -83,6 +83,10 @@ export class RemoteFeatureFlagSync {
 
   private async fetchAndCache(): Promise<void> {
     const values = await this.fetchRemoteFeatureFlags();
+    if (values === null) {
+      log.debug("Skipping cache write — fetch returned no usable data");
+      return;
+    }
     writeRemoteFeatureFlags(values);
     log.info(
       { count: Object.keys(values).length },
@@ -90,7 +94,10 @@ export class RemoteFeatureFlagSync {
     );
   }
 
-  private async fetchRemoteFeatureFlags(): Promise<Record<string, boolean>> {
+  private async fetchRemoteFeatureFlags(): Promise<Record<
+    string,
+    boolean
+  > | null> {
     const { platformUrl, assistantId, platformApiKey } = this.config;
 
     const url = `${platformUrl}/v1/assistants/${assistantId}/feature-flags/`;
@@ -110,7 +117,7 @@ export class RemoteFeatureFlagSync {
         { status: response.status, url },
         "Platform feature flags request failed",
       );
-      return {};
+      return null;
     }
 
     const body = (await response.json()) as {
@@ -118,7 +125,7 @@ export class RemoteFeatureFlagSync {
     };
     if (!body.flags || typeof body.flags !== "object") {
       log.warn("Platform feature flags response missing 'flags' field");
-      return {};
+      return null;
     }
 
     // Filter to boolean values only (defensive)
