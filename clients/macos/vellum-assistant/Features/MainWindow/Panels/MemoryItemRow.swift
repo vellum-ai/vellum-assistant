@@ -12,36 +12,34 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(alignment: .center, spacing: VSpacing.sm) {
-                        Text(item.subject)
-                            .font(VFont.headline)
-                            .foregroundStyle(VColor.contentEmphasized)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        VTag(
-                            memoryKind?.label ?? item.kind.capitalized,
-                            color: memoryKind?.color ?? VColor.contentTertiary
-                        )
-                    }
-
-                    Text(item.statement)
-                        .font(VFont.bodySmall)
-                        .foregroundStyle(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    Text(item.subject)
+                        .font(VFont.headline)
+                        .foregroundStyle(VColor.contentEmphasized)
                         .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                }
+                        .truncationMode(.tail)
 
-                Spacer()
+                    VTag(
+                        memoryKind?.label ?? item.kind.capitalized,
+                        color: memoryKind?.color ?? VColor.contentTertiary
+                    )
+
+                    Spacer()
+
+                    VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                        .accessibilityLabel("Delete memory")
+                }
 
                 Text(item.relativeLastSeen)
                     .font(VFont.caption)
                     .foregroundStyle(VColor.contentTertiary)
 
-                VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
-                    .accessibilityLabel("Delete memory")
+                Text(item.statement)
+                    .font(VFont.bodySmall)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
             }
         }
         .contextMenu {
