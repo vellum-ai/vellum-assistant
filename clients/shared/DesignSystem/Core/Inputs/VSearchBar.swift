@@ -13,18 +13,18 @@ public struct VSearchBar: View {
     public var body: some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.search, size: 12)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .focused($isFocused)
 
             if !text.isEmpty {
                 Button(action: { text = "" }) {
                     VIconView(.circleX, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")

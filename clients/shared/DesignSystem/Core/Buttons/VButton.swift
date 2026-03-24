@@ -46,7 +46,7 @@ public struct VButton: View {
                     VIconView(.resolve(iconOnly), size: size == .inline ? 10 : 13)
                         .frame(width: size == .inline ? 12 : 20, height: size == .inline ? 12 : 20)
                 }
-                .foregroundColor(iconColor ?? iconOnlyForegroundColor)
+                .foregroundStyle(iconColor ?? iconOnlyForegroundColor)
             } else {
                 HStack(spacing: 6) {
                     if let leftIcon {
@@ -135,7 +135,7 @@ public struct VButtonStyle: ButtonStyle {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
-            .foregroundColor(foregroundColor)
+            .foregroundStyle(foregroundColor)
             .modifier(ButtonLayoutModifier(
                 style: style,
                 size: size,

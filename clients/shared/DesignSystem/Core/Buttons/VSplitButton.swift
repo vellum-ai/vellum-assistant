@@ -52,7 +52,7 @@ public struct VSplitButton<MenuContent: View>: View {
                     Text(label)
                         .font(size == .regular ? VFont.bodyMediumDefault : VFont.labelDefault)
                 }
-                .foregroundColor(foregroundColor)
+                .foregroundStyle(foregroundColor)
                 .padding(.horizontal, size == .regular ? VSpacing.md : VSpacing.sm)
                 .frame(height: zoneHeight)
                 .background(zoneBackgroundColor(isHovered: isPrimaryHovered))
@@ -73,7 +73,7 @@ public struct VSplitButton<MenuContent: View>: View {
                     .frame(width: dropdownWidth, height: zoneHeight)
 
                 VIconView(.chevronDown, size: 11)
-                    .foregroundColor(foregroundColor)
+                    .foregroundStyle(foregroundColor)
                     .frame(width: dropdownWidth, height: zoneHeight)
                     .allowsHitTesting(false)
 

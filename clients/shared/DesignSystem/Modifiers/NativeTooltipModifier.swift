@@ -246,7 +246,7 @@ private struct VTooltipContent: View {
         Text(text)
             .fixedSize()
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .background(VColor.surfaceLift)

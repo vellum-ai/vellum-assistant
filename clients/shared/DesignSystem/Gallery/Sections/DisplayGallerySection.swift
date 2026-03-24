@@ -23,7 +23,7 @@ struct DisplayGallerySection: View {
                         HStack {
                             Text("Padding: \(Int(cardPadding))pt")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Slider(value: $cardPadding, in: 0...48, step: 4)
                                 .frame(maxWidth: 200)
                         }
@@ -33,7 +33,7 @@ struct DisplayGallerySection: View {
                         VCard(padding: cardPadding) {
                             Text("Card content with \(Int(cardPadding))pt padding")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                     }
                 }
@@ -41,7 +41,7 @@ struct DisplayGallerySection: View {
                 // Padding variants
                 Text("Padding Variants")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.lg) {
                     ForEach([
@@ -55,10 +55,10 @@ struct DisplayGallerySection: View {
                             VStack(spacing: VSpacing.xs) {
                                 Text(name)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Text("\(Int(padding))pt")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                     }
@@ -165,7 +165,7 @@ struct DisplayGallerySection: View {
 
                 Text("With Action Button")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.lg) {
                     VCard {
@@ -209,7 +209,7 @@ struct DisplayGallerySection: View {
                 ) {
                     Text("Expanded content is visible")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceOverlay)
@@ -221,7 +221,7 @@ struct DisplayGallerySection: View {
                 ) {
                     Text("This content is hidden")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceOverlay)
@@ -243,13 +243,13 @@ struct DisplayGallerySection: View {
                         VListRow(onTap: {}) {
                             HStack {
                                 VIconView(.fileText, size: 14)
-                                    .foregroundColor(VColor.primaryBase)
+                                    .foregroundStyle(VColor.primaryBase)
                                 Text("Tappable row with icon")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Spacer()
                                 VIconView(.chevronRight, size: 10)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
 
@@ -258,10 +258,10 @@ struct DisplayGallerySection: View {
                         VListRow(onTap: {}) {
                             HStack {
                                 VIconView(.folder, size: 14)
-                                    .foregroundColor(VColor.systemNegativeHover)
+                                    .foregroundStyle(VColor.systemNegativeHover)
                                 Text("Another tappable row")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Spacer()
                                 VBadge(style: .count(3))
                             }
@@ -272,7 +272,7 @@ struct DisplayGallerySection: View {
                         VListRow {
                             Text("Static row (no tap action)")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                     }
                 }
@@ -303,7 +303,7 @@ struct DisplayGallerySection: View {
                             )
                             Text(label)
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
@@ -357,7 +357,7 @@ struct DisplayGallerySection: View {
 
                 Text("With maxHeight constraint")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 VCard {
                     VDiffView(Self.sampleDiff, maxHeight: 120)
@@ -382,7 +382,7 @@ struct DisplayGallerySection: View {
                             VStack(spacing: VSpacing.sm) {
                                 Text("Conversation")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                 VStreamingWaveform(
                                     amplitude: waveformAmplitude,
                                     isActive: waveformActive,
@@ -394,7 +394,7 @@ struct DisplayGallerySection: View {
                             VStack(spacing: VSpacing.sm) {
                                 Text("Dictation")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                 VStreamingWaveform(
                                     amplitude: waveformAmplitude,
                                     isActive: waveformActive,
@@ -410,7 +410,7 @@ struct DisplayGallerySection: View {
                         HStack {
                             Text("Amplitude: \(String(format: "%.2f", waveformAmplitude))")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Slider(value: Binding(
                                 get: { Double(waveformAmplitude) },
                                 set: { waveformAmplitude = Float($0) }
@@ -420,7 +420,7 @@ struct DisplayGallerySection: View {
 
                         Toggle("Active", isOn: $waveformActive)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
                 }
             }

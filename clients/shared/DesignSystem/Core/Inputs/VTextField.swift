@@ -201,14 +201,14 @@ public struct VTextField: View {
             if let label {
                 Text(label)
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
+                    .foregroundStyle(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
                     .accessibilityHidden(true)
             }
 
             HStack(spacing: size.horizontalPadding) {
                 if let leadingIcon {
                     VIconView(.resolve(leadingIcon), size: size.iconSize)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
 
@@ -216,7 +216,7 @@ public struct VTextField: View {
 
                 if let trailingIcon {
                     VIconView(.resolve(trailingIcon), size: size.iconSize)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
             }
@@ -228,7 +228,7 @@ public struct VTextField: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .accessibilityHidden(true)
             }
         }
@@ -242,13 +242,13 @@ public struct VTextField: View {
                 SecureField(placeholder, text: $text)
                     .textFieldStyle(.plain)
                     .font(font)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .onSubmit { onSubmit?() }
             } else {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
                     .font(font)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .onSubmit { onSubmit?() }
             }
         }

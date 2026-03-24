@@ -23,7 +23,7 @@ public struct VInfoTooltip: View {
 
     public var body: some View {
         VIconView(.info, size: 12)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .help(tooltip)

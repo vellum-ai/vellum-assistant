@@ -43,18 +43,18 @@ public struct VDisclosureSection<Content: View>: View {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
                         VIconView(.resolve(icon), size: 14)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 20)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
                             .font(VFont.bodyMediumEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -63,7 +63,7 @@ public struct VDisclosureSection<Content: View>: View {
                     Spacer()
 
                     VIconView(.chevronRight, size: 10)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }

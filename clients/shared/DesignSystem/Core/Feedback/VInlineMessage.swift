@@ -20,13 +20,13 @@ public struct VInlineMessage: View {
     public var body: some View {
         HStack(alignment: .top, spacing: VSpacing.xs) {
             VIconView(icon, size: 12)
-                .foregroundColor(foregroundColor)
+                .foregroundStyle(foregroundColor)
                 .padding(.top, 1)
                 .accessibilityHidden(true)
 
             Text(message)
                 .font(VFont.labelDefault)
-                .foregroundColor(foregroundColor)
+                .foregroundStyle(foregroundColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, VSpacing.sm)

@@ -28,15 +28,15 @@ public struct VEmptyState: View {
         VStack(spacing: VSpacing.lg) {
             if let icon = icon {
                 VIconView(.resolve(icon), size: 48)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             Text(title)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             if let subtitle = subtitle {
                 Text(subtitle)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             if let actionLabel, let action {
                 VButton(
