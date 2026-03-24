@@ -72,16 +72,16 @@ public struct SurfaceContentResponse: Sendable {
 }
 
 @MainActor
-protocol SurfaceClientProtocol {
+public protocol SurfaceClientProtocol {
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
     func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse?
 }
 
 @MainActor
-struct SurfaceClient: SurfaceClientProtocol {
-    nonisolated init() {}
+public struct SurfaceClient: SurfaceClientProtocol {
+    nonisolated public init() {}
 
-    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
+    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         let response = try? await GatewayHTTPClient.get(
             path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
@@ -95,7 +95,7 @@ struct SurfaceClient: SurfaceClientProtocol {
 
     /// Fetch surface content returning the raw response dict, suitable for
     /// reconstructing a `UiSurfaceShowMessage` to re-open ephemeral surfaces.
-    func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse? {
+    public func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse? {
         let response = try? await GatewayHTTPClient.get(
             path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
