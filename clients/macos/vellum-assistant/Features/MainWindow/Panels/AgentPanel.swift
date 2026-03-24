@@ -269,6 +269,7 @@ struct SkillItemRow: View {
                             label: "Delete",
                             iconOnly: VIcon.trash.rawValue,
                             style: .dangerGhost,
+                            size: .compact,
                             action: onDelete
                         )
                         .accessibilityLabel("Uninstall skill")
