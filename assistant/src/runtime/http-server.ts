@@ -60,6 +60,8 @@ import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -828,8 +830,7 @@ export class RuntimeHttpServer {
       title: conversation.title ?? "Untitled",
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-      conversationType:
-        conversation.conversationType === "private" ? "private" : "standard",
+      conversationType: conversation.conversationType ?? "standard",
       source: conversation.source ?? "user",
       ...(conversation.scheduleJobId
         ? { scheduleJobId: conversation.scheduleJobId }
@@ -1021,8 +1022,16 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const conversations = listConversations(limit, false, offset);
-          const totalCount = countConversations();
+          const includeBackground = isAssistantFeatureFlagEnabled(
+            "feature_flags.show-background-conversations.enabled",
+            getConfig(),
+          );
+          const conversations = listConversations(
+            limit,
+            includeBackground,
+            offset,
+          );
+          const totalCount = countConversations(includeBackground);
           const conversationIds = conversations.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
