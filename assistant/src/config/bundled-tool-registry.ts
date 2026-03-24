@@ -167,6 +167,10 @@ import * as taskRun from "./bundled-skills/tasks/tools/task-run.js";
 import * as taskSave from "./bundled-skills/tasks/tools/task-save.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
+// ── twitter ────────────────────────────────────────────────────────────────────
+import * as twitterAutoLikeScan from "./bundled-skills/twitter/tools/twitter-auto-like-scan.js";
+import * as twitterLikePost from "./bundled-skills/twitter/tools/twitter-like-post.js";
+import * as twitterUnlikePost from "./bundled-skills/twitter/tools/twitter-unlike-post.js";
 // ── watcher ────────────────────────────────────────────────────────────────────
 import * as watcherCreate from "./bundled-skills/watcher/tools/watcher-create.js";
 import * as watcherDelete from "./bundled-skills/watcher/tools/watcher-delete.js";
@@ -325,11 +329,11 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["sequences:tools/sequence-analytics.ts", sequenceAnalytics],
 
   // settings
-  ["settings:tools/avatar-update.ts", avatarUpdate],
-  ["settings:tools/avatar-remove.ts", avatarRemove],
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
   ["settings:tools/open-system-settings.ts", openSystemSettings],
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
+  ["settings:tools/avatar-update.ts", avatarUpdate],
+  ["settings:tools/avatar-remove.ts", avatarRemove],
 
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],
@@ -365,6 +369,11 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
+
+  // twitter
+  ["twitter:tools/twitter-like-post.ts", twitterLikePost],
+  ["twitter:tools/twitter-unlike-post.ts", twitterUnlikePost],
+  ["twitter:tools/twitter-auto-like-scan.ts", twitterAutoLikeScan],
 
   // watcher
   ["watcher:tools/watcher-create.ts", watcherCreate],

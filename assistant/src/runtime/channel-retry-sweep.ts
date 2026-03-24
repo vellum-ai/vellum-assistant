@@ -192,6 +192,7 @@ export async function sweepFailedEvents(
           trustContext,
           isInteractive:
             resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+          inboundEventId: event.id,
         },
         sourceChannel,
         sourceInterface,

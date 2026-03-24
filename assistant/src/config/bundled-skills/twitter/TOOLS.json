@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "twitter_like_post",
+      "description": "Like a tweet on Twitter/X by URL or tweet ID.",
+      "category": "twitter",
+      "risk": "low",
+      "trusted_auto_approve": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url_or_id": {
+            "type": "string",
+            "description": "Tweet URL (twitter.com or x.com) or numeric tweet ID"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["url_or_id"]
+      },
+      "executor": "tools/twitter-like-post.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "twitter_unlike_post",
+      "description": "Unlike a previously liked tweet on Twitter/X by URL or tweet ID.",
+      "category": "twitter",
+      "risk": "low",
+      "trusted_auto_approve": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url_or_id": {
+            "type": "string",
+            "description": "Tweet URL (twitter.com or x.com) or numeric tweet ID"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["url_or_id"]
+      },
+      "executor": "tools/twitter-unlike-post.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "twitter_auto_like_scan",
+      "description": "Scan a message for tweet URLs, like each one via the Twitter API, and add a Slack reaction emoji to the source message as visual confirmation.",
+      "category": "twitter",
+      "risk": "low",
+      "trusted_auto_approve": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_text": {
+            "type": "string",
+            "description": "The raw message text to scan for tweet URLs"
+          },
+          "reaction_emoji": {
+            "type": "string",
+            "description": "Slack emoji name to react with (default: heart)"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["message_text"]
+      },
+      "executor": "tools/twitter-auto-like-scan.ts",
+      "execution_target": "host"
+    }
+  ]
+}

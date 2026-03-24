@@ -193,6 +193,7 @@ export class Conversation {
     payload?: string;
     languageCode?: string;
   };
+  /** @internal */ inboundEventId?: string;
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ pendingSurfaceActions = new Map<
     string,
@@ -899,6 +900,10 @@ export class Conversation {
     intent: { type: string; payload?: string; languageCode?: string } | null,
   ): void {
     this.commandIntent = intent ?? undefined;
+  }
+
+  setInboundEventId(id: string | null): void {
+    this.inboundEventId = id ?? undefined;
   }
 
   setPreactivatedSkillIds(ids: string[] | undefined): void {
