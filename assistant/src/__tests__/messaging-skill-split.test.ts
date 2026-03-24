@@ -18,8 +18,6 @@ function loadManifest(skillDir: string) {
 const messagingManifest = loadManifest("messaging");
 const gmailManifest = loadManifest("gmail");
 const sequencesManifest = loadManifest("sequences");
-const slackManifest = loadManifest("slack");
-
 describe("Messaging skill split", () => {
   const expectedMessagingToolNames = [
     "messaging_auth_test",
@@ -62,8 +60,6 @@ describe("Messaging skill split", () => {
     "sequence_analytics",
   ];
 
-  const expectedSlackToolNames = ["slack_add_reaction", "slack_leave_channel"];
-
   test("messaging/TOOLS.json contains all expected messaging_* tool names", () => {
     const names: string[] = messagingManifest.tools.map(
       (t: { name: string }) => t.name,
@@ -103,26 +99,15 @@ describe("Messaging skill split", () => {
     }
   });
 
-  test("slack/TOOLS.json contains all expected slack_* tool names", () => {
-    const names: string[] = slackManifest.tools.map(
-      (t: { name: string }) => t.name,
-    );
-    for (const name of expectedSlackToolNames) {
-      expect(names).toContain(name);
-    }
-  });
-
   test("total tools across all manifests meets expected minimum", () => {
     const expectedMinimum =
       expectedMessagingToolNames.length +
       expectedGmailToolNames.length +
-      expectedSequenceToolNames.length +
-      expectedSlackToolNames.length;
+      expectedSequenceToolNames.length;
     const totalTools =
       messagingManifest.tools.length +
       gmailManifest.tools.length +
-      sequencesManifest.tools.length +
-      slackManifest.tools.length;
+      sequencesManifest.tools.length;
     expect(totalTools).toBeGreaterThanOrEqual(expectedMinimum);
   });
 

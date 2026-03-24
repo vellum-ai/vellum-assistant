@@ -220,7 +220,7 @@ Vellum integrates with third-party services via OAuth2. Each integration is expo
 
 The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail implements the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. Platform-specific tools (e.g. `gmail_archive`) extend beyond the generic interface where needed.
 
-**Slack is not handled by the messaging skill.** Slack messaging (send, read, search) uses the Slack Web API directly via CLI. The `slack` skill provides Slack-specific tools (`slack_scan_digest`, `slack_add_reaction`, etc.) and instructions for direct API access.
+**Slack is not handled by the messaging skill.** Slack messaging (send, read, search) uses the Slack Web API directly via CLI. The `slack` skill provides instructions for using the Web API via `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel/bot_token"]` — the credential proxy injects the bot token automatically. There are no dedicated Slack tools.
 
 Connect Gmail via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token — see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
 

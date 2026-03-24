@@ -211,7 +211,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
-      "config/bundled-skills/slack/tools/shared.ts", // Slack skill bot token lookup
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
