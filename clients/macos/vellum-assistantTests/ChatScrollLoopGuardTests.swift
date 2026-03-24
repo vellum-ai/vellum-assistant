@@ -589,4 +589,78 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         XCTAssertFalse(guard_.isTripped(conversationId: conversationId),
                         "isTripped should return false after cooldown expires and quiet window elapses")
     }
+
+    // MARK: - Circuit Breaker: Trip → Suppression → Recovery
+
+    func testTripSuppressesRequestsThenAutoRecovers() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Phase 1: Trip the guard by exceeding the scrollTo threshold.
+        var tripped = false
+        for _ in 0..<20 {
+            if guard_.record(.scrollToRequested, conversationId: conversationId, timestamp: timestamp) != nil {
+                tripped = true
+            }
+            timestamp += 0.1
+        }
+        XCTAssertTrue(tripped, "Guard should trip from scrollTo burst")
+
+        // Phase 2: Verify isTripped returns true — callers must early-return.
+        XCTAssertTrue(guard_.isTripped(conversationId: conversationId),
+                       "isTripped must return true while in cooldown")
+
+        // Phase 3: Wire up recovery callback and verify it fires after cooldown.
+        var recoveryConversationId: String?
+        guard_.onRecoveryNeeded = { convId in
+            recoveryConversationId = convId
+        }
+
+        // Advance past the cooldown duration with no events.
+        timestamp += ChatScrollLoopGuard.cooldownDuration + 0.1
+
+        // Record a single event to trigger cooldown expiry and auto-recovery.
+        guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+
+        // Phase 4: Verify recovery fired and guard is no longer tripped.
+        XCTAssertEqual(recoveryConversationId, conversationId,
+                        "onRecoveryNeeded should fire with the correct conversation ID after cooldown")
+        XCTAssertFalse(guard_.isTripped(conversationId: conversationId),
+                        "isTripped should return false after cooldown recovery")
+
+        // Phase 5: Verify the guard can trip again (re-armed).
+        var trippedAgain = false
+        for _ in 0..<20 {
+            if guard_.record(.scrollToRequested, conversationId: conversationId, timestamp: timestamp) != nil {
+                trippedAgain = true
+            }
+            timestamp += 0.1
+        }
+        XCTAssertTrue(trippedAgain, "Guard should re-arm and trip again after recovery")
+    }
+
+    func testRecoveryOnlyFiresOnce() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Trip the guard.
+        for _ in 0..<50 {
+            guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.03
+        }
+        XCTAssertTrue(guard_.isTripped(conversationId: conversationId))
+
+        var recoveryCount = 0
+        guard_.onRecoveryNeeded = { _ in
+            recoveryCount += 1
+        }
+
+        // First recovery after cooldown.
+        timestamp += ChatScrollLoopGuard.cooldownDuration + 0.1
+        guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+        XCTAssertEqual(recoveryCount, 1, "Recovery should fire exactly once")
+
+        // Subsequent events should not re-fire recovery (no new trip).
+        timestamp += 0.1
+        guard_.record(.anchorPreferenceChange, conversationId: conversationId, timestamp: timestamp)
+        XCTAssertEqual(recoveryCount, 1, "Recovery should not fire again without a new trip")
+    }
 }
