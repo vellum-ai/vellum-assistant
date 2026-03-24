@@ -1091,8 +1091,8 @@ export async function hatchDocker(
 
     let repoRoot: string | undefined;
 
-    emitProgress(2, 6, "Pulling images...");
     if (watch) {
+      emitProgress(2, 6, "Building images...");
       repoRoot = findRepoRoot();
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
@@ -1113,6 +1113,7 @@ export async function hatchDocker(
       await buildAllImages(repoRoot, imageTags, log);
       log("✅ Docker images built");
     } else {
+      emitProgress(2, 6, "Pulling images...");
       const version = cliPkg.version;
       const versionTag = version ? `v${version}` : "latest";
       log("🔍 Resolving image references...");
