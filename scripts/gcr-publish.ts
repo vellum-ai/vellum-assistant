@@ -3,8 +3,7 @@
  * gcr-publish.ts — Manually build and push Docker images to GCR.
  *
  * Builds multi-arch (linux/amd64, linux/arm64) images for the specified
- * services, then pushes them to Google Container Registry. For trust-broker,
- * re-tags the credential-executor image instead of building separately.
+ * services, then pushes them to Google Container Registry.
  *
  * Prerequisites:
  *   - Docker with buildx support (Docker Desktop or buildx plugin)
@@ -16,12 +15,10 @@
  *   GCP_PROJECT_ID                 — e.g. my-gcp-project
  *   ASSISTANT_IMAGE_NAME           — e.g. assistant (required when publishing assistant)
  *   GATEWAY_IMAGE_NAME             — e.g. gateway (required when publishing gateway)
- *   CREDENTIAL_EXECUTOR_IMAGE_NAME — e.g. credential-executor (required when publishing credential-executor or trust-broker)
- *   TRUST_BROKER_IMAGE_NAME        — e.g. trust-broker (required when publishing trust-broker)
+ *   CREDENTIAL_EXECUTOR_IMAGE_NAME — e.g. credential-executor (required when publishing credential-executor)
  *
  * Usage:
  *   bun scripts/gcr-publish.ts --version <semver>
- *   bun scripts/gcr-publish.ts --version <semver> --services trust-broker
  *   bun scripts/gcr-publish.ts --version <semver> --services assistant,gateway --skip-latest
  *   bun scripts/gcr-publish.ts --version <semver> --sha <commit-sha> --dry-run
  */
@@ -56,7 +53,7 @@ const dryRun = values["dry-run"] ?? false;
 if (!version) {
   console.error("ERROR: --version is required");
   console.error(
-    "Usage: bun scripts/gcr-publish.ts --version <semver> [--services assistant,gateway,credential-executor,trust-broker] [--sha <commit-sha>] [--platforms linux/amd64,linux/arm64] [--skip-latest] [--dry-run]"
+    "Usage: bun scripts/gcr-publish.ts --version <semver> [--services assistant,gateway,credential-executor] [--sha <commit-sha>] [--platforms linux/amd64,linux/arm64] [--skip-latest] [--dry-run]"
   );
   process.exit(1);
 }
@@ -65,13 +62,12 @@ if (!version) {
 // Service configuration
 // ---------------------------------------------------------------------------
 
-type Service = "assistant" | "gateway" | "credential-executor" | "trust-broker";
+type Service = "assistant" | "gateway" | "credential-executor";
 
 const ALL_SERVICES: Service[] = [
   "assistant",
   "gateway",
   "credential-executor",
-  "trust-broker",
 ];
 
 interface ServiceConfig {
@@ -79,8 +75,6 @@ interface ServiceConfig {
   context: string;
   dockerfile: string;
   featureFlagSync?: { src: string; dest: string };
-  /** When set, re-tag this source service's image instead of building. */
-  retagFrom?: Service;
 }
 
 const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
@@ -106,12 +100,6 @@ const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
     imageEnvVar: "CREDENTIAL_EXECUTOR_IMAGE_NAME",
     context: ".",
     dockerfile: "credential-executor/Dockerfile",
-  },
-  "trust-broker": {
-    imageEnvVar: "TRUST_BROKER_IMAGE_NAME",
-    context: ".",
-    dockerfile: "credential-executor/Dockerfile",
-    retagFrom: "credential-executor",
   },
 };
 
@@ -149,10 +137,6 @@ if (!GCP_PROJECT_ID) missing.push("GCP_PROJECT_ID");
 for (const svc of selectedServices) {
   const config = SERVICE_CONFIG[svc];
   if (!process.env[config.imageEnvVar]) missing.push(config.imageEnvVar);
-  if (config.retagFrom) {
-    const sourceEnvVar = SERVICE_CONFIG[config.retagFrom].imageEnvVar;
-    if (!process.env[sourceEnvVar]) missing.push(sourceEnvVar);
-  }
 }
 
 if (missing.length > 0) {
@@ -288,47 +272,7 @@ for (const svc of selectedServices) {
 
   const tagArgs = tags.map((t) => `-t "${t}"`).join(" ");
 
-  if (config.retagFrom) {
-    // Re-tag mode: create a new manifest pointing to an existing image
-    const sourceImage = imageRef(config.retagFrom);
-
-    console.log(`==> Re-tagging ${config.retagFrom} as ${svc}`);
-    console.log(`    Source: ${sourceImage}:v${version}`);
-    console.log(`    Target: ${image}`);
-    console.log(`    Tags:   ${tags.map((t) => t.split(":")[1]).join(", ")}`);
-    console.log("");
-
-    // Verify source image exists (skip in dry-run since the source may not be pushed yet)
-    if (!dryRun) {
-      try {
-        run(
-          `docker buildx imagetools inspect "${sourceImage}:v${version}" --format "{{json .Manifest.Digest}}"`
-        );
-      } catch {
-        console.error(
-          `    ERROR: Source image not found at ${sourceImage}:v${version}`
-        );
-        failed.push(svc);
-        continue;
-      }
-    }
-
-    const cmd = `docker buildx imagetools create ${tagArgs} "${sourceImage}:v${version}"`;
-
-    if (dryRun) {
-      console.log("    (dry run) Would execute:");
-      console.log(`    ${cmd}\n`);
-    } else {
-      try {
-        run(cmd);
-        console.log(`    ${svc} re-tagged successfully\n`);
-      } catch (err) {
-        console.error(`    ${svc} FAILED: ${err}\n`);
-        failed.push(svc);
-      }
-    }
-  } else {
-    // Build mode: build from Dockerfile and push
+  {
     const context = resolve(REPO_ROOT, config.context);
     const dockerfile = resolve(REPO_ROOT, config.dockerfile);
 

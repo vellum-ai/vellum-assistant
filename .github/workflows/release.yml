@@ -576,52 +576,6 @@ jobs:
           echo "tag=v${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
-      - name: Compute trust-broker image tags
-        id: trust-broker-tags
-        run: |
-          TB_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.TRUST_BROKER_IMAGE_NAME }}"
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          SHA="${{ steps.release-sha.outputs.sha }}"
-          TB_TAGS="${TB_IMAGE}:${SHA}"
-          TB_TAGS=$(printf "%s\n%s" "$TB_TAGS" "${TB_IMAGE}:v${VERSION}")
-          TB_TAGS=$(printf "%s\n%s" "$TB_TAGS" "${TB_IMAGE}:latest")
-
-          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$TB_TAGS" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-          echo "image=${TB_IMAGE}" >> "$GITHUB_OUTPUT"
-
-      - name: Create trust-broker GCP manifest list and push
-        working-directory: /tmp/digests
-        run: |
-          CE_IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.trust-broker-tags.outputs.tags }}"
-          SOURCES=$(printf "${CE_IMAGE}@sha256:%s " *)
-          docker buildx imagetools create $TAG_ARGS $SOURCES
-
-      - name: Export trust-broker manifest digest
-        id: trust-broker-manifest-digest
-        run: |
-          IMAGE="${{ steps.trust-broker-tags.outputs.image }}"
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          TAG="v${VERSION}"
-          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Trust-broker manifest digest: ${DIGEST}"
-          mkdir -p /tmp/trust-broker-manifest-digest
-          echo "${DIGEST}" > /tmp/trust-broker-manifest-digest/digest
-
-      - name: Upload trust-broker manifest digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: trust-broker-manifest-digest-${{ matrix.environment }}
-          path: /tmp/trust-broker-manifest-digest/digest
-          retention-days: 1
-
       - name: Summary
         run: |
           echo "## Credential Executor Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
@@ -630,11 +584,6 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Trust Broker Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
@@ -662,12 +611,6 @@ jobs:
           - service: credential-executor
             runs_on: ubuntu-latest
             dockerhub_image_name: vellum-credential-executor
-            context: .
-            dockerfile: credential-executor/Dockerfile
-            feature_flag_path: ""
-          - service: trust-broker
-            runs_on: ubuntu-latest
-            dockerhub_image_name: vellum-trust-broker
             context: .
             dockerfile: credential-executor/Dockerfile
             feature_flag_path: ""
@@ -792,23 +735,15 @@ jobs:
           name: credential-executor-manifest-digest-${{ matrix.environment }}
           path: /tmp/credential-executor-digest
 
-      - name: Download trust-broker manifest digest
-        uses: actions/download-artifact@v4
-        with:
-          name: trust-broker-manifest-digest-${{ matrix.environment }}
-          path: /tmp/trust-broker-digest
-
       - name: Extract manifest digests
         id: digests
         run: |
           ASSISTANT_DIGEST=$(cat /tmp/assistant-digest/digest)
           GATEWAY_DIGEST=$(cat /tmp/gateway-digest/digest)
           CREDENTIAL_EXECUTOR_DIGEST=$(cat /tmp/credential-executor-digest/digest)
-          TRUST_BROKER_DIGEST=$(cat /tmp/trust-broker-digest/digest)
           echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "trust_broker_digest=${TRUST_BROKER_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve platform credentials
         id: platform-creds
@@ -828,8 +763,6 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-          TRUST_BROKER_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.TRUST_BROKER_IMAGE_NAME }}"
-
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -847,10 +780,6 @@ jobs:
             --arg credential_executor_tag "v${VERSION}" \
             --arg credential_executor_sha "$SHA" \
             --arg credential_executor_digest "${{ steps.digests.outputs.credential_executor_digest }}" \
-            --arg trust_broker_repo "$TRUST_BROKER_REPO" \
-            --arg trust_broker_tag "v${VERSION}" \
-            --arg trust_broker_sha "$SHA" \
-            --arg trust_broker_digest "${{ steps.digests.outputs.trust_broker_digest }}" \
             '{
               version: $version,
               released_at: $released_at,
@@ -874,12 +803,6 @@ jobs:
                 tag: $credential_executor_tag,
                 sha: $credential_executor_sha,
                 digest: $credential_executor_digest
-              },
-              trust_broker_image: {
-                repository: $trust_broker_repo,
-                tag: $trust_broker_tag,
-                sha: $trust_broker_sha,
-                digest: $trust_broker_digest
               }
             }')
 
@@ -933,7 +856,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [assistant, cli, credential-executor, gateway, trust-broker]
+        package: [assistant, cli, credential-executor, gateway]
     steps:
       - uses: actions/checkout@v6
 
@@ -949,14 +872,7 @@ jobs:
       - name: Install and publish
         run: |
           PACKAGE="${{ matrix.package }}"
-          if [ "$PACKAGE" = "trust-broker" ]; then
-            cd credential-executor
-            jq '.name = "@vellumai/trust-broker"' package.json > package.json.tmp
-            mv package.json.tmp package.json
-            echo "Publishing credential-executor as @vellumai/trust-broker"
-          else
-            cd "$PACKAGE"
-          fi
+          cd "$PACKAGE"
           if ! bun install --frozen-lockfile; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock

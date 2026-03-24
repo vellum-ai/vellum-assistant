@@ -68,7 +68,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 --version <semver> [--services assistant,credential-executor,gateway,trust-broker] [--skip-latest] [--dry-run]"
+      echo "Usage: $0 --version <semver> [--services assistant,credential-executor,gateway] [--skip-latest] [--dry-run]"
       exit 1
       ;;
   esac
@@ -76,7 +76,7 @@ done
 
 if [[ -z "$VERSION" ]]; then
   echo "ERROR: --version is required"
-  echo "Usage: $0 --version <semver> [--services assistant,credential-executor,gateway,trust-broker] [--skip-latest] [--dry-run]"
+  echo "Usage: $0 --version <semver> [--services assistant,credential-executor,gateway] [--skip-latest] [--dry-run]"
   exit 1
 fi
 
@@ -96,7 +96,6 @@ image_name_for() {
     assistant)            echo "${ASSISTANT_IMAGE_NAME:-vellum-assistant}" ;;
     credential-executor)  echo "${CREDENTIAL_EXECUTOR_IMAGE_NAME:-vellum-credential-executor}" ;;
     gateway)              echo "${GATEWAY_IMAGE_NAME:-vellum-gateway}" ;;
-    trust-broker)         echo "${TRUST_BROKER_IMAGE_NAME:-vellum-trust-broker}" ;;
   esac
 }
 
@@ -105,7 +104,6 @@ build_context_for() {
     assistant)            echo "." ;;
     credential-executor)  echo "." ;;
     gateway)              echo "gateway" ;;
-    trust-broker)         echo "." ;;
   esac
 }
 
@@ -114,11 +112,10 @@ dockerfile_for() {
     assistant)            echo "assistant/Dockerfile" ;;
     credential-executor)  echo "credential-executor/Dockerfile" ;;
     gateway)              echo "gateway/Dockerfile" ;;
-    trust-broker)         echo "credential-executor/Dockerfile" ;;
   esac
 }
 
-ALL_SERVICES=("assistant" "credential-executor" "gateway" "trust-broker")
+ALL_SERVICES=("assistant" "credential-executor" "gateway")
 
 # Resolve which services to build
 if [[ -n "$SERVICES" ]]; then

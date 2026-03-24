@@ -117,7 +117,6 @@ jobs:
             .dependencies["@vellumai/assistant"] = $v |
             .dependencies["@vellumai/cli"] = $v |
             .dependencies["@vellumai/credential-executor"] = $v |
-            .dependencies["@vellumai/trust-broker"] = $v |
             .dependencies["@vellumai/vellum-gateway"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
