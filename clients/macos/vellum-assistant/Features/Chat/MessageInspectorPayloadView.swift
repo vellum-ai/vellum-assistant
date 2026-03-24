@@ -30,7 +30,7 @@ struct MessageInspectorPayloadView: View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(title)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer(minLength: VSpacing.md)
 

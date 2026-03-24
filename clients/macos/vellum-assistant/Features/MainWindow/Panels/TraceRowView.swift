@@ -8,18 +8,18 @@ struct TraceRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(iconToken, size: 11)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
                 .frame(width: 18, alignment: .center)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             Spacer(minLength: 0)

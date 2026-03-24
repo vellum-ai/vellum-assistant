@@ -213,10 +213,10 @@ struct JSONTreeView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer()
             VIconView(.triangleAlert, size: 24)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
             Text(error)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
             Spacer()
@@ -303,26 +303,26 @@ private struct JSONNodeRow: View {
             primitiveRow {
                 Text("\"\(value)\"")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.syntaxString)
+                    .foregroundStyle(VColor.syntaxString)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.syntaxNumber)
+                    .foregroundStyle(VColor.syntaxNumber)
             }
         case .bool(_, let value):
             primitiveRow {
                 Text(value ? "true" : "false")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.syntaxNumber)
+                    .foregroundStyle(VColor.syntaxNumber)
                     .bold()
             }
         case .null:
             primitiveRow {
                 Text("null")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .italic()
             }
         }
@@ -348,15 +348,15 @@ private struct JSONNodeRow: View {
                     HStack(spacing: Self.inlineSpacing) {
                         Spacer().frame(width: CGFloat(depth) * Self.indentPerDepth)
                         VIconView(isExpanded ? .chevronDown : .chevronRight, size: Self.chevronIconSize)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .animation(VAnimation.fast, value: isExpanded)
                         keyLabel
                         Text(summary)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("(\(countLabel))")
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .contentShape(Rectangle())
                 }
@@ -393,10 +393,10 @@ private struct JSONNodeRow: View {
         if let key = key {
             Text(key)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text(": ")
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 }

@@ -74,7 +74,7 @@ struct IdentityPanel: View {
                                 HStack(spacing: VSpacing.xs) {
                                     Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"))
                                         .font(VFont.titleMedium)
-                                        .foregroundColor(VColor.contentDefault)
+                                        .foregroundStyle(VColor.contentDefault)
                                         .multilineTextAlignment(.center)
 
                                     VButton(
@@ -131,7 +131,7 @@ struct IdentityPanel: View {
                                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                                         Text("Role")
                                             .font(VFont.labelDefault)
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                         inlineEditField(
                                             text: $editingRoleText,
                                             placeholder: "Enter a role",
@@ -271,7 +271,7 @@ struct IdentityPanel: View {
         HStack(spacing: VSpacing.xs) {
             TextField(placeholder, text: text)
                 .font(font)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .textFieldStyle(.plain)
                 .onSubmit { onSave() }
 
@@ -436,19 +436,19 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             if truncate {
                 Text(value)
                     .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(value)
             } else {
                 Text(value)
                     .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
             }
         }
@@ -458,10 +458,10 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Text(value)
                 .font(VFont.bodyMediumEmphasised)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
         }
     }
 
@@ -500,14 +500,14 @@ private struct WorkspaceFileSheet: View {
             // Header
             HStack {
                 VIconView(.fileText, size: 13)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text(fileName)
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }

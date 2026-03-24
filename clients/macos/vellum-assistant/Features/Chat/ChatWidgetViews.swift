@@ -57,12 +57,12 @@ struct RunningIndicator: View {
             HStack(spacing: VSpacing.xs) {
                 if showIcon {
                     VIconView(.terminal, size: 10)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 Text(currentLabel)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
@@ -75,12 +75,12 @@ struct RunningIndicator: View {
                 if elapsed >= 5 {
                     Text(Self.formatElapsed(elapsed))
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
                 if onTap != nil {
                     VIconView(.chevronRight, size: 9)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
                 Spacer()
@@ -106,7 +106,7 @@ struct CodePreviewView: View {
         ScrollView {
             Text(displayCode)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
         }

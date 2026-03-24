@@ -24,13 +24,13 @@ struct UsageDashboardPanel: View {
             if allFailed {
                 VStack(spacing: VSpacing.lg) {
                     VIconView(.circleAlert, size: 32)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                     Text("Unable to load usage data")
                         .font(VFont.bodySmallEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("Please check your connection and try again.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     VButton(label: "Try Again", style: .outlined) {
                         refreshTask?.cancel()
                         refreshTask = Task { await store.refresh() }
@@ -203,10 +203,10 @@ struct UsageDashboardPanel: View {
                         VStack(spacing: VSpacing.xxs) {
                             Text(formatCost(bucket.totalEstimatedCostUsd))
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Text(formatShortDate(bucket.date))
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                         .frame(width: maxBarWidth)
                         .lineLimit(1)
@@ -312,15 +312,15 @@ struct UsageDashboardPanel: View {
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 Text("Group")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 130, alignment: .leading)
                 Text("Tokens")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Cost")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 70, alignment: .trailing)
             }
             .padding(.horizontal, VSpacing.md)
@@ -339,18 +339,18 @@ struct UsageDashboardPanel: View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             Text(entry.group)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .frame(width: 130, alignment: .leading)
                 .lineLimit(1)
             Text(UsageFormatting.formatBreakdownSummary(entry))
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Text(formatCost(entry.totalEstimatedCostUsd))
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .frame(width: 70, alignment: .trailing)
         }
         .padding(.horizontal, VSpacing.md)
@@ -364,10 +364,10 @@ struct UsageDashboardPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(value)
                 .font(VFont.bodyMediumEmphasised)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.sm)
@@ -380,10 +380,10 @@ struct UsageDashboardPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(.triangleAlert, size: 14)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text(message)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             if let retryAction {
                 VButton(label: "Try Again", style: .outlined) {

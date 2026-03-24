@@ -503,17 +503,17 @@ extension ChatBubble {
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(fileIcon(for: attachment.mimeType, fileName: attachment.filename), size: 14)
-                .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
+                .foregroundStyle(isUser ? VColor.contentSecondary : VColor.contentSecondary)
 
             Text(attachment.filename)
                 .font(VFont.labelDefault)
-                .foregroundColor(isUser ? VColor.contentDefault : VColor.contentDefault)
+                .foregroundStyle(isUser ? VColor.contentDefault : VColor.contentDefault)
                 .lineLimit(1)
 
             if attachment.dataLength > 0 {
                 Text(formattedFileSize(base64Length: attachment.dataLength))
                     .font(VFont.labelSmall)
-                    .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentTertiary)
+                    .foregroundStyle(isUser ? VColor.contentSecondary : VColor.contentTertiary)
             }
         }
         .padding(.horizontal, VSpacing.sm)

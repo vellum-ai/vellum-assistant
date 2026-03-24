@@ -46,11 +46,11 @@ struct ToolPermissionTesterView: View {
             HStack(spacing: VSpacing.xl) {
                 VToggle(isOn: $model.isInteractive, label: "Interactive")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
         }
     }
@@ -96,18 +96,18 @@ struct ToolPermissionTesterView: View {
         HStack(spacing: VSpacing.xs) {
             Text(field.id)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if field.isRequired {
                 Text("*")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
 
             if let desc = field.description {
                 Text(desc)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -145,7 +145,7 @@ struct ToolPermissionTesterView: View {
         case .json:
             TextEditor(text: fieldValueBinding(for: field.id))
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
                 .padding(VSpacing.sm)
@@ -204,10 +204,10 @@ struct ToolPermissionTesterView: View {
         if let error = model.lastError {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.triangleAlert, size: 12)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
             .textSelection(.enabled)
         }
@@ -225,7 +225,7 @@ struct ToolPermissionTesterView: View {
                     if let ruleId = result.matchedRuleId {
                         Text("Rule: \(ruleId)")
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     Spacer()
@@ -235,7 +235,7 @@ struct ToolPermissionTesterView: View {
                 if !result.reason.isEmpty {
                     Text(result.reason)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 // Prompt preview: reuse the ToolConfirmationBubble from chat
@@ -264,7 +264,7 @@ struct ToolPermissionTesterView: View {
 
                         Text("Allow Once and Don\u{2019}t Allow are simulation-only. Always Allow persists a real trust rule.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .italic()
                     }
                 }
@@ -273,10 +273,10 @@ struct ToolPermissionTesterView: View {
                 if let label = result.localOverrideLabel {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.info, size: 11)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text(label)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .italic()
                     }
                 }
@@ -309,7 +309,7 @@ struct ToolPermissionTesterView: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(VFont.bodySmallDefault)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
     }
 
     @ViewBuilder
@@ -325,10 +325,10 @@ struct ToolPermissionTesterView: View {
 
         HStack(spacing: VSpacing.xs) {
             VIconView(icon, size: 12)
-                .foregroundColor(color)
+                .foregroundStyle(color)
             Text(decision.capitalized)
                 .font(VFont.labelDefault)
-                .foregroundColor(color)
+                .foregroundStyle(color)
         }
     }
 

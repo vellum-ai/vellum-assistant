@@ -153,11 +153,11 @@ struct RecordingHUDView: View {
             if let failure = viewModel.failureMessage {
                 // Failure state
                 VIconView(.triangleAlert, size: 12)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
 
                 Text(failure)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .lineLimit(1)
             } else {
                 // Recording/paused indicator dot
@@ -177,13 +177,13 @@ struct RecordingHUDView: View {
                 // Elapsed time (freezes when paused via timer pause)
                 Text(viewModel.formattedTime)
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
+                    .foregroundStyle(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
                     .monospacedDigit()
 
                 if viewModel.isPaused {
                     Text("Paused")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                 }
 
                 Spacer()
@@ -191,7 +191,7 @@ struct RecordingHUDView: View {
                 // Pause/Resume toggle button
                 Button(action: { viewModel.togglePauseResume() }) {
                     VIconView(viewModel.isPaused ? .play : .square, size: 10)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .frame(width: 24, height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)
@@ -204,7 +204,7 @@ struct RecordingHUDView: View {
                 // Stop button
                 Button(action: { viewModel.stop() }) {
                     VIconView(.square, size: 10)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .frame(width: 24, height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)

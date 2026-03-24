@@ -107,7 +107,7 @@ struct EmbeddingServiceCard: View {
             if store.embeddingDegraded {
                 Text("Embedding service is degraded — semantic memory search may be unavailable.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
 
             // Action buttons
@@ -139,10 +139,10 @@ struct EmbeddingServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Memory Embeddings")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text("Configure which provider and model to use for semantic memory search")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -152,7 +152,7 @@ struct EmbeddingServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: Binding(
@@ -208,7 +208,7 @@ struct EmbeddingServiceCard: View {
         let detail = model.isEmpty ? display : "\(display) (\(model))"
         return Text("Currently using: \(detail)")
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
     }
 
     // MARK: - Action Buttons

@@ -300,22 +300,22 @@ struct AvatarManagementSheet: View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
-                    .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                    .foregroundStyle(destructive ? VColor.systemNegativeStrong : VColor.contentSecondary)
                     .frame(width: 24, alignment: .center)
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(label)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentDefault)
+                        .foregroundStyle(destructive ? VColor.systemNegativeStrong : VColor.contentDefault)
                     Text(subtitle)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
                 Spacer()
 
                 VIconView(.chevronRight, size: 11)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())

@@ -74,10 +74,10 @@ struct SettingsBillingTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.circleAlert, size: 14)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Text(error)
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                     VButton(label: "Try Again", style: .outlined) {
                         Task { await loadSummary() }
@@ -96,20 +96,20 @@ struct SettingsBillingTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Effective Balance")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 Text("$\(summary.effective_balance_usd)")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
             }
 
             // Degradation warning
             if summary.is_degraded {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 14)
-                        .foregroundColor(VColor.systemMidStrong)
+                        .foregroundStyle(VColor.systemMidStrong)
                     Text("Pending charges could not be calculated. The balance shown may be incomplete.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.systemMidStrong)
+                        .foregroundStyle(VColor.systemMidStrong)
                 }
                 .padding(VSpacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -124,18 +124,18 @@ struct SettingsBillingTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Settled Balance")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("$\(summary.settled_balance_usd)")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("$\(summary.pending_compute_usd)")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
+                        .foregroundStyle(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
         }
@@ -170,7 +170,7 @@ struct SettingsBillingTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Amount (USD)")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 VTextField(
                     placeholder: "Enter amount",
                     text: $topUpAmount
@@ -189,10 +189,10 @@ struct SettingsBillingTab: View {
             if let topUpError {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleAlert, size: 14)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                     Text(topUpError)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                 }
             }
         }
@@ -206,7 +206,7 @@ struct SettingsBillingTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Code")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     VTextField(
                         placeholder: "Enter invite code",
                         text: $inviteCode

@@ -18,11 +18,11 @@ extension MemoryItemDetailSheet {
         HStack(spacing: VSpacing.xs) {
             Text(label)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(width: 110, alignment: .leading)
             Text(value)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
     }
 

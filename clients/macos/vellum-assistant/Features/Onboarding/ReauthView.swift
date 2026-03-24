@@ -34,12 +34,12 @@ struct ReauthView: View {
 
             Text("Welcome Back")
                 .font(.system(size: 32, weight: .regular, design: .serif))
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .padding(.bottom, VSpacing.xs)
 
             Text("Log in to continue.")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
 
             VStack(spacing: VSpacing.md) {
@@ -50,7 +50,7 @@ struct ReauthView: View {
                             .progressViewStyle(.circular)
                         Text("Checking...")
                             .font(VFont.titleSmall)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     .frame(height: 36)
                 } else if authManager.isSubmitting || isActivatingManagedAssistant {
@@ -60,7 +60,7 @@ struct ReauthView: View {
                             .progressViewStyle(.circular)
                         Text(isActivatingManagedAssistant ? "Loading your assistant..." : "Logging in...")
                             .font(VFont.titleSmall)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     .frame(height: 36)
                 } else {
@@ -75,7 +75,7 @@ struct ReauthView: View {
                 if let error = authManager.errorMessage {
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                 }
 

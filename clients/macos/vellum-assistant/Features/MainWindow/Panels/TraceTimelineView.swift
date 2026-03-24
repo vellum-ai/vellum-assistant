@@ -78,7 +78,7 @@ struct TraceTimelineView: View {
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                         .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
@@ -102,27 +102,27 @@ struct TraceTimelineView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(groupStatusIcon(groupStatus), size: 10)
-                    .foregroundColor(groupStatusColor(groupStatus))
+                    .foregroundStyle(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .textSelection(.enabled)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemMidStrong)
+                        .foregroundStyle(VColor.systemMidStrong)
                         .textSelection(.enabled)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemPositiveWeak)
+                        .foregroundStyle(VColor.systemPositiveWeak)
                         .textSelection(.enabled)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .textSelection(.enabled)
                 }
 
@@ -180,7 +180,7 @@ struct TraceTimelineView: View {
 
                     if hasAttributes {
                         VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 16)
                     }
                 }
@@ -194,11 +194,11 @@ struct TraceTimelineView: View {
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .textSelection(.enabled)
                             Text(stringValue(attrs[key]))
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                                 .lineLimit(3)
                                 .textSelection(.enabled)
                         }

@@ -135,33 +135,33 @@ struct E2EStatusOverlayView: View {
 
                     Text("E2E")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     Text(status.testName)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 
                     Spacer()
 
                     Text("Step \(status.iteration)")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .monospacedDigit()
 
                     Text(status.elapsed)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .monospacedDigit()
                 }
 
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.terminal, size: 12)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
 
                     Text(status.summary)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(2)
                         .truncationMode(.tail)
                 }
@@ -173,7 +173,7 @@ struct E2EStatusOverlayView: View {
 
                     Text("E2E — Waiting for agent...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
         }

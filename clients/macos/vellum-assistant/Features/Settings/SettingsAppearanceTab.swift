@@ -42,14 +42,14 @@ struct SettingsAppearanceTab: View {
                     HStack {
                         Text("Closest city")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         Spacer()
                         HStack(spacing: VSpacing.md) {
                             VIconView(.search, size: 13)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             TextField(selectedCityPlaceholder, text: $timezoneSearchText)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .textFieldStyle(.plain)
                                 .focused($isTimezoneSearchFocused)
                             if !timezoneSearchText.isEmpty {
@@ -112,11 +112,11 @@ struct SettingsAppearanceTab: View {
                                             HStack {
                                                 Text(entry.displayLabel)
                                                     .font(VFont.bodyMediumLighter)
-                                                    .foregroundColor(VColor.contentDefault)
+                                                    .foregroundStyle(VColor.contentDefault)
                                                 Spacer()
                                                 Text(entry.currentTime)
                                                     .font(VFont.labelDefault)
-                                                    .foregroundColor(VColor.contentTertiary)
+                                                    .foregroundStyle(VColor.contentTertiary)
                                             }
                                             .padding(.horizontal, VSpacing.md)
                                             .padding(.vertical, VSpacing.sm)
@@ -159,11 +159,11 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Time zone")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     Text(timezoneDisplayName)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
             }
             .onAppear {
@@ -184,7 +184,7 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Open Vellum")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
                         VShortcutTag(display)
@@ -214,7 +214,7 @@ struct SettingsAppearanceTab: View {
                 if let shortcutConflictWarning {
                     Text(shortcutConflictWarning)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                         .padding(.bottom, VSpacing.xs)
                 }
 
@@ -224,7 +224,7 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Quick Input")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
                         VShortcutTag(display)
@@ -257,7 +257,7 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Start voice input")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     // Read activationKey to establish SwiftUI dependency tracking
                     let activator = { _ = activationKey; return PTTActivator.fromStored() }()
@@ -423,7 +423,7 @@ struct SettingsAppearanceTab: View {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Add Domain")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
 
                                 HStack(spacing: VSpacing.sm) {
                                     VTextField(
@@ -442,7 +442,7 @@ struct SettingsAppearanceTab: View {
                                 HStack {
                                     Text(domain)
                                         .font(VFont.bodyMediumLighter)
-                                        .foregroundColor(VColor.contentDefault)
+                                        .foregroundStyle(VColor.contentDefault)
                                         .textSelection(.enabled)
                                     Spacer()
                                     VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {

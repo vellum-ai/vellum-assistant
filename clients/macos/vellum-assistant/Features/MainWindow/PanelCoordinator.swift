@@ -150,7 +150,7 @@ extension MainWindowView {
                 Spacer()
                 Text("Surface not available")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -841,7 +841,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Text(surface.title ?? data.preview?.title ?? "App")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -923,7 +923,7 @@ struct DynamicWorkspaceWrapper: View {
                     Spacer()
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(VColor.systemNegativeStrong.opacity(0.8))
@@ -1057,13 +1057,13 @@ private struct PublishedButton: View {
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.check, size: 10)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
             Text("Published")
                 .font(VFont.labelDefault)
             Divider()
                 .frame(height: 12)
             VIconView(copied ? .check : .copy, size: 10)
-                .foregroundColor(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
+                .foregroundStyle(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -1081,7 +1081,7 @@ private struct PublishedButton: View {
                 .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
-        .foregroundColor(VColor.primaryBase)
+        .foregroundStyle(VColor.primaryBase)
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.buttonV)
         .frame(height: 24)
@@ -1137,11 +1137,11 @@ private struct ShareDrawerRow: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(icon, size: 12)
-                    .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
+                    .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
@@ -1176,13 +1176,13 @@ private struct AppLoadingView: View {
             Spacer()
             if timedOut {
                 VIconView(.triangleAlert, size: 28)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text("Failed to load app")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("The app didn't respond in time. It may be unavailable or still starting up.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
@@ -1204,7 +1204,7 @@ private struct AppLoadingView: View {
                     .controlSize(.regular)
                 Text("Loading app\u{2026}")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             Spacer()
         }

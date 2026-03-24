@@ -65,14 +65,14 @@ struct AboutVellumView: View {
             // App Name
             Text("Vellum")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
 
             // Client Version
             if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
                 Text("Version \(version)" + (build.map { " (\($0))" } ?? ""))
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             // Service Group Version — only for non-local topologies
@@ -94,10 +94,10 @@ struct AboutVellumView: View {
             VStack(spacing: VSpacing.xs) {
                 Text("Local Development Build")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemMidStrong)
+                    .foregroundStyle(VColor.systemMidStrong)
                 Text(Bundle.main.bundlePath)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(2)
                     .truncationMode(.middle)
             }
@@ -130,26 +130,26 @@ struct AboutVellumView: View {
         HStack(spacing: VSpacing.xs) {
             Text("Service Group")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             if let version = serviceVersion, !version.isEmpty {
                 Text(version)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Text("(\(topologyLabel(topology)))")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 if versionsMatch {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundStyle(VColor.systemPositiveStrong)
                 }
             } else {
                 Text("Not connected")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -164,17 +164,17 @@ struct AboutVellumView: View {
                     .controlSize(.small)
                 Text("Checking for updates...")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         } else if let result = updateCheckResult {
             switch result {
             case .upToDate:
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundStyle(VColor.systemPositiveStrong)
                     Text("You are on the latest version.")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundStyle(VColor.systemPositiveStrong)
                 }
             case .updateAvailable(let version):
                 HStack(spacing: VSpacing.xs) {
@@ -202,7 +202,7 @@ struct AboutVellumView: View {
             case .error:
                 Text("Could not check for updates.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
         }
     }
@@ -228,15 +228,15 @@ struct AboutVellumView: View {
             if hasCommit {
                 Text(String(commitSHA!.prefix(7)))
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
                 Text("\u{00B7}")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             Text(archLabel)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 

@@ -34,7 +34,7 @@ extension ComposerView {
 
             Text("Processing…")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
         .padding(VSpacing.xs)
         .background(VColor.borderBase.opacity(0.3))
@@ -59,19 +59,19 @@ extension ComposerView {
                         .frame(width: 28, height: 28)
                         .overlay {
                             VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                 }
 
                 Text(attachment.filename)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Text("· \(fileSize)")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .contentShape(Rectangle())
             .if(isImage) { view in
@@ -84,7 +84,7 @@ extension ComposerView {
                 onRemoveAttachment(attachment.id)
             } label: {
                 VIconView(.x, size: 10)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.filename)")

@@ -44,10 +44,10 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(title)
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentEmphasized)
+                        .foregroundStyle(VColor.contentEmphasized)
                     Text(subtitle)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 Spacer()
                 VSegmentedControl(

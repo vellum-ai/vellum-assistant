@@ -292,7 +292,7 @@ private struct WorkspaceTreeSidebar: View {
             HStack {
                 Text("Files")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
 
@@ -305,7 +305,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                 } label: {
                     VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
-                        .foregroundColor(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
+                        .foregroundStyle(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
                         .padding(4)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.sm)
@@ -333,7 +333,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                 } label: {
                     VIconView(.plus, size: 12)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -388,7 +388,7 @@ private struct WorkspaceTreeSidebar: View {
                     ProgressView().controlSize(.small)
                     Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xs)
@@ -515,13 +515,13 @@ private struct WorkspaceTreeRow: View {
                         HStack(spacing: VSpacing.xs) {
                             if entry.isDirectory {
                                 VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .frame(width: 12)
                             } else {
                                 Spacer().frame(width: 12)
                             }
                             VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
-                                .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
+                                .foregroundStyle(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
                             TextField("Name", text: $state.renamingText)
                                 .textFieldStyle(.plain)
                                 .font(VFont.bodyMediumLighter)
@@ -720,7 +720,7 @@ private struct WorkspaceFileViewer: View {
                     Spacer()
                     ProgressView("Loading file...")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -856,11 +856,11 @@ private struct WorkspaceFileViewer: View {
             Spacer()
 
             VIconView(.fileText, size: 40)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             Text("File too large to preview")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Spacer()
         }
@@ -880,16 +880,16 @@ private struct WorkspaceFileViewer: View {
             Spacer()
 
             VIconView(.file, size: 40)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
                 Text(detail.mimeType)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 Text("Modified: \(detail.modifiedAt)")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             Spacer()
@@ -926,10 +926,10 @@ private struct AuthenticatedImageView: View {
             } else if failed {
                 VStack {
                     VIconView(.triangleAlert, size: 24)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                     Text("Failed to load image")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -972,10 +972,10 @@ private struct WorkspaceVideoPlayer: View {
             } else if failed {
                 VStack {
                     VIconView(.triangleAlert, size: 24)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                     Text("Failed to load video")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

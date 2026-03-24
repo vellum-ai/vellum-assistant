@@ -104,10 +104,10 @@ struct GuardianChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Once verified, your assistant will recognize you when you message from these channels.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             if isLoadingReadiness && visibleTypes.isEmpty {
@@ -115,13 +115,13 @@ struct GuardianChannelsDetailView: View {
             } else if visibleTypes.isEmpty {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.messageCircle, size: 24)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Text("No Channels Available")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text("Set up channels on your assistant first to verify your identity.")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .multilineTextAlignment(.center)
                     if let onSelectAssistant {
                         VButton(label: "Set Up Assistant", style: .outlined) {
@@ -188,15 +188,15 @@ struct GuardianChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(channelIcon(for: type), size: 16)
-                        .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                        .foregroundStyle(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
                     Text(channelLabel(for: type))
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
 
                     if isVerified, let channel = activeChannel {
                         Text(channel.address)
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .lineLimit(1)
                     }
 
@@ -273,12 +273,12 @@ struct GuardianChannelsDetailView: View {
             } else if type == "phone" {
                 Text(channel.address)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             } else {
                 Text(channel.address)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }
 
@@ -316,14 +316,14 @@ struct GuardianChannelsDetailView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(nameLine)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
 
             // Show @username if it wasn't already used as the name line
             if let formattedUsername, formattedUsername != nameLine {
                 Text(formattedUsername)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(1)
             }
 
@@ -332,13 +332,13 @@ struct GuardianChannelsDetailView: View {
                 HStack(spacing: 0) {
                     Text("Telegram ID: ")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     if let url = URL(string: "https://web.telegram.org/a/#\(identity)") {
                         VLink(identity, destination: url)
                     } else {
                         Text(identity)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .lineLimit(1)
                     }
                 }
@@ -367,7 +367,7 @@ struct GuardianChannelsDetailView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(primaryLine)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
 
             // Secondary line: user ID
@@ -375,14 +375,14 @@ struct GuardianChannelsDetailView: View {
                 HStack(spacing: 0) {
                     Text("Slack ID: ")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     if let teamId = store?.slackChannelTeamId,
                        let url = URL(string: "slack://user?team=\(teamId)&id=\(identity)") {
                         VLink(identity, destination: url)
                     } else {
                         Text(identity)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .lineLimit(1)
                     }
                 }
