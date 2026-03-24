@@ -1244,14 +1244,14 @@ struct MessageListView: View {
                         return
                     }
                 }
-                if isNearBottom && !scrollCoordinator.isSuppressingBottomScroll && anchorMessageId == nil {
+                if isNearBottom && !scrollCoordinator.isSuppressed && anchorMessageId == nil {
                     requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
                 } else if !scrollCoordinator.hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
                     // History just loaded but the coordinator's initial-restore session
                     // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
                     // so messages are visible without requiring user scroll interaction.
                     requestBottomPin(reason: .initialRestore, proxy: proxy)
-                } else if scrollCoordinator.isSuppressingBottomScroll {
+                } else if scrollCoordinator.isSuppressed {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
             }
