@@ -291,12 +291,12 @@ struct InlineVideoAttachmentView: View {
             return
         }
 
-        let asset = AVAsset(url: fileURL)
+        let asset = AVURLAsset(url: fileURL)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 720, height: 720)
 
-        if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
+        if let (cgImage, _) = try? await generator.image(at: .zero) {
             let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
 
             let w = CGFloat(cgImage.width)
@@ -335,7 +335,7 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func playFromFile(_ fileURL: URL) async {
-        let asset = AVAsset(url: fileURL)
+        let asset = AVURLAsset(url: fileURL)
         if let tracks = try? await asset.load(.tracks),
            let videoTrack = tracks.first(where: { $0.mediaType == .video }),
            let size = try? await videoTrack.load(.naturalSize),
