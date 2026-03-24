@@ -817,9 +817,10 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 }
             }
 
-            if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether immediately.
-                // Momentum events are excluded so a flick doesn't accidentally untether.
+            if event.scrollingDeltaY > 3 {
+                // User scroll up (direct or momentum) — untether immediately.
+                // If the user accidentally untethers, they can re-tether by scrolling
+                // back down or tapping "Scroll to latest".
                 // Called synchronously so isNearBottom is cleared before any competing
                 // layout pass can trigger an auto-scroll-to-bottom.
                 // Guard: only untether if content is actually scrollable (prevents false
