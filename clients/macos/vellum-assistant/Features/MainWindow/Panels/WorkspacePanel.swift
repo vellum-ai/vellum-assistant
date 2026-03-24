@@ -999,12 +999,13 @@ private struct WorkspaceVideoPlayer: View {
 
     private func loadVideo() async {
         do {
-            let data = try await workspaceClient.fetchWorkspaceFileContent(path: filePath, showHidden: showHidden)
-            guard !Task.isCancelled else { return }
-            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-            try data.write(to: dest)
-            tempFileURL = dest
-            player = AVPlayer(url: dest)
+            let localURL = try await workspaceClient.downloadWorkspaceFileContent(path: filePath, showHidden: showHidden)
+            guard !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: localURL)
+                return
+            }
+            tempFileURL = localURL
+            player = AVPlayer(url: localURL)
         } catch {
             if !Task.isCancelled {
                 failed = true
