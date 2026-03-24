@@ -2,11 +2,9 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Shown when the assistant loading skeleton times out without connecting.
-/// Displays an "unreachable" message with actions to start over, navigate to
-/// the developer settings tab, or report to Vellum.
+/// Displays an "unreachable" message with actions to retry or report to Vellum.
 struct AssistantConnectionTimeoutView: View {
     let onRetry: () -> Void
-    let onGoToDeveloper: () -> Void
     let onSendLogs: () -> Void
 
     @State private var visible = false
@@ -23,20 +21,15 @@ struct AssistantConnectionTimeoutView: View {
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.contentDefault)
 
-                Text("We couldn\u{2019}t connect to your assistant. Check your connection settings in the Developer tab or try again.")
+                Text("We couldn\u{2019}t connect to your assistant. Please try again.")
                     .font(.system(size: 14))
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
             }
 
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
-                    onRetry()
-                }
-                VButton(label: "Developer Settings", leftIcon: VIcon.settings.rawValue, style: .primary) {
-                    onGoToDeveloper()
-                }
+            VButton(label: "Retry", leftIcon: VIcon.refreshCw.rawValue, style: .outlined) {
+                onRetry()
             }
 
             VButton(label: "Report to Vellum", leftIcon: VIcon.send.rawValue, style: .ghost) {
